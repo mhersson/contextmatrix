@@ -198,7 +198,8 @@ type RouterConfig struct {
 	// regardless of ChatManager.
 	ChatWorkerAPIKey string
 	// ArchitectBackendCfg is the architect backend entry; feeds
-	// architect_enabled in app config. nil when not configured.
+	// architect_enabled in app config and supplies the architect key for
+	// GET /api/worker/git-credentials. nil when not configured.
 	ArchitectBackendCfg *config.ArchitectBackendConfig
 	// ImageStore is required in production - main.go always opens a
 	// SQLite-backed store and wires it in unconditionally. Tests that do

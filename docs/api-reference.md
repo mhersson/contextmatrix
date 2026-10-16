@@ -47,7 +47,7 @@ GET    /api/worker/logs  ?project=&card_id=            # SSE log stream (card-sc
 GET    /api/v1/cards/{project}/{id}/autonomous         # backend autonomous-flag read (HMAC-signed; task-backend required)
 # /api/agent/* - task-backend callback path; /api/chat/* - chat-backend callback path (paths are fixed)
 
-GET    /api/worker/git-credentials  ?host=&path=       # per-repo git credentials for chat workers and the architect (bearer-authed, not HMAC; chat manager plus a keyed chat or architect backend required)
+GET    /api/worker/git-credentials  ?host=&path=       # per-repo git credentials for chat workers and the architect (bearer-authed, not HMAC; chat manager plus an enabled, keyed chat or architect backend required)
 
 GET    /api/chats                                      ?project=&status=&created_by=&limit=
 POST   /api/chats                                      # create a new chat session (cold)
@@ -2343,8 +2343,9 @@ closed and never substitutes the instance credential.
 
 ### GET /api/worker/git-credentials
 
-Serves per-repo git credentials to chat workers and to the architect on demand. Authentication is
-a **bearer token**, not HMAC request signing and not the session cookie:
+Serves per-repo git credentials to chat workers and to the architect on
+demand. Authentication is a **bearer token**, not HMAC request signing and
+not the session cookie:
 
 ```
 Authorization: Bearer <session_id>.<base64url HMAC-SHA256 mac>
@@ -2382,20 +2383,20 @@ the instance credential; exactly one present is 400.
 `username` is always the literal `x-access-token`. `expires_at` is omitted
 for PAT-backed credentials.
 
-| Status | Code                 | When                                                                     |
-| ------ | -------------------- | ------------------------------------------------------------------------ |
-| 400    | `BAD_REQUEST`        | Exactly one of `host`/`path` is missing                                  |
+| Status | Code                 | When                                                                                                                       |
+| ------ | -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 400    | `BAD_REQUEST`        | Exactly one of `host`/`path` is missing                                                                                    |
 | 401    | `UNAUTHORIZED`       | Bearer absent, malformed, fails the HMAC comparison against every configured key, or was minted for the other session kind |
-| 404    | `CHAT_NOT_FOUND`     | The session id embedded in the bearer does not exist                     |
-| 409    | `WORKER_NOT_RUNNING` | The session exists but is cold (chat container gone, or blueprint ended) |
-| 409    | `VALIDATION_ERROR`   | Matched project's binding is broken, or no provider is configured at all |
-| 500    | `INTERNAL_ERROR`     | Session-liveness lookup failed for another reason                        |
-| 502    | `INTERNAL_ERROR`     | A provider resolved but minting failed                                   |
+| 404    | `CHAT_NOT_FOUND`     | The session id embedded in the bearer does not exist                                                                       |
+| 409    | `WORKER_NOT_RUNNING` | The session exists but is cold (chat container gone, or blueprint ended)                                                   |
+| 409    | `VALIDATION_ERROR`   | Matched project's binding is broken, or no provider is configured at all                                                   |
+| 500    | `INTERNAL_ERROR`     | Session-liveness lookup failed for another reason                                                                          |
+| 502    | `INTERNAL_ERROR`     | A provider resolved but minting failed                                                                                     |
 
 Neither the bearer nor any minted token is ever logged or echoed in
 `details`. The route is registered when the chat manager is wired and at
-least one of the chat and architect entries has an `api_key`; GET-only, so the CSRF guard
-does not apply.
+least one of the chat and architect entries is enabled with an `api_key`;
+GET-only, so the CSRF guard does not apply.
 
 ## Chat Endpoints
 

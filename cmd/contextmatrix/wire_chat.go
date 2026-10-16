@@ -61,9 +61,8 @@ func wireChat(
 	}
 
 	// chatWorkerAPIKey is the secret behind WorkerCredentialsToken: empty
-	// unless a chat backend is configured AND carries an api_key, matching
-	// the router's registration gate for GET /api/worker/git-credentials
-	// (see RouterConfig.ChatWorkerAPIKey).
+	// unless a chat backend is configured AND carries an api_key (see
+	// RouterConfig.ChatWorkerAPIKey).
 	chatWorkerAPIKey := ""
 
 	var workerCredentialsToken func(sessionID string) string

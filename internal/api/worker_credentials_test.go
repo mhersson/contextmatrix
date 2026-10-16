@@ -1013,6 +1013,33 @@ func TestGetWorkerGitCredentials_SharedKeyVerifiesBothKinds(t *testing.T) {
 	}
 }
 
+func TestGetWorkerGitCredentials_EmptyKeyTokenNeverVerifies(t *testing.T) {
+	bad := doWorkerGitCredentialsRequest(t, &workerCredentialsHandlers{chatAPIKey: "chat-key", liveness: &stubSessionLiveness{live: true}}, "sess-1.notamac", "github.com", "acme/alpha")
+	require.Equal(t, http.StatusUnauthorized, bad.Code)
+
+	tests := []struct {
+		name         string
+		chatKey      string
+		architectKey string
+		sessKind     chat.SessionKind
+	}{
+		{name: "chat-only deployment, architect session", chatKey: "chat-key", sessKind: chat.KindArchitect},
+		{name: "architect-only deployment, chat session", architectKey: "architect-key", sessKind: chat.KindChat},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, instance := newKindBoundHandlers(t, tt.chatKey, tt.architectKey, tt.sessKind)
+
+			rec := doWorkerGitCredentialsRequest(t, h, WorkerCredentialsToken("", "sess-1"), "github.com", "acme/alpha")
+
+			assert.Equal(t, http.StatusUnauthorized, rec.Code)
+			assert.Equal(t, bad.Body.String(), rec.Body.String())
+			assert.Equal(t, int32(0), instance.calls.Load(), "nothing minted")
+		})
+	}
+}
+
 func TestGetWorkerGitCredentials_ArchitectOnlyDeployment(t *testing.T) {
 	h, _ := newKindBoundHandlers(t, "", "architect-key", chat.KindArchitect)
 
@@ -1024,6 +1051,8 @@ func TestGetWorkerGitCredentials_ArchitectOnlyDeployment(t *testing.T) {
 func TestWorkerGitCredentials_RegisteredWithArchitectBackendOnly(t *testing.T) {
 	_, mgr := newChatFixture(t, architectFixtureOpts())
 	archCfg := architectFixtureOpts().architectBackendCfg
+	disabled := *archCfg
+	disabled.Enabled = new(bool)
 
 	tests := []struct {
 		name string
@@ -1031,6 +1060,7 @@ func TestWorkerGitCredentials_RegisteredWithArchitectBackendOnly(t *testing.T) {
 		want int
 	}{
 		{name: "architect key only registers the route", cfg: RouterConfig{ChatManager: mgr, ArchitectBackendCfg: archCfg}, want: http.StatusUnauthorized},
+		{name: "disabled architect entry leaves it unregistered", cfg: RouterConfig{ChatManager: mgr, ArchitectBackendCfg: &disabled}, want: http.StatusNotFound},
 		{name: "no keyed backend leaves it unregistered", cfg: RouterConfig{ChatManager: mgr}, want: http.StatusNotFound},
 	}
 
