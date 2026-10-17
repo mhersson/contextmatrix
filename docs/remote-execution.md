@@ -529,13 +529,20 @@ stream, where the chat panel renders `agent` as a speaker chip and `model` as
 a second pill beside it.
 
 `prompt` marks a `text` frame as a question or gate with reply buttons, for
-example `{"id": "gate:sign-off:v2", "actions": [{"label": "Approve", "reply":
-"approve"}, {"label": "Reject", "reply": "reject", "feedback": true}]}`; a
-question adds `"free_text": true`. Only the architect sets it, and `content`
-stays the full readable message. CM stores such a frame on an architect
-session as a `kind: "prompt"` row whose content is a `{"text", "prompt"}` JSON
-envelope, cutting the text so the envelope fits the 32 KiB row cap. On any
-other session, and in task session logs, the field is ignored.
+example `{"id": "gate:sign-off:v2", "kind": "gate", "text": "Sign off v2?",
+"actions": [{"label": "Approve", "reply": "approve", "recommended": true},
+{"label": "Reject", "reply": "reject", "feedback": true}]}`; a question adds
+`"free_text": true`. `kind` is a display hint, `question` or `gate`; consumers
+style by it and treat any other value as neutral. `text` is the prompt without
+its option list or reply instructions, for a consumer that renders the actions
+as the answers; when it is empty the consumer renders `content`. `recommended`
+marks the suggested action, whose label carries no "(recommended)" suffix. All
+three are optional. Only the architect sets `prompt`, and `content` stays the
+full readable message. CM stores such a frame on an architect session as a
+`kind: "prompt"` row whose content is a `{"text", "prompt"}` JSON envelope,
+cutting both the envelope text and `prompt.text` to one shared length so the
+envelope fits the 32 KiB row cap. On any other session, and in task session
+logs, the field is ignored.
 
 The backend redacts credential patterns before publishing and sends keepalive
 comments to hold the connection open through proxy idle timeouts.

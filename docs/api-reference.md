@@ -2602,8 +2602,9 @@ exactly while the oldest loaded seq is `> 1`.
 Context row, `"prompt"` for an architect question or gate) and
 `rehydration_phase` appear only when set. `content` is the raw text, except on
 a `prompt` row, where it is the JSON envelope `{"text": "<message>", "prompt":
-{"id": "...", "free_text": true, "actions": [{"label": "...", "reply": "...",
-"feedback": true}]}}`.
+{"id": "...", "kind": "question", "text": "...", "free_text": true,
+"actions": [{"label": "...", "reply": "...", "feedback": true, "recommended":
+true}]}}`. `kind`, `text` and `recommended` are optional.
 Empty transcripts return `{"messages": []}`; unknown session is 404.
 
 The browser fetches the newest page with `tail=1`, subscribes to

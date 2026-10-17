@@ -5463,6 +5463,70 @@ type promptEnvelope struct {
 	Prompt protocol.LogPrompt `json:"prompt"`
 }
 
+func storedArchitectRow(t *testing.T, entry chat.LogEntry) chat.Message {
+	t.Helper()
+
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	arch.streamLogsFn = streamEntries(entry)
+
+	bp := openArchitect(t, mgr)
+
+	var msgs []chat.Message
+
+	require.Eventually(t, func() bool {
+		var err error
+
+		msgs, err = mgr.ListMessages(context.Background(), bp.ID, 0, 10)
+
+		return err == nil && len(msgs) == 1
+	}, 2*time.Second, 5*time.Millisecond)
+
+	return msgs[0]
+}
+
+func TestManager_Consumer_PromptDisplayFieldsRoundTrip(t *testing.T) {
+	p := &protocol.LogPrompt{
+		ID:   "q1",
+		Kind: "question",
+		Text: "Which storage?",
+		Actions: []protocol.LogAction{
+			{Label: "SQLite", Reply: "1", Recommended: true},
+			{Label: "Postgres", Reply: "2"},
+		},
+	}
+
+	msg := storedArchitectRow(t, chat.LogEntry{Type: "text", Content: "Which storage?\n1. SQLite\n2. Postgres", Prompt: p})
+	assert.Equal(t, chat.EventKindPrompt, msg.Kind)
+
+	var env promptEnvelope
+	require.NoError(t, json.Unmarshal([]byte(msg.Content), &env))
+	assert.Equal(t, *p, env.Prompt, "kind, text and recommended survive")
+}
+
+func TestManager_Consumer_OversizedPromptTextAndContentAreBothCut(t *testing.T) {
+	// Multibyte runes and characters JSON escapes, so the cut must respect both.
+	big := strings.Repeat("é<\n", 15000)
+	p := &protocol.LogPrompt{
+		Kind:    "question",
+		Text:    big,
+		Actions: []protocol.LogAction{{Label: "Yes", Reply: "1", Recommended: true}, {Label: "No", Reply: "2"}},
+	}
+
+	msg := storedArchitectRow(t, chat.LogEntry{Type: "text", Content: big, Prompt: p})
+	assert.Equal(t, chat.EventKindPrompt, msg.Kind, "stays a prompt row")
+	assert.LessOrEqual(t, len(msg.Content), 32*1024)
+	assert.True(t, utf8.ValidString(msg.Content))
+
+	var env promptEnvelope
+	require.NoError(t, json.Unmarshal([]byte(msg.Content), &env))
+	assert.True(t, strings.HasSuffix(env.Text, "\n... [truncated]"))
+	assert.True(t, strings.HasSuffix(env.Prompt.Text, "\n... [truncated]"))
+	assert.Less(t, len(env.Prompt.Text), len(big))
+	assert.Equal(t, p.Actions, env.Prompt.Actions, "every action survives")
+	assert.Equal(t, "question", env.Prompt.Kind)
+	assert.Equal(t, big, p.Text, "the caller's prompt is not mutated")
+}
+
 func TestManager_Consumer_PromptRows(t *testing.T) {
 	gate := &protocol.LogPrompt{ID: "gate:sign-off:v2", Actions: []protocol.LogAction{
 		{Label: "Approve", Reply: "approve"},

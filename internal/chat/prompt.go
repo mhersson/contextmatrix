@@ -21,21 +21,29 @@ type promptEnvelope struct {
 
 var errPromptTooLarge = errors.New("prompt actions exceed the message cap")
 
-// promptContent marshals a prompt row within maxMessageBytes. The text is cut,
-// never the JSON, so a stored envelope always parses.
+// promptContent marshals a prompt row within maxMessageBytes. One cut length
+// applies to both the envelope text and Prompt.Text: each is cut to at most
+// that many bytes with the marker appended, and a string already within it is
+// kept whole. The text is cut, never the JSON, so a stored envelope always
+// parses. The caller's prompt is never modified.
 func promptContent(text string, p *protocol.LogPrompt) (string, error) {
 	env, err := marshalPrompt(text, p)
 	if err != nil || len(env) <= maxMessageBytes {
 		return env, err
 	}
 
-	// The longest prefix whose envelope, marker included, fits. A binary
-	// search, because escaping makes the encoded size nonlinear in the cut.
-	lo, hi := 0, len(text)-1
+	longest := len(text)
+	if p != nil && len(p.Text) > longest {
+		longest = len(p.Text)
+	}
+
+	// The largest cut whose envelope fits. A binary search, because escaping
+	// makes the encoded size nonlinear in the cut.
+	lo, hi := 0, longest-1
 	for lo < hi {
 		mid := (lo + hi + 1) / 2
 
-		probe, err := marshalPrompt(runePrefix(text, mid)+truncationMarker, p)
+		probe, err := marshalCut(text, p, mid)
 		if err != nil {
 			return "", err
 		}
@@ -47,7 +55,7 @@ func promptContent(text string, p *protocol.LogPrompt) (string, error) {
 		}
 	}
 
-	env, err = marshalPrompt(runePrefix(text, lo)+truncationMarker, p)
+	env, err = marshalCut(text, p, lo)
 	if err != nil {
 		return "", err
 	}
@@ -57,6 +65,25 @@ func promptContent(text string, p *protocol.LogPrompt) (string, error) {
 	}
 
 	return env, nil
+}
+
+// marshalCut marshals the envelope with both texts cut to n bytes.
+func marshalCut(text string, p *protocol.LogPrompt, n int) (string, error) {
+	if p != nil {
+		cp := *p
+		cp.Text = cutText(p.Text, n)
+		p = &cp
+	}
+
+	return marshalPrompt(cutText(text, n), p)
+}
+
+func cutText(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+
+	return runePrefix(s, n) + truncationMarker
 }
 
 func marshalPrompt(text string, p *protocol.LogPrompt) (string, error) {
