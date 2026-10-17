@@ -54,17 +54,12 @@ func newArchitectUpstream(baseURL, key string) *architectUpstream {
 func (u *architectUpstream) get(ctx context.Context, path, accept string) (*http.Response, error) {
 	fullURL := u.baseURL + path + "?nonce=" + rand.Text()
 
-	parsed, err := url.Parse(fullURL)
-	if err != nil {
-		return nil, fmt.Errorf("architect GET %s: parse URL: %w", path, err)
-	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("architect GET %s: build request: %w", path, err)
 	}
 
-	sig, ts := protocol.SignRequestHeaders(u.key, http.MethodGet, parsed.RequestURI(), nil)
+	sig, ts := protocol.SignRequestHeaders(u.key, http.MethodGet, req.URL.RequestURI(), nil)
 
 	req.Header.Set("Accept", accept)
 	req.Header.Set(protocol.SignatureHeader, sig)
@@ -133,8 +128,9 @@ func (h *chatHandlers) architectGet(ctx context.Context, w http.ResponseWriter, 
 		return nil, false
 	}
 
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-	logger.Warn("blueprint proxy: architect refused the request", "status", resp.StatusCode, "body", string(body))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 512))
+	logger.Warn("blueprint proxy: architect refused the request",
+		"status", resp.StatusCode, "body", string(body), "read_error", readErr)
 	writeError(w, http.StatusBadGateway, ErrCodeBackendUnavailable, "architect refused the request", "")
 
 	return nil, false

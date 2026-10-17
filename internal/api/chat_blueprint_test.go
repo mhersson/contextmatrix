@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -174,7 +175,8 @@ func TestBlueprintArtifact_LargeBodyPassesThroughWhole(t *testing.T) {
 	mux.ServeHTTP(rec, jsonReq(t, http.MethodGet, "/api/chats/"+bp.ID+"/blueprint/artifacts/decomposition/1", ""))
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, body, rec.Body.String())
+	assert.Equal(t, len(body), rec.Body.Len())
+	assert.Equal(t, sha256.Sum256([]byte(body)), sha256.Sum256(rec.Body.Bytes()))
 }
 
 func TestBlueprintArtifact_MalformedSegmentsNeverReachTheArchitect(t *testing.T) {
@@ -347,19 +349,23 @@ func TestBlueprintProxy_ForeignBlueprintLooksMissing(t *testing.T) {
 	fa := newFakeArchitect(t, map[string]http.HandlerFunc{"/": okJSON})
 	mux, mgr := newChatFixture(t, blueprintFixtureOpts(fa.URL))
 	alices := seedBlueprint(t, mgr, "human:alice")
+	alicesChat := seedSession(t, mgr, "human:alice")
 	bob := asUser(mux, "bob", false)
 
 	missingPaths := blueprintPaths(unknownChatID)
 
-	for i, path := range blueprintPaths(alices.ID) {
-		foreign := httptest.NewRecorder()
-		bob.ServeHTTP(foreign, jsonReq(t, http.MethodGet, path, ""))
+	// A foreign chat session must also look missing: the kind gate runs after ownership.
+	for _, foreignID := range []string{alices.ID, alicesChat.ID} {
+		for i, path := range blueprintPaths(foreignID) {
+			foreign := httptest.NewRecorder()
+			bob.ServeHTTP(foreign, jsonReq(t, http.MethodGet, path, ""))
 
-		missing := httptest.NewRecorder()
-		bob.ServeHTTP(missing, jsonReq(t, http.MethodGet, missingPaths[i], ""))
+			missing := httptest.NewRecorder()
+			bob.ServeHTTP(missing, jsonReq(t, http.MethodGet, missingPaths[i], ""))
 
-		assert.Equal(t, http.StatusNotFound, foreign.Code, path)
-		assert.Equal(t, missing.Body.String(), foreign.Body.String(), "%s: foreign 404 must match missing 404", path)
+			assert.Equal(t, http.StatusNotFound, foreign.Code, path)
+			assert.Equal(t, missing.Body.String(), foreign.Body.String(), "%s: foreign 404 must match missing 404", path)
+		}
 	}
 
 	assert.Empty(t, fa.seen(), "a foreign read never reaches the architect")
