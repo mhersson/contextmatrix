@@ -104,3 +104,32 @@ describe('decorateLogs', () => {
     expect(decorated.map((d) => d.showStamp)).toEqual([false, false]);
   });
 });
+
+describe('blueprint marker rows', () => {
+  const divider: LogEntry = {
+    ts: '2026-07-25T10:00:00Z',
+    card_id: '',
+    type: 'system',
+    kind: 'marker',
+    content: '{"text":"Grounding started.","marker":{"kind":"stage","stage":"grounding"}}',
+  };
+  const reference: LogEntry = {
+    ts: '2026-07-25T10:00:00Z',
+    card_id: '',
+    type: 'text',
+    kind: 'marker',
+    content: '{"text":"Design rev 2.","marker":{"kind":"artifact","stage":"solution_design","version":2}}',
+  };
+
+  it('always shows marker rows, whatever the filters', () => {
+    const shown = filterLogEntries([divider, reference], { showText: false, showToolCalls: false, showThinking: false });
+    expect(shown).toEqual([divider, reference]);
+  });
+
+  it('keeps the timestamp chain across a sheet reference', () => {
+    const first = entry('user', 'a');
+    const second = entry('user', 'b');
+    const decorated = decorateLogs([first, reference, second]);
+    expect(decorated.map((d) => d.showStamp)).toEqual([true, false, false]);
+  });
+});

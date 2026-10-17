@@ -25,12 +25,14 @@ const SYSTEM_EVENT_JSON = /^\s*\{"/;
  *  results ride the Tool calls checkbox, stderr drops INFO/DEBUG slog
  *  diagnostics and system drops raw JSON event dumps unconditionally;
  *  everything else always shows. An architect prompt shows with Text off:
- *  it may be waiting on the user. */
+ *  it may be waiting on the user. Blueprint marker rows always show: a stage
+ *  divider is a system row with JSON content. */
 export function filterLogEntries(
   logs: readonly LogEntry[],
   prefs: ChatFilterPrefs,
 ): LogEntry[] {
   return logs.filter((e) => {
+    if (e.kind === 'marker') return true;
     if (e.type === 'text') return e.kind === 'prompt' || prefs.showText;
     if (e.type === 'tool_call' || e.type === 'tool_result') return prefs.showToolCalls;
     if (e.type === 'thinking') return prefs.showThinking;
@@ -42,7 +44,8 @@ export function filterLogEntries(
 
 /**
  * Timestamp-stamp decoration for the visible slice: a text/user entry shows a
- * stamp when its type or HH:MM differs from the previous eligible entry. The
+ * stamp when its type or HH:MM differs from the previous eligible entry; marker
+ * rows are not stamp-eligible. The
  * dedup chain is positional, so the first eligible entry of any slice always
  * carries its stamp - deliberate, so a revealed window never starts unstamped.
  */
@@ -52,7 +55,7 @@ export function decorateLogs(visible: readonly LogEntry[]): Decorated[] {
   let lastHHMM: string | null = null;
   for (let i = 0; i < visible.length; i++) {
     const entry = visible[i];
-    const eligible = entry.type === 'text' || entry.type === 'user';
+    const eligible = (entry.type === 'text' || entry.type === 'user') && entry.kind !== 'marker';
     if (!eligible) { result[i] = { entry, showStamp: false }; continue; }
     const hhmm = formatHHMM(entry.ts);
     if (hhmm === null) { result[i] = { entry, showStamp: false }; continue; }

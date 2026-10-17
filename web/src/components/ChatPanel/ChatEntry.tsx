@@ -16,6 +16,9 @@ import {
 import { StructuredPayload } from './StructuredPayload';
 import { PromptActions } from './PromptActions';
 import { parsePromptEntry, type PromptState } from './prompts';
+import { parseMarkerEntry } from '../Blueprint/markers';
+import { SheetReference } from '../Blueprint/SheetReference';
+import { StageDivider } from '../Blueprint/StageDivider';
 
 interface ChatEntryProps {
   entry: LogEntry;
@@ -43,6 +46,21 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
     [entry],
   );
   const prompt = parsePromptEntry(entry);
+
+  // Blueprint markers replace artifact bodies in the transcript; an unreadable one shows its fallback line.
+  const marker = parseMarkerEntry(entry);
+  if (marker) {
+    if (marker.marker?.kind === 'stage') return <StageDivider marker={marker.marker} />;
+    if (marker.marker?.kind === 'artifact') return <SheetReference marker={marker.marker} />;
+    return (
+      <div
+        className="pl-3 border-l-2 text-sm leading-relaxed break-words"
+        style={{ borderLeftColor: accentFor('system'), color: textFor('system') }}
+      >
+        {marker.text}
+      </div>
+    );
+  }
 
   // Structural divider sentinel (kind="divider") rendered as a horizontal
   // rule with a small inline label rather than the normal system message

@@ -549,7 +549,9 @@ export interface LogEntry {
   /**
    * Structural marker for chat messages: "divider" for the "Context cleared"
    * row appended on Clear Context, "prompt" for an architect question or gate
-   * whose content is a {text, prompt} JSON envelope. Empty / absent means a
+   * whose content is a {text, prompt} JSON envelope, "marker" for a blueprint
+   * stage divider (type system) or sheet reference (type text) whose content
+   * is a {text, marker} JSON envelope. Empty / absent means a
    * regular message. The frontend matches on this rather than content
    * strings so the rendering rule is unambiguous and survives reloads.
    */

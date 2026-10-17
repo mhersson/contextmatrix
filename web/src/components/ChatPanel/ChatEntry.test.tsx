@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { ChatEntry } from './ChatEntry';
 import type { LogEntry } from '../../types';
+import { BlueprintSheetContext } from '../Blueprint/sheetContext';
 
 // Counting stub: every render of a markdown body bumps the counter, letting
 // the memo tests assert exactly how many rows re-rendered.
@@ -212,5 +213,46 @@ describe('ChatEntry prompt rows', () => {
     expect(container.querySelector('[data-prompt-kind]')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     expect(onReply).toHaveBeenCalledWith('approve');
+  });
+});
+
+describe('ChatEntry blueprint markers', () => {
+  const marker = (type: LogEntry['type'], content: object): LogEntry => ({
+    ts: '2026-10-17T10:00:00Z',
+    card_id: '',
+    type,
+    kind: 'marker',
+    content: JSON.stringify(content),
+    seq: 1,
+  });
+
+  it('draws a stage divider with the stage and persona', () => {
+    render(<ChatEntry entry={marker('system', { text: 't', marker: { kind: 'stage', stage: 'grounding', persona: 'senior_developer' } })} />);
+    expect(screen.getByRole('separator', { name: 'Grounding, Senior developer' })).toBeInTheDocument();
+  });
+
+  it('opens the referenced version on the sheet', () => {
+    const openArtifact = vi.fn();
+    render(
+      <BlueprintSheetContext.Provider value={{ openArtifact }}>
+        <ChatEntry
+          entry={marker('text', { text: 't', marker: { kind: 'artifact', stage: 'solution_design', version: 2, note: 'Revised for the 3 findings' } })}
+        />
+      </BlueprintSheetContext.Provider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Design rev 2/ }));
+    expect(openArtifact).toHaveBeenCalledWith('solution_design', 2);
+    expect(screen.getByText('Revised for the 3 findings')).toBeInTheDocument();
+  });
+
+  it('shows a reference without a pane as plain text', () => {
+    render(<ChatEntry entry={marker('text', { text: 't', marker: { kind: 'artifact', stage: 'intake', version: 1 } })} />);
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.getByTestId('sheet-reference')).toHaveTextContent('Need rev 1');
+  });
+
+  it('shows the fallback line for a marker it cannot read', () => {
+    render(<ChatEntry entry={marker('system', { text: 'Fallback line.', marker: { kind: 'odd' } })} />);
+    expect(screen.getByText('Fallback line.')).toBeInTheDocument();
   });
 });
