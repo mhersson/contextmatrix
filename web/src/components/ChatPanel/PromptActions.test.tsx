@@ -7,8 +7,8 @@ const gate: ChatPrompt = {
   id: 'gate:sign-off:v2',
   freeText: false,
   actions: [
-    { label: 'Approve', reply: 'approve', feedback: false },
-    { label: 'Reject', reply: 'reject', feedback: true },
+    { label: 'Approve', reply: 'approve', feedback: false, recommended: false },
+    { label: 'Reject', reply: 'reject', feedback: true, recommended: false },
   ],
 };
 
@@ -129,5 +129,59 @@ describe('PromptActions', () => {
     const summary = screen.getByTestId('prompt-summary');
     expect(summary).toBeVisible();
     expect(summary).not.toHaveAttribute('aria-hidden');
+  });
+
+  describe('layouts', () => {
+    const LONG = 'Use the existing ledger table and add a nullable column so nothing needs a backfill migration';
+    const question: ChatPrompt = {
+      id: 'Q1',
+      kind: 'question',
+      freeText: true,
+      actions: [
+        { label: LONG, reply: '1', feedback: false, recommended: true },
+        { label: 'Create a new table', reply: '2', feedback: false, recommended: false },
+      ],
+    };
+
+    it('stacks a question as full-text options and sends the reply on click', async () => {
+      const onReply = vi.fn().mockResolvedValue(undefined);
+      render(<PromptActions prompt={question} status="open" onReply={onReply} />);
+
+      const group = screen.getByRole('group', { name: 'Reply options' });
+      expect(group).toHaveAttribute('data-layout', 'stacked');
+      const long = screen.getByRole('button', { name: new RegExp(LONG) });
+      expect(long).toHaveClass('chat-prompt-option');
+      await act(async () => {
+        fireEvent.click(long);
+      });
+      expect(onReply).toHaveBeenCalledWith('1');
+    });
+
+    it.each([undefined, 'mystery'])('stacks a prompt of kind %s too', (kind) => {
+      render(<PromptActions prompt={{ ...question, kind }} status="open" onReply={vi.fn()} />);
+      expect(screen.getByRole('group', { name: 'Reply options' })).toHaveAttribute('data-layout', 'stacked');
+    });
+
+    it('keeps a gate as the compact row', () => {
+      render(<PromptActions prompt={{ ...gate, kind: 'gate' }} status="open" onReply={vi.fn()} />);
+      expect(screen.getByRole('group', { name: 'Reply options' })).toHaveAttribute('data-layout', 'compact');
+      expect(screen.getByRole('button', { name: 'Approve' })).not.toHaveClass('chat-prompt-option');
+    });
+
+    it('shows the recommended chip only on the recommended action, in both layouts', () => {
+      const { unmount } = render(<PromptActions prompt={question} status="open" onReply={vi.fn()} />);
+      expect(screen.getAllByText('recommended')).toHaveLength(1);
+      expect(screen.getByRole('button', { name: new RegExp(LONG) })).toHaveTextContent('recommended');
+      unmount();
+
+      const g: ChatPrompt = {
+        ...gate,
+        kind: 'gate',
+        actions: [{ ...gate.actions[0], recommended: true }, gate.actions[1]],
+      };
+      render(<PromptActions prompt={g} status="open" onReply={vi.fn()} />);
+      expect(screen.getByRole('button', { name: /Approve/ })).toHaveTextContent('recommended');
+      expect(screen.getByRole('button', { name: 'Reject' })).not.toHaveTextContent('recommended');
+    });
   });
 });

@@ -6,11 +6,17 @@ export interface PromptAction {
   label: string;
   reply: string;
   feedback: boolean;
+  /** The architect's suggested answer; shown as a chip. */
+  recommended: boolean;
 }
 
 /** The prompt half of a kind "prompt" row's `{text, prompt}` envelope. */
 export interface ChatPrompt {
   id?: string;
+  /** Display hint: "question" or "gate"; any other value is neutral. */
+  kind?: string;
+  /** The prompt's own text without the option list; the envelope text is the fallback. */
+  text?: string;
   freeText: boolean;
   actions: PromptAction[];
 }
@@ -60,7 +66,7 @@ function parseEnvelope(content: string): PromptEnvelope | null {
         a.label.trim() !== '' &&
         typeof a.reply === 'string' &&
         a.reply.trim() !== ''
-          ? [{ label: a.label, reply: a.reply, feedback: a.feedback === true }]
+          ? [{ label: a.label, reply: a.reply, feedback: a.feedback === true, recommended: a.recommended === true }]
           : [],
       )
     : [];
@@ -68,6 +74,8 @@ function parseEnvelope(content: string): PromptEnvelope | null {
     text: raw.text,
     prompt: {
       id: typeof p.id === 'string' && p.id !== '' ? p.id : undefined,
+      kind: typeof p.kind === 'string' && p.kind !== '' ? p.kind : undefined,
+      text: typeof p.text === 'string' && p.text !== '' ? p.text : undefined,
       freeText: p.free_text === true,
       actions,
     },

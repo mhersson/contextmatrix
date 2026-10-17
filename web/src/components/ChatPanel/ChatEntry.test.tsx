@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { ChatEntry } from './ChatEntry';
 import type { LogEntry } from '../../types';
 
@@ -185,5 +185,32 @@ describe('ChatEntry prompt rows', () => {
     render(<ChatEntry entry={{ ...makeEntry(1, 'text', '{"text": 1}'), kind: 'prompt' }} promptStatus="open" />);
     expect(screen.getByTestId('markdown-stub')).toHaveTextContent('{"text": 1}');
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('renders the prompt text instead of the envelope text when set, and exposes the kind', () => {
+    const q = JSON.stringify({
+      text: 'Q1: Which?\n1. A\n2. B',
+      prompt: { id: 'Q1', kind: 'question', text: 'Which?', actions: [{ label: 'A', reply: '1' }] },
+    });
+    const { container } = render(
+      <ChatEntry entry={{ ...makeEntry(1, 'text', q), kind: 'prompt' }} promptStatus="open" />,
+    );
+    expect(screen.getByTestId('markdown-stub')).toHaveTextContent(/^Which\?$/);
+    expect(container.querySelector('[data-prompt-kind="question"]')).not.toBeNull();
+  });
+
+  it('renders an older envelope without the new fields, with working buttons', () => {
+    const onReply = vi.fn();
+    const { container } = render(
+      <ChatEntry
+        entry={{ ...makeEntry(1, 'text', content), kind: 'prompt' }}
+        promptStatus="open"
+        onReply={onReply}
+      />,
+    );
+    expect(screen.getByTestId('markdown-stub')).toHaveTextContent('Sign off v2?');
+    expect(container.querySelector('[data-prompt-kind]')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    expect(onReply).toHaveBeenCalledWith('approve');
   });
 });

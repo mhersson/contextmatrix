@@ -47,11 +47,36 @@ describe('parsePromptEntry', () => {
         id: 'P1',
         freeText: true,
         actions: [
-          { label: 'Approve', reply: 'approve', feedback: false },
-          { label: 'Reject', reply: 'reject', feedback: true },
+          { label: 'Approve', reply: 'approve', feedback: false, recommended: false },
+          { label: 'Reject', reply: 'reject', feedback: true, recommended: false },
         ],
       },
     });
+  });
+
+  it('reads the display text, kind and recommended flag, only when well-typed', () => {
+    const e: LogEntry = {
+      ...prompt(1, []),
+      content: JSON.stringify({
+        text: 'full',
+        prompt: {
+          kind: 'question',
+          text: 'just the question',
+          actions: [
+            { label: 'A', reply: 'a', recommended: true },
+            { label: 'B', reply: 'b', recommended: 'yes' },
+          ],
+        },
+      }),
+    };
+    const env = parsePromptEntry(e);
+    expect(env?.prompt.text).toBe('just the question');
+    expect(env?.prompt.kind).toBe('question');
+    expect(env?.prompt.actions.map((a) => a.recommended)).toEqual([true, false]);
+
+    const bad: LogEntry = { ...prompt(2, []), content: JSON.stringify({ text: 't', prompt: { kind: '', text: 5, actions: [] } }) };
+    expect(parsePromptEntry(bad)?.prompt.text).toBeUndefined();
+    expect(parsePromptEntry(bad)?.prompt.kind).toBeUndefined();
   });
 
   it('drops malformed actions and reads missing actions as none', () => {
@@ -61,7 +86,7 @@ describe('parsePromptEntry', () => {
       { label: 'Go', reply: 'go', feedback: 'yes' },
       'junk',
     ]);
-    expect(parsePromptEntry(mixed)?.prompt.actions).toEqual([{ label: 'Go', reply: 'go', feedback: false }]);
+    expect(parsePromptEntry(mixed)?.prompt.actions).toEqual([{ label: 'Go', reply: 'go', feedback: false, recommended: false }]);
 
     const none: LogEntry = { ...prompt(2, []), content: JSON.stringify({ text: 't', prompt: { actions: null } }) };
     expect(parsePromptEntry(none)?.prompt.actions).toEqual([]);

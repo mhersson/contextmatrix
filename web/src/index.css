@@ -341,11 +341,23 @@
   --chat-assistant-bg: var(--bg2);
   --chat-assistant-ring: transparent;
   --chat-user-ring: transparent;
+  /* Pink in dark: red toward purple, lifted toward --fg to clear 4:1 on --bg2. */
+  --prompt-question-accent: color-mix(
+    in oklab,
+    color-mix(in oklab, var(--red) 65%, var(--purple)) 75%,
+    var(--fg)
+  );
 }
 [data-theme="light"] {
   --chat-assistant-bg: var(--bg0);
   --chat-assistant-ring: color-mix(in oklab, var(--fg) 20%, var(--bg0));
   --chat-user-ring: color-mix(in oklab, var(--blue) 35%, var(--bg-blue));
+  /* Maroon in light: red pulled halfway to --fg to clear 4:1 on --bg0. */
+  --prompt-question-accent: color-mix(
+    in oklab,
+    color-mix(in oklab, var(--red) 80%, var(--purple)) 50%,
+    var(--fg)
+  );
 }
 
 @media (max-width: 1280px) {
@@ -1102,6 +1114,55 @@ textarea {
 .bf-btn-ghost.bf-btn-sm {
   padding: 5px 10px;
   font-size: 11.5px;
+}
+
+/* Stacked architect reply option: full-width, the whole label wraps. */
+.chat-prompt-option {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--bg4);
+  transition:
+    border-color 0.12s,
+    background 0.12s;
+}
+[data-prompt-kind="question"] .chat-prompt-option {
+  border-color: color-mix(in oklab, var(--prompt-question-accent) 45%, var(--bg4));
+}
+.chat-prompt-option:hover:not(:disabled) {
+  border-color: var(--bg5);
+  background: var(--bg2);
+}
+[data-prompt-kind="question"] .chat-prompt-option:hover:not(:disabled) {
+  border-color: var(--prompt-question-accent);
+}
+.chat-prompt-option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* "recommended" marker inside a reply button, either layout. */
+.chat-prompt-chip {
+  flex: none;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--grey1);
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: var(--grey2);
+  white-space: nowrap;
 }
 
 /* "🔒 Automation locked during remote run" banner. */

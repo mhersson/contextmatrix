@@ -48,6 +48,7 @@ export function PromptActions({ prompt, status, answer, onReply }: PromptActions
 
   const disabled = status !== 'open' || !onReply || phase !== 'idle';
   const feedbackText = feedback.trim();
+  const stacked = prompt.kind !== 'gate';
 
   const send = async (text: string) => {
     if (!onReply) return;
@@ -83,22 +84,24 @@ export function PromptActions({ prompt, status, answer, onReply }: PromptActions
   };
 
   return (
-    <div className="mt-2 flex flex-col gap-2">
+    <div className="mt-2 flex flex-col gap-2" data-prompt-kind={prompt.kind}>
       <div
         role="group"
         aria-label="Reply options"
         aria-busy={phase === 'sending'}
-        className="flex flex-wrap gap-2"
+        data-layout={stacked ? 'stacked' : 'compact'}
+        className={stacked ? 'flex flex-col gap-2' : 'flex flex-wrap gap-2'}
       >
         {prompt.actions.map((a, i) => (
           <button
             key={`${i}:${a.label}`}
             type="button"
-            className="bf-btn-ghost bf-btn-sm"
+            className={stacked ? 'chat-prompt-option' : 'bf-btn-ghost bf-btn-sm'}
             disabled={disabled}
             onClick={(e) => choose(a, e.currentTarget)}
           >
             {a.label}
+            {a.recommended && <span className="chat-prompt-chip">recommended</span>}
           </button>
         ))}
       </div>

@@ -145,9 +145,12 @@ board. Promote-to-autonomous lives in that tab.
   backend instead of a chat worker. The sidebar marks such sessions with an aqua
   drafting-compass icon. The pane header shows a blueprint's mode and cost cap,
   and the admin Chats page lists every session's kind, mode and cap. The
-  architect's questions and gates show reply buttons under the message: a click
-  sends that reply as your message, a feedback action such as Reject asks for
-  text first, and typing the reply works too. A prompt closes when a reply
+  architect's questions and gates show reply buttons under the message. A
+  question's options are stacked full-width buttons showing the whole option
+  text, the question has a pink (dark) or maroon (light) accent, and the
+  suggested option carries a "recommended" chip; a gate keeps compact buttons
+  in a row. A click sends that reply as your message, a feedback action such
+  as Reject asks for text first, and typing the reply works too. A prompt closes when a reply
   answers it or a later prompt replaces it, and then shows a one-line summary
   instead of buttons. The buttons are disabled while the session is not live or
   its stream is disconnected, and prompts show with the Text filter off.
