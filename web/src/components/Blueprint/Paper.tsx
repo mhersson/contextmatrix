@@ -40,7 +40,7 @@ export function Paper({ chatId, view, stage, version, writing, draft, compare }:
   if (stored === null) {
     content =
       draft && draft.text !== '' ? (
-        <DraftBody draft={draft} />
+        <DraftBody draft={draft} waiting={question !== null} />
       ) : (
         <>
           {writing && (question ? <WaitingLine promptId={question} /> : <ProgressLine run={writing} stage={stage} />)}

@@ -225,6 +225,26 @@ describe('useBlueprintView', () => {
     await waitFor(() => expect(result.current.blueprint.state.status).toBe('absent'));
   });
 
+  it.each([
+    ['a 502', { error: 'down', code: 'BACKEND_UNAVAILABLE' }],
+    ['a 404', { error: 'no', code: 'BLUEPRINT_NOT_FOUND' }],
+  ])('keeps an absent pane plain when a refetch gets %s', async (_name, failure) => {
+    getView.mockRejectedValueOnce({ error: 'no', code: 'BLUEPRINT_NOT_FOUND' });
+    const { result } = await renderPane();
+    await waitFor(() => expect(result.current.blueprint.state.status).toBe('absent'));
+    getView.mockRejectedValueOnce(failure);
+    row(5, 'marker');
+    await waitFor(() => expect(getView).toHaveBeenCalledTimes(2));
+    await act(async () => {});
+    expect(result.current.blueprint.state.status).toBe('absent');
+  });
+
+  it('shows an unreachable architect when the first GET gets a 502', async () => {
+    getView.mockRejectedValueOnce({ error: 'down', code: 'BACKEND_UNAVAILABLE' });
+    const { result } = await renderPane();
+    await waitFor(() => expect(result.current.blueprint.state.status).toBe('unreachable'));
+  });
+
   it('treats an answer without a body like an unreachable architect', async () => {
     getView.mockResolvedValue(undefined as unknown as BlueprintView);
     const { result } = await renderPane();

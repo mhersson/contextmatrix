@@ -120,8 +120,8 @@ export function useBlueprintView(
       (err: unknown) => {
         if (!alive) return;
         const status = isAPIError(err) && err.code && ABSENT_CODES.has(err.code) ? 'absent' : 'unreachable';
-        // A snapshot that landed first is a whole view; the failed fetch changes nothing.
-        setState((s) => (s.status === 'ready' ? s : { status }));
+        // A snapshot that landed first is a whole view; a refetch that fails changes neither it nor an absent pane.
+        setState((s) => (s.status === 'ready' || (s.status === 'absent' && status === 'unreachable') ? s : { status }));
       },
     );
     return () => {

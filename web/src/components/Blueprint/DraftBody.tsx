@@ -6,8 +6,11 @@ import type { HeldDraft } from './draft';
 import { splitBlocks } from './revisions';
 import { personaName, stageText } from './stages';
 
-/** The body as it streams: finished blocks render as markdown; the block being written shows as text with a caret. */
-export function DraftBody({ draft }: { draft: HeldDraft }) {
+/**
+ * The body as it streams: finished blocks render as markdown; the block being written shows as text with a caret.
+ * While the run waits on the operator nothing is being written, so the held text shows still.
+ */
+export function DraftBody({ draft, waiting }: { draft: HeldDraft; waiting: boolean }) {
   const blocks = useMemo(() => splitBlocks(draft.text), [draft.text]);
   const last = blocks[blocks.length - 1] ?? '';
   return (
@@ -16,7 +19,7 @@ export function DraftBody({ draft }: { draft: HeldDraft }) {
       {blocks.slice(0, -1).map((text, i) => (
         <Block key={i} text={text} />
       ))}
-      {draft.refused ? (
+      {draft.refused || waiting ? (
         <Block text={last} />
       ) : (
         <p className="bp-writing">

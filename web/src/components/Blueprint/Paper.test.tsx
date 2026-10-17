@@ -101,6 +101,17 @@ describe('Paper', () => {
     expect(writing.querySelector('.bp-caret')).not.toBeNull();
   });
 
+  it('stills the caret and the writing edge while the shown step waits on a question', () => {
+    const draft = holdDraft({ stage: 'solution_design', version: 2, offset: 0, text: 'Done paragraph.\n\nWriting no' });
+    const view = { ...viewWritingRev2(), open: { prompt_id: 'Q4', kind: 'question' as const } };
+    const { container } = render(
+      <Paper chatId="S1" view={view} stage="solution_design" version={2} writing={run} draft={draft} compare={false} />,
+    );
+    expect(container).toHaveTextContent('Writing no');
+    expect(container.querySelector('.bp-caret')).toBeNull();
+    expect(container.querySelector('.bp-writing')).toBeNull();
+  });
+
   it('keeps a refused draft visible with the reason', () => {
     const draft = { ...holdDraft({ stage: 'solution_design', version: 2, offset: 0, text: 'Draft.' }), refused: true, reason: 'no decisions' };
     render(<Paper chatId="S1" view={viewWritingRev2()} stage="solution_design" version={2} writing={run} draft={draft} compare={false} />);
