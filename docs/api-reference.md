@@ -269,6 +269,8 @@ the request's `request_id`.
 | `PROTECTED_BRANCH`            | 403     | MCP `report_push` targeted `main` / `master`                                                                                                                                               |
 | `REVIEW_ATTEMPTS_CAPPED`      | 409     | Review attempts limit reached                                                                                                                                                              |
 | `CHAT_NOT_FOUND`              | 404     | Chat session ID does not exist (or belongs to another user in multi mode)                                                                                                                  |
+| `CHAT_KIND_UNAVAILABLE`       | 409     | No backend is configured for the chat session's kind (for example no architect backend for a blueprint)                                                                                    |
+| `BLUEPRINT_NOT_FOUND`         | 404     | Chat session is not a blueprint, or the architect answered 404 for the blueprint, artifact or route                                                                                        |
 | `INVALID_MODEL`               | 400     | Chat `model` not in the active model source                                                                                                                                                |
 | `TOO_MANY_CHATS`              | 429     | `chat.max_concurrent` reached, or 32 subscribers already on one chat stream                                                                                                                |
 | `TOO_MANY_SUBSCRIBERS`        | 429     | 128 concurrent `GET /api/events` subscribers already connected                                                                                                                             |
@@ -2690,7 +2692,7 @@ These three routes answer (the live route answers before any stream starts):
 | 404    | `CHAT_NOT_FOUND`        | Unknown session, or another user's session in `multi` mode                                                 |
 | 404    | `BLUEPRINT_NOT_FOUND`   | Not an `architect` session, or the architect answered 404 (an architect without these routes, an unknown blueprint or artifact) |
 | 409    | `CHAT_KIND_UNAVAILABLE` | No architect backend is configured                                                                         |
-| 502    | `BACKEND_UNAVAILABLE`   | The architect is unreachable, did not answer a read within 30 seconds, or answered with another error            |
+| 502    | `BACKEND_UNAVAILABLE`   | The architect is unreachable, did not answer a view or artifact read within 30 seconds, or answered with another error            |
 
 ## Image Endpoints
 

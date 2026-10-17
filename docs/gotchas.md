@@ -158,13 +158,13 @@ Developer traps in this codebase. Each entry names the code it describes.
   writes do not reset it, so every long-lived stream would hit it. The fix is
   `http.NewResponseController(w).SetWriteDeadline(time.Time{})` before the
   streaming loop, applied in `internal/api/events.go`,
-  `internal/api/worker_logs.go`, `internal/api/chats.go` (chat stream), `internal/api/chat_blueprint.go`
-  (blueprint live relay), and
-  the `clearWriteDeadlineForStreaming` middleware in
-  `internal/mcp/server.go` for the MCP `GET` stream. `DELETE` and `POST` keep
-  the timeout, except the `await_subtasks` tool call, which blocks for
-  minutes by design: `mcpRequestInfoMiddleware` clears the deadline for it
-  after sniffing the tool name out of the JSON-RPC body. **Critical:**
+  `internal/api/worker_logs.go`, `internal/api/chats.go` (chat stream),
+  `internal/api/chat_blueprint.go` (blueprint live relay), and the
+  `clearWriteDeadlineForStreaming` middleware in `internal/mcp/server.go` for
+  the MCP `GET` stream. `DELETE` and `POST` keep the timeout, except the
+  `await_subtasks` tool call, which blocks for minutes by design:
+  `mcpRequestInfoMiddleware` clears the deadline for it after sniffing the
+  tool name out of the JSON-RPC body. **Critical:**
   `ResponseController` reaches the connection by calling `Unwrap()` on the
   writer. Any middleware that wraps the writer must implement
   `Unwrap() http.ResponseWriter` or `SetWriteDeadline` fails silently and the

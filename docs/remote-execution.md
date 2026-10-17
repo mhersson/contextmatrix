@@ -492,8 +492,8 @@ browser connection. Every request carries a random
 `nonce` query parameter, so two reads of one path in the same second sign
 differently and both pass the architect's replay cache; the architect ignores
 the parameter. CM relays a 200 body unchanged, answers an upstream 404 with
-`BLUEPRINT_NOT_FOUND`, and any other failure, or a read not answered within 30
-seconds, with 502.
+`BLUEPRINT_NOT_FOUND`, and any other failure, or a view or artifact read not
+answered within 30 seconds, with 502.
 
 ### Task/chat backend → CM: log stream
 
