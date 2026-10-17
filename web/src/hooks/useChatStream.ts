@@ -69,6 +69,9 @@ type BlueprintListener = (frame: string) => void;
 export interface UseChatStream {
   logs: readonly LogEntry[];
   connected: boolean;
+  /** Counts this session's stream opens: 1 once connected, one more for each
+   *  reconnect. A reopened stream may have missed ephemeral events. */
+  connection: number;
   /**
    * Session-metadata updates pushed by the worker-log bridge (context_tokens
    * increments after each Claude turn, rehydration_active flips when the
@@ -114,6 +117,7 @@ export function useChatStream(
 ): UseChatStream {
   const { logs, append, prepend, clear } = useRingBuffer(ringCapacity);
   const [connected, setConnected] = useState(false);
+  const [connection, setConnection] = useState(0);
   const [sessionUpdate, setSessionUpdate] = useState<ChatSessionUpdate | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -146,6 +150,7 @@ export function useChatStream(
   if (sessionID !== prevSessionID) {
     setPrevSessionID(sessionID);
     setConnected(false);
+    setConnection(0);
     setSessionUpdate(null);
     setHasMore(false);
     setLoadingOlder(false);
@@ -197,6 +202,7 @@ export function useChatStream(
       es = new EventSource(`/api/chats/${encodeURIComponent(sessionID)}/stream?since_seq=${sinceSeq}`);
       es.onopen = () => {
         setConnected(true);
+        setConnection((n) => n + 1);
         retry = 1000;
       };
       es.onmessage = (ev) => {
@@ -342,5 +348,5 @@ export function useChatStream(
     }
   }, [sessionID, prepend]);
 
-  return { logs, connected, sessionUpdate, hasMore, loadingOlder, loadOlder, subscribeBlueprint };
+  return { logs, connected, connection, sessionUpdate, hasMore, loadingOlder, loadOlder, subscribeBlueprint };
 }

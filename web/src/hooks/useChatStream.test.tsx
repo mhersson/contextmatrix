@@ -423,4 +423,37 @@ describe('useChatStream', () => {
     await waitFor(() => expect(result.current.logs).toHaveLength(1));
     expect(result.current.logs[0]).toMatchObject({ seq: 1, content: 'hi' });
   });
+
+  it('counts every stream open, per session', async () => {
+    const { result, rerender } = renderHook(({ id }) => useChatStream(id), { initialProps: { id: 'S1' } });
+    await waitFor(() => expect(result.current.connection).toBe(1));
+    vi.useFakeTimers();
+    act(() => {
+      instances[0].onerror?.();
+      vi.advanceTimersByTime(1000);
+    });
+    vi.useRealTimers();
+    await waitFor(() => expect(result.current.connection).toBe(2));
+
+    rerender({ id: 'S2' });
+    expect(result.current.connection).toBe(0);
+    await waitFor(() => expect(result.current.connection).toBe(1));
+  });
+
+  it('reconnects from the last transcript seq whatever blueprint frames came after it', async () => {
+    listChatMessagesTailMock.mockResolvedValue({ messages: [makeMessage(1), makeMessage(2)] });
+    const { result } = renderHook(() => useChatStream('S1'));
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    act(() => {
+      instances[0].onmessage?.({ data: JSON.stringify({ seq: 3, role: 'assistant_text', content: 'm3' }) });
+      instances[0].onmessage?.({ data: JSON.stringify({ seq: 0, role: '', content: '{"type":"snapshot"}', kind: 'blueprint' }) });
+    });
+    vi.useFakeTimers();
+    act(() => {
+      instances[0].onerror?.();
+      vi.advanceTimersByTime(1000);
+    });
+    vi.useRealTimers();
+    expect(instances[1].url).toContain('since_seq=3');
+  });
 });

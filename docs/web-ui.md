@@ -200,8 +200,9 @@ board. Promote-to-autonomous lives in that tab.
   - The transcript shows a divider at each stage start and a sheet reference
     for each stored artifact; clicking a reference opens that version.
   - The pane loads the architect's view, then follows it live on the
-    session's chat stream, with no connection of its own; after a reconnect
-    the stream resumes from the architect's latest snapshot.
+    session's chat stream, with no connection of its own. It loads the view
+    again after the stream reconnects and whenever a stage divider, sheet
+    reference or prompt reaches the transcript, so a lost live update heals.
   - When the view cannot be loaded and the stream has brought none, the sheet
     says the architect cannot be reached, with a Retry, and the scale bar
     hides; the transcript keeps working. An architect without the blueprint

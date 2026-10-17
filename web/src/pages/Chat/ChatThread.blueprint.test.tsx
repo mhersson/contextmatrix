@@ -54,7 +54,7 @@ describe('ChatThread on an architect session', () => {
     vi.mocked(api.getChat).mockResolvedValue(session);
     vi.mocked(api.listChatMessagesTail).mockResolvedValue({ messages: [] });
     // The view fetch never answers, so only the stream can draw the pane.
-    vi.mocked(api.getBlueprintView).mockReturnValue(new Promise(() => {}));
+    vi.mocked(api.getBlueprintView).mockClear().mockReturnValue(new Promise(() => {}));
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -72,5 +72,21 @@ describe('ChatThread on an architect session', () => {
     expect(await screen.findByText('Design rev 2 is ready for you.')).toBeInTheDocument();
     expect(screen.queryByText(/"type":"snapshot"/)).not.toBeInTheDocument();
     expect(MockEventSource.instances.map((es) => es.url)).toEqual(['/api/chats/S1/stream?since_seq=0']);
+  });
+
+  it('refetches the view when its chat stream reopens', async () => {
+    render(<ChatThread sessionID="S1" embedded />);
+    await waitFor(() => expect(MockEventSource.instances).toHaveLength(1));
+    act(() => MockEventSource.instances[0].onopen?.());
+    expect(api.getBlueprintView).toHaveBeenCalledTimes(1);
+
+    vi.useFakeTimers();
+    act(() => {
+      MockEventSource.instances[0].onerror?.();
+      vi.advanceTimersByTime(1000);
+    });
+    vi.useRealTimers();
+    act(() => MockEventSource.instances[1].onopen?.());
+    await waitFor(() => expect(api.getBlueprintView).toHaveBeenCalledTimes(2));
   });
 });

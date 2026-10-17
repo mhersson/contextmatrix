@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, isAPIError } from '../../api/client';
-import type { BlueprintLiveFrame, BlueprintView } from '../../types';
+import type { BlueprintLiveFrame, BlueprintView, LogEntry } from '../../types';
 import { refreshArtifact } from './artifactCache';
 import { applyDraft, holdDraft } from './draft';
 import { normalizeView } from './stages';
@@ -38,14 +38,57 @@ function withFetchedView(s: BlueprintState, view: BlueprintView): BlueprintState
   return view.seq >= s.view.seq ? { ...s, view } : s;
 }
 
-/** The architect's view of a blueprint session: one GET, then the live frames on its chat stream. */
-export function useBlueprintView(chatId: string, frames: FrameSource): { state: BlueprintState; retry: () => void } {
+// Marker and prompt rows are never dropped on the way, unlike blueprint frames; a new one means the view moved.
+function newestViewRow(logs: readonly LogEntry[]): LogEntry | null {
+  for (let i = logs.length - 1; i >= 0; i--) {
+    if (logs[i].kind === 'marker' || logs[i].kind === 'prompt') return logs[i];
+  }
+  return null;
+}
+
+interface Signals {
+  connection: number;
+  row: LogEntry | null;
+  /** GETs owed after the first. */
+  refetches: number;
+  /** Stream reopenings after the first open. */
+  reconnects: number;
+}
+
+function nextSignals(s: Signals, connection: number, row: LogEntry | null): Signals {
+  // The first open is covered by the initial GET; a drop to 0 is the stream starting over for another chat.
+  const reopened = s.connection > 0 && connection > s.connection;
+  const newRow = row !== null && row !== s.row;
+  return {
+    connection,
+    row,
+    refetches: s.refetches + (reopened || newRow ? 1 : 0),
+    reconnects: s.reconnects + (reopened ? 1 : 0),
+  };
+}
+
+/**
+ * The architect's view of a blueprint session: a GET, then the live frames on its
+ * chat stream. Frames can be lost, so the view is fetched again after the stream
+ * reopens and when a marker or prompt row arrives; fetched views apply by seq.
+ */
+export function useBlueprintView(
+  chatId: string,
+  frames: FrameSource,
+  connection: number,
+  logs: readonly LogEntry[],
+): { state: BlueprintState; retry: () => void } {
   const [state, setState] = useState<BlueprintState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  const row = useMemo(() => newestViewRow(logs), [logs]);
+  const [signals, setSignals] = useState<Signals>({ connection, row, refetches: 0, reconnects: 0 });
   const [prevChatId, setPrevChatId] = useState(chatId);
   if (chatId !== prevChatId) {
     setPrevChatId(chatId);
     setState({ status: 'loading' });
+    setSignals({ connection, row, refetches: 0, reconnects: 0 });
+  } else if (connection !== signals.connection || row !== signals.row) {
+    setSignals(nextSignals(signals, connection, row));
   }
 
   // Frames sent before this subscribes are gone; the GET covers the view and the next snapshot the draft.
@@ -61,6 +104,11 @@ export function useBlueprintView(chatId: string, frames: FrameSource): { state: 
       }),
     [chatId, frames],
   );
+
+  // A reopened stream replays no artifact_stored hints; a no-op unless the board is cached.
+  useEffect(() => {
+    if (signals.reconnects > 0) refreshArtifact(chatId, 'emission', 1);
+  }, [chatId, signals.reconnects]);
 
   useEffect(() => {
     let alive = true;
@@ -78,7 +126,7 @@ export function useBlueprintView(chatId: string, frames: FrameSource): { state: 
     return () => {
       alive = false;
     };
-  }, [chatId, attempt]);
+  }, [chatId, attempt, signals.refetches]);
 
   const retry = useCallback(() => {
     setState({ status: 'loading' });

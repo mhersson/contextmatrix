@@ -9,6 +9,7 @@ export type ArtifactEntry =
 
 // Module-level like useChatLiveData: stored versions are immutable, and the
 // pseudo-artifacts that change (sign-off, board) are refreshed on artifact_stored.
+// A missed hint leaves the board stale, so every reader mount revalidates it too.
 const entries = new Map<string, ArtifactEntry>();
 const inflight = new Set<string>();
 const stale = new Set<string>();
@@ -76,7 +77,9 @@ export function useBlueprintArtifact(chatId: string, stage: string, version: num
   const key = version === null ? null : keyOf(chatId, stage, version);
   const entry = useSyncExternalStore(subscribe, () => (key ? entries.get(key) : undefined));
   useEffect(() => {
-    if (key !== null && version !== null && !entries.has(key)) loadArtifact(chatId, stage, version);
+    if (key !== null && version !== null && (!entries.has(key) || stage === 'emission')) {
+      loadArtifact(chatId, stage, version);
+    }
   }, [key, chatId, stage, version]);
   if (key === null) return null;
   return entry ?? LOADING;

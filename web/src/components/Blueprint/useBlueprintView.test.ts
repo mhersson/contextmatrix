@@ -44,11 +44,23 @@ const withSeq = (seq: number, spent = 0.16): BlueprintView => {
   return { ...view, seq, cost: { ...view.cost, spent_usd: spent } };
 };
 const draft = (offset: number, text: string) => ({ stage: 'solution_design', version: 3, offset, text });
+const open = () => act(() => stream().onopen?.());
+const reconnect = () => {
+  vi.useFakeTimers();
+  act(() => {
+    stream().onerror?.();
+    vi.advanceTimersByTime(1000);
+  });
+  vi.useRealTimers();
+};
+// A transcript row on the same stream; marker and prompt rows are never gated.
+const row = (seq: number, kind?: string) =>
+  act(() => stream().onmessage?.({ data: JSON.stringify({ seq, role: kind === 'marker' ? 'system' : 'assistant_text', content: '{}', kind }) }));
 
 // ChatThread's wiring: the chat stream it already holds feeds the blueprint view.
 function usePane(chatId: string) {
   const chat = useChatStream(chatId);
-  return { chat, blueprint: useBlueprintView(chatId, chat.subscribeBlueprint) };
+  return { chat, blueprint: useBlueprintView(chatId, chat.subscribeBlueprint, chat.connection, chat.logs) };
 }
 
 async function renderPane() {
@@ -129,6 +141,55 @@ describe('useBlueprintView', () => {
     await renderPane();
     send({ type: 'artifact_stored', stage: 'emission', version: 1 });
     expect(refreshArtifact).toHaveBeenCalledWith('S1', 'emission', 1);
+  });
+
+  // A slow reader can lose a snapshot, and a reconnect may bring no blueprint frame at all.
+  it('refetches the view and a cached board when the stream reopens', async () => {
+    getView.mockResolvedValue(withSeq(42));
+    const { result } = await renderPane();
+    open();
+    await waitFor(() => expect(result.current.blueprint.state.status).toBe('ready'));
+    expect(getView).toHaveBeenCalledTimes(1);
+    expect(refreshArtifact).not.toHaveBeenCalled();
+
+    getView.mockResolvedValue(withSeq(45, 0.3));
+    reconnect();
+    open();
+    expect(result.current.blueprint.state).toMatchObject({ status: 'ready', view: { seq: 42 } });
+    await waitFor(() => expect(result.current.blueprint.state).toMatchObject({ view: { seq: 45 } }));
+    expect(getView).toHaveBeenCalledTimes(2);
+    expect(refreshArtifact).toHaveBeenCalledTimes(1);
+    expect(refreshArtifact).toHaveBeenCalledWith('S1', 'emission', 1);
+  });
+
+  it.each(['marker', 'prompt'])('refetches the view when a %s row arrives', async (kind) => {
+    getView.mockResolvedValue(withSeq(42));
+    const { result } = await renderPane();
+    await waitFor(() => expect(result.current.blueprint.state.status).toBe('ready'));
+    row(5, kind);
+    await waitFor(() => expect(getView).toHaveBeenCalledTimes(2));
+  });
+
+  it('does not refetch the view for an ordinary row', async () => {
+    getView.mockResolvedValue(withSeq(42));
+    const { result } = await renderPane();
+    await waitFor(() => expect(result.current.blueprint.state.status).toBe('ready'));
+    row(5);
+    await waitFor(() => expect(result.current.chat.logs).toHaveLength(1));
+    expect(getView).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a refetched view older than the snapshot it holds', async () => {
+    getView.mockResolvedValueOnce(withSeq(42));
+    const { result } = await renderPane();
+    await waitFor(() => expect(result.current.blueprint.state.status).toBe('ready'));
+    send({ type: 'snapshot', view: withSeq(50) });
+    let answer: (v: BlueprintView) => void = () => {};
+    getView.mockReturnValueOnce(new Promise((resolve) => { answer = resolve; }));
+    row(5, 'marker');
+    await waitFor(() => expect(getView).toHaveBeenCalledTimes(2));
+    await act(async () => answer(withSeq(44)));
+    expect(result.current.blueprint.state).toMatchObject({ view: { seq: 50 } });
   });
 
   it('drops a frame that does not parse', async () => {

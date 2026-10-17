@@ -26,7 +26,7 @@ interface ChatThreadProps {
 export function ChatThread({ sessionID, embedded = false, isFocused = true, phone = false }: ChatThreadProps) {
   const [session, setSession] = useState<ChatSession | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { logs, connected, sessionUpdate, hasMore, loadingOlder, loadOlder, subscribeBlueprint } =
+  const { logs, connected, connection, sessionUpdate, hasMore, loadingOlder, loadOlder, subscribeBlueprint } =
     useChatStream(sessionID);
 
   // Merge live session updates (context_tokens, model, rehydration_active)
@@ -282,6 +282,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
           <BlueprintSession
             chatId={sessionID}
             frames={subscribeBlueprint}
+            connection={connection}
             logs={logs}
             promptsLive={connected && !sendDisabled}
             onReply={handleSend}
