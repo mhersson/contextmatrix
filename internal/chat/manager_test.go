@@ -5742,8 +5742,12 @@ func TestManager_SendUserMessage_ArchitectFailureEndsTheSessionWithoutDeadlock(t
 	bp := openArchitect(t, mgr)
 
 	arch.sendErr = fmt.Errorf("chat: /message: %w", chat.ErrBackendUnreachable)
+	// Only the ending send hands over a frame: a send may retake the lock while the
+	// consumer still waits to persist the previous frame, so none would take its own.
 	arch.sendFn = func() {
-		pushFrame(t, frames, chat.LogEntry{Type: "system", Content: "noted"})
+		if arch.sendCalls.Load() == 3 {
+			pushFrame(t, frames, chat.LogEntry{Type: "system", Content: "noted"})
+		}
 	}
 
 	done := make(chan struct{})
