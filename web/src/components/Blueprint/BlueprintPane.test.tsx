@@ -109,6 +109,15 @@ describe('BlueprintPane', () => {
     expect(screen.getByRole('button', { name: 'Open the Design sheet' })).toHaveFocus();
   });
 
+  it('returns focus to the edge strip when the split sheet closes', () => {
+    renderPane(ready());
+    const close = screen.getByRole('button', { name: 'Close' });
+    close.focus();
+    fireEvent.click(close);
+    expect(screen.queryByRole('region', { name: 'Blueprint sheet' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open the Design sheet' })).toHaveFocus();
+  });
+
   it('keeps the overlay open when an inner control handled Escape', () => {
     paneWidth = 700;
     const feedbackRow: LogEntry = {

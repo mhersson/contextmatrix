@@ -55,11 +55,12 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
   const openGateId = view?.open?.kind === 'gate' ? view.open.prompt_id : undefined;
   const gatePrompt = useMemo(() => gatePromptFor(logs, promptsLive, openGateId), [logs, promptsLive, openGateId]);
   const { show, close } = sheet;
-  const overlayRef = useRef<HTMLDivElement>(null);
+  // The split slot or the overlay, whichever holds the sheet.
+  const hostRef = useRef<HTMLDivElement>(null);
   const stripRef = useRef<HTMLButtonElement>(null);
   const returnFocusRef = useRef(false);
-  const closeOverlay = useCallback(() => {
-    returnFocusRef.current = overlayRef.current?.contains(document.activeElement) ?? false;
+  const closeSheet = useCallback(() => {
+    returnFocusRef.current = hostRef.current?.contains(document.activeElement) ?? false;
     close();
   }, [close]);
   const actions = useMemo(() => ({ openArtifact: (stage: string, version?: number) => show(stage, version ?? null) }), [show]);
@@ -67,13 +68,14 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
   const hasSheet = layout !== null && (state.status === 'ready' || state.status === 'unreachable');
   const overlayOpen = hasSheet && layout !== 'split' && sheet.open;
   useEffect(() => {
-    if (overlayOpen) {
-      overlayRef.current?.focus();
-    } else if (returnFocusRef.current) {
-      returnFocusRef.current = false;
-      stripRef.current?.focus();
-    }
+    if (overlayOpen) hostRef.current?.focus();
   }, [overlayOpen]);
+  // A close from inside the sheet unmounts the focused control; the strip takes the focus.
+  useEffect(() => {
+    if (sheet.open || !returnFocusRef.current) return;
+    returnFocusRef.current = false;
+    stripRef.current?.focus();
+  }, [sheet.open]);
   const shown = view ? resolveShown(view, draft, sheet.pin) : null;
   const stripLabel = shown ? stageText(shown.stage).tab : 'Blueprint';
   const sheetEl = view ? (
@@ -85,10 +87,10 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
       onShow={show}
       gatePrompt={gatePrompt}
       onReply={onReply}
-      onClose={closeOverlay}
+      onClose={closeSheet}
     />
   ) : (
-    <SheetUnavailable onRetry={onRetry} onClose={layout === 'split' ? undefined : closeOverlay} />
+    <SheetUnavailable onRetry={onRetry} onClose={layout === 'split' ? undefined : closeSheet} />
   );
 
   return (
@@ -102,7 +104,7 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
           {hasSheet && layout === 'split' && sheet.open && (
             <>
               <div className="bp-divider" {...divider.separatorProps} />
-              <div className="bp-sheet-slot" style={{ flexBasis: `${divider.percent}%` }}>
+              <div ref={hostRef} className="bp-sheet-slot" style={{ flexBasis: `${divider.percent}%` }}>
                 {sheetEl}
               </div>
             </>
@@ -112,11 +114,11 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
           )}
           {overlayOpen && (
             <div
-              ref={overlayRef}
+              ref={hostRef}
               tabIndex={-1}
               className={`bp-overlay${layout === 'phone' ? ' bp-overlay--phone' : ''}`}
               onKeyDown={(e) => {
-                if (e.key === 'Escape' && !e.defaultPrevented) closeOverlay();
+                if (e.key === 'Escape' && !e.defaultPrevented) closeSheet();
               }}
             >
               {sheetEl}
