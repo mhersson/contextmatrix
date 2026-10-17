@@ -1061,15 +1061,18 @@ func TestSubscribeStopUnblocksSnapshot(t *testing.T) {
 //
 // Setup:
 //  1. No upstream session is started (subscriber goes to pendingSubs).
-//  2. Subscribe is called so the snapshot goroutine spawns (empty snapshot - it
-//     exits the snapshot loop instantly and tries to acquire m.mu for pending drain).
-//  3. Test thread holds m.mu while injecting one pre-pending event and filling
-//     sub.ch to capacity so the goroutine blocks on the first pending send.
-//  4. Test spawns a concurrent goroutine that, once the goroutine has unlocked
-//     (detected by monitoring sub.ch drain progress), injects more events into
-//     sub.pending under m.mu (simulating the pump).
+//  2. The buffer holds one more event than sub.ch, so the snapshot goroutine
+//     fills sub.ch and parks on its last snapshot send. It cannot reach the
+//     pending drain, or set primed, until the test reads from sub.ch.
+//  3. Test injects one pre-pending event under m.mu, then reads one event: the
+//     last snapshot send refills sub.ch, so the goroutine's first pending send
+//     finds it full and takes the unlock-and-block path.
+//  4. Once the goroutine has popped the pre-pending event and dropped m.mu,
+//     test injects more events into sub.pending under m.mu (simulating the
+//     pump). primed is still false: the pre-pending event cannot be delivered
+//     until the test drains again.
 //  5. Test drains sub.ch to unblock the snapshot goroutine.
-//  6. Assert all events (channel-fill + pre-pending + late-appended) are delivered
+//  6. Assert all events (snapshot + pre-pending + late-appended) are delivered
 //     with no gaps and no duplicates.
 func TestSnapshotDrainConcurrentAppend(t *testing.T) {
 	const (
@@ -1081,91 +1084,78 @@ func TestSnapshotDrainConcurrentAppend(t *testing.T) {
 	m := NewManager()
 	// No upstream session - subscriber will go to pendingSubs.
 
-	// Subscribe returns immediately and spawns the snapshot goroutine.
-	// Since the buffer is empty the goroutine will exit the snapshot loop
-	// instantly and try to acquire m.mu for pending drain.
-	// We grab m.mu first to inject state before it can.
-	ch, unsub := m.Subscribe(cardID)
-	defer unsub()
-
-	// Grab the subscriber from pendingSubs while holding the lock.
-	m.mu.Lock()
-
-	var sub *subscriber
-	if subs, ok := m.pendingSubs[cardID]; ok && len(subs) > 0 {
-		sub = subs[0]
-	}
-
-	require.NotNil(t, sub, "expected subscriber in pendingSubs")
-
-	// Fill sub.ch to capacity so the goroutine blocks on its first pending send.
 	var allEvents []Event
 
-	for i := range subscriberChanBuf {
+	for i := range subscriberChanBuf + 1 {
 		evt := Event{
 			Seq:     uint64(i + 1),
 			Type:    "log",
-			Payload: fmt.Appendf(nil, "ch-%d", i+1),
+			Payload: fmt.Appendf(nil, "snap-%d", i+1),
 		}
 
 		allEvents = append(allEvents, evt)
-		sub.ch <- evt
+		m.Append(cardID, evt)
 	}
 
-	// Inject one pre-pending event so the goroutine has something to send.
+	ch, unsub := m.Subscribe(cardID)
+	defer unsub()
+
+	m.mu.Lock()
+	subs := m.pendingSubs[cardID]
+	m.mu.Unlock()
+
+	require.Len(t, subs, 1, "expected subscriber in pendingSubs")
+
+	sub := subs[0]
+
 	preEvt := Event{
-		Seq:     uint64(subscriberChanBuf + 1),
+		Seq:     uint64(subscriberChanBuf + 2),
 		Type:    "log",
 		Payload: fmt.Appendf(nil, "pre-1"),
 	}
 	allEvents = append(allEvents, preEvt)
-	sub.pending = append(sub.pending, preEvt)
 
-	// Release the lock. The snapshot goroutine can now acquire it and start
-	// draining pending. It will immediately block on the full channel when
-	// trying to send the first pending event.
+	m.mu.Lock()
+	primed := sub.primed
+	sub.pending = append(sub.pending, preEvt)
 	m.mu.Unlock()
 
-	// In a separate goroutine, wait until the snapshot goroutine is blocked
-	// (evidenced by it having unlocked m.mu, which we detect by acquiring it
-	// ourselves), then inject late-append events into sub.pending.
+	require.False(t, primed, "snapshot goroutine must still be parked on the snapshot")
+
+	received := drainN(ch, 1, testTimeout)
+	require.Len(t, received, 1)
+
+	// The goroutine pops the pre-pending event before dropping m.mu to block on
+	// the full channel, so an empty sub.pending means the late events land
+	// mid-drain.
+	require.Eventually(t, func() bool {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+
+		return len(sub.pending) == 0
+	}, testTimeout, time.Millisecond)
+
 	lateEvents := make([]Event, latePending)
 	for i := range latePending {
 		lateEvents[i] = Event{
-			Seq:     uint64(subscriberChanBuf + 1 + i + 1),
+			Seq:     uint64(subscriberChanBuf + 2 + i + 1),
 			Type:    "log",
 			Payload: fmt.Appendf(nil, "late-%d", i+1),
 		}
 	}
 
-	injected := make(chan struct{})
+	m.mu.Lock()
+	primed = sub.primed
+	sub.pending = append(sub.pending, lateEvents...)
+	m.mu.Unlock()
 
-	go func() {
-		// The snapshot goroutine unlocks m.mu when it blocks on a full-channel send.
-		// We acquire m.mu here to inject late events - this races with the goroutine
-		// re-acquiring it. The snapshot goroutine is blocked on a full channel, so in
-		// practice we win the lock before it can set sub.primed.
-		defer close(injected)
-
-		m.mu.Lock()
-		defer m.mu.Unlock()
-
-		if sub.primed {
-			// Too late - goroutine already finished. Injection is a no-op.
-			return
-		}
-
-		sub.pending = append(sub.pending, lateEvents...)
-	}()
-
-	// Wait for injection to complete, then drain the channel to unblock the goroutine.
-	<-injected
+	require.False(t, primed, "snapshot goroutine must still be blocked on the pre-pending event")
 
 	allEvents = append(allEvents, lateEvents...)
 
 	// Drain all expected events.
 	totalExpected := len(allEvents)
-	received := drainN(ch, totalExpected, testTimeout)
+	received = append(received, drainN(ch, totalExpected-len(received), testTimeout)...)
 
 	// Build expected Seq set.
 	wantSeqs := make(map[uint64]struct{}, totalExpected)
