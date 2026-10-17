@@ -37,6 +37,40 @@ describe('CardsSheet', () => {
       'M1',
     ]);
   });
+
+  it('labels a manual check in the playbook order and no card', () => {
+    show(CARDS_V1);
+    const order = screen.getByRole('heading', { name: /Playbook order/ }).closest('section')!;
+    const item = (id: string) => within(order).getByText(id, { selector: '.bp-id' }).closest('li')!;
+    expect(item('M1')).toHaveTextContent('manual check');
+    expect(item('D1')).not.toHaveTextContent('manual check');
+  });
+
+  it('shows each manual check once when the playbook order already lists it', () => {
+    show(CARDS_V1);
+    expect(screen.getAllByText('M1', { selector: '.bp-id' })).toHaveLength(1);
+    expect(screen.queryByRole('heading', { name: 'Manual checks' })).not.toBeInTheDocument();
+  });
+
+  it('keeps a manual check missing from the order under Manual checks without repeating the ordered ones', () => {
+    const data = CARDS_V1.data as { manual: { id: string; text: string; criteria: string[] }[] };
+    show({
+      ...CARDS_V1,
+      data: { ...data, manual: [...data.manual, { id: 'M2', text: 'Open the health page.', criteria: [] }] },
+    });
+    const checks = screen.getByRole('heading', { name: 'Manual checks' }).closest('section')!;
+    expect(within(checks).getByText('M2')).toBeInTheDocument();
+    expect(within(checks).queryByText('M1')).not.toBeInTheDocument();
+    expect(screen.getAllByText('M1', { selector: '.bp-id' })).toHaveLength(1);
+  });
+
+  it('shows the manual checks under Manual checks for a single card', () => {
+    const data = CARDS_V1.data as { cards: unknown[]; manual: { id: string; text: string }[] };
+    show({ ...CARDS_V1, data: { ...data, cards: data.cards.slice(0, 1), order: ['D1', 'M1'] } });
+    expect(screen.queryByRole('heading', { name: /Playbook order/ })).not.toBeInTheDocument();
+    const checks = screen.getByRole('heading', { name: 'Manual checks' }).closest('section')!;
+    expect(within(checks).getByText('Run curl against the server.')).toBeInTheDocument();
+  });
 });
 
 describe('ReadinessSheet', () => {
@@ -57,6 +91,23 @@ describe('ReadinessSheet', () => {
   it('shows no round on an older version', () => {
     render(<ArtifactRenderer artifact={{ ...READINESS_V2, version: 1 }} previous={null} mode="plain" view={inLoop()} />);
     expect(screen.queryByText(/^Round/)).not.toBeInTheDocument();
+  });
+
+  it('folds the written readiness under the cards and opens it in compare mode', () => {
+    const { container, rerender } = render(<ArtifactRenderer artifact={READINESS_V2} previous={null} mode="plain" view={inLoop()} />);
+    const details = container.querySelector('details')!;
+    expect(details.open).toBe(false);
+    expect(details).toHaveTextContent(READINESS_V2.body.split('\n').find((l) => l.trim().length > 8)!.trim());
+    expect(screen.getByText('Ready')).toBeInTheDocument();
+    rerender(<ArtifactRenderer artifact={READINESS_V2} previous={READINESS_V2} mode="compare" view={inLoop()} />);
+    expect(container.querySelector('details')!.open).toBe(true);
+  });
+
+  it('renders the body plainly when there are no cards', () => {
+    const { container } = render(<ArtifactRenderer artifact={{ ...READINESS_V2, data: undefined }} previous={null} mode="plain" view={inLoop()} />);
+    expect(container.querySelector('details')).toBeNull();
+    expect(screen.getByText('Round 2 of 3')).toBeInTheDocument();
+    expect(screen.getByTestId('md')).toHaveTextContent(READINESS_V2.body.split('\n').find((l) => l.trim().length > 8)!.trim());
   });
 });
 
@@ -113,3 +164,30 @@ describe('ArtifactRenderer', () => {
     expect(screen.getByTestId('md')).toHaveTextContent('Threats.');
   });
 });
+
+describe('ReadinessSheet revision clouds', () => {
+  const previous: BlueprintArtifact = {
+    ...READINESS_V2,
+    version: 1,
+    data: {
+      cards: [
+        { id: 'D1', ready: true, findings: [] },
+        { id: 'D3', ready: false, findings: ['An older finding.'] },
+      ],
+    },
+  };
+  const rowFor = (container: HTMLElement, id: string) => within(container).getByText(id, { selector: '.bp-id' }).closest('li')!;
+
+  it('clouds the card whose readiness changed and no other', () => {
+    const { container } = render(<ArtifactRenderer artifact={READINESS_V2} previous={previous} mode="clouds" view={view} />);
+    expect(rowFor(container, 'D3').querySelector('.bp-cloud')).not.toBeNull();
+    expect(rowFor(container, 'D1').querySelector('.bp-cloud')).toBeNull();
+    expect(screen.getByText('Changed in rev 2.')).toBeInTheDocument();
+  });
+
+  it('marks nothing in plain mode', () => {
+    const { container } = render(<ArtifactRenderer artifact={READINESS_V2} previous={previous} mode="plain" view={view} />);
+    expect(container.querySelector('.bp-cloud')).toBeNull();
+  });
+});
+

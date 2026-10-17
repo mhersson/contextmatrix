@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { TitleBlock } from './TitleBlock';
 import { DESIGN_REVIEW } from '../../test-utils/blueprintFixtures';
@@ -14,15 +14,33 @@ function renderBlock(over: Partial<Parameters<typeof TitleBlock>[0]> = {}) {
     version: 2,
     onPickVersion: vi.fn(),
     review: { review: DESIGN_REVIEW, version: 1 },
+    reviewing: null,
     status: { text: 'At your gate', tone: 'waiting' },
     compare: { available: true, on: false, onToggle: vi.fn() },
     ...over,
   };
-  render(<TitleBlock {...props} />);
+  render(
+    <section className="bp-sheet">
+      <TitleBlock {...props} />
+    </section>,
+  );
   return props;
 }
 
 describe('TitleBlock', () => {
+  it('names the reviewer at work instead of Contract checks', () => {
+    renderBlock({ reviewing: 'senior_developer', review: null });
+    expect(screen.getByText('Senior developer, reviewing')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /reviewing/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Contract checks')).not.toBeInTheDocument();
+  });
+
+  it('prefers the reviewer at work over an earlier score', () => {
+    renderBlock({ reviewing: 'senior_developer' });
+    expect(screen.getByText('Senior developer, reviewing')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /of 5/ })).not.toBeInTheDocument();
+  });
+
   it('names the sheet, who drew it and its status', () => {
     renderBlock();
     expect(screen.getByText('Design')).toBeInTheDocument();
@@ -63,6 +81,31 @@ describe('TitleBlock', () => {
     expect(fireEvent.keyDown(trigger, { key: 'Escape' })).toBe(true);
   });
 
+  it('does not reopen the review by itself after a review run ends', () => {
+    const props: Parameters<typeof TitleBlock>[0] = {
+      stage: 'solution_design',
+      persona: 'system_designer',
+      options: [{ version: 2, label: '2' }],
+      version: 2,
+      onPickVersion: vi.fn(),
+      review: { review: DESIGN_REVIEW, version: 1 },
+      reviewing: null,
+      status: { text: 'At your gate', tone: 'waiting' },
+      compare: { available: false, on: false, onToggle: vi.fn() },
+    };
+    const ui = (over: Partial<typeof props>) => (
+      <section className="bp-sheet">
+        <TitleBlock {...props} {...over} />
+      </section>
+    );
+    const { rerender } = render(ui({}));
+    fireEvent.click(screen.getByRole('button', { name: 'Senior developer, 4 of 5' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    rerender(ui({ reviewing: 'senior_developer' }));
+    rerender(ui({ reviewing: null }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('shows a review without findings', () => {
     renderBlock({ review: { review: { ...DESIGN_REVIEW, findings: [] }, version: 1 } });
     fireEvent.click(screen.getByRole('button', { name: 'Senior developer, 4 of 5' }));
@@ -78,5 +121,42 @@ describe('TitleBlock', () => {
     const props = renderBlock();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Compare' }));
     expect(props.compare.onToggle).toHaveBeenCalled();
+  });
+
+  describe('review popover height', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    function stubTops(tops: { sheet: number; block: number }) {
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+        const top = this.classList.contains('bp-sheet') ? tops.sheet : this.classList.contains('bp-tb') ? tops.block : 0;
+        return { top, bottom: top, left: 0, right: 0, width: 0, height: 0, x: 0, y: top, toJSON: () => ({}) };
+      });
+    }
+
+    function openReview() {
+      fireEvent.click(screen.getByRole('button', { name: 'Senior developer, 4 of 5' }));
+      return screen.getByRole('dialog');
+    }
+
+    it('caps the review at the room above the title block inside the sheet', () => {
+      stubTops({ sheet: 100, block: 400 });
+      renderBlock();
+      expect(openReview()).toHaveStyle({ maxHeight: '288px' });
+    });
+
+    it('never caps the review below 80px', () => {
+      stubTops({ sheet: 100, block: 150 });
+      renderBlock();
+      expect(openReview()).toHaveStyle({ maxHeight: '80px' });
+    });
+
+    it('re-measures on window resize while open', () => {
+      stubTops({ sheet: 100, block: 400 });
+      renderBlock();
+      const dialog = openReview();
+      stubTops({ sheet: 100, block: 600 });
+      fireEvent(window, new Event('resize'));
+      expect(dialog).toHaveStyle({ maxHeight: '488px' });
+    });
   });
 });

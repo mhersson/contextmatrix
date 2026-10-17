@@ -74,6 +74,14 @@ export function shownStatus(
   }
   if (writing) return { text: 'Writing', tone: 'running' };
   if (!stored) return { text: '', tone: 'muted' };
+  // A failed step leaves its newest version current (or reviewing on older architects); that must not read as done.
+  if (
+    view.pipeline.find((s) => s.stage === stage)?.status === 'failed' &&
+    stored.version === latestArtifact(view, stage)?.version &&
+    (stored.status === 'current' || stored.status === 'reviewing')
+  ) {
+    return { text: stored.review ? 'Failed' : 'Review failed', tone: 'bad' };
+  }
   switch (stored.status) {
     case 'reviewing':
       return { text: 'Being reviewed', tone: 'running' };
@@ -104,6 +112,13 @@ export function reviewFor(view: BlueprintView, stage: string, version: number): 
     .filter((r) => r.version <= version && r.review)
     .pop();
   return reviewed?.review ? { review: reviewed.review, version: reviewed.version } : null;
+}
+
+/** The reviewer at work on this sheet; it always reviews the newest stored version. */
+export function reviewingPersona(view: BlueprintView, stage: string, shownVersion: number): string | null {
+  const cur = view.current;
+  if (cur?.kind !== 'reviewer' || cur.stage !== stage) return null;
+  return latestArtifact(view, stage)?.version === shownVersion ? cur.persona : null;
 }
 
 export interface Shown {

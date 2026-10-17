@@ -2,9 +2,9 @@ import type { BlueprintReviewFinding } from '../../types';
 import type { ShownReview } from './sheetModel';
 import { personaName } from './stages';
 
-export function ReviewPopover({ review: { review, version } }: { review: ShownReview }) {
+export function ReviewPopover({ review: { review, version }, maxHeight }: { review: ShownReview; maxHeight?: number }) {
   return (
-    <div className="bp-review" role="dialog" aria-label={`Review of rev ${version}`}>
+    <div className="bp-review" style={{ maxHeight }} role="dialog" aria-label={`Review of rev ${version}`}>
       <b>
         {personaName(review.reviewer)} scored rev {version} {review.score} of 5
       </b>

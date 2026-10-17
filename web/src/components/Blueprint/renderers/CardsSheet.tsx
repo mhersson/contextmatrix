@@ -8,10 +8,13 @@ export function CardsSheet({ artifact, previous, mode }: RendererProps) {
   const summary = <BodyMarkdown body={artifact.body} previous={previous?.body} mode={mode} version={artifact.version} />;
   if (!data || data.cards.length === 0) return summary;
   const names = labelsById(data.cards, data.manual);
+  const orderShown = data.cards.length > 1 && data.order.length > 0;
+  const manualIds = new Set(data.manual.map((m) => m.id));
+  const orderedIds = new Set(orderShown ? data.order : []);
   return (
     <>
       {summary}
-      {data.cards.length > 1 && data.order.length > 0 && (
+      {orderShown && (
         <section>
           <h3>
             Playbook order{data.title && <span className="bp-h-sub"> {data.title}</span>}
@@ -22,6 +25,7 @@ export function CardsSheet({ artifact, previous, mode }: RendererProps) {
               return (
                 <li key={id}>
                   <span className="bp-id">{id}</span> {names.get(id) ?? ''}
+                  {manualIds.has(id) && <span className="bp-after"> manual check</span>}
                   {deps.length > 0 && <span className="bp-after"> after {deps.join(', ')}</span>}
                 </li>
               );
@@ -32,7 +36,7 @@ export function CardsSheet({ artifact, previous, mode }: RendererProps) {
       {data.cards.map((c) => (
         <CardBlock key={c.id} card={c} version={artifact.version} />
       ))}
-      <ManualChecks title="Manual checks" items={data.manual} />
+      <ManualChecks title="Manual checks" items={data.manual.filter((m) => !orderedIds.has(m.id))} />
     </>
   );
 }

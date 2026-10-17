@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { formatHHMM } from '../../utils/chatTimestamp';
 import { ref, viewAtDesignGate } from '../../test-utils/blueprintFixtures';
 import { holdDraft } from './draft';
-import { defaultShown, resolveShown, reviewFor, sheetTabs, shownStatus, stampFor, versionOptions, writingVersion } from './sheetModel';
+import { defaultShown, resolveShown, reviewFor, reviewingPersona, sheetTabs, shownStatus, stampFor, versionOptions, writingVersion } from './sheetModel';
 
 describe('stampFor', () => {
   const view = viewAtDesignGate();
@@ -66,6 +66,40 @@ describe('shownStatus', () => {
   it('waits on the open question while the asking stage run is current', () => {
     const asking = { ...view, open: { prompt_id: 'Q4', kind: 'question' as const }, current: running('solution_design') };
     expect(shownStatus(asking, 'solution_design', null, true)).toEqual({ text: 'Waiting on Q4', tone: 'waiting' });
+  });
+
+  describe('a failed step', () => {
+    const failedWith = (artifacts: ReturnType<typeof ref>[]) => ({
+      ...view,
+      artifacts,
+      pipeline: view.pipeline.map((s) => (s.stage === 'solution_design' ? { ...s, status: 'failed' as const } : s)),
+    });
+    const review = viewAtDesignGate().artifacts[2].review;
+
+    it('never reads Done for a current version nobody reviewed', () => {
+      const v = failedWith([ref('solution_design', 1, 'current')]);
+      expect(shownStatus(v, 'solution_design', v.artifacts[0], false)).toEqual({ text: 'Review failed', tone: 'bad' });
+    });
+
+    it('reads Review failed for a version left reviewing', () => {
+      const v = failedWith([ref('solution_design', 1, 'reviewing')]);
+      expect(shownStatus(v, 'solution_design', v.artifacts[0], false)).toEqual({ text: 'Review failed', tone: 'bad' });
+    });
+
+    it('reads Failed when a later run failed after a review', () => {
+      const v = failedWith([ref('solution_design', 1, 'current', { review })]);
+      expect(shownStatus(v, 'solution_design', v.artifacts[0], false)).toEqual({ text: 'Failed', tone: 'bad' });
+    });
+
+    it('leaves an older superseded version alone', () => {
+      const v = failedWith([ref('solution_design', 1, 'superseded'), ref('solution_design', 2, 'current')]);
+      expect(shownStatus(v, 'solution_design', v.artifacts[0], false)).toEqual({ text: 'Superseded', tone: 'old' });
+    });
+
+    it('still reads Done on a done step', () => {
+      const v = { ...failedWith([ref('solution_design', 1, 'current')]), pipeline: view.pipeline.map((s) => (s.stage === 'solution_design' ? { ...s, status: 'done' as const } : s)) };
+      expect(shownStatus(v, 'solution_design', v.artifacts[0], false)).toEqual({ text: 'Done', tone: 'ok' });
+    });
   });
 
   it('says approved for a decided gate', () => {
@@ -144,5 +178,24 @@ describe('sheetTabs', () => {
     expect(tabs.map((t) => t.label)).toEqual(['Need', 'Slices', 'Design', 'Grounding', 'Acceptance', 'Cards', 'Readiness', 'Sign-off']);
     expect(tabs.filter((t) => t.enabled).map((t) => t.stage)).toEqual(['intake', 'slicing', 'solution_design']);
     expect(tabs.filter((t) => t.current).map((t) => t.stage)).toEqual(['solution_design']);
+  });
+});
+
+describe('reviewingPersona', () => {
+  const run = (stage: string, kind: 'stage' | 'reviewer' | 'responder') => ({
+    ...viewAtDesignGate(),
+    current: { stage, kind, persona: 'senior_developer', model: 'm', started_at: '2026-10-17T10:00:00Z', turns: 0, tool_calls: 0, tokens: 0 },
+  });
+
+  it('names the reviewer on the stage newest stored version only', () => {
+    const view = run('solution_design', 'reviewer');
+    expect(reviewingPersona(view, 'solution_design', 2)).toBe('senior_developer');
+    expect(reviewingPersona(view, 'solution_design', 1)).toBeNull();
+  });
+
+  it('is null for another stage or a non-reviewer run', () => {
+    expect(reviewingPersona(run('grounding', 'reviewer'), 'solution_design', 2)).toBeNull();
+    expect(reviewingPersona(run('solution_design', 'stage'), 'solution_design', 2)).toBeNull();
+    expect(reviewingPersona(viewAtDesignGate(), 'solution_design', 2)).toBeNull();
   });
 });

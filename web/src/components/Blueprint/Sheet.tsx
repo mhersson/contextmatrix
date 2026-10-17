@@ -7,6 +7,7 @@ import { TitleBlock } from './TitleBlock';
 import type { HeldDraft } from './draft';
 import {
   reviewFor,
+  reviewingPersona,
   sheetTabs,
   shownStatus,
   versionOptions,
@@ -121,6 +122,7 @@ export function Sheet({ chatId, view, draft, shown, onShow, gatePrompt, onReply,
           version={shown.version}
           onPickVersion={(v) => onShow(shown.stage, v)}
           review={reviewFor(view, shown.stage, shown.version)}
+          reviewing={reviewingPersona(view, shown.stage, shown.version)}
           status={shownStatus(view, shown.stage, stored, isWriting)}
           compare={{ available: canCompare, on: compare, onToggle: () => setCompare((c) => !c) }}
         />
