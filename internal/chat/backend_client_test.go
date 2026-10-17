@@ -168,7 +168,7 @@ func TestBackendClient_SendChatMessage_PostsToMessage(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	rc := chat.NewBackendClient(chat.BackendClientConfig{BaseURL: srv.URL, HMACKey: "k"})
-	err := rc.SendChatMessage(context.Background(), "S1", "hello", "msg-1")
+	err := rc.SendChatMessage(context.Background(), protocol.MessagePayload{SessionID: "S1", Content: "hello", MessageID: "msg-1"})
 	require.NoError(t, err)
 	assert.Equal(t, "/message", receivedPath)
 	assert.Equal(t, "S1", receivedBody["session_id"])
@@ -180,7 +180,7 @@ func TestBackendClient_SendChatMessage_WrapsErrBackendUnreachableOnDialFailure(t
 	// Port 1 refuses connections without needing a listener.
 	rc := chat.NewBackendClient(chat.BackendClientConfig{BaseURL: "http://127.0.0.1:1", HMACKey: "k"})
 
-	err := rc.SendChatMessage(context.Background(), "S1", "hi", "msg-1")
+	err := rc.SendChatMessage(context.Background(), protocol.MessagePayload{SessionID: "S1", Content: "hi", MessageID: "msg-1"})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, chat.ErrBackendUnreachable)
 }
@@ -199,7 +199,7 @@ func TestBackendClient_SendChatMessage_DoesNotWrapErrBackendUnreachableOnCallerC
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // pre-canceled: Do fails immediately with context.Canceled before any dial matters
 
-	err := rc.SendChatMessage(ctx, "S1", "hi", "msg-1")
+	err := rc.SendChatMessage(ctx, protocol.MessagePayload{SessionID: "S1", Content: "hi", MessageID: "msg-1"})
 	require.Error(t, err)
 	require.NotErrorIs(t, err, chat.ErrBackendUnreachable)
 	assert.ErrorIs(t, err, context.Canceled)
@@ -227,7 +227,7 @@ func TestBackendClient_SendChatMessage_SessionUnknown(t *testing.T) {
 			t.Cleanup(srv.Close)
 
 			rc := chat.NewBackendClient(chat.BackendClientConfig{BaseURL: srv.URL, HMACKey: "k"})
-			err := rc.SendChatMessage(context.Background(), "S1", "hi", "m1")
+			err := rc.SendChatMessage(context.Background(), protocol.MessagePayload{SessionID: "S1", Content: "hi", MessageID: "m1"})
 			require.Error(t, err)
 			assert.Equal(t, tt.unknown, errors.Is(err, chat.ErrSessionUnknown))
 			assert.NotErrorIs(t, err, chat.ErrBackendUnreachable)

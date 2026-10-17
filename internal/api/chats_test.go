@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -31,6 +32,7 @@ type chatStubBackend struct {
 	sendErrSeq []error
 	mu         sync.Mutex
 	sendCalls  int64
+	sent       []protocol.MessagePayload
 }
 
 func (r *chatStubBackend) StartChat(_ context.Context, opts chat.StartChatOpts) (string, error) {
@@ -38,8 +40,9 @@ func (r *chatStubBackend) StartChat(_ context.Context, opts chat.StartChatOpts) 
 }
 
 func (r *chatStubBackend) EndChat(_ context.Context, _ string) error { return nil }
-func (r *chatStubBackend) SendChatMessage(_ context.Context, _, _, _ string) error {
+func (r *chatStubBackend) SendChatMessage(_ context.Context, msg protocol.MessagePayload) error {
 	r.mu.Lock()
+	r.sent = append(r.sent, msg)
 	idx := r.sendCalls
 	r.sendCalls++
 	seq := r.sendErrSeq
@@ -50,6 +53,13 @@ func (r *chatStubBackend) SendChatMessage(_ context.Context, _, _, _ string) err
 	}
 
 	return r.sendErr
+}
+
+func (r *chatStubBackend) sentPayloads() []protocol.MessagePayload {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return append([]protocol.MessagePayload(nil), r.sent...)
 }
 
 func (r *chatStubBackend) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
@@ -86,6 +96,8 @@ type fixtureOpts struct {
 	liveBackoff time.Duration
 	// onLive, when set, receives the built relay before the mux serves.
 	onLive func(*blueprintLive)
+	// onArchitect receives the architect stub when architectBackendCfg is set.
+	onArchitect func(*chatStubBackend)
 }
 
 // defaultFixtureOpts is the no-backend topology: no chat backend configured
@@ -130,7 +142,13 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 	)
 
 	if opts.architectBackendCfg != nil {
-		archBackend = &chatStubBackend{}
+		stub := &chatStubBackend{}
+		archBackend = stub
+
+		if opts.onArchitect != nil {
+			opts.onArchitect(stub)
+		}
+
 		archDefault = opts.architectBackendCfg.DefaultModel
 	}
 
@@ -1203,4 +1221,74 @@ func TestListChats_FilterByKind(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	require.Len(t, got, 1)
 	assert.Equal(t, chat.KindArchitect, got[0].Kind)
+}
+
+func TestSendMessage_RoundReplyReachesTheArchitect(t *testing.T) {
+	var arch *chatStubBackend
+
+	opts := architectFixtureOpts()
+	opts.onArchitect = func(s *chatStubBackend) { arch = s }
+	mux, mgr := newChatFixture(t, opts)
+
+	bp, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	body := `{"content":"Sent 2 of 3 answers; the rest later.","round":{"prompt_id":"round:1",` +
+		`"answers":[{"number":1,"option":2},{"number":2,"text":"Loki only"}],"decisions":[{"id":"A1","accept":false}]}}`
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats/"+bp.ID+"/messages", body))
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+
+	sent := arch.sentPayloads()
+	require.Len(t, sent, 1)
+	assert.Equal(t, "Sent 2 of 3 answers; the rest later.", sent[0].Content)
+	assert.Equal(t, &protocol.RoundReply{
+		PromptID:  "round:1",
+		Answers:   []protocol.RoundAnswer{{Number: 1, Option: 2}, {Number: 2, Text: "Loki only"}},
+		Decisions: []protocol.AssumptionDecision{{ID: "A1", Accept: false}},
+	}, sent[0].Round)
+}
+
+func TestSendMessage_RoundReplyOnAChatSessionIsRefused(t *testing.T) {
+	mux, mgr, backend := newChatFixtureWithBackend(t, defaultFixtureOpts())
+
+	sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats/"+sess.ID+"/messages",
+		`{"content":"x","round":{"prompt_id":"round:1","answers":[{"number":1,"option":1}]}}`))
+	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	assert.Empty(t, backend.sentPayloads())
+}
+
+func TestSendMessage_MalformedRoundIsRefusedBeforeSending(t *testing.T) {
+	var arch *chatStubBackend
+
+	opts := architectFixtureOpts()
+	opts.onArchitect = func(s *chatStubBackend) { arch = s }
+	mux, mgr := newChatFixture(t, opts)
+
+	bp, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	for name, round := range map[string]string{
+		"no prompt id":         `{"answers":[{"number":1,"option":1}]}`,
+		"zero question":        `{"prompt_id":"round:1","answers":[{"number":0,"option":1}]}`,
+		"negative option":      `{"prompt_id":"round:1","answers":[{"number":1,"option":-1}]}`,
+		"blank own answer":     `{"prompt_id":"round:1","answers":[{"number":1,"text":"  "}]}`,
+		"oversized own answer": `{"prompt_id":"round:1","answers":[{"number":1,"text":"` + strings.Repeat("x", 32*1024+1) + `"}]}`,
+		"decision without id":  `{"prompt_id":"round:1","decisions":[{"accept":true}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats/"+bp.ID+"/messages",
+				`{"content":"x","round":`+round+`}`))
+			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		})
+	}
+
+	assert.Empty(t, arch.sentPayloads())
 }

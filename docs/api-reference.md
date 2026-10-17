@@ -2572,8 +2572,27 @@ session is opened automatically (so 429 `TOO_MANY_CHATS` is possible);
 { "content": "Show me the diff between v1 and v2 of the auth middleware." }
 ```
 
+On an `architect` session the body may also carry a question round's answers
+in `round`; `content` is then the readable summary the transcript keeps, and
+CM forwards both to the architect unchanged:
+
+```json
+{
+  "content": "Sent 2 of 3 answers; the rest later.\nQ1 Deploy tooling: Helm\nQ2 Logging: Loki only",
+  "round": {
+    "prompt_id": "round:1",
+    "answers": [{ "number": 1, "option": 2 }, { "number": 2, "text": "Loki only" }],
+    "decisions": [{ "id": "A1", "accept": false }],
+    "final": false
+  }
+}
+```
+
 **Response:** 202 with `{ "ok": true, "message_id": "<26-char id>" }`.
-400 `BAD_REQUEST` for empty or whitespace `content`; 413 `CONTENT_TOO_LARGE`
+400 `BAD_REQUEST` for empty or whitespace `content`, or a `round` without
+`prompt_id`, with an answer `number` below 1, a negative `option`, an `option`
+of 0 without `text`, a `text` above 32 KiB or a decision without `id`; 400
+`INVALID_CHAT_INPUT` for a `round` on a chat session; 413 `CONTENT_TOO_LARGE`
 above 8 KiB.
 
 ### GET /api/chats/{id}/messages

@@ -9,6 +9,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/require"
 
 	"github.com/mhersson/contextmatrix/internal/chat"
@@ -62,7 +63,9 @@ func (r *chatStubBackend) StartChat(_ context.Context, _ chat.StartChatOpts) (st
 
 func (r *chatStubBackend) EndChat(_ context.Context, _ string) error { return nil }
 
-func (r *chatStubBackend) SendChatMessage(_ context.Context, _, _, _ string) error { return nil }
+func (r *chatStubBackend) SendChatMessage(_ context.Context, _ protocol.MessagePayload) error {
+	return nil
+}
 
 func (r *chatStubBackend) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
 	<-ctx.Done()

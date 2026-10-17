@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	protocol "github.com/mhersson/contextmatrix-protocol"
 
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/config"
@@ -538,9 +541,43 @@ func (h *chatHandlers) clearChat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }
 
+// maxRoundTextBytes caps one typed answer in a round reply; the panel limits
+// the input to 8000 characters, which fits in UTF-8.
+const maxRoundTextBytes = 32 * 1024
+
+// validateRoundReply refuses a reply no architect could store; what the
+// answers mean is the architect's to judge.
+func validateRoundReply(r *protocol.RoundReply) error {
+	if strings.TrimSpace(r.PromptID) == "" {
+		return errors.New("round.prompt_id is required")
+	}
+
+	for _, a := range r.Answers {
+		switch {
+		case a.Number <= 0:
+			return fmt.Errorf("round answer number %d is not a question number", a.Number)
+		case a.Option < 0:
+			return fmt.Errorf("round answer Q%d: option %d is negative", a.Number, a.Option)
+		case a.Option == 0 && strings.TrimSpace(a.Text) == "":
+			return fmt.Errorf("round answer Q%d: an own answer needs text", a.Number)
+		case len(a.Text) > maxRoundTextBytes:
+			return fmt.Errorf("round answer Q%d: text above %d bytes", a.Number, maxRoundTextBytes)
+		}
+	}
+
+	for _, d := range r.Decisions {
+		if strings.TrimSpace(d.ID) == "" {
+			return errors.New("round decision id is required")
+		}
+	}
+
+	return nil
+}
+
 func (h *chatHandlers) sendMessage(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Content string `json:"content"`
+		Content string               `json:"content"`
+		Round   *protocol.RoundReply `json:"round"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -558,11 +595,29 @@ func (h *chatHandlers) sendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if body.Round != nil {
+		if err := validateRoundReply(body.Round); err != nil {
+			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid round reply", err.Error())
+
+			return
+		}
+	}
+
 	if _, ok := h.ownedSession(w, r); !ok {
 		return
 	}
 
-	msgID, err := h.mgr.SendUserMessage(r.Context(), r.PathValue("id"), body.Content)
+	var (
+		msgID string
+		err   error
+	)
+
+	if body.Round != nil {
+		msgID, err = h.mgr.SendRoundReply(r.Context(), r.PathValue("id"), body.Content, *body.Round)
+	} else {
+		msgID, err = h.mgr.SendUserMessage(r.Context(), r.PathValue("id"), body.Content)
+	}
+
 	if err != nil {
 		handleChatError(w, r, err)
 

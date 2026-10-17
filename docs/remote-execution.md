@@ -464,6 +464,15 @@ Recovery releases the hold for its start and wait, so only frames the reopened
 architect delivers during them land first; a later frame, for example one that
 arrives after CM's log stream reconnects, can follow the message. Chat sessions do not take it.
 
+A question round's answers go to `/message` with `round` beside the readable
+summary in `content`: `{"prompt_id": "round:1", "answers": [{"number": 1,
+"option": 2}, {"number": 2, "text": "Loki only"}], "decisions": [{"id": "A1",
+"accept": false}], "final": true}`. `option` is the chosen option's 1-based
+position, or absent with `text` holding the person's own answer. Every reply
+carries all the answers and decisions the panel holds at that moment, stored
+or new, and `final` marks Submit all. Text typed in the round's chat box is
+an ordinary message without `round`.
+
 Recovery: when a `/message` is answered with 404 and the protocol's `not_found`
 code (the architect restarted and no longer holds the session), CM re-sends
 `/chat/start` with the same payload as a cold open, never a resume, then waits
@@ -583,6 +592,19 @@ alone overflows the 32 KiB row cap (a marker whose kind, stage and persona
 alone overflow it is stored as the plain message); a frame that carries both
 `marker` and `prompt` is stored as a marker. On any other session, and in
 task session logs, the field is ignored.
+
+A prompt of kind `round` is a question round: instead of actions it carries
+`round`, with the asking `persona` and `stage`, the `questions` (each with
+`number`, a tab `title`, `text`, `why`, `options` with `title`, `summary`,
+`pros`, `cons` and `sources` of `tag`, `title` and `url`, and the 1-based
+`recommended` option), optional `assumptions` (`id`, `text`), the `answers`
+and assumption `decisions` stored so far, the `chat` thread about the round,
+and the flags `research_off`, `responder` and `closed`. Its id is
+`round:<n>`. The architect republishes the same id whenever the round
+changes; consumers show only the newest frame per id. CM stores a round row
+up to 256 KiB: it cuts `content` and `prompt.text` first, then drops the
+oldest chat messages, and stores a round whose questions alone overflow as
+the plain message.
 
 The backend redacts credential patterns before publishing and sends keepalive
 comments to hold the connection open through proxy idle timeouts.

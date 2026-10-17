@@ -62,6 +62,7 @@ type stubBackend struct {
 
 type sendArg struct {
 	Content, MessageID string
+	Round              *protocol.RoundReply
 }
 
 func (s *stubBackend) StartChat(ctx context.Context, opts chat.StartChatOpts) (string, error) {
@@ -89,11 +90,11 @@ func (s *stubBackend) EndChat(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-func (s *stubBackend) SendChatMessage(ctx context.Context, sessionID, content, messageID string) error {
+func (s *stubBackend) SendChatMessage(ctx context.Context, msg protocol.MessagePayload) error {
 	idx := s.sendCalls.Add(1) - 1
 
 	s.mu.Lock()
-	s.sendArgs = append(s.sendArgs, sendArg{Content: content, MessageID: messageID})
+	s.sendArgs = append(s.sendArgs, sendArg{Content: msg.Content, MessageID: msg.MessageID, Round: msg.Round})
 	seq := s.sendErrSeq
 	s.mu.Unlock()
 
@@ -948,7 +949,9 @@ func (s *slowStartBackend) StartChat(_ context.Context, _ chat.StartChatOpts) (s
 
 func (s *slowStartBackend) EndChat(_ context.Context, _ string) error { return nil }
 
-func (s *slowStartBackend) SendChatMessage(_ context.Context, _, _, _ string) error { return nil }
+func (s *slowStartBackend) SendChatMessage(_ context.Context, _ protocol.MessagePayload) error {
+	return nil
+}
 
 func (s *slowStartBackend) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
 	<-ctx.Done()
@@ -1877,7 +1880,7 @@ func (r *usageStreamingBackend) StartChat(_ context.Context, _ chat.StartChatOpt
 
 func (r *usageStreamingBackend) EndChat(_ context.Context, _ string) error { return nil }
 
-func (r *usageStreamingBackend) SendChatMessage(_ context.Context, _, _, _ string) error {
+func (r *usageStreamingBackend) SendChatMessage(_ context.Context, _ protocol.MessagePayload) error {
 	return nil
 }
 
@@ -2026,7 +2029,9 @@ func (r *countingBackend) StartChat(ctx context.Context, opts chat.StartChatOpts
 
 func (r *countingBackend) EndChat(_ context.Context, _ string) error { return nil }
 
-func (r *countingBackend) SendChatMessage(_ context.Context, _, _, _ string) error { return nil }
+func (r *countingBackend) SendChatMessage(_ context.Context, _ protocol.MessagePayload) error {
+	return nil
+}
 
 func (r *countingBackend) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
 	<-ctx.Done()
@@ -2585,12 +2590,12 @@ type clearGatingBackend struct {
 	release chan struct{}
 }
 
-func (r *clearGatingBackend) SendChatMessage(ctx context.Context, sessionID, content, messageID string) error {
+func (r *clearGatingBackend) SendChatMessage(ctx context.Context, msg protocol.MessagePayload) error {
 	if r.gated.CompareAndSwap(false, true) {
 		<-r.release
 	}
 
-	return r.stubBackend.SendChatMessage(ctx, sessionID, content, messageID)
+	return r.stubBackend.SendChatMessage(ctx, msg)
 }
 
 // TestClearContext_ConcurrentCallsSerialised verifies that singleflight
@@ -3452,7 +3457,7 @@ func (r *twoPhaseUsageBackend) StartChat(_ context.Context, _ chat.StartChatOpts
 
 func (r *twoPhaseUsageBackend) EndChat(_ context.Context, _ string) error { return nil }
 
-func (r *twoPhaseUsageBackend) SendChatMessage(_ context.Context, _, _, _ string) error {
+func (r *twoPhaseUsageBackend) SendChatMessage(_ context.Context, _ protocol.MessagePayload) error {
 	return nil
 }
 
@@ -6022,4 +6027,114 @@ func TestManager_SendUserMessage_ChatConsumerDoesNotWaitOnTheSend(t *testing.T) 
 
 	_, err = mgr.SendUserMessage(ctx, sess.ID, "hello")
 	require.NoError(t, err)
+}
+
+func TestManager_SendRoundReply_ForwardsTheRoundUnchanged(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	bp := openArchitect(t, mgr)
+
+	reply := protocol.RoundReply{
+		PromptID:  "round:1",
+		Answers:   []protocol.RoundAnswer{{Number: 1, Option: 2}, {Number: 2, Text: "Loki only"}},
+		Decisions: []protocol.AssumptionDecision{{ID: "A1", Accept: false}},
+		Final:     true,
+	}
+
+	_, err := mgr.SendRoundReply(context.Background(), bp.ID, "Submitted all 3 answers.", reply)
+	require.NoError(t, err)
+
+	arch.mu.Lock()
+	sent := append([]sendArg(nil), arch.sendArgs...)
+	arch.mu.Unlock()
+
+	require.Len(t, sent, 1)
+	assert.Equal(t, "Submitted all 3 answers.", sent[0].Content)
+	assert.Equal(t, &reply, sent[0].Round)
+
+	msgs, err := mgr.ListMessages(context.Background(), bp.ID, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, chat.RoleUser, msgs[0].Role)
+	assert.Equal(t, "Submitted all 3 answers.", msgs[0].Content, "the transcript keeps the readable summary")
+}
+
+func TestManager_SendRoundReply_RefusesAChatSession(t *testing.T) {
+	mgr, chatStub, _ := newManagerWithArchitectStub(t)
+
+	sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{CreatedBy: "human:web"})
+	require.NoError(t, err)
+
+	_, err = mgr.SendRoundReply(context.Background(), sess.ID, "x", protocol.RoundReply{PromptID: "round:1"})
+	require.ErrorIs(t, err, chat.ErrInvalidSessionInput)
+	assert.Zero(t, chatStub.sendCalls.Load(), "nothing reaches a backend")
+}
+
+func TestManager_SendRoundReply_ResendsTheRoundAfterAnArchitectRestart(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	bp := openArchitect(t, mgr)
+
+	arch.mu.Lock()
+	arch.sendErrSeq = []error{errSessionUnknown(), nil}
+	arch.mu.Unlock()
+
+	reply := protocol.RoundReply{PromptID: "round:2", Answers: []protocol.RoundAnswer{{Number: 4, Option: 1}}}
+
+	_, err := mgr.SendRoundReply(context.Background(), bp.ID, "Sent 1 of 2 answers; the rest later.", reply)
+	require.NoError(t, err)
+
+	arch.mu.Lock()
+	defer arch.mu.Unlock()
+
+	require.Len(t, arch.sendArgs, 2)
+	assert.Equal(t, &reply, arch.sendArgs[1].Round)
+	assert.Equal(t, arch.sendArgs[0].MessageID, arch.sendArgs[1].MessageID)
+}
+
+func bigRound(questions, chatMessages, chatBytes int) *protocol.LogRound {
+	r := &protocol.LogRound{Persona: "system_designer", Stage: "solution_design"}
+	for i := 1; i <= questions; i++ {
+		r.Questions = append(r.Questions, protocol.RoundQuestion{
+			Number: i, Title: fmt.Sprintf("Q%d", i), Text: strings.Repeat("why <would> we 😀 ", 40),
+			Options: []protocol.RoundOption{
+				{Title: "A", Summary: strings.Repeat("a", 300), Pros: []string{strings.Repeat("p", 200)}, Cons: []string{strings.Repeat("c", 200)}},
+				{Title: "B", Summary: strings.Repeat("b", 300)},
+			},
+			Recommended: 1,
+		})
+	}
+
+	for i := range chatMessages {
+		r.Chat = append(r.Chat, protocol.RoundChat{From: "user", Text: fmt.Sprintf("%04d %s", i, strings.Repeat("m", chatBytes))})
+	}
+
+	return r
+}
+
+func TestManager_Consumer_RoundPromptRoundTripsAboveTheRowCap(t *testing.T) {
+	p := &protocol.LogPrompt{ID: "round:1", Kind: "round", Round: bigRound(60, 0, 0)}
+
+	msg := storedArchitectRow(t, chat.LogEntry{Type: "text", Content: "60 questions from the system designer", Prompt: p})
+	assert.Equal(t, chat.EventKindPrompt, msg.Kind, "stays a prompt row")
+	assert.Greater(t, len(msg.Content), 32*1024, "a round may exceed the plain row cap")
+
+	var env promptEnvelope
+	require.NoError(t, json.Unmarshal([]byte(msg.Content), &env), "the JSON is never cut")
+	assert.Equal(t, *p, env.Prompt)
+}
+
+func TestManager_Consumer_OversizedRoundDropsTheOldestChatFirst(t *testing.T) {
+	p := &protocol.LogPrompt{ID: "round:1", Kind: "round", Round: bigRound(20, 60, 8*1024)}
+
+	msg := storedArchitectRow(t, chat.LogEntry{Type: "text", Content: "20 questions", Prompt: p})
+	assert.Equal(t, chat.EventKindPrompt, msg.Kind)
+	assert.LessOrEqual(t, len(msg.Content), 256*1024)
+
+	var env promptEnvelope
+	require.NoError(t, json.Unmarshal([]byte(msg.Content), &env))
+	assert.Equal(t, p.Round.Questions, env.Prompt.Round.Questions, "every question survives")
+
+	kept := env.Prompt.Round.Chat
+	require.NotEmpty(t, kept)
+	assert.Less(t, len(kept), 60)
+	assert.Equal(t, p.Round.Chat[len(p.Round.Chat)-len(kept):], kept, "the newest messages are the ones kept")
 }

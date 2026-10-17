@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/clock"
@@ -31,7 +32,9 @@ func (noopChatBackend) StartChat(_ context.Context, _ chat.StartChatOpts) (strin
 
 func (noopChatBackend) EndChat(_ context.Context, _ string) error { return nil }
 
-func (noopChatBackend) SendChatMessage(_ context.Context, _, _, _ string) error { return nil }
+func (noopChatBackend) SendChatMessage(_ context.Context, _ protocol.MessagePayload) error {
+	return nil
+}
 
 func (noopChatBackend) StreamLogs(_ context.Context, _ string, _ func(chat.LogEntry)) error {
 	return nil

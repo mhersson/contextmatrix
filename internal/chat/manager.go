@@ -65,7 +65,9 @@ const EventKindDivider = "divider"
 type Backend interface {
 	StartChat(ctx context.Context, opts StartChatOpts) (containerID string, err error)
 	EndChat(ctx context.Context, sessionID string) error
-	SendChatMessage(ctx context.Context, sessionID, content, messageID string) error
+	// SendChatMessage delivers one message; msg.Round is set only on a
+	// question round's answers to an architect session.
+	SendChatMessage(ctx context.Context, msg protocol.MessagePayload) error
 	// StreamLogs opens a long-lived SSE subscription to the backend's
 	// /logs?session_id=<id> endpoint and invokes onEntry for each parsed
 	// LogEntry. Returns when ctx is cancelled or the stream closes.
@@ -1240,7 +1242,7 @@ func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
 	}
 
 	clearMsgID := NewID()
-	if err := backend.SendChatMessage(ctx, sessionID, "/clear", clearMsgID); err != nil {
+	if err := backend.SendChatMessage(ctx, protocol.MessagePayload{SessionID: sessionID, Content: "/clear", MessageID: clearMsgID}); err != nil {
 		return fmt.Errorf("chat: ClearContext: /clear: %w: %w", ErrBackendSend, err)
 	}
 
@@ -1892,7 +1894,10 @@ func (m *Manager) AppendMessage(ctx context.Context, sessionID string, role Role
 // Message.Kind on the persisted row. Public callers reach this via
 // AppendMessage (kind="") or ClearContext (kind=EventKindDivider).
 func (m *Manager) appendMessageWithKind(ctx context.Context, sessionID string, role Role, content, kind string) (Message, error) {
-	content = truncateMessageContent(content)
+	// promptContent bounds a prompt row itself, and a round row may exceed maxMessageBytes.
+	if kind != EventKindPrompt {
+		content = truncateMessageContent(content)
+	}
 
 	phase := m.isRehydrationActive(ctx, sessionID)
 
@@ -2403,9 +2408,23 @@ func (m *Manager) clearSendFailures(sessionID string) {
 }
 
 func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string) (string, error) {
+	return m.sendMessage(ctx, sessionID, content, nil)
+}
+
+// SendRoundReply forwards a question round's answers to a blueprint
+// session's architect; content is the readable summary the transcript keeps.
+func (m *Manager) SendRoundReply(ctx context.Context, sessionID, content string, round protocol.RoundReply) (string, error) {
+	return m.sendMessage(ctx, sessionID, content, &round)
+}
+
+func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, round *protocol.RoundReply) (string, error) {
 	sess, err := m.store.GetSession(ctx, sessionID)
 	if err != nil {
 		return "", err
+	}
+
+	if round != nil && sess.Kind != KindArchitect {
+		return "", fmt.Errorf("%w: round replies go to blueprint sessions only", ErrInvalidSessionInput)
 	}
 
 	if err := m.ensureRunningForSend(ctx, sess); err != nil {
@@ -2423,6 +2442,7 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 	}
 
 	msgID := NewID()
+	payload := protocol.MessagePayload{SessionID: sessionID, Content: content, MessageID: msgID, Round: round}
 
 	m.logger.Info("chat: forwarding user message to backend",
 		"session_id", sessionID, "message_id", msgID, "content_len", len(content))
@@ -2461,7 +2481,7 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 	// send disarms only what it armed: an earlier turn may still be running.
 	armed := m.setWorking(sessionID, true)
 
-	err = backend.SendChatMessage(ctx, sessionID, content, msgID)
+	err = backend.SendChatMessage(ctx, payload)
 
 	// A restarted architect no longer holds the session: re-send its start
 	// and the message once, with the same id.
@@ -2488,7 +2508,7 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 			// The architect's replay cache already holds the first send's
 			// whole-second (timestamp, signature) pair despite the 404, so
 			// the re-send must sign in a later second.
-			err = backend.SendChatMessage(ctx, sessionID, content, msgID)
+			err = backend.SendChatMessage(ctx, payload)
 		}
 	}
 
