@@ -27,7 +27,7 @@ function ClampedMarkdownImpl({ source }: ClampedMarkdownProps) {
           <div
             aria-hidden="true"
             className="absolute inset-x-0 bottom-0 h-8 pointer-events-none"
-            style={{ background: 'linear-gradient(transparent, var(--bg2))' }}
+            style={{ background: 'linear-gradient(transparent, var(--chat-assistant-bg))' }}
           />
         )}
       </div>

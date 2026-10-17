@@ -333,6 +333,21 @@
   --purple: #a37acc; /* syntax.constant */
 }
 
+/* Chat bubbles on the --bg-dim transcript - every palette. Light palettes put
+   --bg2 and --bg-blue within a few shades of --bg-dim, so light mode lifts the
+   assistant bubble to --bg0 and rings both: assistant with an --fg tint, user
+   with a --blue tint over its --bg-blue fill. */
+:root {
+  --chat-assistant-bg: var(--bg2);
+  --chat-assistant-ring: transparent;
+  --chat-user-ring: transparent;
+}
+[data-theme="light"] {
+  --chat-assistant-bg: var(--bg0);
+  --chat-assistant-ring: color-mix(in oklab, var(--fg) 20%, var(--bg0));
+  --chat-user-ring: color-mix(in oklab, var(--blue) 35%, var(--bg-blue));
+}
+
 @media (max-width: 1280px) {
   :root {
     --col-width: 240px;
@@ -434,7 +449,17 @@ textarea {
   animation: pulse-border 2s ease-in-out infinite;
 }
 
-/* Scrollbar styling */
+/* Scrollbar styling. Firefox and Chromium 121+ use the standard properties
+   and skip the ::-webkit-scrollbar rules, which remain for engines without
+   them. scrollbar-color inherits from :root; scrollbar-width does not. */
+:root {
+  scrollbar-color: var(--bg3) transparent;
+}
+
+* {
+  scrollbar-width: thin;
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -2233,8 +2258,6 @@ textarea {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  scrollbar-width: thin;
-  scrollbar-color: var(--bg3) transparent;
 }
 .apd-panel-empty {
   display: flex;
@@ -4416,7 +4439,6 @@ textarea {
   grid-auto-columns: minmax(280px, 1fr);
   gap: 12px;
   overflow-x: auto;
-  scrollbar-width: thin;
   padding-bottom: 2px;
 }
 .spotlight-strip[data-empty="true"] {
@@ -4497,7 +4519,6 @@ textarea {
 .spotlight-card__peek {
   max-height: 168px;
   overflow-y: auto;
-  scrollbar-width: thin;
 }
 .spotlight-card::before {
   content: "";
