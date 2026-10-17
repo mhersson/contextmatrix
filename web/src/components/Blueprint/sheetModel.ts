@@ -1,5 +1,6 @@
 import type { BlueprintArtifactRef, BlueprintArtifactReview, BlueprintView } from '../../types';
-import { artifactsFor, currentStep, decidedByText, latestArtifact, stageText } from './stages';
+import type { HeldDraft } from './draft';
+import { artifactsFor, currentStep, decidedByText, finished, latestArtifact, stageText } from './stages';
 
 export interface StampText {
   tone: 'approved' | 'rejected' | 'superseded' | 'folded';
@@ -96,4 +97,70 @@ export function reviewFor(view: BlueprintView, stage: string, version: number): 
     .filter((r) => r.version <= version && r.review)
     .pop();
   return reviewed?.review ? { review: reviewed.review, version: reviewed.version } : null;
+}
+
+export interface Shown {
+  stage: string;
+  version: number;
+}
+
+/** The version a run is writing for a stage; null when nothing is being written there. */
+export function writingVersion(view: BlueprintView, draft: HeldDraft | null, stage: string): number | null {
+  const stored = artifactsFor(view, stage);
+  if (draft && draft.stage === stage && !stored.some((r) => r.version === draft.version)) return draft.version;
+  const run = view.current;
+  if (run?.kind === 'stage' && run.stage === stage) return (stored[stored.length - 1]?.version ?? 0) + 1;
+  return null;
+}
+
+export interface SheetTab {
+  stage: string;
+  label: string;
+  enabled: boolean;
+  current: boolean;
+}
+
+export function sheetTabs(view: BlueprintView, draft: HeldDraft | null): SheetTab[] {
+  const current = finished(view) ? null : currentStep(view)?.stage;
+  return view.pipeline
+    .filter((s) => s.status !== 'skipped')
+    .map((s) => ({
+      stage: s.stage,
+      label: stageText(s.stage).tab,
+      enabled: view.artifacts.some((a) => a.stage === s.stage) || writingVersion(view, draft, s.stage) !== null,
+      current: s.stage === current,
+    }));
+}
+
+/** The current stage's version being written or its newest, else the last stage with an artifact. */
+export function defaultShown(view: BlueprintView, draft: HeldDraft | null): Shown | null {
+  const step = currentStep(view);
+  if (step) {
+    const writing = writingVersion(view, draft, step.stage);
+    if (writing !== null) return { stage: step.stage, version: writing };
+    const latest = latestArtifact(view, step.stage);
+    if (latest) return { stage: step.stage, version: latest.version };
+  }
+  for (const s of [...view.pipeline].reverse()) {
+    const latest = latestArtifact(view, s.stage);
+    if (latest) return { stage: s.stage, version: latest.version };
+  }
+  return null;
+}
+
+export function resolveShown(
+  view: BlueprintView,
+  draft: HeldDraft | null,
+  pin: { stage: string; version: number | null } | null,
+): Shown | null {
+  if (pin) {
+    const versions = artifactsFor(view, pin.stage).map((r) => r.version);
+    const writing = writingVersion(view, draft, pin.stage);
+    if (pin.version !== null && (versions.includes(pin.version) || pin.version === writing)) {
+      return { stage: pin.stage, version: pin.version };
+    }
+    if (writing !== null) return { stage: pin.stage, version: writing };
+    if (versions.length > 0) return { stage: pin.stage, version: versions[versions.length - 1] };
+  }
+  return defaultShown(view, draft);
 }
