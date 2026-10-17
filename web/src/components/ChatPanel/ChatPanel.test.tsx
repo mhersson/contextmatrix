@@ -636,6 +636,19 @@ describe('ChatPanel question rounds', () => {
     expect(within(summaries[0]).getByText(/Loki only/)).toBeInTheDocument();
   });
 
+  it('summarises decided assumptions by their text', () => {
+    const closed = rawRound({
+      ...allAnswered,
+      assumptions: [{ id: 'A1', text: 'One cluster per environment.' }],
+      decisions: [{ id: 'A1', accept: true }],
+      closed: true,
+    });
+    render(<ChatPanel logs={[roundEntry(1, 'round:1', closed)]} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);
+    const summary = screen.getByRole('group', { name: /Answered questions/ });
+    expect(within(summary).getByText(/One cluster per environment\./)).toBeInTheDocument();
+    expect(within(summary).queryByText(/\bA1\b/)).not.toBeInTheDocument();
+  });
+
   it('summarises a round a later round replaced and docks only the later one', () => {
     const logs = [roundEntry(1, 'round:1', rawRound()), roundEntry(2, 'round:2', rawRound())];
     render(<ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);

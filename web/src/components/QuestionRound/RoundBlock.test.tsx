@@ -220,16 +220,22 @@ describe('RoundBlock sending', () => {
     fireEvent.click(tab(/Submit/));
     expect(screen.getByRole('button', { name: 'Submit all 5' })).toBeDisabled();
     fireEvent.click(tab(/Assumptions/));
-    const a1 = screen.getByRole('group', { name: 'A1' });
-    const a2 = screen.getByRole('group', { name: 'A2' });
+    const a1 = screen.getByRole('group', { name: 'Assumption 1' });
+    const a2 = screen.getByRole('group', { name: 'Assumption 2' });
     fireEvent.click(within(a1).getByRole('button', { name: 'Accept' }));
     fireEvent.click(within(a2).getByRole('button', { name: 'Turn into a question' }));
     expect(within(a2).getByRole('button', { name: 'Turn into a question' })).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(tab(/Submit/));
+    const rows = screen.getAllByRole('row').map((r) => Array.from((r as HTMLTableRowElement).cells).map((c) => c.textContent));
+    expect(rows.slice(-2)).toEqual([
+      ['Assumption 1', 'Accepted'],
+      ['Assumption 2', 'Turn into a question'],
+    ]);
     fireEvent.click(screen.getByRole('button', { name: 'Submit all 5' }));
     await waitFor(() => expect(onSendRound).toHaveBeenCalledTimes(1));
     const [, reply] = onSendRound.mock.calls[0] as unknown as [string, RoundReply];
     expect(reply.decisions).toEqual([{ id: 'A1', accept: true }, { id: 'A2', accept: false }]);
+    expect(screen.queryByText(/\bA[12]\b/)).not.toBeInTheDocument();
   });
 
   it('chats about the round through the plain message path, on every tab', async () => {

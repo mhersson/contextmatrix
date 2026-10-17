@@ -112,6 +112,9 @@ export function replySummary(round: Round, reply: RoundReply): string {
     const q = round.questions.find((x) => x.number === a.number);
     if (q) out.push(`Q${q.number} ${q.title}: ${clipChars(answerLabel(q, a), SUMMARY_ANSWER_CHARS)}`);
   }
-  for (const d of reply.decisions ?? []) out.push(`${d.id}: ${d.accept ? 'accepted' : 'turn into a question'}`);
+  for (const d of reply.decisions ?? []) {
+    const a = round.assumptions.find((x) => x.id === d.id);
+    if (a) out.push(`${d.accept ? 'Accepted' : 'Turn into a question'}: ${clipChars(a.text, SUMMARY_ANSWER_CHARS)}`);
+  }
   return clipBytes(out.join('\n'), SUMMARY_MAX_BYTES);
 }

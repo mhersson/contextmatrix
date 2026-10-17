@@ -33,11 +33,11 @@ export function SubmitPane({ round, draft, mode, phase, error, onSend }: SubmitP
               </tr>
             );
           })}
-          {round.assumptions.map((a) => {
+          {round.assumptions.map((a, i) => {
             const d = effectiveDecision(round, draft, a.id);
             return (
               <tr key={a.id}>
-                <td>{a.id}</td>
+                <td>Assumption {i + 1}</td>
                 {d === null ? <td className="missing">not decided</td> : <td>{d ? 'Accepted' : 'Turn into a question'}</td>}
               </tr>
             );

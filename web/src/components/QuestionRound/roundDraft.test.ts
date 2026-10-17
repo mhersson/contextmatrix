@@ -85,3 +85,12 @@ describe('round answers', () => {
     expect(new TextEncoder().encode(summary).length).toBeLessThanOrEqual(SUMMARY_MAX_BYTES);
   });
 });
+
+describe('reply summary', () => {
+  it('names an assumption by its text in the summary, never by its round-local id', () => {
+    const withA = parseRound(rawRound({ assumptions: [{ id: 'A1', text: 'One cluster per environment.' }] }))!;
+    const summary = replySummary(withA, buildReply('round:1', withA, draft({}, { A1: false }), false));
+    expect(summary).toContain('One cluster per environment.');
+    expect(summary).not.toMatch(/\bA1\b/);
+  });
+});

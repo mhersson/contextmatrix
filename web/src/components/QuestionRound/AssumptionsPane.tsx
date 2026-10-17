@@ -14,12 +14,12 @@ export function AssumptionsPane({ round, draft, mode, onDecide }: AssumptionsPan
     <>
       <p className="qb-q">Assumptions</p>
       <p className="qb-why">Accept each one, or turn it into a question for the next round.</p>
-      {round.assumptions.map((a) => {
+      {round.assumptions.map((a, i) => {
         const d = effectiveDecision(round, draft, a.id);
         return (
-          <div key={a.id} className="qb-opt qb-assume" role="group" aria-label={a.id}>
+          <div key={a.id} className="qb-opt qb-assume" role="group" aria-label={`Assumption ${i + 1}`}>
             <div className="qb-opt-top">
-              <span className="qb-n">{a.id}</span>
+              <span className="qb-n">{i + 1}</span>
               <span className="qb-sum">{a.text}</span>
             </div>
             <div className="qb-assume-actions">

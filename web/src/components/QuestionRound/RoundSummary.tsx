@@ -27,12 +27,12 @@ export function RoundSummary({ round, superseded }: { round: Round; superseded: 
               </li>
             );
           })}
-          {round.assumptions.map((as) => {
+          {round.assumptions.map((as, i) => {
             const d = storedDecision(round, as.id);
             return (
               <li key={as.id}>
                 <span className="qb-summary-q">
-                  {as.id}. {as.text}
+                  Assumption {i + 1}. {as.text}
                 </span>
                 <span aria-hidden="true"> → </span>
                 <span className="sr-only">: </span>
