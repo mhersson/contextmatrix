@@ -187,7 +187,9 @@ board. Promote-to-autonomous lives in that tab.
   and Enter moves to the next tab. Picks not yet sent live only in the pane
   and are lost when it closes or the page reloads. The architect republishes
   a round whenever it changes, and only the newest version shows. A closed
-  round collapses into a list of each question and its answer; a round the
+  round (every question answered and the stage resumed, or the pipeline went
+  past it) collapses into a list of each question and its answer, with any
+  question left unanswered marked "not answered"; a round the
   auto responder answers shows read-only in the transcript and the message
   box stays. While the session is not live the round stays docked with its
   controls disabled.
@@ -221,9 +223,9 @@ board. Promote-to-autonomous lives in that tab.
     strip that opens the sheet over the transcript; on a phone a Sheet
     button in the pane header does. A new artifact version opens a closed
     sheet, except over the transcript while a question or a question round
-    waits, when the strip
-    or the button shows a dot. Under 560px the current-stage label moves into
-    the bar's tooltip. Sheet width and open state are not stored.
+    waits, when the strip or the button shows a dot. Under 560px the
+    current-stage label moves into the bar's tooltip. Sheet width and open
+    state are not stored.
   - The transcript shows a divider at each stage start and a sheet reference
     for each stored artifact; clicking a reference opens that version.
   - The pane loads the architect's view, then follows it live on the

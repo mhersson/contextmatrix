@@ -5,8 +5,9 @@ import { storedAnswer, storedDecision } from './roundDraft';
 
 /**
  * history: an older frame of a round, never shown; open or paused: the round waits on the operator and docks in place
- * of the composer; responder: the auto responder answers it, shown read-only; closed: answered and resumed, a summary;
- * superseded: a later round replaced it before it closed.
+ * of the composer; responder: the auto responder answers it, shown read-only; closed: the round takes no more answers
+ * (all answered and the stage resumed, or the pipeline went past it), a summary; superseded: a later round replaced it
+ * before it closed.
  */
 export type RoundStatus = 'history' | 'open' | 'paused' | 'responder' | 'closed' | 'superseded';
 

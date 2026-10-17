@@ -302,5 +302,7 @@ describe('BlueprintPane on a phone', () => {
       { logs: [roundEntry(1, 'round:1', rawRound({ answers: [{ number: 1, option: 1 }] }))] },
     );
     expect(screen.getAllByText('Waiting on 2 questions').length).toBeGreaterThan(0);
+    const title = within(screen.getByRole('group', { name: 'Title block' }));
+    expect(title.getByText('Waiting on 2 questions')).toHaveAttribute('title', 'Waiting on 2 questions');
   });
 });

@@ -636,6 +636,19 @@ describe('ChatPanel question rounds', () => {
     expect(within(summaries[0]).getByText(/Loki only/)).toBeInTheDocument();
   });
 
+  it('collapses a round closed with questions unanswered and marks them not answered', () => {
+    const logs = [roundEntry(1, 'round:1', rawRound()), roundEntry(2, 'round:1', rawRound({ answers: [{ number: 1, option: 1 }], closed: true }))];
+    render(<ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);
+    expect(screen.queryByRole('tablist', { name: 'Questions' })).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Message' })).toBeInTheDocument();
+    const summary = screen.getByRole('group', { name: /Answered questions from the system designer/ });
+    const items = within(summary).getAllByRole('listitem');
+    expect(items).toHaveLength(3);
+    expect(within(items[0]).queryByText(/not answered/)).not.toBeInTheDocument();
+    expect(within(items[1]).getByText(/not answered/)).toBeInTheDocument();
+    expect(within(items[2]).getByText(/not answered/)).toBeInTheDocument();
+  });
+
   it('summarises decided assumptions by their text', () => {
     const closed = rawRound({
       ...allAnswered,

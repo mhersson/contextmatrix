@@ -100,7 +100,7 @@ export function TitleBlock({ stage, persona, options, version, onPickVersion, re
       </div>
       <div>
         <small>Status</small>
-        <span className={`bp-tb-value bp-st--${status.tone}`}>{status.text}</span>
+        <span className={`bp-tb-value bp-st--${status.tone}`} title={status.text}>{status.text}</span>
       </div>
     </div>
   );
