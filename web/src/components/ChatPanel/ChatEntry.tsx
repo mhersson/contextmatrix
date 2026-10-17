@@ -19,6 +19,9 @@ import { parsePromptEntry, type PromptState } from './prompts';
 import { parseMarkerEntry } from '../Blueprint/markers';
 import { SheetReference } from '../Blueprint/SheetReference';
 import { StageDivider } from '../Blueprint/StageDivider';
+import { RoundBlock } from '../QuestionRound/RoundBlock';
+import { RoundSummary } from '../QuestionRound/RoundSummary';
+import type { RoundStatus } from '../QuestionRound/rounds';
 
 interface ChatEntryProps {
   entry: LogEntry;
@@ -32,9 +35,11 @@ interface ChatEntryProps {
   promptAnswer?: string | null;
   /** Sends a reply; set only on the open prompt's row. */
   onReply?: (text: string) => Promise<void>;
+  /** State of a question round row; undefined on every other row. */
+  roundStatus?: RoundStatus;
 }
 
-function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswer, onReply }: ChatEntryProps) {
+function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswer, onReply, roundStatus }: ChatEntryProps) {
   const stamp = stampHHMM !== undefined && stampTitle !== undefined
     ? { hhmm: stampHHMM, title: stampTitle }
     : null;
@@ -59,6 +64,17 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
       >
         {marker.text}
       </div>
+    );
+  }
+
+  // ChatPanel keeps older frames and the docked round out of the transcript, so a round row here is closed,
+  // superseded or the responder's.
+  const round = prompt?.prompt.round;
+  if (round && prompt?.prompt.id) {
+    return roundStatus === 'responder' ? (
+      <RoundBlock promptId={prompt.prompt.id} round={round} mode="readonly" inline />
+    ) : (
+      <RoundSummary round={round} superseded={roundStatus === 'superseded'} />
     );
   }
 

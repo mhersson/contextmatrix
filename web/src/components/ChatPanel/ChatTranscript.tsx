@@ -4,6 +4,7 @@ import type { WorkingState } from '../../hooks/useWorkingState';
 import { useRevealWindow } from '../../hooks/useRevealWindow';
 import { logRowKey } from '../../utils/logRowKey';
 import { ChatEntry } from './ChatEntry';
+import type { RoundStatus } from '../QuestionRound/rounds';
 import type { PromptState } from './prompts';
 import { WorkingIndicator } from './WorkingIndicator';
 import { decorateLogs } from './decorateLogs';
@@ -26,6 +27,8 @@ interface ChatTranscriptProps {
   onLoadOlder?: () => Promise<void> | void;
   /** Architect prompt states keyed by row; see derivePromptStates. */
   promptStates?: ReadonlyMap<LogEntry, PromptState>;
+  /** Question round row states keyed by row; see deriveRounds. */
+  roundStates?: ReadonlyMap<LogEntry, RoundStatus>;
   /** Sends a prompt reply; handed only to the open prompt's row. */
   onReply?: (text: string) => Promise<void>;
 }
@@ -56,6 +59,7 @@ export function ChatTranscript({
   loadingOlder = false,
   onLoadOlder,
   promptStates,
+  roundStates,
   onReply,
 }: ChatTranscriptProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -289,6 +293,7 @@ export function ChatTranscript({
                     entry={d.entry}
                     stampHHMM={d.showStamp ? d.hhmm : undefined}
                     stampTitle={d.showStamp ? d.title : undefined}
+                    roundStatus={roundStates?.get(d.entry)}
                     promptStatus={ps?.status}
                     promptAnswer={ps?.status === 'answered' ? ps.label : undefined}
                     onReply={ps?.status === 'open' ? onReply : undefined}

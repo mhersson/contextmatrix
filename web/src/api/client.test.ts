@@ -440,3 +440,20 @@ describe('api blueprint reads', () => {
     await expect(api.getBlueprintView('S1')).rejects.toMatchObject({ code: 'BLUEPRINT_NOT_FOUND' });
   });
 });
+
+describe('api.sendChatMessage', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('posts the round beside the content when given, and only the content otherwise', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => makeResponse({ ok: true, message_id: 'm1' }, 202));
+    await api.sendChatMessage('S1', 'hi');
+    await api.sendChatMessage('S1', 'Sent 1 of 3 answers', { prompt_id: 'round:1', answers: [{ number: 1, option: 1 }] });
+    const bodies = fetchSpy.mock.calls.map(([, init]) => JSON.parse((init as RequestInit).body as string));
+    expect(bodies).toEqual([
+      { content: 'hi' },
+      { content: 'Sent 1 of 3 answers', round: { prompt_id: 'round:1', answers: [{ number: 1, option: 1 }] } },
+    ]);
+  });
+});

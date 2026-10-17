@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { LogEntry } from '../../types';
+import type { LogEntry, RoundReply } from '../../types';
 import { useChatFilterPrefs } from '../../hooks/useChatFilterPrefs';
 import { ChatComposer } from './ChatComposer';
 import { ChatTranscript } from './ChatTranscript';
 import { filterLogEntries } from './decorateLogs';
 import { derivePromptStates } from './prompts';
 import type { WorkingState } from '../../hooks/useWorkingState';
+import { RoundBlock } from '../QuestionRound/RoundBlock';
+import { deriveRounds, type RoundStatus } from '../QuestionRound/rounds';
+
+// Older frames of a round never show; the waiting round docks below the transcript instead of in it.
+const OUT_OF_TRANSCRIPT: ReadonlySet<RoundStatus | undefined> = new Set<RoundStatus | undefined>(['history', 'open', 'paused']);
 
 export interface ChatPanelProps {
   logs: readonly LogEntry[];
@@ -49,6 +54,11 @@ export interface ChatPanelProps {
    * sends and its stream is connected. Card-bound chat passes nothing.
    */
   promptsLive?: boolean;
+  /**
+   * Sends a question round's answers as the readable summary plus the structured reply. Set on architect sessions;
+   * without it a waiting round still docks, read-only.
+   */
+  onSendRound?: (content: string, reply: RoundReply) => Promise<void>;
 }
 
 export function ChatPanel({
@@ -63,6 +73,7 @@ export function ChatPanel({
   loadingOlder,
   onLoadOlder,
   promptsLive = false,
+  onSendRound,
 }: ChatPanelProps) {
   const { prefs, setPref } = useChatFilterPrefs();
   const { showText, showToolCalls, showThinking } = prefs;
@@ -78,6 +89,13 @@ export function ChatPanel({
   // a prompt even when the reply's row is filtered or not yet revealed.
   const promptStates = useMemo(() => derivePromptStates(logs, promptsLive), [logs, promptsLive]);
 
+  const rounds = useMemo(() => deriveRounds(logs, promptsLive), [logs, promptsLive]);
+  const transcriptLogs = useMemo(
+    () => filteredLogs.filter((e) => !OUT_OF_TRANSCRIPT.has(rounds.byEntry.get(e))),
+    [filteredLogs, rounds],
+  );
+  const docked = rounds.pending;
+
   // Ref-stable, so memoized rows never re-render on the parent's per-render
   // onSend. A sent reply returns focus to the composer, as a send does.
   const onSendRef = useRef(onSend);
@@ -88,6 +106,10 @@ export function ChatPanel({
   const sendReply = useCallback(async (text: string) => {
     await onSendRef.current(text);
     setRefocus((n) => n + 1);
+  }, []);
+
+  const sendChat = useCallback(async (text: string) => {
+    await onSendRef.current(text);
   }, []);
 
   return (
@@ -121,7 +143,8 @@ export function ChatPanel({
       </div>
 
       <ChatTranscript
-        filteredLogs={filteredLogs}
+        filteredLogs={transcriptLogs}
+        roundStates={rounds.byEntry}
         working={working}
         hasMoreHistory={hasMoreHistory}
         loadingOlder={loadingOlder}
@@ -130,6 +153,17 @@ export function ChatPanel({
         onReply={sendReply}
       />
 
+      {docked && (
+        <RoundBlock
+          key={docked.id}
+          promptId={docked.id}
+          round={docked.round}
+          mode={onSendRound && docked.status === 'open' ? 'open' : 'paused'}
+          onSendRound={onSendRound}
+          onSendChat={sendChat}
+          focusKey={focusKey}
+        />
+      )}
       {readOnlyMessage ? (
         <div
           className="px-4 py-2 text-xs font-mono italic text-center border-t border-[var(--bg3)]"
@@ -138,7 +172,7 @@ export function ChatPanel({
         >
           {readOnlyMessage}
         </div>
-      ) : (
+      ) : docked ? null : (
         <ChatComposer
           onSend={onSend}
           sendDisabled={sendDisabled}

@@ -154,7 +154,14 @@ interactions.
   sends the action's reply as an ordinary user message. A blueprint pane's
   gate bar repeats the open gate prompt's `PromptActions`, matched on
   `view.open.prompt_id`, with the same reply path. A closed non-gate
-  prompt shows its options as a static list above the summary. Whether a
+  prompt shows its options as a static list above the summary.
+  A prompt of kind `"round"` is a question round instead: `deriveRounds`
+  (`QuestionRound/rounds.ts`) keeps only the newest frame per prompt id, the
+  waiting round docks as `RoundBlock` in place of `ChatComposer`, a closed or
+  superseded one renders as `RoundSummary`, and a responder round renders
+  read-only inline. Its answers go as a structured `round` on
+  `POST /api/chats/{id}/messages` (`onSendRound`); text typed in its chat box
+  is an ordinary message. Whether a
   prompt is open is derived in the browser (`derivePromptStates`), never
   stored. Agent and chat backends never emit a prompt: `AskUserQuestion`
   stays denied at the MCP gate, and there is no `user_question` log type or

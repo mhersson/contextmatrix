@@ -8015,3 +8015,35 @@ button.bp-seg-hit {
   resize: none;
   font-size: 13px;
 }
+
+/* A closed question round in the transcript; the question bubble's tint, bar and ring. */
+.qb-summary {
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--prompt-question-bg);
+  box-shadow:
+    inset 5px 0 0 0 var(--prompt-question-accent),
+    inset 0 0 0 1px var(--prompt-question-ring);
+  color: var(--fg);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.qb-summary-head {
+  margin: 0 0 4px;
+}
+.qb-summary-head b {
+  color: var(--prompt-question-accent);
+}
+.qb-summary ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.qb-summary li {
+  margin: 2px 0;
+}
+/* --fg on the wash, as closed prompts do: no softer colour keeps 4.5:1 on it. */
+.qb-summary .missing {
+  font-style: italic;
+}

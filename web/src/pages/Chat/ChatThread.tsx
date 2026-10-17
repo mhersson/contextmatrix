@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, isAPIError } from '../../api/client';
-import type { ChatSession } from '../../types';
+import type { ChatSession, RoundReply } from '../../types';
 import { ChatPanel } from '../../components/ChatPanel';
 import { BlueprintSession } from '../../components/Blueprint/BlueprintSession';
 import { useChatStream } from '../../hooks/useChatStream';
@@ -225,6 +225,17 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
     }
   };
 
+  const handleSendRound = async (content: string, reply: RoundReply) => {
+    try {
+      await api.sendChatMessage(sessionID, content, reply);
+      setUserHasSent(true);
+      armOptimistic();
+    } catch (e) {
+      const msg = isAPIError(e) ? e.error : 'Failed to send answers';
+      throw new Error(msg, { cause: e });
+    }
+  };
+
   const isEnding = view.status === 'ending';
   const isCold = view.status === 'cold';
 
@@ -243,6 +254,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
     <ChatPanel
       logs={logs}
       onSend={handleSend}
+      onSendRound={view.kind === 'architect' ? handleSendRound : undefined}
       sendDisabled={sendDisabled}
       promptsLive={connected && !sendDisabled}
       readOnlyMessage={readOnlyMessage}

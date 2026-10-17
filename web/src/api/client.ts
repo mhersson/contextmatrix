@@ -1,4 +1,5 @@
 import type {
+  RoundReply,
   AppConfig,
   JiraEpicPreview,
   JiraImportRequest,
@@ -587,10 +588,10 @@ class APIClient {
     });
   }
 
-  async sendChatMessage(id: string, content: string): Promise<{ ok: boolean; message_id: string }> {
+  async sendChatMessage(id: string, content: string, round?: RoundReply): Promise<{ ok: boolean; message_id: string }> {
     return this.request<{ ok: boolean; message_id: string }>(`/chats/${encodeURIComponent(id)}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ content }),
+      body: JSON.stringify(round ? { content, round } : { content }),
     });
   }
 

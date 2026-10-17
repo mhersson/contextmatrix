@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
-import { render, screen, fireEvent, renderHook, act, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, renderHook, act, waitFor, within } from '@testing-library/react';
 import { ChatPanel } from './ChatPanel';
 import { useWorkerLogs } from '../../hooks/useWorkerLogs';
 import { formatHHMM, formatTitle } from '../../utils/chatTimestamp';
 import type { LogEntry } from '../../types';
+import { rawRound, roundEntry } from '../../test-utils/roundFixtures';
 
 // Local formatter matching the production instance - locale pinned to 'en-GB'
 // so HH:MM output is deterministic regardless of the test environment's locale.
@@ -603,5 +604,83 @@ describe('ChatPanel architect prompts', () => {
 
     expect(await screen.findByText('Sign off v2?')).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Reply options' })).toBeInTheDocument();
+  });
+});
+
+describe('ChatPanel question rounds', () => {
+  const onSend = vi.fn(async () => {});
+  const onSendRound = vi.fn(async () => {});
+  beforeEach(() => {
+    onSend.mockClear();
+    onSendRound.mockClear();
+  });
+
+  const allAnswered = { answers: [{ number: 1, option: 1 }, { number: 2, text: 'Loki only' }, { number: 3, option: 1 }] };
+
+  it('docks the waiting round in place of the composer and draws only its newest frame', () => {
+    const logs = [roundEntry(1, 'round:1', rawRound()), roundEntry(2, 'round:1', rawRound({ answers: [{ number: 1, option: 1 }] }))];
+    render(<ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);
+    expect(screen.queryByRole('textbox', { name: 'Message' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('region', { name: /3 questions from the system designer/ })).toHaveLength(1);
+    expect(screen.getByRole('tab', { name: /Deploy tooling/ })).toHaveClass('done');
+  });
+
+  it('collapses a closed round into its answers and brings the composer back', () => {
+    const logs = [roundEntry(1, 'round:1', rawRound()), roundEntry(2, 'round:1', rawRound({ ...allAnswered, closed: true }))];
+    render(<ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);
+    expect(screen.getByRole('textbox', { name: 'Message' })).toBeInTheDocument();
+    expect(screen.queryByRole('tablist', { name: 'Questions' })).not.toBeInTheDocument();
+    const summaries = screen.getAllByRole('group', { name: /Answered questions from the system designer/ });
+    expect(summaries).toHaveLength(1);
+    expect(within(summaries[0]).getAllByRole('listitem')).toHaveLength(3);
+    expect(within(summaries[0]).getByText(/Loki only/)).toBeInTheDocument();
+  });
+
+  it('summarises a round a later round replaced and docks only the later one', () => {
+    const logs = [roundEntry(1, 'round:1', rawRound()), roundEntry(2, 'round:2', rawRound())];
+    render(<ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);
+    expect(screen.getAllByRole('group', { name: /Answered questions/ })).toHaveLength(1);
+    expect(screen.getAllByRole('region', { name: /3 questions from/ })).toHaveLength(1);
+  });
+
+  it('keeps an open round docked but unanswerable while the session is not live', () => {
+    render(
+      <ChatPanel
+        logs={[roundEntry(1, 'round:1', rawRound())]}
+        onSend={onSend}
+        onSendRound={onSendRound}
+        sendDisabled
+        promptsLive={false}
+        readOnlyMessage="Waiting for worker…"
+      />,
+    );
+    expect(screen.getByText('Waiting for worker…')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /Your own answer to Q1/ })).toBeDisabled();
+    expect(screen.queryByRole('textbox', { name: 'Message' })).not.toBeInTheDocument();
+  });
+
+  it('sends the answers through onSendRound and the round chat through onSend', async () => {
+    const logs = [roundEntry(1, 'round:1', rawRound({ answers: [{ number: 1, option: 1 }, { number: 2, option: 1 }] }))];
+    render(<ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);
+    fireEvent.click(screen.getByRole('tab', { name: /Postgres/ }));
+    fireEvent.click(screen.getByRole('button', { name: /CloudNativePG/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /Submit/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit all 3' }));
+    await waitFor(() =>
+      expect(onSendRound).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ prompt_id: 'round:1', final: true })),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Chat about these questions/ }));
+    const box = screen.getByRole('textbox', { name: 'Message about these questions' });
+    fireEvent.change(box, { target: { value: 'export' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('export'));
+  });
+
+  it('shows a responder round read-only in the transcript and keeps the composer', () => {
+    const logs = [roundEntry(1, 'round:1', rawRound({ responder: true, answers: [{ number: 1, option: 1 }] }))];
+    render(<ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);
+    expect(screen.getByRole('textbox', { name: 'Message' })).toBeInTheDocument();
+    const block = screen.getByRole('region', { name: /3 questions from the system designer/ });
+    expect(within(block).queryByRole('tab', { name: /Submit/ })).not.toBeInTheDocument();
   });
 });

@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { api } from '../../api/client';
 import { viewAtDesignGate } from '../../test-utils/blueprintFixtures';
 import type { ChatSession } from '../../types';
+import { rawRound, roundEntry } from '../../test-utils/roundFixtures';
 import { ChatThread } from './ChatThread';
 
 vi.mock('../../api/client', () => ({
@@ -88,5 +89,26 @@ describe('ChatThread on an architect session', () => {
     vi.useRealTimers();
     act(() => MockEventSource.instances[1].onopen?.());
     await waitFor(() => expect(api.getBlueprintView).toHaveBeenCalledTimes(2));
+  });
+
+  it('sends a question round as a structured reply', async () => {
+    vi.mocked(api.sendChatMessage).mockResolvedValue({ ok: true, message_id: 'm1' });
+    render(<ChatThread sessionID="S1" embedded />);
+    await waitFor(() => expect(MockEventSource.instances).toHaveLength(1));
+    act(() => MockEventSource.instances[0].onopen?.());
+    const frame = roundEntry(1, 'round:1', rawRound({ answers: [{ number: 1, option: 1 }, { number: 2, option: 1 }] }));
+    emit({ seq: 1, role: 'assistant_text', content: frame.content, kind: 'prompt' });
+    fireEvent.click(await screen.findByRole('tab', { name: /Postgres/ }));
+    fireEvent.click(screen.getByRole('button', { name: /CloudNativePG/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /Submit/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit all 3' }));
+    await waitFor(() =>
+      expect(api.sendChatMessage).toHaveBeenCalledWith('S1', expect.any(String), {
+        prompt_id: 'round:1',
+        answers: [{ number: 1, option: 1 }, { number: 2, option: 1 }, { number: 3, option: 1 }],
+        decisions: [],
+        final: true,
+      }),
+    );
   });
 });
