@@ -705,6 +705,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 		if architectBackendConfigured {
 			chh.architect = newArchitectUpstream(cfg.ArchitectBackendCfg.URL, cfg.ArchitectBackendCfg.APIKey)
+			chh.live = newBlueprintLive(chh.architect, chh.hub)
 		}
 
 		mux.HandleFunc("GET /api/chats", chh.listChats)

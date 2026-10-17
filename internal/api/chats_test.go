@@ -80,6 +80,10 @@ type fixtureOpts struct {
 	// architectReadTimeout, when non-zero, replaces the blueprint read
 	// timeout on the wired architect client.
 	architectReadTimeout time.Duration
+	// liveLinger and liveBackoff, when non-zero, replace the blueprint live
+	// relay's linger and its reconnect backoff (base and cap).
+	liveLinger  time.Duration
+	liveBackoff time.Duration
 }
 
 // defaultFixtureOpts is the no-backend topology: no chat backend configured
@@ -170,6 +174,15 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 		chh.architect = newArchitectUpstream(opts.architectBackendCfg.URL, opts.architectBackendCfg.APIKey)
 		if opts.architectReadTimeout > 0 {
 			chh.architect.readTimeout = opts.architectReadTimeout
+		}
+
+		chh.live = newBlueprintLive(chh.architect, hub)
+		if opts.liveLinger > 0 {
+			chh.live.linger = opts.liveLinger
+		}
+
+		if opts.liveBackoff > 0 {
+			chh.live.backoffBase, chh.live.backoffCap = opts.liveBackoff, opts.liveBackoff
 		}
 	}
 

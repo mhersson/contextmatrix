@@ -495,6 +495,16 @@ the parameter. CM relays a 200 body unchanged, answers an upstream 404 with
 `BLUEPRINT_NOT_FOUND`, and any other failure, or a view or artifact read not
 answered within 30 seconds, with 502.
 
+While at least one browser holds an architect session's chat stream, CM also
+keeps one signed `/blueprints/{id}/live` stream open for that session, however
+many browsers subscribe, and publishes each frame on the session's chat stream
+as an ephemeral `blueprint` event (see
+[api-reference.md](api-reference.md#get-apichatsidstream)). It reconnects with
+backoff (0.5 s, doubling to 30 s) while subscribers remain, stops on a 404
+until the last subscriber leaves, and closes the stream 5 seconds after the
+last subscriber leaves. The architect starts every connection with a snapshot
+frame.
+
 ### Task/chat backend → CM: log stream
 
 #### GET {backend_url}/logs

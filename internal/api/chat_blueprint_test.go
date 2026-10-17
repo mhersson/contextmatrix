@@ -82,6 +82,8 @@ func blueprintFixtureOpts(upstreamURL string) fixtureOpts {
 	opts := architectFixtureOpts()
 	opts.architectBackendCfg.URL = upstreamURL
 	opts.architectBackendCfg.APIKey = testArchitectKey
+	opts.liveLinger = 50 * time.Millisecond
+	opts.liveBackoff = 10 * time.Millisecond
 
 	return opts
 }

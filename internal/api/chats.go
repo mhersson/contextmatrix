@@ -109,6 +109,9 @@ type chatHandlers struct {
 	// architect signs the blueprint proxy reads; nil when no architect
 	// backend is configured.
 	architect *architectUpstream
+	// live multiplexes the architect's live blueprint stream onto the chat
+	// SSE of architect sessions; nil when no architect is configured.
+	live *blueprintLive
 }
 
 func newChatHandlers(mgr *chat.Manager, hub *chat.SSEHub, chatBackendCfg *config.ChatBackendConfig) *chatHandlers {
@@ -705,7 +708,8 @@ func (h *chatHandlers) streamChat(w http.ResponseWriter, r *http.Request) {
 	// lazy-creates a per-session ring buffer + subscriber set on first
 	// Subscribe, so an unguarded handler would let any GET against an
 	// unknown or foreign id permanently grow perSess.
-	if _, ok := h.ownedSession(w, r); !ok {
+	sess, ok := h.ownedSession(w, r)
+	if !ok {
 		return
 	}
 
@@ -731,6 +735,13 @@ func (h *chatHandlers) streamChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer h.hub.Unsubscribe(id, ch)
+
+	// Joined after Subscribe, so the upstream's first snapshot reaches this
+	// subscriber live or through the cached replay.
+	if sess.Kind == chat.KindArchitect && h.live != nil {
+		h.live.join(id)
+		defer h.live.leave(id)
+	}
 
 	flusher, _ := w.(http.Flusher)
 
