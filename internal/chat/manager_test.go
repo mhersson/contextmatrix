@@ -5463,6 +5463,94 @@ type promptEnvelope struct {
 	Prompt protocol.LogPrompt `json:"prompt"`
 }
 
+func storedArchitectRow(t *testing.T, entry chat.LogEntry) chat.Message {
+	t.Helper()
+
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	arch.streamLogsFn = streamEntries(entry)
+
+	bp := openArchitect(t, mgr)
+
+	var msgs []chat.Message
+
+	require.Eventually(t, func() bool {
+		var err error
+
+		msgs, err = mgr.ListMessages(context.Background(), bp.ID, 0, 10)
+
+		return err == nil && len(msgs) == 1
+	}, 2*time.Second, 5*time.Millisecond)
+
+	return msgs[0]
+}
+
+func TestManager_Consumer_PromptDisplayFieldsRoundTrip(t *testing.T) {
+	p := &protocol.LogPrompt{
+		ID:   "q1",
+		Kind: "question",
+		Text: "Which storage?",
+		Actions: []protocol.LogAction{
+			{Label: "SQLite", Reply: "1", Recommended: true},
+			{Label: "Postgres", Reply: "2"},
+		},
+	}
+
+	msg := storedArchitectRow(t, chat.LogEntry{Type: "text", Content: "Which storage?\n1. SQLite\n2. Postgres", Prompt: p})
+	assert.Equal(t, chat.EventKindPrompt, msg.Kind)
+
+	var env promptEnvelope
+	require.NoError(t, json.Unmarshal([]byte(msg.Content), &env))
+	assert.Equal(t, *p, env.Prompt, "kind, text and recommended survive")
+}
+
+func TestManager_Consumer_OversizedContentIsCutBeforePromptText(t *testing.T) {
+	// Multibyte runes and characters JSON escapes, so the cut must respect both.
+	bigContent := strings.Repeat("é<\n", 15000)
+	// Alone it fits the row cap, but a shared cut length would still shorten it.
+	text := strings.Repeat("é<\n", 2500)
+	p := &protocol.LogPrompt{
+		Kind:    "question",
+		Text:    text,
+		Actions: []protocol.LogAction{{Label: "Yes", Reply: "1", Recommended: true}, {Label: "No", Reply: "2"}},
+	}
+
+	msg := storedArchitectRow(t, chat.LogEntry{Type: "text", Content: bigContent, Prompt: p})
+	assert.Equal(t, chat.EventKindPrompt, msg.Kind, "stays a prompt row")
+	assert.LessOrEqual(t, len(msg.Content), 32*1024)
+	assert.True(t, utf8.ValidString(msg.Content))
+
+	var env promptEnvelope
+	require.NoError(t, json.Unmarshal([]byte(msg.Content), &env))
+	assert.Equal(t, text, env.Prompt.Text, "the prompt text is kept whole")
+	assert.True(t, strings.HasSuffix(env.Text, "\n... [truncated]"))
+	assert.Less(t, len(env.Text), len(bigContent))
+	assert.Equal(t, p.Actions, env.Prompt.Actions, "every action survives")
+	assert.Equal(t, "question", env.Prompt.Kind)
+}
+
+func TestManager_Consumer_OversizedPromptTextIsCutOnlyWhenItAloneOverflows(t *testing.T) {
+	big := strings.Repeat("é<\n", 15000)
+	p := &protocol.LogPrompt{
+		Kind:    "question",
+		Text:    big,
+		Actions: []protocol.LogAction{{Label: "Yes", Reply: "1", Recommended: true}, {Label: "No", Reply: "2"}},
+	}
+
+	msg := storedArchitectRow(t, chat.LogEntry{Type: "text", Content: big, Prompt: p})
+	assert.Equal(t, chat.EventKindPrompt, msg.Kind, "stays a prompt row")
+	assert.LessOrEqual(t, len(msg.Content), 32*1024)
+	assert.True(t, utf8.ValidString(msg.Content))
+
+	var env promptEnvelope
+	require.NoError(t, json.Unmarshal([]byte(msg.Content), &env))
+	assert.True(t, strings.HasSuffix(env.Text, "\n... [truncated]"))
+	assert.True(t, strings.HasSuffix(env.Prompt.Text, "\n... [truncated]"))
+	assert.Less(t, len(env.Prompt.Text), len(big))
+	assert.Greater(t, len(env.Prompt.Text), 1024, "the prompt text keeps as much as fits")
+	assert.Equal(t, p.Actions, env.Prompt.Actions, "every action survives")
+	assert.Equal(t, big, p.Text, "the caller's prompt is not mutated")
+}
+
 func TestManager_Consumer_PromptRows(t *testing.T) {
 	gate := &protocol.LogPrompt{ID: "gate:sign-off:v2", Actions: []protocol.LogAction{
 		{Label: "Approve", Reply: "approve"},
@@ -5539,26 +5627,12 @@ func TestManager_Consumer_PromptRows(t *testing.T) {
 }
 
 func TestManager_Consumer_OversizedPromptTextKeepsTheEnvelopeValid(t *testing.T) {
-	mgr, _, arch := newManagerWithArchitectStub(t)
-
 	gate := &protocol.LogPrompt{Actions: []protocol.LogAction{{Label: "Approve", Reply: "approve"}}}
 	// Multibyte runes and characters JSON escapes, so the cut must respect both.
 	text := strings.Repeat("é<\n", 15000)
-	arch.streamLogsFn = streamEntries(chat.LogEntry{Type: "text", Content: text, Prompt: gate})
+	msg := storedArchitectRow(t, chat.LogEntry{Type: "text", Content: text, Prompt: gate})
 
-	bp := openArchitect(t, mgr)
-
-	var msgs []chat.Message
-
-	require.Eventually(t, func() bool {
-		var err error
-
-		msgs, err = mgr.ListMessages(context.Background(), bp.ID, 0, 10)
-
-		return err == nil && len(msgs) == 1
-	}, 2*time.Second, 5*time.Millisecond)
-
-	content := msgs[0].Content
+	content := msg.Content
 	assert.LessOrEqual(t, len(content), 32*1024, "the row fits the message cap")
 	assert.True(t, utf8.ValidString(content))
 

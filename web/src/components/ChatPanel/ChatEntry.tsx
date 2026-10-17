@@ -89,7 +89,7 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
   }
 
   if (entry.type === 'text') {
-    const body = prompt ? prompt.text : entry.content;
+    const body = prompt ? (prompt.prompt.text ?? prompt.text) : entry.content;
     return (
       <div className="flex justify-start">
         <div className="flex flex-col items-start max-w-[85%] min-w-0">
@@ -102,11 +102,17 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
           <div
             className="rounded-lg px-3 py-2 text-sm wrap-anywhere max-w-full"
             style={{
-              backgroundColor: 'var(--chat-assistant-bg)',
-              boxShadow: 'inset 0 0 0 1px var(--chat-assistant-ring)',
+              backgroundColor:
+                prompt?.prompt.kind === 'question' ? 'var(--prompt-question-bg)' : 'var(--chat-assistant-bg)',
+              // The bar and the accent ring ride the same inset shadow as the plain ring.
+              boxShadow:
+                prompt?.prompt.kind === 'question'
+                  ? 'inset 5px 0 0 0 var(--prompt-question-accent), inset 0 0 0 1px var(--prompt-question-ring)'
+                  : 'inset 0 0 0 1px var(--chat-assistant-ring)',
               color: 'var(--fg)',
             }}
             data-prompt-id={prompt?.prompt.id}
+            data-prompt-kind={prompt?.prompt.kind}
           >
             {structured ? (
               <StructuredPayload pretty={structured} />
