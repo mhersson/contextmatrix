@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
+import type { MockInstance } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import { ChatPanel } from './ChatPanel';
 import type { LogEntry } from '../../types';
 
@@ -12,9 +13,14 @@ vi.mock('@uiw/react-markdown-preview', () => ({
   },
 }));
 
+// Load the chunk under the hook timeout rather than inside waitFor's.
+beforeAll(() => import('../Markdown/SafeMarkdownPreview'));
+
 describe('ChatMarkdown failure containment', () => {
+  let consoleError: MockInstance<typeof console.error>;
+
   beforeEach(() => {
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+    consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -27,9 +33,15 @@ describe('ChatMarkdown failure containment', () => {
     ];
     render(<ChatPanel logs={logs} onSend={() => {}} sendDisabled={false} />);
 
-    // The raw source stays visible (Suspense fallback first, error fallback
-    // once the throwing component mounts) and the panel chrome survives.
-    expect(await screen.findByText('# heading text')).toBeInTheDocument();
+    // The Suspense fallback shows the same raw source, so wait until the
+    // throwing renderer's error is logged: React logs a caught error only
+    // after the boundary's fallback commits.
+    await waitFor(() =>
+      expect(consoleError.mock.calls.flat()).toContainEqual(
+        expect.objectContaining({ message: 'chunk load failed' }),
+      ),
+    );
+    expect(screen.getByText('# heading text')).toBeInTheDocument();
     expect(screen.getByLabelText('Tool calls')).toBeInTheDocument();
     expect(screen.queryByText('Something went wrong')).not.toBeInTheDocument();
   });

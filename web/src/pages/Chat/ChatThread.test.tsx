@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { api } from '../../api/client';
 import { useChatStream } from '../../hooks/useChatStream';
@@ -10,6 +10,10 @@ vi.mock('../../api/client', () => ({
   isAPIError: vi.fn(() => false),
 }));
 vi.mock('../../hooks/useChatStream', () => ({ useChatStream: vi.fn() }));
+
+// Chat entries lazy-load the markdown chunk; loading it up front keeps the
+// import from finishing after this file's environment is torn down.
+beforeAll(() => import('../../components/Markdown/SafeMarkdownPreview'));
 
 const session: ChatSession = {
   id: 'bp-1',

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { CardChat } from './CardChat';
 import type { Card, LogEntry } from '../../types';
@@ -15,6 +15,10 @@ vi.mock('../../api/client', () => ({
   isAPIError: (err: unknown): err is { error: string; code?: string } =>
     err != null && typeof err === 'object' && 'error' in err,
 }));
+
+// Chat entries lazy-load the markdown chunk; loading it up front keeps the
+// import from finishing after this file's environment is torn down.
+beforeAll(() => import('../Markdown/SafeMarkdownPreview'));
 
 const noLogs: LogEntry[] = [];
 
