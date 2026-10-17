@@ -250,7 +250,10 @@ Developer traps in this codebase. Each entry names the code it describes.
   fetches the persisted transcript, records the highest `seq`, then
   subscribes with `since_seq=<last>`; SSE events inside the bootstrap window
   are deduped. SSE-only would lose everything older than the server-side
-  128-entry ring on refresh.
+  128-entry ring on refresh. Architect live frames ride the same stream as
+  `kind: "blueprint"` events with `seq: 0`; the hook hands them to
+  `subscribeBlueprint` listeners before the seq dedupe, so they never reach
+  the transcript or move the last seq.
 
 ## Session logs and chat
 

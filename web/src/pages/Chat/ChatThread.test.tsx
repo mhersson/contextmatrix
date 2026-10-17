@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { api } from '../../api/client';
 import { useChatStream } from '../../hooks/useChatStream';
 import type { ChatSession, LogEntry } from '../../types';
@@ -10,6 +11,17 @@ vi.mock('../../api/client', () => ({
   isAPIError: vi.fn(() => false),
 }));
 vi.mock('../../hooks/useChatStream', () => ({ useChatStream: vi.fn() }));
+// The real pane fetches the blueprint view; ChatThread.blueprint.test.tsx covers it.
+vi.mock('../../components/Blueprint/BlueprintSession', () => ({
+  BlueprintSession: ({ phone, onReply, children }: { phone: boolean; onReply: (text: string) => Promise<void>; children: ReactNode }) => (
+    <section aria-label={phone ? 'Blueprint pane, phone layout' : 'Blueprint pane'}>
+      {children}
+      <button type="button" onClick={() => void onReply('approve')}>
+        Gate reply
+      </button>
+    </section>
+  ),
+}));
 
 // Chat entries lazy-load the markdown chunk; loading it up front keeps the
 // import from finishing after this file's environment is torn down.
@@ -74,5 +86,31 @@ describe('ChatThread prompt buttons', () => {
     render(<ChatThread sessionID="bp-1" embedded />);
 
     expect(await screen.findByRole('button', { name: 'Approve' })).toBeDisabled();
+  });
+});
+
+describe('ChatThread blueprint pane', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    streamState(true);
+    vi.mocked(api.sendChatMessage).mockResolvedValue({ ok: true, message_id: 'm1' });
+  });
+
+  it('wraps an architect session in the blueprint pane with the transcript reply path', async () => {
+    vi.mocked(api.getChat).mockResolvedValue(session);
+    render(<ChatThread sessionID="bp-1" embedded phone />);
+
+    expect(await screen.findByRole('region', { name: 'Blueprint pane, phone layout' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Gate reply' }));
+    await waitFor(() => expect(api.sendChatMessage).toHaveBeenCalledWith('bp-1', 'approve'));
+  });
+
+  it('leaves a plain chat as a transcript', async () => {
+    vi.mocked(api.getChat).mockResolvedValue({ ...session, kind: 'chat' });
+    render(<ChatThread sessionID="bp-1" embedded />);
+
+    await screen.findByRole('button', { name: 'Approve' });
+    expect(screen.queryByRole('region', { name: /Blueprint pane/ })).not.toBeInTheDocument();
   });
 });

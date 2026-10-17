@@ -167,6 +167,45 @@ board. Promote-to-autonomous lives in that tab.
   gates and neutral prompts keep the muted grey. The
   buttons are disabled while the session is not live or its stream is
   disconnected, and prompts show with the Text filter off.
+- A blueprint pane adds a scale bar, a sheet and marker rows to the chat pane:
+  - The scale bar under the pane header draws one segment per pipeline step:
+    done steps filled green, the current step hatched (aqua while a run
+    works, the question accent while the blueprint waits for you), pending
+    steps outlined, a failed step outlined red and folded slicing as a narrow
+    segment; gates carry a notch. Beside the bar the current stage says who
+    is doing what. Hover a segment for its persona, status and cost; click a
+    finished one to open its artifact. The right end shows the architect's
+    spend against the blueprint cap; the meter turns orange at 80% and red at
+    the cap.
+  - The sheet renders each artifact (need, slices, design, grounding,
+    acceptance, cards, readiness, sign-off, board) as a document. Tabs follow
+    the current stage until you pick one; a pick holds until the stage
+    changes. Stages without an artifact are dimmed and stages the pack does
+    not run are hidden. The title block names the sheet, its revision (a
+    picker when there are several), who drew it, who checked it (click a
+    reviewer's score for the findings, each marked addressed in a later
+    revision or sent to one) and its status. Stamps mark approved, rejected,
+    superseded and folded versions. On the newest version a dashed cloud
+    marks what changed, and Compare strikes removed words and highlights
+    added ones. At a gate a bar above the title block repeats the gate's
+    buttons. While a run works the sheet shows its turns, tool calls and
+    tokens, and fills in as the model writes when the model streams its draft.
+  - From 760px pane width the sheet sits beside the transcript at 46% with a
+    draggable divider (320px minimum each side). Narrower panes show an edge
+    strip that opens the sheet over the transcript; on a phone a Sheet
+    button in the pane header does. A new artifact version opens a closed
+    sheet, except over the transcript while a question waits, when the strip
+    or the button shows a dot. Under 560px the current-stage label moves into
+    the bar's tooltip. Sheet width and open state are not stored.
+  - The transcript shows a divider at each stage start and a sheet reference
+    for each stored artifact; clicking a reference opens that version.
+  - The pane loads the architect's view, then follows it live on the
+    session's chat stream, with no connection of its own; after a reconnect
+    the stream resumes from the architect's latest snapshot.
+  - When the view cannot be loaded and the stream has brought none, the sheet
+    says the architect cannot be reached, with a Retry, and the scale bar
+    hides; the transcript keeps working. An architect without the blueprint
+    endpoints leaves the pane a plain transcript.
 
 ## Image attachments
 

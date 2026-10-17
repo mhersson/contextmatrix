@@ -151,7 +151,9 @@ interactions.
   text); `Kind` `"gate"` keeps compact buttons, any other kind stacks
   full-width wrapping options, and `"question"` adds the accent: a tinted
   bubble, a 5px left bar, an accent ring and accent option borders. A click
-  sends the action's reply as an ordinary user message. A closed non-gate
+  sends the action's reply as an ordinary user message. A blueprint pane's
+  gate bar repeats the open gate prompt's `PromptActions`, matched on
+  `view.open.prompt_id`, with the same reply path. A closed non-gate
   prompt shows its options as a static list above the summary. Whether a
   prompt is open is derived in the browser (`derivePromptStates`), never
   stored. Agent and chat backends never emit a prompt: `AskUserQuestion`

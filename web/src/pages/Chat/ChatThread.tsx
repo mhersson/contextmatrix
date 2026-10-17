@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, isAPIError } from '../../api/client';
 import type { ChatSession } from '../../types';
 import { ChatPanel } from '../../components/ChatPanel';
+import { BlueprintSession } from '../../components/Blueprint/BlueprintSession';
 import { useChatStream } from '../../hooks/useChatStream';
 import { useWorkingState } from '../../hooks/useWorkingState';
 import { CHAT_SESSIONS_CHANGED_EVENT, notifyChatSessionsChanged } from '../../hooks/useChatSessions';
@@ -18,12 +19,15 @@ interface ChatThreadProps {
   // grabs focus on mount + whenever this becomes true. Defaults to true for
   // non-embedded usage so single-pane behavior is unchanged.
   isFocused?: boolean;
+  // Phone layout: a blueprint's sheet then opens from the pane header.
+  phone?: boolean;
 }
 
-export function ChatThread({ sessionID, embedded = false, isFocused = true }: ChatThreadProps) {
+export function ChatThread({ sessionID, embedded = false, isFocused = true, phone = false }: ChatThreadProps) {
   const [session, setSession] = useState<ChatSession | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { logs, connected, sessionUpdate, hasMore, loadingOlder, loadOlder } = useChatStream(sessionID);
+  const { logs, connected, sessionUpdate, hasMore, loadingOlder, loadOlder, subscribeBlueprint } =
+    useChatStream(sessionID);
 
   // Merge live session updates (context_tokens, model, rehydration_active)
   // from the SSE wire on top of the snapshot returned by GET /api/chats/{id}.
@@ -235,6 +239,21 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true }: Ch
     undefined;
   const sendDisabled = isEnding || isCold;
 
+  const panel = (
+    <ChatPanel
+      logs={logs}
+      onSend={handleSend}
+      sendDisabled={sendDisabled}
+      promptsLive={connected && !sendDisabled}
+      readOnlyMessage={readOnlyMessage}
+      focusKey={isFocused ? sessionID : undefined}
+      working={working}
+      hasMoreHistory={hasMore}
+      loadingOlder={loadingOlder}
+      onLoadOlder={loadOlder}
+    />
+  );
+
   return (
     <div className="flex flex-col h-full min-h-0">
       {view.rehydration_active && !userHasSent && (
@@ -259,18 +278,20 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true }: Ch
         </div>
       )}
       <div className="flex-1 min-h-0">
-        <ChatPanel
-          logs={logs}
-          onSend={handleSend}
-          sendDisabled={sendDisabled}
-          promptsLive={connected && !sendDisabled}
-          readOnlyMessage={readOnlyMessage}
-          focusKey={isFocused ? sessionID : undefined}
-          working={working}
-          hasMoreHistory={hasMore}
-          loadingOlder={loadingOlder}
-          onLoadOlder={loadOlder}
-        />
+        {view.kind === 'architect' ? (
+          <BlueprintSession
+            chatId={sessionID}
+            frames={subscribeBlueprint}
+            logs={logs}
+            promptsLive={connected && !sendDisabled}
+            onReply={handleSend}
+            phone={phone}
+          >
+            {panel}
+          </BlueprintSession>
+        ) : (
+          panel
+        )}
       </div>
     </div>
   );
