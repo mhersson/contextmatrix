@@ -63,7 +63,6 @@ GET    /api/chats/{id}/messages                        ?since_seq=|tail=1|before
 GET    /api/chats/{id}/stream                          ?since_seq=           # SSE stream of new entries
 GET    /api/chats/{id}/blueprint                       # blueprint view, read from the architect (architect sessions only)
 GET    /api/chats/{id}/blueprint/artifacts/{stage}/{version}  # one artifact version, read from the architect
-GET    /api/chats/{id}/blueprint/live                  # SSE relay of the architect's live blueprint stream
 
 POST   /api/sync                                       ?repo=                # trigger git sync
 GET    /api/sync                                       # sync status per boards repo
@@ -2625,14 +2624,15 @@ with `before_seq=<oldest loaded>`, deduplicating on `seq`.
 ### GET /api/chats/{id}/stream
 
 SSE stream of new transcript entries for one session. `?since_seq=N` replays
-entries with `seq > N` from the server-side 128-entry ring buffer before
-tailing (an unparseable value is treated as `0`). The handler flushes `:
+entries with `seq > N` from the server-side 128-entry ring buffer, followed
+by the cached blueprint frames for an architect session, before tailing (an
+unparseable value is treated as `0`). The handler flushes `:
 connected\n\n` on subscribe and `: keepalive\n\n` every 15 seconds. 404
 `CHAT_NOT_FOUND` for an unknown session; 429 `TOO_MANY_CHATS` once 32
 subscribers are attached to one session. Slow subscribers silently drop
 events.
 
-Two event kinds share the wire:
+Three event kinds share the wire:
 
 - **Transcript event** - unnamed, so `EventSource.onmessage` fires:
 
@@ -2641,6 +2641,21 @@ Two event kinds share the wire:
   ```
 
   `kind` and `rehydration_phase` are omitted when unset.
+
+- **Blueprint frame** - architect sessions only. Unnamed, on the transcript
+  wire, with `kind: "blueprint"`, `seq: 0` and `content` set to one frame of
+  the architect's live stream (`protocol.LiveFrame` JSON: `snapshot`,
+  `artifact_stored` or `draft`), unchanged:
+
+  ```json
+  { "seq": 0, "role": "", "content": "{\"type\":\"draft\",\"draft\":{...}}", "kind": "blueprint" }
+  ```
+
+  Frames are never persisted and never enter the ring buffer. A new
+  subscriber first receives the latest snapshot frame and the draft frames
+  since it (up to 256 KiB of drafts; past that, the snapshot alone), then
+  live frames. A slow subscriber may miss frames and resumes at the next
+  snapshot. Route on `kind` before deduplicating on `seq`.
 
 - **`session_updated`** - `event: session_updated`, never replayed from the
   ring buffer. The payload is a partial session to merge into the local view:
@@ -2678,18 +2693,7 @@ problems), read from the architect's
 stage id of letters, digits, `_` and `-`, at most 64 characters (for example
 `solution_design`, `signoff` or `emission`); `version` is a positive integer.
 
-### GET /api/chats/{id}/blueprint/live
-
-SSE relay of the architect's signed `GET /blueprints/{id}/live` stream:
-snapshot, `artifact_stored` and draft frames plus the architect's heartbeat
-comments. CM relays the bytes unchanged and flushes every chunk it reads, so
-each frame reaches the browser as the architect sends it. Each browser
-connection gets its own upstream stream, closed when the browser disconnects;
-when the architect ends its stream, the response ends and the browser's
-EventSource reconnects, and a new stream starts with a snapshot frame. The
-connection is exempt from the server write timeout.
-
-These three routes answer (the live route answers before any stream starts):
+These two routes answer:
 
 | Status | Code                    | Meaning                                                                                                                         |
 | ------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |

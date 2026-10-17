@@ -481,19 +481,29 @@ session row is gone, cold or no longer an architect session. Chat sessions do
 not take these paths.
 
 CM also reads blueprints for the web UI's blueprint pane, through
-`GET /api/chats/{id}/blueprint`,
-`GET /api/chats/{id}/blueprint/artifacts/{stage}/{version}` and
-`GET /api/chats/{id}/blueprint/live` (see
+`GET /api/chats/{id}/blueprint` and
+`GET /api/chats/{id}/blueprint/artifacts/{stage}/{version}` (see
 [api-reference.md](api-reference.md#get-apichatsidblueprint)): signed GETs of
-the architect's `/blueprints/{id}`,
-`/blueprints/{id}/artifacts/{stage}/{version}` and the SSE stream
-`/blueprints/{id}/live`, which CM relays unchanged, one upstream stream per
-browser connection. Every request carries a random
+the architect's `/blueprints/{id}` and
+`/blueprints/{id}/artifacts/{stage}/{version}`. Every request carries a random
 `nonce` query parameter, so two reads of one path in the same second sign
 differently and both pass the architect's replay cache; the architect ignores
 the parameter. CM relays a 200 body unchanged, answers an upstream 404 with
 `BLUEPRINT_NOT_FOUND`, and any other failure, or a view or artifact read not
-answered within 30 seconds, with 502.
+answered within 30 seconds, with 502. These reads are the only blueprint
+routes the browser calls; live frames reach it through the chat stream.
+
+While at least one browser holds an architect session's chat stream, CM also
+keeps one signed `/blueprints/{id}/live` stream open for that session, however
+many browsers subscribe, and publishes each frame on the session's chat stream
+as an ephemeral `blueprint` event (see
+[api-reference.md](api-reference.md#get-apichatsidstream)). It reconnects with
+backoff (0.5 s, doubling to 30 s, starting over after a stream that stayed up
+30 seconds) while subscribers remain. A 404 stops it until another
+browser subscribes or the session is opened again. CM drops and reopens a stream that
+sends nothing for 45 seconds (the architect heartbeats every 15), and closes
+the stream 5 seconds after the last subscriber leaves. The architect starts
+every connection with a snapshot frame.
 
 ### Task/chat backend → CM: log stream
 

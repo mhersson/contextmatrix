@@ -80,6 +80,12 @@ type fixtureOpts struct {
 	// architectReadTimeout, when non-zero, replaces the blueprint read
 	// timeout on the wired architect client.
 	architectReadTimeout time.Duration
+	// liveLinger and liveBackoff, when non-zero, replace the blueprint live
+	// relay's linger and its reconnect backoff (base and cap).
+	liveLinger  time.Duration
+	liveBackoff time.Duration
+	// onLive, when set, receives the built relay before the mux serves.
+	onLive func(*blueprintLive)
 }
 
 // defaultFixtureOpts is the no-backend topology: no chat backend configured
@@ -171,6 +177,19 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 		if opts.architectReadTimeout > 0 {
 			chh.architect.readTimeout = opts.architectReadTimeout
 		}
+
+		chh.live = newBlueprintLive(chh.architect, hub)
+		if opts.liveLinger > 0 {
+			chh.live.linger = opts.liveLinger
+		}
+
+		if opts.liveBackoff > 0 {
+			chh.live.backoffBase, chh.live.backoffCap = opts.liveBackoff, opts.liveBackoff
+		}
+
+		if opts.onLive != nil {
+			opts.onLive(chh.live)
+		}
 	}
 
 	mux.HandleFunc("GET /api/chats/models", chh.listModels)
@@ -187,7 +206,6 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 	mux.HandleFunc("GET /api/chats/{id}/stream", chh.streamChat)
 	mux.HandleFunc("GET /api/chats/{id}/blueprint", chh.getBlueprint)
 	mux.HandleFunc("GET /api/chats/{id}/blueprint/artifacts/{stage}/{version}", chh.getBlueprintArtifact)
-	mux.HandleFunc("GET /api/chats/{id}/blueprint/live", chh.streamBlueprint)
 
 	return mux, mgr, backend
 }

@@ -120,43 +120,6 @@ func TestObserve_ExcludesMCPSSE(t *testing.T) {
 		"POST /mcp should still be observed (non-SSE request/response), got:\n%s", bodyStr)
 }
 
-// TestObserve_ExcludesBlueprintLiveSSE verifies the blueprint live relay is
-// skipped by the metrics middleware like the other SSE routes, while the
-// blueprint view read is still observed.
-func TestObserve_ExcludesBlueprintLiveSSE(t *testing.T) {
-	reg := prometheus.NewRegistry()
-	metrics.Register(reg)
-
-	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-
-	apiMux := http.NewServeMux()
-	apiMux.Handle("GET /api/chats/{id}/blueprint/live", ok)
-	apiMux.Handle("GET /api/chats/{id}/blueprint", ok)
-
-	apiServer := httptest.NewServer(chain(apiMux, requestID, observe))
-	defer apiServer.Close()
-
-	for _, path := range []string{"/api/chats/abc/blueprint/live", "/api/chats/abc/blueprint"} {
-		resp, err := http.Get(apiServer.URL + path)
-		require.NoError(t, err)
-		closeBody(t, resp.Body)
-	}
-
-	metricsServer := httptest.NewServer(promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
-	defer metricsServer.Close()
-
-	metricsResp, err := http.Get(metricsServer.URL)
-	require.NoError(t, err)
-
-	defer closeBody(t, metricsResp.Body)
-
-	body, err := io.ReadAll(metricsResp.Body)
-	require.NoError(t, err)
-
-	assert.NotContains(t, string(body), `path="GET /api/chats/{id}/blueprint/live"`)
-	assert.Contains(t, string(body), `path="GET /api/chats/{id}/blueprint"`)
-}
-
 // TestObserve_UnmatchedCollapsesLabel verifies that 404s and unknown paths
 // land on a single constant-label series instead of creating one series per
 // distinct URL. Without this, a path-scan attacker would blow up the registry.
