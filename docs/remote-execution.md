@@ -540,9 +540,9 @@ marks the suggested action, whose label carries no "(recommended)" suffix. All
 three are optional. Only the architect sets `prompt`, and `content` stays the
 full readable message. CM stores such a frame on an architect session as a
 `kind: "prompt"` row whose content is a `{"text", "prompt"}` JSON envelope,
-cutting both the envelope text and `prompt.text` to one shared length so the
-envelope fits the 32 KiB row cap. On any other session, and in task session
-logs, the field is ignored.
+cutting `content` first and `prompt.text` only if it alone overflows the
+32 KiB row cap. On any other session, and in task session logs, the field is
+ignored.
 
 The backend redacts credential patterns before publishing and sends keepalive
 comments to hold the connection open through proxy idle timeouts.

@@ -21,29 +21,48 @@ type promptEnvelope struct {
 
 var errPromptTooLarge = errors.New("prompt actions exceed the message cap")
 
-// promptContent marshals a prompt row within maxMessageBytes. One cut length
-// applies to both the envelope text and Prompt.Text: each is cut to at most
-// that many bytes with the marker appended, and a string already within it is
-// kept whole. The text is cut, never the JSON, so a stored envelope always
-// parses. The caller's prompt is never modified.
+// promptContent marshals a prompt row within maxMessageBytes. The envelope
+// text is only the fallback for a row CM renders from Prompt.Text, so it is
+// cut first and Prompt.Text only if it alone still overflows. Text is cut,
+// never the JSON, so a stored envelope always parses; the caller's prompt is
+// never modified.
 func promptContent(text string, p *protocol.LogPrompt) (string, error) {
 	env, err := marshalPrompt(text, p)
 	if err != nil || len(env) <= maxMessageBytes {
 		return env, err
 	}
 
-	longest := len(text)
-	if p != nil && len(p.Text) > longest {
-		longest = len(p.Text)
+	content, err := fitCut(len(text), func(n int) (string, error) {
+		return marshalPrompt(cutText(text, n), p)
+	})
+	if p == nil || p.Text == "" || err == nil {
+		return content, err
 	}
 
-	// The largest cut whose envelope fits. A binary search, because escaping
-	// makes the encoded size nonlinear in the cut.
-	lo, hi := 0, longest-1
+	if !errors.Is(err, errPromptTooLarge) {
+		return "", err
+	}
+
+	// Content is already at its minimum: keep only the marker, or nothing if it was empty.
+	minimal := cutText(text, 0)
+
+	return fitCut(len(p.Text), func(n int) (string, error) {
+		cp := *p
+		cp.Text = cutText(p.Text, n)
+
+		return marshalPrompt(minimal, &cp)
+	})
+}
+
+// fitCut binary-searches the largest cut length below size whose envelope
+// fits. A binary search, because escaping makes the encoded size nonlinear in
+// the cut.
+func fitCut(size int, marshal func(n int) (string, error)) (string, error) {
+	lo, hi := 0, size-1
 	for lo < hi {
 		mid := (lo + hi + 1) / 2
 
-		probe, err := marshalCut(text, p, mid)
+		probe, err := marshal(mid)
 		if err != nil {
 			return "", err
 		}
@@ -55,7 +74,7 @@ func promptContent(text string, p *protocol.LogPrompt) (string, error) {
 		}
 	}
 
-	env, err = marshalCut(text, p, lo)
+	env, err := marshal(lo)
 	if err != nil {
 		return "", err
 	}
@@ -65,17 +84,6 @@ func promptContent(text string, p *protocol.LogPrompt) (string, error) {
 	}
 
 	return env, nil
-}
-
-// marshalCut marshals the envelope with both texts cut to n bytes.
-func marshalCut(text string, p *protocol.LogPrompt, n int) (string, error) {
-	if p != nil {
-		cp := *p
-		cp.Text = cutText(p.Text, n)
-		p = &cp
-	}
-
-	return marshalPrompt(cutText(text, n), p)
 }
 
 func cutText(s string, n int) string {
