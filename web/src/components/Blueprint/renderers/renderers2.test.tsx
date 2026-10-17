@@ -58,6 +58,23 @@ describe('ReadinessSheet', () => {
     render(<ArtifactRenderer artifact={{ ...READINESS_V2, version: 1 }} previous={null} mode="plain" view={inLoop()} />);
     expect(screen.queryByText(/^Round/)).not.toBeInTheDocument();
   });
+
+  it('folds the written readiness under the cards and opens it in compare mode', () => {
+    const { container, rerender } = render(<ArtifactRenderer artifact={READINESS_V2} previous={null} mode="plain" view={inLoop()} />);
+    const details = container.querySelector('details')!;
+    expect(details.open).toBe(false);
+    expect(details).toHaveTextContent(READINESS_V2.body.split('\n').find((l) => l.trim().length > 8)!.trim());
+    expect(screen.getByText('Ready')).toBeInTheDocument();
+    rerender(<ArtifactRenderer artifact={READINESS_V2} previous={READINESS_V2} mode="compare" view={inLoop()} />);
+    expect(container.querySelector('details')!.open).toBe(true);
+  });
+
+  it('renders the body plainly when there are no cards', () => {
+    const { container } = render(<ArtifactRenderer artifact={{ ...READINESS_V2, data: undefined }} previous={null} mode="plain" view={inLoop()} />);
+    expect(container.querySelector('details')).toBeNull();
+    expect(screen.getByText('Round 2 of 3')).toBeInTheDocument();
+    expect(screen.getByTestId('md')).toHaveTextContent(READINESS_V2.body.split('\n').find((l) => l.trim().length > 8)!.trim());
+  });
 });
 
 describe('SignoffSheet', () => {

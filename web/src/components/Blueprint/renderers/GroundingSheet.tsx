@@ -6,9 +6,11 @@ import type { RendererProps } from './types';
 export function GroundingSheet({ artifact, previous, mode }: RendererProps) {
   const data = parseGrounding(artifact.data);
   const verdicts = data?.verdicts ?? [];
+  const fullText = <BodyMarkdown body={artifact.body} previous={previous?.body} mode={mode} version={artifact.version} />;
+  if (!data || (data.projects.length === 0 && verdicts.length === 0)) return fullText;
   return (
     <>
-      {data && data.projects.length > 0 && (
+      {data.projects.length > 0 && (
         <table className="bp-table">
           <thead>
             <tr>
@@ -34,7 +36,10 @@ export function GroundingSheet({ artifact, previous, mode }: RendererProps) {
       )}
       <VerdictList title="Verified" items={verdicts.filter((v) => v.status === 'verified')} />
       <VerdictList title="Contradicted" items={verdicts.filter((v) => v.status === 'contradicted')} />
-      <BodyMarkdown body={artifact.body} previous={previous?.body} mode={mode} version={artifact.version} />
+      <details className="bp-fulltext" open={mode === 'compare'}>
+        <summary>Written grounding</summary>
+        {fullText}
+      </details>
     </>
   );
 }

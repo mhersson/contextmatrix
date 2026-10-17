@@ -79,6 +79,22 @@ describe('GroundingSheet', () => {
     const contradicted = screen.getByRole('heading', { name: 'Contradicted' }).closest('section')!;
     expect(within(contradicted).getByText(/README has no example/)).toBeInTheDocument();
   });
+
+  it('folds the written grounding under the data and opens it in compare mode', () => {
+    const { container, rerender } = render(<GroundingSheet artifact={GROUNDING_V1} previous={null} mode="plain" view={view} />);
+    const details = container.querySelector('details')!;
+    expect(details.open).toBe(false);
+    expect(details).toHaveTextContent('The handler is the only place');
+    expect(details.previousElementSibling).not.toBeNull();
+    rerender(<GroundingSheet artifact={GROUNDING_V1} previous={GROUNDING_V1} mode="compare" view={view} />);
+    expect(container.querySelector('details')!.open).toBe(true);
+  });
+
+  it('renders the body plainly when there is no data', () => {
+    const { container } = render(<GroundingSheet artifact={{ ...GROUNDING_V1, data: undefined }} previous={null} mode="plain" view={view} />);
+    expect(container.querySelector('details')).toBeNull();
+    expect(screen.getByTestId('md')).toHaveTextContent('The handler is the only place');
+  });
 });
 
 describe('AcceptanceSheet', () => {
