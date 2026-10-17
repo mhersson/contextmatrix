@@ -48,3 +48,13 @@ export function ProgressLine({ run, stage }: { run: BlueprintCurrentRun; stage: 
     </p>
   );
 }
+
+/** The run's question waits on the operator: the scale bar's line and waiting look, without motion. */
+export function WaitingLine({ promptId }: { promptId: string }) {
+  return (
+    <p className="bp-progress bp-progress--waiting" role="status">
+      <span className="bp-progress-rule" aria-hidden="true" />
+      {promptId} is waiting for you
+    </p>
+  );
+}

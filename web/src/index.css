@@ -7259,6 +7259,14 @@ button.bp-seg-hit {
   background-size: 14px 14px;
   animation: bp-hatch 1.2s linear infinite;
 }
+.bp-progress--waiting {
+  color: var(--prompt-question-accent);
+}
+.bp-progress--waiting .bp-progress-rule {
+  border-color: var(--prompt-question-accent);
+  background: repeating-linear-gradient(-45deg, var(--prompt-question-accent) 0 2px, transparent 2px 5px);
+  animation: none;
+}
 .bp-dimmed {
   opacity: 0.4;
 }

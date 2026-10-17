@@ -74,6 +74,15 @@ describe('Paper', () => {
     expect(get).toHaveBeenCalledWith('S1', 'solution_design', 1);
   });
 
+  it('says the question waits on the operator instead of the run working', async () => {
+    const view = { ...viewWritingRev2(), open: { prompt_id: 'Q4', kind: 'question' as const } };
+    const { container } = render(
+      <Paper chatId="S1" view={view} stage="solution_design" version={2} writing={run} draft={null} compare={false} />,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(/^Q4 is waiting for you$/);
+    await waitFor(() => expect(container.querySelector('.bp-dimmed')).toHaveTextContent('DEC1'));
+  });
+
   it('names the responder while it answers the stage question', () => {
     const responder: BlueprintCurrentRun = { ...run, kind: 'responder' };
     const view = { ...viewWritingRev2(), current: responder };

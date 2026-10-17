@@ -56,18 +56,24 @@ export interface ShownStatus {
   tone: StatusTone;
 }
 
+/** The open question's prompt id when it waits on this stage; null otherwise. */
+export function waitingQuestion(view: BlueprintView, stage: string): string | null {
+  return view.open?.kind === 'question' && currentStep(view)?.stage === stage ? view.open.prompt_id : null;
+}
+
 export function shownStatus(
   view: BlueprintView,
   stage: string,
   stored: BlueprintArtifactRef | null,
   writing: boolean,
 ): ShownStatus {
+  // The asking stage run stays current while its question waits, so the wait outranks Writing.
+  const question = waitingQuestion(view, stage);
+  if (question && (writing || (stored !== null && stored.version === latestArtifact(view, stage)?.version))) {
+    return { text: `Waiting on ${question}`, tone: 'waiting' };
+  }
   if (writing) return { text: 'Writing', tone: 'running' };
   if (!stored) return { text: '', tone: 'muted' };
-  const newest = latestArtifact(view, stage);
-  if (stored.version === newest?.version && view.open?.kind === 'question' && currentStep(view)?.stage === stage) {
-    return { text: `Waiting on ${view.open.prompt_id}`, tone: 'waiting' };
-  }
   switch (stored.status) {
     case 'reviewing':
       return { text: 'Being reviewed', tone: 'running' };

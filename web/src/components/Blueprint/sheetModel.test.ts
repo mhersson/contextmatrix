@@ -54,6 +54,11 @@ describe('shownStatus', () => {
     expect(shownStatus(asking, 'solution_design', designV2, false)).toEqual({ text: 'Waiting on Q4', tone: 'waiting' });
   });
 
+  it('waits on the open question while the asking stage run is current', () => {
+    const asking = { ...view, open: { prompt_id: 'Q4', kind: 'question' as const }, current: running('solution_design') };
+    expect(shownStatus(asking, 'solution_design', null, true)).toEqual({ text: 'Waiting on Q4', tone: 'waiting' });
+  });
+
   it('says approved for a decided gate', () => {
     expect(shownStatus(view, 'solution_design', ref('solution_design', 2, 'approved'), false).text).toBe('Approved');
   });

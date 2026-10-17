@@ -1,12 +1,12 @@
 import type { ReactNode } from 'react';
 import type { BlueprintCurrentRun, BlueprintView } from '../../types';
 import type { RevisionMode } from './BodyMarkdown';
-import { DraftBody, ProgressLine, RefusedBand } from './DraftBody';
+import { DraftBody, ProgressLine, RefusedBand, WaitingLine } from './DraftBody';
 import { Stamp } from './Stamp';
 import { loadArtifact, useBlueprintArtifact } from './artifactCache';
 import type { HeldDraft } from './draft';
 import { ArtifactRenderer } from './renderers/ArtifactRenderer';
-import { stampFor } from './sheetModel';
+import { stampFor, waitingQuestion } from './sheetModel';
 import { artifactsFor, stageText } from './stages';
 
 interface PaperProps {
@@ -34,6 +34,7 @@ export function Paper({ chatId, view, stage, version, writing, draft, compare }:
   const stamp = stored ? stampFor(view, stored) : null;
   const mode: RevisionMode = !previous ? 'plain' : compare ? 'compare' : isNewest ? 'clouds' : 'plain';
   const title = stageText(stage).title;
+  const question = waitingQuestion(view, stage);
 
   let content: ReactNode;
   if (stored === null) {
@@ -42,7 +43,7 @@ export function Paper({ chatId, view, stage, version, writing, draft, compare }:
         <DraftBody draft={draft} />
       ) : (
         <>
-          {writing && <ProgressLine run={writing} stage={stage} />}
+          {writing && (question ? <WaitingLine promptId={question} /> : <ProgressLine run={writing} stage={stage} />)}
           {draft?.refused && <RefusedBand reason={draft.reason} />}
           {previous && (
             <div className="bp-dimmed">
