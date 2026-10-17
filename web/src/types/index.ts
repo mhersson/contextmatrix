@@ -571,6 +571,14 @@ export interface AssumptionDecision {
   accept: boolean;
 }
 
+/** A question round's answers as the block sends them (protocol RoundReply); final is "Submit all". */
+export interface RoundReply {
+  prompt_id: string;
+  answers?: RoundAnswer[];
+  decisions?: AssumptionDecision[];
+  final?: boolean;
+}
+
 export type AuthMode = 'multi' | 'none';
 
 export interface AppConfig {
