@@ -7264,7 +7264,7 @@ button.bp-seg-hit {
 }
 .bp-writing {
   white-space: pre-wrap;
-  box-shadow: -12px 0 0 -10px var(--aqua);
+  box-shadow: -2px 0 0 var(--aqua);
 }
 .bp-caret {
   display: inline-block;
