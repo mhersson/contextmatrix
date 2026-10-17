@@ -720,6 +720,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("GET /api/chats/{id}/stream", chh.streamChat)
 		mux.HandleFunc("GET /api/chats/{id}/blueprint", chh.getBlueprint)
 		mux.HandleFunc("GET /api/chats/{id}/blueprint/artifacts/{stage}/{version}", chh.getBlueprintArtifact)
+		mux.HandleFunc("GET /api/chats/{id}/blueprint/live", chh.streamBlueprint)
 		mux.HandleFunc("GET /api/chats/models", chh.listModels)
 	}
 
@@ -935,11 +936,13 @@ func observe(next http.Handler) http.Handler {
 		// SSE streams would pollute the REST latency histogram and the
 		// path label set - skip them entirely for metrics. MCP Streamable
 		// HTTP GET /mcp is a long-lived SSE connection for the same reason.
-		// Chat session SSE streams (/api/chats/{id}/stream) follow the same
-		// pattern - match by suffix since the id is variable.
+		// Chat session SSE streams (/api/chats/{id}/stream) and the
+		// blueprint live relay (/api/chats/{id}/blueprint/live) follow the
+		// same pattern - match by suffix since the id is variable.
 		if r.URL.Path == "/api/events" || r.URL.Path == "/api/worker/logs" ||
 			(r.Method == http.MethodGet && r.URL.Path == "/mcp") ||
-			(r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/chats/") && strings.HasSuffix(r.URL.Path, "/stream")) {
+			(r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/chats/") &&
+				(strings.HasSuffix(r.URL.Path, "/stream") || strings.HasSuffix(r.URL.Path, "/blueprint/live"))) {
 			return
 		}
 

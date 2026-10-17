@@ -63,6 +63,7 @@ GET    /api/chats/{id}/messages                        ?since_seq=|tail=1|before
 GET    /api/chats/{id}/stream                          ?since_seq=           # SSE stream of new entries
 GET    /api/chats/{id}/blueprint                       # blueprint view, read from the architect (architect sessions only)
 GET    /api/chats/{id}/blueprint/artifacts/{stage}/{version}  # one artifact version, read from the architect
+GET    /api/chats/{id}/blueprint/live                  # SSE relay of the architect's live blueprint stream
 
 POST   /api/sync                                       ?repo=                # trigger git sync
 GET    /api/sync                                       # sync status per boards repo
@@ -2669,7 +2670,18 @@ problems), read from the architect's
 stage id of letters, digits, `_` and `-`, at most 64 characters (for example
 `solution_design`, `signoff` or `emission`); `version` is a positive integer.
 
-Both routes answer:
+### GET /api/chats/{id}/blueprint/live
+
+SSE relay of the architect's signed `GET /blueprints/{id}/live` stream:
+snapshot, `artifact_stored` and draft frames plus the architect's heartbeat
+comments. CM relays the bytes unchanged and flushes every chunk it reads, so
+each frame reaches the browser as the architect sends it. Each browser
+connection gets its own upstream stream, closed when the browser disconnects;
+when the architect ends its stream, the response ends and the browser's
+EventSource reconnects, and a new stream starts with a snapshot frame. The
+connection is exempt from the server write timeout.
+
+These three routes answer (the live route answers before any stream starts):
 
 | Status | Code                    | Meaning                                                                                                    |
 | ------ | ----------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -2678,7 +2690,7 @@ Both routes answer:
 | 404    | `CHAT_NOT_FOUND`        | Unknown session, or another user's session in `multi` mode                                                 |
 | 404    | `BLUEPRINT_NOT_FOUND`   | Not an `architect` session, or the architect answered 404 (an architect without these routes, an unknown blueprint or artifact) |
 | 409    | `CHAT_KIND_UNAVAILABLE` | No architect backend is configured                                                                         |
-| 502    | `BACKEND_UNAVAILABLE`   | The architect is unreachable, did not answer within 30 seconds, or answered with another error            |
+| 502    | `BACKEND_UNAVAILABLE`   | The architect is unreachable, did not answer a read within 30 seconds, or answered with another error            |
 
 ## Image Endpoints
 
