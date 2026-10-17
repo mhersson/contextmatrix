@@ -57,7 +57,8 @@ describe('describeCurrent', () => {
   it.each([
     ['at your gate', at({}), 'Design rev 2 is at your gate', 'waiting'],
     ['a question waits', at({ open: { prompt_id: 'Q4', kind: 'question' }, current: run('stage', 'system_designer') }), 'Q4 is waiting for you', 'waiting'],
-    ['the responder answers', at({ open: { prompt_id: 'Q4', kind: 'question' }, current: run('responder', 'responder') }), 'The responder is answering Q4', 'running'],
+    ['the responder answers', at({ open: undefined, current: run('responder', 'system_designer') }), 'The responder is answering a question', 'running'],
+    ['the responder answers an open question', at({ open: { prompt_id: 'Q4', kind: 'question' }, current: run('responder', 'system_designer') }), 'The responder is answering Q4', 'running'],
     ['a reviewer reviews', at({ open: undefined, current: run('reviewer', 'senior_developer') }), 'Senior developer is reviewing design rev 2', 'running'],
   ])('%s', (_name, view, line, tone) => {
     const text = describeCurrent(view)!;

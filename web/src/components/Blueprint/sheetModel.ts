@@ -110,7 +110,8 @@ export function writingVersion(view: BlueprintView, draft: HeldDraft | null, sta
   const stored = artifactsFor(view, stage);
   if (draft && draft.stage === stage && !stored.some((r) => r.version === draft.version)) return draft.version;
   const run = view.current;
-  if (run?.kind === 'stage' && run.stage === stage) return (stored[stored.length - 1]?.version ?? 0) + 1;
+  // A responder run answers the asking stage's question mid-run, so that stage is still writing.
+  if (run && run.kind !== 'reviewer' && run.stage === stage) return (stored[stored.length - 1]?.version ?? 0) + 1;
   return null;
 }
 

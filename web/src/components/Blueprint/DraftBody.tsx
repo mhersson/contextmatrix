@@ -40,7 +40,10 @@ export function ProgressLine({ run, stage }: { run: BlueprintCurrentRun; stage: 
   return (
     <p className="bp-progress" role="status">
       <span className="bp-progress-rule" aria-hidden="true" />
-      {personaName(run.persona)} is working on the {stageText(stage).noun}: turn {run.turns}, {run.tool_calls}{' '}
+      {run.kind === 'responder'
+        ? 'The responder is answering a question'
+        : `${personaName(run.persona)} is working on the ${stageText(stage).noun}`}
+      : turn {run.turns}, {run.tool_calls}{' '}
       {run.tool_calls === 1 ? 'tool call' : 'tool calls'}, {formatTokens(run.tokens)} tokens
     </p>
   );

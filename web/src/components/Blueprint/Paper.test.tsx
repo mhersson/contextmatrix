@@ -74,6 +74,13 @@ describe('Paper', () => {
     expect(get).toHaveBeenCalledWith('S1', 'solution_design', 1);
   });
 
+  it('names the responder while it answers the stage question', () => {
+    const responder: BlueprintCurrentRun = { ...run, kind: 'responder' };
+    const view = { ...viewWritingRev2(), current: responder };
+    render(<Paper chatId="S1" view={view} stage="solution_design" version={2} writing={responder} draft={null} compare={false} />);
+    expect(screen.getByRole('status')).toHaveTextContent(/^The responder is answering a question: turn 6, 4 tool calls, 11k tokens$/);
+  });
+
   it('streams a draft with a caret on the block being written', () => {
     const draft = holdDraft({ stage: 'solution_design', version: 2, offset: 0, text: 'Done paragraph.\n\nWriting no' });
     const { container } = render(

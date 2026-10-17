@@ -151,20 +151,20 @@ export function describeCurrent(view: BlueprintView): CurrentText | null {
     if (step.stage !== 'emission') return say('Done', 'done');
     return say(view.state === 'done' ? 'Cards on the board' : 'Cards on the board; watching their runs', 'done');
   }
+  // The responder only answers questions; under an auto policy the question has no open prompt.
+  if (run?.kind === 'responder') {
+    return say(
+      open?.kind === 'question' ? `The responder is answering ${open.prompt_id}` : 'The responder is answering a question',
+      'running',
+    );
+  }
   if (open?.kind === 'gate') {
     // An emission resume is a gate with no artifact at it.
     const at = gateArtifact(view);
     if (!at) return say('Waiting for you', 'waiting');
-    const label = `${stageText(at.stage).tab} rev ${at.version}`;
-    return run?.kind === 'responder'
-      ? say(`The responder is deciding ${label}`, 'running')
-      : say(`${label} is at your gate`, 'waiting');
+    return say(`${stageText(at.stage).tab} rev ${at.version} is at your gate`, 'waiting');
   }
-  if (open?.kind === 'question') {
-    return run?.kind === 'responder'
-      ? say(`The responder is answering ${open.prompt_id}`, 'running')
-      : say(`${open.prompt_id} is waiting for you`, 'waiting');
-  }
+  if (open?.kind === 'question') return say(`${open.prompt_id} is waiting for you`, 'waiting');
   if (run?.kind === 'reviewer') {
     return say(`${persona} is reviewing ${st.noun} rev ${step.latest_version || 1}`, 'running');
   }

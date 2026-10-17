@@ -93,6 +93,21 @@ describe('which sheet shows', () => {
     expect(defaultShown(view, null)).toEqual({ stage: 'solution_design', version: 3 });
   });
 
+  it('keeps the asking stage on the sheet while the responder answers its question', () => {
+    // The architect's auto policy: no open prompt, the responder run current with the asking stage's id and persona.
+    const base = viewAtDesignGate();
+    const view = {
+      ...base,
+      open: undefined,
+      current: { ...running('solution_design'), kind: 'responder' as const },
+      pipeline: base.pipeline.map((s) => (s.stage === 'solution_design' ? { ...s, status: 'running' as const, latest_version: 0 } : s)),
+      artifacts: base.artifacts.filter((a) => a.stage !== 'solution_design'),
+    };
+    expect(writingVersion(view, null, 'solution_design')).toBe(1);
+    expect(defaultShown(view, null)).toEqual({ stage: 'solution_design', version: 1 });
+    expect(sheetTabs(view, null).find((t) => t.stage === 'solution_design')).toMatchObject({ enabled: true, current: true });
+  });
+
   it('falls back to the last stage with an artifact', () => {
     const view = { ...viewAtDesignGate(), open: undefined };
     view.pipeline = view.pipeline.map((s) => (s.stage === 'solution_design' ? { ...s, status: 'done' as const } : s));
