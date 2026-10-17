@@ -6350,3 +6350,179 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+/* New chat / New blueprint dialog: fields, kind tiles, project list, modes, caps. */
+.nd-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.nd-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--fg);
+}
+.nd-label small {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--grey1);
+}
+.nd-kinds {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.nd-kind {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  padding: 11px 13px;
+  text-align: left;
+  border: 1px solid var(--bg3);
+  border-radius: 9px;
+  background: var(--bg0);
+  color: var(--fg);
+  cursor: pointer;
+}
+.nd-kind-icon {
+  display: inline-flex;
+  flex: none;
+  margin-top: 2px;
+  color: var(--grey1);
+}
+.nd-kind-copy b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.nd-kind-copy span {
+  display: block;
+  margin-top: 1px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--grey1);
+}
+.nd-kind--on {
+  border-color: color-mix(in oklab, var(--blue) 70%, var(--bg3));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--blue) 70%, var(--bg3));
+  background: color-mix(in oklab, var(--blue) 7%, var(--bg0));
+}
+.nd-kind--on .nd-kind-icon {
+  color: var(--blue);
+}
+.nd-kind:focus-visible,
+.nd-project:has(input:focus-visible),
+.nd-mode:has(input:focus-visible),
+.nd-cap:has(input:focus-visible) {
+  outline: 2px solid color-mix(in oklab, var(--blue) 60%, transparent);
+  outline-offset: 1px;
+}
+.nd-projects {
+  display: flex;
+  flex-direction: column;
+  max-height: 222px;
+  overflow-y: auto;
+  border: 1px solid var(--bg3);
+  border-radius: 8px;
+}
+.nd-project {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--bg2);
+  background: var(--bg0);
+  color: var(--fg);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.nd-project:last-child {
+  border-bottom: 0;
+}
+.nd-project input {
+  flex: none;
+  accent-color: var(--blue);
+}
+.nd-project-name {
+  font-weight: 550;
+}
+.nd-project-repo {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--grey1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nd-project--on {
+  background: color-mix(in oklab, var(--blue) 9%, var(--bg0));
+}
+.nd-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.nd-mode {
+  display: block;
+  padding: 8px 10px;
+  text-align: left;
+  border: 1px solid var(--bg3);
+  border-radius: 8px;
+  background: var(--bg0);
+  color: var(--fg);
+  cursor: pointer;
+}
+.nd-mode b {
+  display: block;
+  font-size: 12.5px;
+}
+.nd-mode span {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--grey1);
+}
+.nd-mode--on {
+  border-color: color-mix(in oklab, var(--blue) 65%, var(--bg3));
+  background: color-mix(in oklab, var(--blue) 9%, var(--bg0));
+}
+.nd-mode--yolo.nd-mode--on {
+  border-color: color-mix(in oklab, var(--orange) 70%, var(--bg3));
+  background: color-mix(in oklab, var(--orange) 9%, var(--bg0));
+}
+.nd-caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.nd-cap {
+  padding: 4px 12px;
+  border: 1px solid var(--bg3);
+  border-radius: 999px;
+  background: var(--bg0);
+  color: var(--fg);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.nd-cap--on {
+  border-color: color-mix(in oklab, var(--blue) 65%, var(--bg3));
+  background: color-mix(in oklab, var(--blue) 12%, var(--bg0));
+}
+.nd-note {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--grey1);
+}
+@media (max-width: 480px) {
+  .nd-kinds,
+  .nd-modes {
+    grid-template-columns: 1fr;
+  }
+}
