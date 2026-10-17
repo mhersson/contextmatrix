@@ -15,3 +15,17 @@ export function ManualChecks({ title, items }: { title: string; items: ManualChe
     </section>
   );
 }
+
+export function TextList({ title, items, tone }: { title: string; items: string[]; tone?: 'red' | 'orange' }) {
+  if (items.length === 0) return null;
+  return (
+    <section>
+      <h3>{title}</h3>
+      <ul className={tone ? `bp-list bp-list--${tone}` : 'bp-list'}>
+        {items.map((t, i) => (
+          <li key={i}>{t}</li>
+        ))}
+      </ul>
+    </section>
+  );
+}

@@ -7046,3 +7046,103 @@ button.bp-seg-hit {
   color: var(--grey1);
   cursor: pointer;
 }
+
+/* Blueprint sheet: card previews, order, readiness. */
+.bp-card {
+  margin: 8px 0;
+  padding: 9px 12px;
+  border: 1px solid var(--bg3);
+  border-left: 3px solid var(--bg4);
+  border-radius: 6px;
+  background: var(--bg1);
+}
+.bp-card--feature {
+  border-left-color: var(--green);
+}
+.bp-card--task {
+  border-left-color: var(--blue);
+}
+.bp-card--bug {
+  border-left-color: var(--red);
+}
+.bp-card-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 550;
+}
+.bp-card details {
+  margin-top: 6px;
+  font-size: 12px;
+}
+.bp-card summary {
+  color: var(--grey1);
+  cursor: pointer;
+}
+.bp-card a {
+  color: var(--blue);
+}
+.bp-pill--feature {
+  background: var(--bg-green);
+  color: var(--green);
+}
+.bp-pill--task {
+  background: var(--bg-blue);
+  color: var(--blue);
+}
+.bp-pill--bug,
+.bp-pill--critical {
+  background: var(--bg-red);
+  color: var(--red);
+}
+.bp-pill--high {
+  background: var(--bg-orange);
+  color: var(--orange);
+}
+.bp-pill--medium {
+  background: var(--bg-yellow);
+  color: var(--yellow);
+}
+.bp-pill--low {
+  color: var(--grey1);
+}
+.bp-order {
+  margin: 4px 0 10px;
+  padding-left: 20px;
+  font-size: 12.5px;
+}
+.bp-order li {
+  margin: 3px 0;
+}
+.bp-after {
+  color: var(--grey1);
+}
+.bp-readiness {
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+.bp-readiness > li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--bg2);
+}
+.bp-ready {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--green);
+}
+.bp-not-ready {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--orange);
+}
+.bp-list--red li {
+  color: var(--red);
+}
+.bp-list--orange li {
+  color: var(--orange);
+}

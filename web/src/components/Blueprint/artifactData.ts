@@ -177,6 +177,14 @@ export interface ManualCheck {
   text: string;
 }
 
+/** Display text per id, cards first and manual checks after. */
+export function labelsById(cards: { id: string; title: string }[], manual: ManualCheck[]): Map<string, string> {
+  return new Map<string, string>([
+    ...cards.map((c): [string, string] => [c.id, c.title]),
+    ...manual.map((m): [string, string] => [m.id, m.text]),
+  ]);
+}
+
 export interface AcceptanceSlice {
   id: string;
   criteria: Criterion[];
