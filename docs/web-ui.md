@@ -155,9 +155,9 @@ board. Promote-to-autonomous lives in that tab.
   asks for text first, and typing the reply works too. A prompt closes when a
   reply answers it or a later prompt replaces it. It then shows a one-line
   summary instead of buttons, and a closed non-gate prompt keeps its options
-  above the summary as a smaller list with the answering option marked, in
-  muted grey for neutral prompts and in a near-full-strength text colour inside
-  a tinted question, where muted grey would miss 4.5:1. The
+  above the summary as a smaller list with the answering option marked. A closed
+  question's list and summary render in the normal text colour on the tint;
+  gates and neutral prompts keep the muted grey. The
   buttons are disabled while the session is not live or its stream is
   disconnected, and prompts show with the Text filter off.
 
