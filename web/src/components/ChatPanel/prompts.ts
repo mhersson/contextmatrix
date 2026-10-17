@@ -1,4 +1,5 @@
 import type { LogEntry } from '../../types';
+import { parseRound, type Round } from '../QuestionRound/parseRound';
 
 /** One reply button on an architect prompt. A click sends `reply`; a
  *  feedback action asks for text first and sends `reply` + space + text. */
@@ -19,6 +20,8 @@ export interface ChatPrompt {
   text?: string;
   freeText: boolean;
   actions: PromptAction[];
+  /** Set on a kind "round" prompt with an id: a tabbed question round (QuestionRound/rounds.ts derives its state). */
+  round?: Round;
 }
 
 export interface PromptEnvelope {
@@ -70,14 +73,18 @@ function parseEnvelope(content: string): PromptEnvelope | null {
           : [],
       )
     : [];
+  const id = typeof p.id === 'string' && p.id !== '' ? p.id : undefined;
+  const kind = typeof p.kind === 'string' && p.kind !== '' ? p.kind : undefined;
+  const round = kind === 'round' && id ? parseRound(p.round) : null;
   return {
     text: raw.text,
     prompt: {
-      id: typeof p.id === 'string' && p.id !== '' ? p.id : undefined,
-      kind: typeof p.kind === 'string' && p.kind !== '' ? p.kind : undefined,
+      id,
+      kind,
       text: typeof p.text === 'string' && p.text !== '' ? p.text : undefined,
       freeText: p.free_text === true,
       actions,
+      ...(round ? { round } : {}),
     },
   };
 }
@@ -116,6 +123,12 @@ export function derivePromptStates(logs: readonly LogEntry[], live: boolean): Ma
   let pending: { entry: LogEntry; prompt: ChatPrompt } | null = null;
   for (const e of logs) {
     const env = parsePromptEntry(e);
+    // A round has its own state (deriveRounds); it only ends an unanswered prompt.
+    if (env?.prompt.round) {
+      if (pending) states.set(pending.entry, { status: 'superseded' });
+      pending = null;
+      continue;
+    }
     if (env) {
       if (pending) states.set(pending.entry, { status: 'superseded' });
       pending = { entry: e, prompt: env.prompt };

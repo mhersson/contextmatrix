@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { derivePromptStates, matchReply, parsePromptEntry, type PromptState } from './prompts';
 import type { LogEntry } from '../../types';
+import { rawRound, roundEntry } from '../../test-utils/roundFixtures';
 
 const GATE = [
   { label: 'Approve', reply: 'approve' },
@@ -224,5 +225,26 @@ describe('derivePromptStates', () => {
   it.each(cases)('$name', ({ logs, live = true, want }) => {
     const states = derivePromptStates(logs, live);
     expect(logs.map((e) => states.get(e))).toEqual(want);
+  });
+});
+
+describe('round prompts', () => {
+  it('parses a round only on a kind "round" prompt with an id', () => {
+    expect(parsePromptEntry(roundEntry(1, 'round:1', rawRound()))?.prompt.round?.questions).toHaveLength(3);
+    expect(parsePromptEntry(roundEntry(2, '', rawRound()))?.prompt.round).toBeUndefined();
+    const asQuestion: LogEntry = {
+      ...roundEntry(3, 'Q1', rawRound()),
+      content: JSON.stringify({ text: 't', prompt: { id: 'Q1', kind: 'question', round: rawRound() } }),
+    };
+    expect(parsePromptEntry(asQuestion)?.prompt.round).toBeUndefined();
+  });
+
+  it('closes an unanswered prompt but never becomes a prompt state itself', () => {
+    const q = prompt(1, OPTIONS, { kind: 'question', free_text: true });
+    const r = roundEntry(2, 'round:1', rawRound());
+    const u = user(3, 'Does Q3 change Q1?');
+    const states = derivePromptStates([q, r, u], true);
+    expect(states.get(q)).toEqual({ status: 'superseded' });
+    expect(states.has(r)).toBe(false);
   });
 });

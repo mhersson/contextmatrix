@@ -558,6 +558,19 @@ export interface LogEntry {
   kind?: string;
 }
 
+/** One answer in a question round (protocol RoundAnswer): option is 1-based; without it, text is the person's own answer. */
+export interface RoundAnswer {
+  number: number;
+  option?: number;
+  text?: string;
+}
+
+/** An assumption accepted, or turned into a question when accept is false (protocol AssumptionDecision). */
+export interface AssumptionDecision {
+  id: string;
+  accept: boolean;
+}
+
 export type AuthMode = 'multi' | 'none';
 
 export interface AppConfig {
