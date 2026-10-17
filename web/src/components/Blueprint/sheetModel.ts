@@ -1,4 +1,5 @@
-import type { BlueprintArtifactRef, BlueprintArtifactReview, BlueprintView } from '../../types';
+import type { BlueprintArtifactRef, BlueprintArtifactReview, BlueprintView, LogEntry } from '../../types';
+import { derivePromptStates, parsePromptEntry, type ChatPrompt } from '../ChatPanel/prompts';
 import type { HeldDraft } from './draft';
 import { artifactsFor, currentStep, decidedByText, finished, latestArtifact, stageText } from './stages';
 
@@ -163,4 +164,19 @@ export function resolveShown(
     if (versions.length > 0) return { stage: pin.stage, version: versions[versions.length - 1] };
   }
   return defaultShown(view, draft);
+}
+
+/** The open transcript prompt that is the gate the view reports open, matched on the prompt id. */
+export function gatePromptFor(
+  logs: readonly LogEntry[],
+  live: boolean,
+  openGateId: string | undefined,
+): ChatPrompt | null {
+  if (!openGateId) return null;
+  for (const [entry, state] of derivePromptStates(logs, live)) {
+    if (state.status !== 'open') continue;
+    const prompt = parsePromptEntry(entry)?.prompt;
+    if (prompt?.id === openGateId) return prompt;
+  }
+  return null;
 }

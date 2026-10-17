@@ -7518,3 +7518,110 @@ button.bp-seg-hit {
   font-size: 12.5px;
   color: var(--grey1);
 }
+
+/* Blueprint pane layout: transcript, divider, sheet, edge strip, overlay. */
+.bp-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.bp-body-row {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.bp-transcript {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.bp-sheet-slot {
+  display: flex;
+  flex: 0 0 46%;
+  min-width: 0;
+  min-height: 0;
+}
+.bp-divider {
+  flex: 0 0 5px;
+  background: var(--bg2);
+  cursor: col-resize;
+  touch-action: none;
+}
+.bp-divider:hover,
+.bp-divider:focus-visible {
+  background: var(--bg4);
+  outline: none;
+}
+.bp-overlay {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 10%;
+  z-index: 3;
+  display: flex;
+  box-shadow: -18px 0 40px color-mix(in oklab, var(--bg-dim) 70%, transparent);
+  animation: bp-slide-in 0.22s ease-out;
+}
+.bp-overlay--phone {
+  left: 0;
+}
+@keyframes bp-slide-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0.4;
+  }
+}
+.bp-edge {
+  display: flex;
+  flex: 0 0 30px;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border: 0;
+  border-left: 1px solid var(--bg2);
+  background: var(--bg0);
+  color: var(--grey2);
+  cursor: pointer;
+}
+.bp-edge-text {
+  transform: rotate(180deg);
+  font-size: 12px;
+  white-space: nowrap;
+  writing-mode: vertical-rl;
+}
+.bp-edge-text b {
+  font-family: var(--font-display);
+  font-weight: 500;
+  color: var(--fg);
+}
+.bp-edge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--aqua);
+}
+.bp-sheet--unavailable {
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+}
+.bp-sheet--unavailable p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--fg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .bp-overlay {
+    animation: none;
+  }
+}

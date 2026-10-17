@@ -1,0 +1,160 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { api } from '../../api/client';
+import { BlueprintPane } from './BlueprintPane';
+import { resetArtifactCache } from './artifactCache';
+import type { BlueprintState } from './state';
+import { findArtifact, viewAtDesignGate } from '../../test-utils/blueprintFixtures';
+import type { LogEntry } from '../../types';
+
+vi.mock('../../api/client', () => ({ api: { getBlueprintArtifact: vi.fn() } }));
+vi.mock('../ChatPanel/ChatMarkdown', () => ({
+  ChatMarkdown: ({ source }: { source: string }) => <div data-testid="md">{source}</div>,
+}));
+
+let paneWidth = 1000;
+
+class FakeResizeObserver {
+  callback: ResizeObserverCallback;
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback;
+  }
+  observe() {
+    this.callback([{ contentRect: { width: paneWidth } } as ResizeObserverEntry], this as unknown as ResizeObserver);
+  }
+  unobserve() {}
+  disconnect() {}
+}
+
+const gateRow: LogEntry = {
+  ts: '2026-10-17T10:00:00Z',
+  card_id: '',
+  type: 'text',
+  kind: 'prompt',
+  seq: 9,
+  content: JSON.stringify({
+    text: 'Design rev 2 is at your gate.',
+    prompt: { id: 'gate:solution_design:v2', kind: 'gate', actions: [{ label: 'Approve', reply: 'approve' }] },
+  }),
+};
+
+const ready = (): BlueprintState => ({ status: 'ready', view: viewAtDesignGate(), draft: null });
+
+function renderPane(state: BlueprintState, over: { phone?: boolean; logs?: LogEntry[] } = {}) {
+  const onRetry = vi.fn();
+  const onReply = vi.fn().mockResolvedValue(undefined);
+  render(
+    <BlueprintPane
+      chatId="S1"
+      state={state}
+      onRetry={onRetry}
+      logs={over.logs ?? []}
+      promptsLive
+      onReply={onReply}
+      phone={over.phone ?? false}
+    >
+      <div>transcript</div>
+    </BlueprintPane>,
+  );
+  return { onRetry, onReply };
+}
+
+describe('BlueprintPane', () => {
+  beforeEach(() => {
+    paneWidth = 1000;
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    resetArtifactCache();
+    vi.mocked(api.getBlueprintArtifact).mockImplementation((_c, stage, version) => Promise.resolve(findArtifact(stage, version)));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('puts the sheet beside the transcript on a wide pane', () => {
+    renderPane(ready());
+    expect(screen.getByText('transcript')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Blueprint sheet' })).toBeInTheDocument();
+    expect(screen.getByText('Design rev 2 is at your gate')).toBeInTheDocument();
+    const divider = screen.getByRole('separator', { name: 'Resize the sheet' });
+    expect(divider).toHaveAttribute('aria-valuenow', '46');
+    fireEvent.keyDown(divider, { key: 'ArrowLeft' });
+    expect(divider).toHaveAttribute('aria-valuenow', '48');
+  });
+
+  it('collapses to an edge strip under 760px and opens the sheet over the transcript', () => {
+    paneWidth = 700;
+    renderPane(ready());
+    expect(screen.queryByRole('region', { name: 'Blueprint sheet' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Open the Design sheet' }));
+    expect(screen.getByRole('region', { name: 'Blueprint sheet' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('region', { name: 'Blueprint sheet' })).not.toBeInTheDocument();
+  });
+
+  it('closes the overlay on Escape', () => {
+    paneWidth = 700;
+    renderPane(ready());
+    fireEvent.click(screen.getByRole('button', { name: 'Open the Design sheet' }));
+    fireEvent.keyDown(screen.getByRole('region', { name: 'Blueprint sheet' }), { key: 'Escape' });
+    expect(screen.queryByRole('region', { name: 'Blueprint sheet' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the overlay open when an inner control handled Escape', () => {
+    paneWidth = 700;
+    const feedbackRow: LogEntry = {
+      ...gateRow,
+      content: JSON.stringify({
+        text: 'Design rev 2 is at your gate.',
+        prompt: {
+          id: 'gate:solution_design:v2',
+          kind: 'gate',
+          actions: [{ label: 'Reject with feedback', reply: 'reject', feedback: true }],
+        },
+      }),
+    };
+    renderPane(ready(), { logs: [feedbackRow] });
+    fireEvent.click(screen.getByRole('button', { name: 'Open the Design sheet' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reject with feedback' }));
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' });
+    expect(screen.getByRole('region', { name: 'Blueprint sheet' })).toBeInTheDocument();
+  });
+
+  it('moves the stage label into the tooltip under 560px', () => {
+    paneWidth = 500;
+    renderPane(ready());
+    expect(screen.queryByText('Design rev 2 is at your gate')).not.toBeInTheDocument();
+    expect(screen.getByText('$0.16 of $2.00')).toBeInTheDocument();
+  });
+
+  it('shows no edge strip and no sheet on a phone', () => {
+    renderPane(ready(), { phone: true });
+    expect(screen.queryByRole('button', { name: /Open the .* sheet/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Blueprint sheet' })).not.toBeInTheDocument();
+  });
+
+  it('says the architect is unreachable on the sheet and hides the scale bar', () => {
+    const { onRetry } = renderPane({ status: 'unreachable' });
+    expect(screen.queryByRole('list', { name: 'Blueprint stages' })).not.toBeInTheDocument();
+    expect(screen.getByText("Can't reach the architect.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(onRetry).toHaveBeenCalled();
+    expect(screen.getByText('transcript')).toBeInTheDocument();
+  });
+
+  it('renders a plain transcript when there is no blueprint view', () => {
+    renderPane({ status: 'absent' });
+    expect(screen.getByText('transcript')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Blueprint sheet' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Blueprint stages' })).not.toBeInTheDocument();
+  });
+
+  it('answers the open gate from the sheet through the transcript reply path', async () => {
+    const { onReply } = renderPane(ready(), { logs: [gateRow] });
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    await waitFor(() => expect(onReply).toHaveBeenCalledWith('approve'));
+  });
+
+  it('opens the artifact a finished scale-bar segment names', async () => {
+    renderPane(ready());
+    fireEvent.click(screen.getByRole('button', { name: /^Open Need/ }));
+    expect(await screen.findByRole('article', { name: 'Need rev 1' })).toBeInTheDocument();
+  });
+});
