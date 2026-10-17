@@ -68,6 +68,40 @@ describe('shownStatus', () => {
     expect(shownStatus(asking, 'solution_design', null, true)).toEqual({ text: 'Waiting on Q4', tone: 'waiting' });
   });
 
+  describe('a failed step', () => {
+    const failedWith = (artifacts: ReturnType<typeof ref>[]) => ({
+      ...view,
+      artifacts,
+      pipeline: view.pipeline.map((s) => (s.stage === 'solution_design' ? { ...s, status: 'failed' as const } : s)),
+    });
+    const review = viewAtDesignGate().artifacts[2].review;
+
+    it('never reads Done for a current version nobody reviewed', () => {
+      const v = failedWith([ref('solution_design', 1, 'current')]);
+      expect(shownStatus(v, 'solution_design', v.artifacts[0], false)).toEqual({ text: 'Review failed', tone: 'bad' });
+    });
+
+    it('reads Review failed for a version left reviewing', () => {
+      const v = failedWith([ref('solution_design', 1, 'reviewing')]);
+      expect(shownStatus(v, 'solution_design', v.artifacts[0], false)).toEqual({ text: 'Review failed', tone: 'bad' });
+    });
+
+    it('reads Failed when a later run failed after a review', () => {
+      const v = failedWith([ref('solution_design', 1, 'current', { review })]);
+      expect(shownStatus(v, 'solution_design', v.artifacts[0], false)).toEqual({ text: 'Failed', tone: 'bad' });
+    });
+
+    it('leaves an older superseded version alone', () => {
+      const v = failedWith([ref('solution_design', 1, 'superseded'), ref('solution_design', 2, 'current')]);
+      expect(shownStatus(v, 'solution_design', v.artifacts[0], false)).toEqual({ text: 'Superseded', tone: 'old' });
+    });
+
+    it('still reads Done on a done step', () => {
+      const v = { ...failedWith([ref('solution_design', 1, 'current')]), pipeline: view.pipeline.map((s) => (s.stage === 'solution_design' ? { ...s, status: 'done' as const } : s)) };
+      expect(shownStatus(v, 'solution_design', v.artifacts[0], false)).toEqual({ text: 'Done', tone: 'ok' });
+    });
+  });
+
   it('says approved for a decided gate', () => {
     expect(shownStatus(view, 'solution_design', ref('solution_design', 2, 'approved'), false).text).toBe('Approved');
   });

@@ -74,6 +74,14 @@ export function shownStatus(
   }
   if (writing) return { text: 'Writing', tone: 'running' };
   if (!stored) return { text: '', tone: 'muted' };
+  // A failed step leaves its newest version current (or reviewing on older architects); that must not read as done.
+  if (
+    view.pipeline.find((s) => s.stage === stage)?.status === 'failed' &&
+    stored.version === latestArtifact(view, stage)?.version &&
+    (stored.status === 'current' || stored.status === 'reviewing')
+  ) {
+    return { text: stored.review ? 'Failed' : 'Review failed', tone: 'bad' };
+  }
   switch (stored.status) {
     case 'reviewing':
       return { text: 'Being reviewed', tone: 'running' };
