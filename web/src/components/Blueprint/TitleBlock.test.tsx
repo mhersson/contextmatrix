@@ -14,6 +14,7 @@ function renderBlock(over: Partial<Parameters<typeof TitleBlock>[0]> = {}) {
     version: 2,
     onPickVersion: vi.fn(),
     review: { review: DESIGN_REVIEW, version: 1 },
+    reviewing: null,
     status: { text: 'At your gate', tone: 'waiting' },
     compare: { available: true, on: false, onToggle: vi.fn() },
     ...over,
@@ -23,6 +24,19 @@ function renderBlock(over: Partial<Parameters<typeof TitleBlock>[0]> = {}) {
 }
 
 describe('TitleBlock', () => {
+  it('names the reviewer at work instead of Contract checks', () => {
+    renderBlock({ reviewing: 'senior_developer', review: null });
+    expect(screen.getByText('Senior developer, reviewing')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /reviewing/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Contract checks')).not.toBeInTheDocument();
+  });
+
+  it('prefers the reviewer at work over an earlier score', () => {
+    renderBlock({ reviewing: 'senior_developer' });
+    expect(screen.getByText('Senior developer, reviewing')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /of 5/ })).not.toBeInTheDocument();
+  });
+
   it('names the sheet, who drew it and its status', () => {
     renderBlock();
     expect(screen.getByText('Design')).toBeInTheDocument();

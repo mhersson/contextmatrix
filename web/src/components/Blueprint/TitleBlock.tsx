@@ -12,11 +12,13 @@ interface TitleBlockProps {
   version: number;
   onPickVersion: (version: number) => void;
   review: ShownReview | null;
+  /** The reviewer persona at work on this version, if any. */
+  reviewing: string | null;
   status: ShownStatus;
   compare: { available: boolean; on: boolean; onToggle: () => void };
 }
 
-export function TitleBlock({ stage, persona, options, version, onPickVersion, review, status, compare }: TitleBlockProps) {
+export function TitleBlock({ stage, persona, options, version, onPickVersion, review, reviewing, status, compare }: TitleBlockProps) {
   const revLabel = useId();
   const [reviewOpen, setReviewOpen] = useState(false);
   const checkedRef = useRef<HTMLDivElement>(null);
@@ -60,7 +62,9 @@ export function TitleBlock({ stage, persona, options, version, onPickVersion, re
         }}
       >
         <small>Checked by</small>
-        {review ? (
+        {reviewing ? (
+          <span className="bp-tb-value">{personaName(reviewing)}, reviewing</span>
+        ) : review ? (
           <>
             <button
               ref={triggerRef}

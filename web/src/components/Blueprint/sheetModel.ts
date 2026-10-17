@@ -106,6 +106,13 @@ export function reviewFor(view: BlueprintView, stage: string, version: number): 
   return reviewed?.review ? { review: reviewed.review, version: reviewed.version } : null;
 }
 
+/** The reviewer at work on this sheet; it always reviews the newest stored version. */
+export function reviewingPersona(view: BlueprintView, stage: string, shownVersion: number): string | null {
+  const cur = view.current;
+  if (cur?.kind !== 'reviewer' || cur.stage !== stage) return null;
+  return latestArtifact(view, stage)?.version === shownVersion ? cur.persona : null;
+}
+
 export interface Shown {
   stage: string;
   version: number;
