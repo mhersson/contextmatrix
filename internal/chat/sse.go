@@ -74,6 +74,71 @@ type SessionUpdate struct {
 	AssistantWorkingSince *time.Time `json:"assistant_working_since,omitempty"`
 }
 
+// EventKindBlueprint is the DataKind of an architect live frame relayed on
+// the session SSE; Content is the LiveFrame JSON verbatim. Never persisted
+// and never in the replay ring.
+const EventKindBlueprint = "blueprint"
+
+// blueprintDraftCap bounds the draft bytes cached after a snapshot.
+const blueprintDraftCap = 256 << 10
+
+// blueprintCache is the latest snapshot frame and the gapless drafts since
+// it. epoch names the relay that filled it, so a stopped relay's late frame
+// or reset never touches a newer relay's cache.
+type blueprintCache struct {
+	epoch    uint64
+	snapshot string
+	drafts   []string
+	size     int
+	// overflow stops draft caching until the next snapshot, so the cache
+	// never holds drafts with a gap.
+	overflow bool
+}
+
+func (c *blueprintCache) clear() {
+	c.snapshot, c.drafts, c.size, c.overflow = "", nil, 0, false
+}
+
+func (c *blueprintCache) add(frameType, frame string) {
+	switch frameType {
+	case "snapshot":
+		c.clear()
+		c.snapshot = frame
+	case "draft":
+		if c.snapshot == "" || c.overflow {
+			return
+		}
+
+		if c.size+len(frame) > blueprintDraftCap {
+			c.drafts, c.size, c.overflow = nil, 0, true
+
+			return
+		}
+
+		c.drafts = append(c.drafts, frame)
+		c.size += len(frame)
+	}
+}
+
+func (c *blueprintCache) events() []SSEEvent {
+	if c.snapshot == "" {
+		return nil
+	}
+
+	out := make([]SSEEvent, 0, 1+len(c.drafts))
+	out = append(out, blueprintEvent(c.snapshot))
+
+	for _, d := range c.drafts {
+		out = append(out, blueprintEvent(d))
+	}
+
+	return out
+}
+
+func blueprintEvent(frame string) SSEEvent {
+	return SSEEvent{Kind: SSEKindMessage, DataKind: EventKindBlueprint, Content: frame}
+}
+
 type subscriber struct {
 	ch chan SSEEvent
 }
@@ -83,6 +148,7 @@ type sessionHub struct {
 	ring []SSEEvent
 	cap  int
 	subs map[*subscriber]struct{}
+	bp   blueprintCache
 }
 
 // SSEHub manages per-session ring buffers and subscriber fan-out.
@@ -152,6 +218,69 @@ func (h *SSEHub) Publish(sessionID string, e SSEEvent) {
 	}
 }
 
+// lookup returns the session's hub without creating one.
+func (h *SSEHub) lookup(sessionID string) *sessionHub {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	return h.perSess[sessionID]
+}
+
+// PublishBlueprint fans an architect live frame out to the session's
+// subscribers and caches it for later ones. A session nobody subscribed to
+// is skipped, so a relay outliving a deleted session never recreates its
+// hub. A frame takes a subscriber's buffer only while it is under half
+// full, so a draft burst never crowds out transcript events.
+func (h *SSEHub) PublishBlueprint(sessionID string, epoch uint64, frameType, frame string) {
+	sh := h.lookup(sessionID)
+	if sh == nil {
+		return
+	}
+
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+
+	if epoch < sh.bp.epoch {
+		return
+	}
+
+	if epoch > sh.bp.epoch {
+		sh.bp.clear()
+		sh.bp.epoch = epoch
+	}
+
+	sh.bp.add(frameType, frame)
+
+	e := blueprintEvent(frame)
+
+	for s := range sh.subs {
+		if len(s.ch) >= cap(s.ch)/2 {
+			continue
+		}
+
+		select {
+		case s.ch <- e:
+		default:
+		}
+	}
+}
+
+// ResetBlueprint drops the frames the relay of epoch cached, so a subscriber
+// arriving after that relay stopped gets no stale snapshot.
+func (h *SSEHub) ResetBlueprint(sessionID string, epoch uint64) {
+	sh := h.lookup(sessionID)
+	if sh == nil {
+		return
+	}
+
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+
+	if sh.bp.epoch == epoch {
+		sh.bp.clear()
+	}
+}
+
 // PublishSessionUpdate fans out a session-metadata change event. Convenience
 // wrapper around Publish that sets the kind discriminator.
 func (h *SSEHub) PublishSessionUpdate(sessionID string, u SessionUpdate) {
@@ -162,7 +291,7 @@ func (h *SSEHub) PublishSessionUpdate(sessionID string, u SessionUpdate) {
 }
 
 // Subscribe returns a channel for live events and the replay slice of buffered
-// events with Seq > sinceSeq. The returned channel must be passed back to
+// events with Seq > sinceSeq, followed by the cached blueprint frames. The returned channel must be passed back to
 // Unsubscribe to release resources.
 //
 // Returns an error if the per-session subscriber count would exceed
@@ -192,6 +321,8 @@ func (h *SSEHub) Subscribe(sessionID string, sinceSeq int64) (<-chan SSEEvent, [
 			replay = append(replay, e)
 		}
 	}
+
+	replay = append(replay, sh.bp.events()...)
 
 	if h.OnSubscribe != nil {
 		h.OnSubscribe(sessionID)
