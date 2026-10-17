@@ -1154,3 +1154,145 @@ export interface ChatSessionUpdate {
   /** RFC3339 UTC start of the in-flight turn. Absent when not working. */
   assistant_working_since?: string;
 }
+
+// Blueprint sessions: the architect's view of one blueprint, proxied by CM
+// unchanged (protocol v0.26.0). Go omits zero-valued omitempty fields, so
+// those are optional here; normalizeView fills missing or null arrays.
+
+export type BlueprintStepStatus =
+  | 'pending'
+  | 'running'
+  | 'reviewing'
+  | 'revising'
+  | 'waiting'
+  | 'done'
+  | 'failed'
+  | 'folded'
+  | 'skipped';
+
+export interface BlueprintPipelineStep {
+  /** Pack stage id, "signoff" or "emission". */
+  stage: string;
+  persona: string;
+  gate: boolean;
+  /** "human" or "auto". */
+  policy?: string;
+  folds_into?: string;
+  status: BlueprintStepStatus;
+  attempt?: number;
+  round?: number;
+  max_rounds?: number;
+  latest_version?: number;
+  cost_usd: number;
+}
+
+export interface BlueprintCurrentRun {
+  stage: string;
+  kind: 'stage' | 'reviewer' | 'responder';
+  persona: string;
+  model: string;
+  started_at: string;
+  turns: number;
+  tool_calls: number;
+  tokens: number;
+}
+
+export interface BlueprintOpenPrompt {
+  /** "Q<n>", "gate:<stage>:v<n>" or "gate:signoff:v<n>". */
+  prompt_id: string;
+  kind: 'question' | 'gate';
+}
+
+export interface BlueprintCost {
+  /** The architect's ledger plus the in-flight run. */
+  spent_usd: number;
+  run_spent_usd: number;
+  /** 0 means no blueprint cap. */
+  cap_usd: number;
+  run_cap_usd: number;
+  /** False when any run was unpriced. */
+  priced: boolean;
+}
+
+export interface BlueprintReviewFinding {
+  text: string;
+  /** The revision version the finding went to. */
+  sent_to?: number;
+  /** Set only when that revision run listed the finding as addressed. */
+  addressed_in?: number;
+  addressed_by?: string;
+  addressed_note?: string;
+}
+
+export interface BlueprintArtifactReview {
+  reviewer: string;
+  score: number;
+  threshold: number;
+  findings: BlueprintReviewFinding[];
+}
+
+export type BlueprintArtifactStatus =
+  | 'current'
+  | 'reviewing'
+  | 'at_gate'
+  | 'approved'
+  | 'rejected'
+  | 'superseded'
+  | 'folded';
+
+export interface BlueprintArtifactRef {
+  stage: string;
+  version: number;
+  created_at: string;
+  status: BlueprintArtifactStatus;
+  decided_at?: string;
+  decided_by?: 'you' | 'responder' | 'automatic';
+  review?: BlueprintArtifactReview;
+}
+
+export interface BlueprintView {
+  id: string;
+  mode: string;
+  state: string;
+  seq: number;
+  pipeline: BlueprintPipelineStep[];
+  current?: BlueprintCurrentRun;
+  open?: BlueprintOpenPrompt;
+  cost: BlueprintCost;
+  artifacts: BlueprintArtifactRef[];
+}
+
+export interface BlueprintArtifact {
+  stage: string;
+  version: number;
+  body: string;
+  data?: unknown;
+  check_problems?: string[];
+}
+
+/** An artifact body a run is writing; offset counts code points sent before text. */
+export interface ArtifactDraft {
+  stage: string;
+  version: number;
+  offset: number;
+  text: string;
+  refused?: boolean;
+  reason?: string;
+}
+
+export interface BlueprintLiveFrame {
+  type: 'snapshot' | 'artifact_stored' | 'draft';
+  view?: BlueprintView;
+  draft?: ArtifactDraft;
+  stage?: string;
+  version?: number;
+}
+
+/** A blueprint transcript row's marker: a stage divider or a sheet reference. */
+export interface LogMarker {
+  kind: 'stage' | 'artifact';
+  stage: string;
+  persona?: string;
+  version?: number;
+  note?: string;
+}

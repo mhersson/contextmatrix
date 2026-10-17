@@ -415,3 +415,28 @@ describe('api Jira reads', () => {
     expect(init?.method ?? 'GET').toBe('GET');
   });
 });
+
+describe('api blueprint reads', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      makeResponse({ stage: 'solution_design', version: 2, body: '' }),
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('reads an artifact through the chat proxy', async () => {
+    await api.getBlueprintArtifact('S 1', 'solution_design', 2);
+    const [url] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/chats/S%201/blueprint/artifacts/solution_design/2');
+  });
+
+  it('surfaces the proxy error code', async () => {
+    fetchSpy.mockResolvedValue(makeErrorResponse('BLUEPRINT_NOT_FOUND', 'no blueprint', 404));
+    await expect(api.getBlueprintView('S1')).rejects.toMatchObject({ code: 'BLUEPRINT_NOT_FOUND' });
+  });
+});

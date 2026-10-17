@@ -1,0 +1,140 @@
+import { describe, it, expect } from 'vitest';
+import type { BlueprintView } from '../../types';
+import { formatHHMM } from '../../utils/chatTimestamp';
+import { ref, step, viewAtDesignGate } from '../../test-utils/blueprintFixtures';
+import {
+  costLabel,
+  currentStep,
+  decidedByText,
+  describeCurrent,
+  normalizeView,
+  personaName,
+  stageText,
+  stepStatusText,
+} from './stages';
+
+function at(patch: Partial<BlueprintView>): BlueprintView {
+  return { ...viewAtDesignGate(), ...patch };
+}
+
+describe('stage names', () => {
+  it('maps known stages to their sheet tabs and humanizes unknown ones', () => {
+    expect(stageText('solution_design').tab).toBe('Design');
+    expect(stageText('decomposition').tab).toBe('Cards');
+    expect(stageText('emission').tab).toBe('Board');
+    expect(stageText('threat_model').tab).toBe('Threat model');
+    expect(personaName('senior_developer')).toBe('Senior developer');
+  });
+});
+
+describe('normalizeView', () => {
+  it('treats missing or null arrays as empty', () => {
+    const raw = { ...viewAtDesignGate(), pipeline: null, artifacts: undefined } as unknown as BlueprintView;
+    const view = normalizeView(raw);
+    expect(view.pipeline).toEqual([]);
+    expect(view.artifacts).toEqual([]);
+    const withNullFindings = normalizeView({
+      ...viewAtDesignGate(),
+      artifacts: [ref('solution_design', 1, 'superseded', { review: { reviewer: 'r', score: 3, threshold: 4, findings: null as never } })],
+    });
+    expect(withNullFindings.artifacts[0].review?.findings).toEqual([]);
+    expect(describeCurrent(view)).toBeNull();
+  });
+});
+
+describe('currentStep', () => {
+  it('prefers the open gate stage over the running run', () => {
+    const view = at({ current: { stage: 'grounding', kind: 'stage', persona: 'senior_developer', model: 'm', started_at: '', turns: 1, tool_calls: 0, tokens: 0 } });
+    expect(currentStep(view)?.stage).toBe('solution_design');
+  });
+});
+
+describe('describeCurrent', () => {
+  const run = (kind: 'stage' | 'reviewer' | 'responder', persona: string, stage = 'solution_design') => ({
+    stage, kind, persona, model: 'm', started_at: '2026-10-17T10:00:00Z', turns: 6, tool_calls: 4, tokens: 11200,
+  });
+
+  it.each([
+    ['at your gate', at({}), 'Design rev 2 is at your gate', 'waiting'],
+    ['a question waits', at({ open: { prompt_id: 'Q4', kind: 'question' }, current: run('stage', 'system_designer') }), 'Q4 is waiting for you', 'waiting'],
+    ['the responder answers', at({ open: { prompt_id: 'Q4', kind: 'question' }, current: run('responder', 'responder') }), 'The responder is answering Q4', 'running'],
+    ['a reviewer reviews', at({ open: undefined, current: run('reviewer', 'senior_developer') }), 'Senior developer is reviewing design rev 2', 'running'],
+  ])('%s', (_name, view, line, tone) => {
+    const text = describeCurrent(view)!;
+    expect(text.name).toBe('Solution design');
+    expect(text.line).toBe(line);
+    expect(text.tone).toBe(tone);
+  });
+
+  it('counts the findings a revision answers', () => {
+    const view = at({
+      open: undefined,
+      current: run('stage', 'system_designer'),
+      pipeline: viewAtDesignGate().pipeline.map((s) => (s.stage === 'solution_design' ? { ...s, status: 'revising' as const, latest_version: 1 } : s)),
+      artifacts: viewAtDesignGate().artifacts.filter((a) => !(a.stage === 'solution_design' && a.version === 2)),
+    });
+    expect(describeCurrent(view)!.line).toBe('System designer is revising the design (3 findings)');
+  });
+
+  it('names the readiness round', () => {
+    const pipeline = viewAtDesignGate().pipeline.map((s) =>
+      s.stage === 'readiness' ? { ...s, status: 'running' as const, round: 2, max_rounds: 3 } : s.status === 'pending' || s.status === 'waiting' ? { ...s, status: 'done' as const } : s,
+    );
+    const view = at({ open: undefined, pipeline, current: run('stage', 'reviewer', 'readiness') });
+    expect(describeCurrent(view)!.line).toBe('Reviewer is checking the cards, round 2 of 3');
+  });
+
+  it('says the cards are on the board once everything is done', () => {
+    const pipeline = viewAtDesignGate().pipeline.map((s) => (s.status === 'folded' ? s : { ...s, status: 'done' as const }));
+    expect(describeCurrent(at({ open: undefined, pipeline, state: 'emitted' }))).toMatchObject({ name: 'Emission', tone: 'done', line: 'Cards on the board; watching their runs' });
+    expect(describeCurrent(at({ open: undefined, pipeline, state: 'done' }))!.line).toBe('Cards on the board');
+  });
+
+  it('marks a failed stage', () => {
+    const pipeline = viewAtDesignGate().pipeline.map((s) => (s.stage === 'solution_design' ? { ...s, status: 'failed' as const } : s));
+    expect(describeCurrent(at({ open: undefined, pipeline }))!.tone).toBe('failed');
+  });
+
+  it('waits on the operator for an emission resume without naming an artifact', () => {
+    const pipeline = viewAtDesignGate().pipeline.map((s) =>
+      s.stage === 'emission' ? { ...s, status: 'waiting' as const } : s.status === 'folded' ? s : { ...s, status: 'done' as const },
+    );
+    const artifacts = viewAtDesignGate().artifacts.map((a) => (a.status === 'at_gate' ? { ...a, status: 'approved' as const } : a));
+    const text = describeCurrent(at({ pipeline, artifacts, open: { prompt_id: 'emission:v1', kind: 'gate' } }))!;
+    expect(text).toEqual({ name: 'Emission', line: 'Waiting for you', tone: 'waiting' });
+  });
+});
+
+describe('stepStatusText', () => {
+  it('says who approved a gate and when', () => {
+    const view = at({
+      artifacts: [ref('solution_design', 2, 'approved', { decided_by: 'you', decided_at: '2026-10-17T10:17:00Z' })],
+    });
+    const s = step('solution_design', 'system_designer', 'done', { gate: true });
+    expect(stepStatusText(s, view)).toBe(`Approved by you, ${formatHHMM('2026-10-17T10:17:00Z')}`);
+    expect(decidedByText(ref('x', 1, 'approved', { decided_by: 'responder' }))).toBe('by the responder');
+  });
+
+  it('names what a folded stage folded into', () => {
+    expect(stepStatusText(viewAtDesignGate().pipeline[1], viewAtDesignGate())).toBe('Folded into design');
+  });
+});
+
+describe('costLabel', () => {
+  const cost = { spent_usd: 0.35, run_spent_usd: 0, cap_usd: 2, run_cap_usd: 0, priced: true };
+  it.each([
+    ['under the cap', cost, '$0.35 of $2.00', 'ok'],
+    ['from 80 percent', { ...cost, spent_usd: 1.6 }, '$1.60 of $2.00', 'warn'],
+    ['at the cap', { ...cost, spent_usd: 2 }, '$2.00 of $2.00', 'over'],
+    ['no cap', { ...cost, cap_usd: 0 }, '$0.35, no cap', 'ok'],
+    ['unpriced, no cap', { ...cost, cap_usd: 0, priced: false }, '$0.35, some runs unpriced', 'ok'],
+    ['unpriced with a cap', { ...cost, priced: false }, '$0.35 of $2.00, some runs unpriced', 'ok'],
+  ])('%s', (_name, c, text, tone) => {
+    expect(costLabel(c)).toMatchObject({ text, tone });
+  });
+
+  it('draws a meter only against a cap', () => {
+    expect(costLabel({ ...cost, cap_usd: 0 }).percent).toBeNull();
+    expect(costLabel(cost).percent).toBeCloseTo(17.5);
+  });
+});
