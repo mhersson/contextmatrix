@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { PromptActions } from './PromptActions';
 import type { ChatPrompt } from './prompts';
 
@@ -180,8 +180,59 @@ describe('PromptActions', () => {
         actions: [{ ...gate.actions[0], recommended: true }, gate.actions[1]],
       };
       render(<PromptActions prompt={g} status="open" onReply={vi.fn()} />);
-      expect(screen.getByRole('button', { name: /Approve/ })).toHaveTextContent('recommended');
+      expect(screen.getByRole('button', { name: 'Approve, recommended' })).toHaveTextContent('recommended');
       expect(screen.getByRole('button', { name: 'Reject' })).not.toHaveTextContent('recommended');
+    });
+  });
+
+  describe('closed prompts', () => {
+    const question: ChatPrompt = {
+      id: 'Q1',
+      kind: 'question',
+      freeText: true,
+      actions: [
+        { label: 'SQLite', reply: '1', feedback: false, recommended: true },
+        { label: 'Postgres', reply: '2', feedback: false, recommended: false },
+      ],
+    };
+
+    const items = () => within(screen.getByTestId('prompt-options')).getAllByRole('listitem');
+    const marked = () => items().filter((li) => li.getAttribute('data-chosen') === 'true');
+
+    it('lists the offered options and marks the one that answered', () => {
+      render(<PromptActions prompt={question} status="answered" answer="Postgres" />);
+
+      expect(items()).toHaveLength(2);
+      expect(items()[0]).toHaveTextContent('SQLite');
+      expect(marked()).toHaveLength(1);
+      expect(marked()[0]).toHaveTextContent('Postgres, chosen');
+      expect(screen.queryAllByRole('button')).toHaveLength(0);
+      expect(screen.getByTestId('prompt-summary')).toHaveTextContent('Answered: Postgres');
+    });
+
+    it.each([
+      ['answered by free text', { status: 'answered' as const, answer: null }, 'Answered below'],
+      ['superseded', { status: 'superseded' as const }, 'No longer open'],
+    ])('lists the options with none marked when %s', (_name, props, summary) => {
+      render(<PromptActions prompt={question} {...props} />);
+
+      expect(items()).toHaveLength(2);
+      expect(marked()).toHaveLength(0);
+      expect(screen.getByTestId('prompt-summary')).toHaveTextContent(summary);
+    });
+
+    it('shows only the summary for a closed gate', () => {
+      render(<PromptActions prompt={{ ...gate, kind: 'gate' }} status="answered" answer="Approve" />);
+
+      expect(screen.queryByTestId('prompt-options')).not.toBeInTheDocument();
+      expect(screen.getByTestId('prompt-summary')).toHaveTextContent('Answered: Approve');
+    });
+
+    it('does not list options while the prompt is open', () => {
+      render(<PromptActions prompt={question} status="open" onReply={vi.fn()} />);
+
+      expect(screen.queryByTestId('prompt-options')).not.toBeInTheDocument();
+      expect(screen.getAllByRole('button')).toHaveLength(2);
     });
   });
 });

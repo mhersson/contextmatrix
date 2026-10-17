@@ -38,10 +38,45 @@ export function PromptActions({ prompt, status, answer, onReply }: PromptActions
   if (status === 'answered' || status === 'superseded') {
     const summary =
       status === 'superseded' ? 'No longer open' : answer ? `Answered: ${answer}` : 'Answered below';
+    const offered = prompt.kind !== 'gate' && prompt.actions.length > 0;
     return (
-      <p data-testid="prompt-summary" className="mt-2 text-xs font-mono" style={{ color: 'var(--grey1)' }}>
-        {summary}
-      </p>
+      <div className="mt-2">
+        {offered && (
+          <ul
+            data-testid="prompt-options"
+            aria-label="Options offered"
+            className="m-0 mb-1 flex list-none flex-col gap-1 p-0 text-xs"
+            style={{ color: 'var(--grey1)' }}
+          >
+            {prompt.actions.map((a, i) => {
+              const chosen = status === 'answered' && !!answer && a.label === answer;
+              return (
+                <li
+                  key={`${i}:${a.label}`}
+                  data-chosen={chosen ? 'true' : undefined}
+                  className="border-l-2 pl-2"
+                  style={{ borderColor: chosen ? 'var(--prompt-question-accent)' : 'transparent' }}
+                >
+                  {chosen && <span aria-hidden="true">{'\u2713 '}</span>}
+                  {a.label}
+                  {chosen && <span className="sr-only">, chosen</span>}
+                  {a.recommended && (
+                    <>
+                      <span className="sr-only">, recommended</span>
+                      <span className="chat-prompt-chip" aria-hidden="true">
+                        recommended
+                      </span>
+                    </>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <p data-testid="prompt-summary" className="text-xs font-mono" style={{ color: 'var(--grey1)' }}>
+          {summary}
+        </p>
+      </div>
     );
   }
   if (prompt.actions.length === 0) return null;
@@ -101,7 +136,14 @@ export function PromptActions({ prompt, status, answer, onReply }: PromptActions
             onClick={(e) => choose(a, e.currentTarget)}
           >
             {a.label}
-            {a.recommended && <span className="chat-prompt-chip">recommended</span>}
+            {a.recommended && (
+              <>
+                <span className="sr-only">, recommended</span>
+                <span className="chat-prompt-chip" aria-hidden="true">
+                  recommended
+                </span>
+              </>
+            )}
           </button>
         ))}
       </div>

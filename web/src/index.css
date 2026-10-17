@@ -352,7 +352,7 @@
   --chat-assistant-bg: var(--bg0);
   --chat-assistant-ring: color-mix(in oklab, var(--fg) 20%, var(--bg0));
   --chat-user-ring: color-mix(in oklab, var(--blue) 35%, var(--bg-blue));
-  /* Maroon in light: red pulled halfway to --fg to clear 4:1 on --bg0. */
+  /* Darkened toward --fg in light to clear 4:1 on --bg0. */
   --prompt-question-accent: color-mix(
     in oklab,
     color-mix(in oklab, var(--red) 80%, var(--purple)) 50%,

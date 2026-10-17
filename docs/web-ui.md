@@ -147,13 +147,16 @@ board. Promote-to-autonomous lives in that tab.
   and the admin Chats page lists every session's kind, mode and cap. The
   architect's questions and gates show reply buttons under the message. A
   question's options are stacked full-width buttons showing the whole option
-  text, the question has a pink (dark) or maroon (light) accent, and the
-  suggested option carries a "recommended" chip; a gate keeps compact buttons
-  in a row. A click sends that reply as your message, a feedback action such
-  as Reject asks for text first, and typing the reply works too. A prompt closes when a reply
-  answers it or a later prompt replaces it, and then shows a one-line summary
-  instead of buttons. The buttons are disabled while the session is not live or
-  its stream is disconnected, and prompts show with the Text filter off.
+  text. The question has an accent that is pink in the dark themes and a dusty
+  rose to maroon in the light ones, and the suggested option carries a
+  "recommended" chip. A prompt marked as a gate keeps compact buttons in a row.
+  A click sends that reply as your message, a feedback action such as Reject
+  asks for text first, and typing the reply works too. A prompt closes when a
+  reply answers it or a later prompt replaces it. It then shows a one-line
+  summary instead of buttons, and a closed non-gate prompt keeps its options
+  above the summary as a muted list with the answering option marked. The
+  buttons are disabled while the session is not live or its stream is
+  disconnected, and prompts show with the Text filter off.
 
 ## Image attachments
 
