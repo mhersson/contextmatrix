@@ -58,6 +58,8 @@ type liveRelay struct {
 	// gen counts leaves that armed a linger, so a timer that fired before a
 	// later join and leave replaced it cannot close the upstream early.
 	gen uint64
+	// epoch tags the running upstream's frames in the hub cache.
+	epoch uint64
 	// stopped is set when the architect answered 404 and run returned.
 	stopped bool
 }
@@ -76,7 +78,7 @@ func newBlueprintLive(up *architectUpstream, hub *chat.SSEHub) *blueprintLive {
 }
 
 // join counts a subscriber in and starts the session's upstream if none
-// runs or the last one stopped on 404.
+// runs or the upstream stopped on 404.
 func (b *blueprintLive) join(sessionID string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -108,6 +110,7 @@ func (b *blueprintLive) startLocked(sessionID string, r *liveRelay) {
 	ctx, cancel := context.WithCancel(context.Background())
 	b.epoch++
 	r.cancel = cancel
+	r.epoch = b.epoch
 	r.stopped = false
 
 	go b.run(ctx, sessionID, b.epoch, r)
@@ -158,11 +161,14 @@ func (b *blueprintLive) expire(sessionID string, r *liveRelay, gen uint64) {
 
 	delete(b.relays, sessionID)
 	r.cancel()
+	// Cleared here, not only when run returns, so a subscriber arriving
+	// before that never replays the closed stream's snapshot.
+	b.hub.ResetBlueprint(sessionID, r.epoch)
 }
 
 // run keeps the session's upstream open until ctx ends, reconnecting with
-// backoff. A 404 stops it until the last subscriber leaves or retry. Its
-// cached frames go with it.
+// backoff. A 404 stops it until a subscriber joins or retry. Its cached
+// frames go with it.
 func (b *blueprintLive) run(ctx context.Context, sessionID string, epoch uint64, r *liveRelay) {
 	defer b.hub.ResetBlueprint(sessionID, epoch)
 
