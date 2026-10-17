@@ -1,8 +1,17 @@
+import type { Ref } from 'react';
 import { SheetIcon } from './icons';
 
-export function EdgeStrip({ label, hasNew, onOpen }: { label: string; hasNew: boolean; onOpen: () => void }) {
+interface EdgeStripProps {
+  label: string;
+  hasNew: boolean;
+  onOpen: () => void;
+  buttonRef?: Ref<HTMLButtonElement>;
+}
+
+export function EdgeStrip({ label, hasNew, onOpen, buttonRef }: EdgeStripProps) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       className="bp-edge"
       onClick={onOpen}

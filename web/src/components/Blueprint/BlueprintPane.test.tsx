@@ -89,12 +89,16 @@ describe('BlueprintPane', () => {
     expect(screen.queryByRole('region', { name: 'Blueprint sheet' })).not.toBeInTheDocument();
   });
 
-  it('closes the overlay on Escape', () => {
+  it('closes the overlay on Escape and returns focus to the edge strip', () => {
     paneWidth = 700;
     renderPane(ready());
     fireEvent.click(screen.getByRole('button', { name: 'Open the Design sheet' }));
-    fireEvent.keyDown(screen.getByRole('region', { name: 'Blueprint sheet' }), { key: 'Escape' });
+    const region = screen.getByRole('region', { name: 'Blueprint sheet' });
+    expect(region.parentElement).toContainElement(document.activeElement as HTMLElement);
+    expect(screen.queryByRole('button', { name: 'Open the Design sheet' })).not.toBeInTheDocument();
+    fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' });
     expect(screen.queryByRole('region', { name: 'Blueprint sheet' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open the Design sheet' })).toHaveFocus();
   });
 
   it('keeps the overlay open when an inner control handled Escape', () => {

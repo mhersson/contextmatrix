@@ -1,4 +1,4 @@
-import { useMemo, useRef, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import type { LogEntry } from '../../types';
 import { EdgeStrip } from './EdgeStrip';
 import { ScaleBar } from './ScaleBar';
@@ -47,10 +47,26 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
   const divider = useSheetDivider(bodyRef);
   const openGateId = view?.open?.kind === 'gate' ? view.open.prompt_id : undefined;
   const gatePrompt = useMemo(() => gatePromptFor(logs, promptsLive, openGateId), [logs, promptsLive, openGateId]);
-  const { show } = sheet;
+  const { show, close } = sheet;
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const stripRef = useRef<HTMLButtonElement>(null);
+  const returnFocusRef = useRef(false);
+  const closeOverlay = useCallback(() => {
+    returnFocusRef.current = overlayRef.current?.contains(document.activeElement) ?? false;
+    close();
+  }, [close]);
   const actions = useMemo(() => ({ openArtifact: (stage: string, version?: number) => show(stage, version ?? null) }), [show]);
 
   const hasSheet = layout !== null && (state.status === 'ready' || state.status === 'unreachable');
+  const overlayOpen = hasSheet && layout !== 'split' && sheet.open;
+  useEffect(() => {
+    if (overlayOpen) {
+      overlayRef.current?.focus();
+    } else if (returnFocusRef.current) {
+      returnFocusRef.current = false;
+      stripRef.current?.focus();
+    }
+  }, [overlayOpen]);
   const shown = view ? resolveShown(view, draft, sheet.pin) : null;
   const stripLabel = shown ? stageText(shown.stage).tab : 'Blueprint';
   const sheetEl = view ? (
@@ -62,10 +78,10 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
       onShow={show}
       gatePrompt={gatePrompt}
       onReply={onReply}
-      onClose={sheet.close}
+      onClose={closeOverlay}
     />
   ) : (
-    <SheetUnavailable onRetry={onRetry} onClose={layout === 'split' ? undefined : sheet.close} />
+    <SheetUnavailable onRetry={onRetry} onClose={layout === 'split' ? undefined : closeOverlay} />
   );
 
   return (
@@ -84,14 +100,16 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
               </div>
             </>
           )}
-          {hasSheet && layout !== 'phone' && !(layout === 'split' && sheet.open) && (
-            <EdgeStrip label={stripLabel} hasNew={sheet.hasNew} onOpen={sheet.openSheet} />
+          {hasSheet && layout !== 'phone' && !sheet.open && (
+            <EdgeStrip label={stripLabel} hasNew={sheet.hasNew} onOpen={sheet.openSheet} buttonRef={stripRef} />
           )}
-          {hasSheet && layout !== 'split' && sheet.open && (
+          {overlayOpen && (
             <div
+              ref={overlayRef}
+              tabIndex={-1}
               className={`bp-overlay${layout === 'phone' ? ' bp-overlay--phone' : ''}`}
               onKeyDown={(e) => {
-                if (e.key === 'Escape' && !e.defaultPrevented) sheet.close();
+                if (e.key === 'Escape' && !e.defaultPrevented) closeOverlay();
               }}
             >
               {sheetEl}
