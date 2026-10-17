@@ -38,6 +38,14 @@ describe('CardsSheet', () => {
     ]);
   });
 
+  it('labels a manual check in the playbook order and no card', () => {
+    show(CARDS_V1);
+    const order = screen.getByRole('heading', { name: /Playbook order/ }).closest('section')!;
+    const item = (id: string) => within(order).getByText(id, { selector: '.bp-id' }).closest('li')!;
+    expect(item('M1')).toHaveTextContent('manual check');
+    expect(item('D1')).not.toHaveTextContent('manual check');
+  });
+
   it('shows each manual check once when the playbook order already lists it', () => {
     show(CARDS_V1);
     expect(screen.getAllByText('M1', { selector: '.bp-id' })).toHaveLength(1);
