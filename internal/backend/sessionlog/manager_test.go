@@ -411,15 +411,17 @@ func TestSessionCapEnforcement(t *testing.T) {
 	const maxSess = 10 // use a small cap for testing
 
 	srv := sseServerInfinite(t)
-	defer srv.Close()
-
 	m := NewManager(WithBackendConfig(srv.URL, "test-key"), WithMaxSessions(maxSess))
 
-	t.Cleanup(func() {
-		for i := range maxSess {
-			m.Stop(fmt.Sprintf("CAP-%03d", i))
-		}
-	})
+	// Close the manager first: srv.Close waits for every held-open SSE
+	// handler, and those return only once the pumps disconnect.
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		require.NoError(t, m.Close(ctx))
+		srv.Close()
+	}()
 
 	for i := range maxSess {
 		cardID := fmt.Sprintf("CAP-%03d", i)
