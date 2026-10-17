@@ -107,7 +107,7 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
               // The bar and the accent ring ride the same inset shadow as the plain ring.
               boxShadow:
                 prompt?.prompt.kind === 'question'
-                  ? 'inset 5px 0 0 0 var(--prompt-question-accent), inset 0 0 0 1px color-mix(in oklab, var(--prompt-question-accent) 40%, transparent)'
+                  ? 'inset 5px 0 0 0 var(--prompt-question-accent), inset 0 0 0 1px var(--prompt-question-ring)'
                   : 'inset 0 0 0 1px var(--chat-assistant-ring)',
               color: 'var(--fg)',
             }}

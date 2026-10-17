@@ -355,9 +355,12 @@
   );
   --prompt-question-hover-bg: color-mix(
     in oklab,
-    color-mix(in oklab, var(--red) 65%, var(--purple)) 16%,
+    color-mix(in oklab, var(--red) 65%, var(--purple)) 15%,
     var(--chat-assistant-bg)
   );
+  --prompt-question-ring: color-mix(in oklab, var(--prompt-question-accent) 40%, transparent);
+  /* --fg is only ~4.6:1 on the wash in everforest, so this leaves ~1.5% of room. */
+  --prompt-question-muted: color-mix(in oklab, var(--fg) 98.5%, var(--prompt-question-bg));
   --chat-option-hover-bg: color-mix(in oklab, var(--fg) 10%, var(--chat-assistant-bg));
 }
 [data-theme="light"] {
@@ -377,7 +380,7 @@
   );
   --prompt-question-hover-bg: color-mix(
     in oklab,
-    color-mix(in oklab, var(--red) 80%, var(--purple)) 16%,
+    color-mix(in oklab, var(--red) 80%, var(--purple)) 15%,
     var(--chat-assistant-bg)
   );
 }
@@ -1175,12 +1178,12 @@ textarea {
   cursor: not-allowed;
 }
 
-/* Closed-prompt option list and summary; --fg inside a question keeps 4.5:1 on the wash. */
+/* Closed-prompt option list and summary. */
 .chat-prompt-muted {
   color: var(--grey1);
 }
 [data-prompt-kind="question"] .chat-prompt-muted {
-  color: var(--fg);
+  color: var(--prompt-question-muted);
 }
 
 /* "recommended" marker inside a reply button, either layout. */

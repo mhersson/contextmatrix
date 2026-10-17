@@ -79,7 +79,7 @@ keeps the hamburger and a way back to the board.
 | Foreground   | `--fg`, `--grey0/1/2`                                   | Primary text, then muted → tertiary                                |
 | Accents      | `--red --orange --yellow --green --aqua --blue --purple` | Priority / state / type accents (mapping below)                  |
 | Chat         | `--chat-assistant-bg/-ring`, `--chat-user-ring`        | Chat bubble fill and rings, shared by every palette                |
-| Prompt       | `--prompt-question-accent`, `--prompt-question-bg`, `--prompt-question-hover-bg`, `--chat-option-hover-bg` | Architect question accent (pink dark, rose to maroon light) and the light wash of the red/purple hue over the bubble for the bubble and option hover; neutral option hover mixes `--fg` into the bubble |
+| Prompt       | `--prompt-question-accent`, `--prompt-question-bg`, `--prompt-question-hover-bg`, `--prompt-question-ring`, `--prompt-question-muted`, `--chat-option-hover-bg` | Architect question accent (pink dark, rose to maroon light) and the light wash of the red/purple hue over the bubble for the bubble and option hover; neutral option hover mixes `--fg` into the bubble |
 
 **UI semantic mapping:**
 
