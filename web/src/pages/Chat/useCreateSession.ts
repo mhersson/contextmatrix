@@ -60,5 +60,7 @@ export function useCreateSession(onDone: () => void) {
     [navigate, onDone],
   );
 
-  return { create, creating, error };
+  const clearError = useCallback(() => setError(null), []);
+
+  return { create, creating, error, clearError };
 }

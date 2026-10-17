@@ -149,8 +149,8 @@ board. Promote-to-autonomous lives in that tab.
   anywhere, or Enter in the title, creates. The button names the outcome
   (Create chat, Create blueprint, or Create and run for yolo). A blueprint
   whose architect does not start keeps the dialog open with the error, and
-  Create then retries the same session. The sidebar marks such sessions with an aqua
-  drafting-compass icon. The pane header shows a blueprint's mode and cost cap,
+  with unchanged settings, Create then retries the same session. The sidebar
+  marks blueprint sessions with an aqua drafting-compass icon. The pane header shows a blueprint's mode and cost cap,
   and the admin Chats page lists every session's kind, mode and cap. The
   architect's questions and gates show reply buttons under the message. A
   question's options are stacked full-width buttons showing the whole option

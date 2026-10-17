@@ -16,7 +16,7 @@ vi.mock('../../api/client', () => {
       openChat: (...args: unknown[]) => openChat(...args),
       listChatModels: () =>
         Promise.resolve({
-          source: 'endpoint',
+          source: modelSource,
           models: [{ id: 'chat/default', label: 'Chat default', max_tokens: 1000 }],
           default: 'chat/default',
         }),
@@ -34,6 +34,7 @@ vi.mock('../../hooks/useProjects', () => ({
 vi.mock('../../hooks/useChatSessions', () => ({ notifyChatSessionsChanged: vi.fn() }));
 
 let architectEnabled = true;
+let modelSource: 'endpoint' | 'openrouter' = 'endpoint';
 vi.mock('../../hooks/useTheme', () => ({ useTheme: () => ({ architectEnabled, favorites: null }) }));
 
 function renderDialog() {
@@ -51,6 +52,7 @@ describe('NewChatDialog', () => {
     openChat.mockReset();
     navigate.mockReset();
     architectEnabled = true;
+    modelSource = 'endpoint';
     createChat.mockResolvedValue({ id: 'S1', title: '', status: 'cold' });
     openChat.mockResolvedValue({ id: 'S1', title: '', status: 'active' });
   });
@@ -158,5 +160,23 @@ describe('NewChatDialog', () => {
     fireEvent.keyDown(title, { key: 'Enter' });
     await waitFor(() => expect(createChat).toHaveBeenCalledTimes(1));
     expect(createChat.mock.calls[0][0].title).toBe('Why is it slow');
+  });
+
+  it('leaves Ctrl+Enter to the OpenRouter model combobox so its commit lands first', async () => {
+    modelSource = 'openrouter';
+    renderDialog();
+    const combo = await screen.findByRole('combobox');
+    fireEvent.keyDown(combo, { key: 'Enter', ctrlKey: true });
+    expect(createChat).not.toHaveBeenCalled();
+  });
+
+  it('drops a blueprint error when switching to the Chat tile', async () => {
+    openChat.mockRejectedValueOnce({ error: 'internal error', code: 'INTERNAL_ERROR' });
+    startBlueprint();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Alpha' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create blueprint' }));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name: 'Chat' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });

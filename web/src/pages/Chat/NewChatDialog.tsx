@@ -32,7 +32,7 @@ function NewChatDialogBody({ onClose, models }: { onClose: () => void; models: C
   const [form, setForm] = useState<BlueprintForm>(EMPTY_BLUEPRINT_FORM);
   const [title, setTitle] = useState('');
   const [project, setProject] = useState('');
-  const { create, creating, error } = useCreateSession(onClose);
+  const { create, creating, error, clearError } = useCreateSession(onClose);
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const headingId = useId();
@@ -42,11 +42,11 @@ function NewChatDialogBody({ onClose, models }: { onClose: () => void; models: C
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && !creating) onClose();
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [onClose, creating]);
 
   const reason = disabledReason(blueprint, form);
   const canCreate = !creating && reason === null;
@@ -69,7 +69,7 @@ function NewChatDialogBody({ onClose, models }: { onClose: () => void; models: C
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="nd-scrim absolute inset-0" aria-hidden="true" onClick={onClose} />
+      <div className="nd-scrim absolute inset-0" aria-hidden="true" onClick={creating ? undefined : onClose} />
       <div
         ref={dialogRef}
         role="dialog"
@@ -78,6 +78,8 @@ function NewChatDialogBody({ onClose, models }: { onClose: () => void; models: C
         className={`nd-dialog${blueprint ? ' nd-dialog--blueprint' : ''}`}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            // The model combobox commits its pick on Enter; submitting now would send the stale model.
+            if ((e.target as HTMLElement).closest('[role="combobox"]')) return;
             e.preventDefault();
             submit();
           }
@@ -85,7 +87,11 @@ function NewChatDialogBody({ onClose, models }: { onClose: () => void; models: C
       >
         <div className="nd-head">
           <h2 id={headingId}>{blueprint ? 'New blueprint' : 'New chat'}</h2>
-          {architectEnabled && <KindTiles blueprint={blueprint} onChange={setBlueprint} />}
+          {architectEnabled && <KindTiles blueprint={blueprint} onChange={(next) => {
+                setBlueprint(next);
+                clearError();
+              }}
+            />}
         </div>
         <div className="nd-body">
           <Field label="Title" hint="Optional" htmlFor={titleFieldId}>

@@ -6421,6 +6421,9 @@ textarea {
   outline: 2px solid color-mix(in oklab, var(--blue) 60%, transparent);
   outline-offset: 1px;
 }
+.nd-project:has(input:focus-visible) {
+  outline-offset: -2px;
+}
 .nd-projects {
   display: flex;
   flex-direction: column;
@@ -6468,6 +6471,7 @@ textarea {
   gap: 6px;
 }
 .nd-mode {
+  position: relative;
   display: block;
   padding: 8px 10px;
   text-align: left;
@@ -6502,6 +6506,7 @@ textarea {
   gap: 6px;
 }
 .nd-cap {
+  position: relative;
   padding: 4px 12px;
   border: 1px solid var(--bg3);
   border-radius: 999px;
@@ -6538,7 +6543,7 @@ textarea {
   display: flex;
   flex-direction: column;
   width: min(520px, calc(100vw - 32px));
-  max-height: 92vh;
+  max-height: 92dvh;
   background: var(--bg1);
   border: 1px solid var(--bg3);
   border-radius: 12px;
@@ -6565,18 +6570,23 @@ textarea {
   gap: 16px;
   min-height: 0;
   padding: 16px 22px 6px;
+}
+/* Only the blueprint body scrolls; a chat body must not clip the model suggestion list. */
+.nd-dialog--blueprint .nd-body {
   overflow-y: auto;
 }
 .nd-foot {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
   margin-top: 10px;
   padding: 14px 22px 16px;
   border-top: 1px solid var(--bg2);
 }
 .nd-why {
-  flex: 1;
+  flex: 1 1 220px;
   margin: 0;
   font-size: 12px;
   color: var(--grey1);

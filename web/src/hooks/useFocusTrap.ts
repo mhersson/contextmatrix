@@ -3,6 +3,11 @@ import { useEffect, type RefObject } from 'react';
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+// Elements the browser skips in tab order (tabindex=-1, e.g. a roving radio) are not wrap targets.
+function tabbables(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter((el) => el.tabIndex >= 0);
+}
+
 /**
  * Traps keyboard focus inside `ref` while `isOpen` is true.
  *
@@ -36,13 +41,13 @@ export function useFocusTrap(
     if (initialTarget && dialog.contains(initialTarget)) {
       initialTarget.focus();
     } else {
-      const focusables = dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+      const focusables = tabbables(dialog);
       focusables[0]?.focus();
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Tab') return;
-      const currentFocusables = dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+      const currentFocusables = tabbables(dialog);
       const currentFirst = currentFocusables[0];
       const currentLast = currentFocusables[currentFocusables.length - 1];
 
