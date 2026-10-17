@@ -225,6 +225,12 @@ describe('useBlueprintView', () => {
     await waitFor(() => expect(result.current.blueprint.state.status).toBe('absent'));
   });
 
+  it('treats an answer without a body like an unreachable architect', async () => {
+    getView.mockResolvedValue(undefined as unknown as BlueprintView);
+    const { result } = await renderPane();
+    await waitFor(() => expect(result.current.blueprint.state.status).toBe('unreachable'));
+  });
+
   it('offers a retry when the architect is unreachable', async () => {
     getView.mockRejectedValueOnce({ error: 'down', code: 'BACKEND_UNAVAILABLE' }).mockResolvedValueOnce(withSeq(42));
     const { result } = await renderPane();

@@ -112,9 +112,10 @@ export function useBlueprintView(
 
   useEffect(() => {
     let alive = true;
-    api.getBlueprintView(chatId).then(
+    // Normalizing before the handlers sends a 200 without a body to the error path.
+    api.getBlueprintView(chatId).then(normalizeView).then(
       (view) => {
-        if (alive) setState((s) => withFetchedView(s, normalizeView(view)));
+        if (alive) setState((s) => withFetchedView(s, view));
       },
       (err: unknown) => {
         if (!alive) return;
