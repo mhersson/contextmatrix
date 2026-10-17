@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import type { RoundReply } from '../../types';
 import { rawRound } from '../../test-utils/roundFixtures';
 import { parseRound } from './parseRound';
 import { RoundBlock } from './RoundBlock';
@@ -20,6 +21,7 @@ describe('RoundBlock questions', () => {
       'Deploy tooling, answered',
       'Logging, open',
       'Postgres, open',
+      'Submit',
     ]);
     expect(tab(/Deploy tooling/)).toHaveClass('done');
     expect(tab(/Logging/)).toHaveAttribute('aria-selected', 'true');
@@ -132,5 +134,131 @@ describe('RoundBlock questions', () => {
     fireEvent.click(tab(/Logging/));
     const pane = screen.getByRole('tabpanel');
     expect(within(pane).getByRole('textbox', { name: /Your own answer to Q2/ })).toHaveValue('Loki only');
+  });
+});
+
+function renderSending(extra: Record<string, unknown> = {}, onSendRound = vi.fn(async () => {}), onSendChat = vi.fn(async () => {})) {
+  const round = parseRound(rawRound(extra))!;
+  render(<RoundBlock promptId="round:1" round={round} mode="open" onSendRound={onSendRound} onSendChat={onSendChat} />);
+  return { onSendRound, onSendChat };
+}
+
+function answerAll() {
+  for (const [tabName, opt] of [[/Deploy tooling/, /Kustomize/], [/Logging/, /Grafana/], [/Postgres/, /CloudNativePG/]] as const) {
+    fireEvent.click(tab(tabName));
+    fireEvent.click(option(opt));
+  }
+}
+
+describe('RoundBlock sending', () => {
+  it('reviews every answer on the Submit tab and marks the missing ones', () => {
+    renderSending({ answers: [{ number: 1, option: 1 }] });
+    fireEvent.click(tab(/Postgres/));
+    fireEvent.click(option(/CloudNativePG/));
+    fireEvent.click(tab(/Submit/));
+    const rows = screen.getAllByRole('row').map((r) => Array.from((r as HTMLTableRowElement).cells).map((c) => c.textContent));
+    expect(rows).toEqual([
+      ['Q1 Deploy tooling', 'Kustomize'],
+      ['Q2 Logging', 'not answered'],
+      ['Q3 Postgres', 'CloudNativePG operator'],
+    ]);
+  });
+
+  it('submits all only once every question is answered, as the final reply', async () => {
+    const { onSendRound } = renderSending();
+    fireEvent.click(tab(/Submit/));
+    expect(screen.getByRole('button', { name: 'Submit all 3' })).toBeDisabled();
+    answerAll();
+    fireEvent.click(tab(/Submit/));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit all 3' }));
+    await waitFor(() => expect(onSendRound).toHaveBeenCalledTimes(1));
+    const [content, reply] = onSendRound.mock.calls[0] as unknown as [string, RoundReply];
+    expect(content.length).toBeGreaterThan(0);
+    expect(reply).toEqual({
+      prompt_id: 'round:1',
+      answers: [{ number: 1, option: 1 }, { number: 2, option: 1 }, { number: 3, option: 1 }],
+      decisions: [],
+      final: true,
+    });
+    expect(screen.getByRole('button', { name: 'Submit all 3' })).toBeDisabled();
+  });
+
+  it('sends some now without final, carrying the stored answers too', async () => {
+    const { onSendRound } = renderSending({ answers: [{ number: 1, option: 1 }] });
+    fireEvent.click(tab(/Logging/));
+    fireEvent.click(option(/No stack/));
+    fireEvent.click(tab(/Submit/));
+    fireEvent.click(screen.getByRole('button', { name: 'Send 2 now, answer the rest later' }));
+    await waitFor(() => expect(onSendRound).toHaveBeenCalledTimes(1));
+    const [, reply] = onSendRound.mock.calls[0] as unknown as [string, RoundReply];
+    expect(reply).toEqual({ prompt_id: 'round:1', answers: [{ number: 1, option: 1 }, { number: 2, option: 2 }], decisions: [] });
+  });
+
+  it('has nothing to send now when every answer is already stored', () => {
+    renderSending({ answers: [{ number: 1, option: 1 }] });
+    fireEvent.click(tab(/Submit/));
+    expect(screen.getByRole('button', { name: 'Send 1 now, answer the rest later' })).toBeDisabled();
+  });
+
+  it('shows a failed send and allows another try', async () => {
+    const onSendRound = vi.fn(async () => {
+      throw new Error('backend unavailable');
+    });
+    renderSending({}, onSendRound);
+    answerAll();
+    fireEvent.click(tab(/Submit/));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit all 3' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('backend unavailable');
+    expect(screen.getByRole('button', { name: 'Submit all 3' })).toBeEnabled();
+  });
+
+  it('decides assumptions on their own tab and needs every decision before submit', async () => {
+    const { onSendRound } = renderSending({
+      assumptions: [{ id: 'A1', text: 'One cluster per environment.' }, { id: 'A2', text: 'Nightly backups are enough.' }],
+    });
+    answerAll();
+    fireEvent.click(tab(/Submit/));
+    expect(screen.getByRole('button', { name: 'Submit all 5' })).toBeDisabled();
+    fireEvent.click(tab(/Assumptions/));
+    const a1 = screen.getByRole('group', { name: 'A1' });
+    const a2 = screen.getByRole('group', { name: 'A2' });
+    fireEvent.click(within(a1).getByRole('button', { name: 'Accept' }));
+    fireEvent.click(within(a2).getByRole('button', { name: 'Turn into a question' }));
+    expect(within(a2).getByRole('button', { name: 'Turn into a question' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(tab(/Submit/));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit all 5' }));
+    await waitFor(() => expect(onSendRound).toHaveBeenCalledTimes(1));
+    const [, reply] = onSendRound.mock.calls[0] as unknown as [string, RoundReply];
+    expect(reply.decisions).toEqual([{ id: 'A1', accept: true }, { id: 'A2', accept: false }]);
+  });
+
+  it('chats about the round through the plain message path, on every tab', async () => {
+    const { onSendChat } = renderSending({ chat: [{ from: 'system_designer', text: 'Ask me anything.' }] });
+    for (const name of [/Deploy tooling/, /Submit/]) {
+      fireEvent.click(tab(name));
+      expect(screen.getByRole('button', { name: /Chat about these questions/ })).toBeInTheDocument();
+    }
+    expect(screen.getByText(/Ask me anything\./)).toBeInTheDocument();
+    fireEvent.click(tab(/Deploy tooling/));
+    const box = screen.getByRole('textbox', { name: 'Message about these questions' });
+    fireEvent.change(box, { target: { value: ' Does Q3 change Q1? ' } });
+    fireEvent.keyDown(box, { key: '1' });
+    expect(option(/Kustomize/)).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(onSendChat).toHaveBeenCalledWith('Does Q3 change Q1?'));
+    await waitFor(() => expect(box).toHaveValue(''));
+  });
+
+  it('opens the chat on a click when the round has no thread yet', () => {
+    renderSending();
+    expect(screen.queryByRole('textbox', { name: 'Message about these questions' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Chat about these questions/ }));
+    expect(screen.getByRole('textbox', { name: 'Message about these questions' })).toBeInTheDocument();
+  });
+
+  it('a responder round has no Submit tab and no chat', () => {
+    renderBlock({ responder: true }, 'readonly');
+    expect(screen.queryByRole('tab', { name: /Submit/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Chat about these questions/ })).not.toBeInTheDocument();
   });
 });

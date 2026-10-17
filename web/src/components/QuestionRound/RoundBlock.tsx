@@ -1,8 +1,11 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { RoundReply } from '../../types';
 import type { Round } from './parseRound';
+import { AssumptionsPane } from './AssumptionsPane';
 import { QuestionPane } from './QuestionPane';
-import { itemCount, storedAnswer, storedCount, storedDecision } from './roundDraft';
+import { RoundChat } from './RoundChat';
+import { SubmitPane, type SendPhase } from './SubmitPane';
+import { buildReply, itemCount, replySummary, storedAnswer, storedCount, storedDecision } from './roundDraft';
 import { countText, personaPhrase, type RoundMode } from './roundView';
 import { useRoundDraft } from './useRoundDraft';
 
@@ -14,8 +17,11 @@ interface TabInfo {
   state: 'done' | 'open' | 'submit';
 }
 
-function tabKeys(round: Round): TabKey[] {
-  return round.questions.map((q) => `q:${q.number}`);
+function tabKeys(round: Round, mode: RoundMode): TabKey[] {
+  const keys = round.questions.map((q) => `q:${q.number}`);
+  if (round.assumptions.length > 0) keys.push('assumptions');
+  if (mode !== 'readonly') keys.push('submit');
+  return keys;
 }
 
 function tabInfo(round: Round, key: TabKey): TabInfo {
@@ -47,13 +53,29 @@ interface RoundBlockProps {
   focusKey?: string | number;
 }
 
-export function RoundBlock({ round, mode, inline = false, focusKey }: RoundBlockProps) {
-  const { draft, own, pickOption, typeOwn } = useRoundDraft();
-  const tabs = tabKeys(round);
+export function RoundBlock({ promptId, round, mode, inline = false, onSendRound, onSendChat, focusKey }: RoundBlockProps) {
+  const { draft, own, pickOption, typeOwn, decide } = useRoundDraft();
+  const tabs = tabKeys(round, mode);
   const [picked, setPicked] = useState<TabKey | null>(null);
   const active =
     picked !== null && tabs.includes(picked) ? picked : (tabs.find((k) => tabInfo(round, k).state === 'open') ?? tabs[0]);
   const [expanded, setExpanded] = useState<Readonly<Record<number, number | null>>>({});
+  const [phase, setPhase] = useState<SendPhase>('idle');
+  const [sendError, setSendError] = useState<string | null>(null);
+  const send = async (final: boolean) => {
+    if (!onSendRound || phase !== 'idle') return;
+    const reply = buildReply(promptId, round, draft, final);
+    setPhase('sending');
+    setSendError(null);
+    try {
+      await onSendRound(replySummary(round, reply), reply);
+      // After a final reply the round closes when the architect republishes it; until then nothing more to send.
+      setPhase(final ? 'submitted' : 'idle');
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : 'Failed to send answers');
+      setPhase('idle');
+    }
+  };
   const tabRefs = useRef(new Map<TabKey, HTMLButtonElement>());
   const ownRef = useRef<HTMLInputElement>(null);
   const activeRef = useRef(active);
@@ -170,7 +192,12 @@ export function RoundBlock({ round, mode, inline = false, focusKey }: RoundBlock
             ownRef={ownRef}
           />
         )}
+        {active === 'assumptions' && <AssumptionsPane round={round} draft={draft} mode={mode} onDecide={decide} />}
+        {active === 'submit' && (
+          <SubmitPane round={round} draft={draft} mode={mode} phase={phase} error={sendError} onSend={(final) => void send(final)} />
+        )}
       </div>
+      {mode !== 'readonly' && <RoundChat round={round} mode={mode} onSendChat={onSendChat} />}
       <div className="qb-foot">
         <span>
           {mode === 'open' ? `← → switch questions · 1-${maxKey(round)} pick an option · Enter next` : '← → switch questions'}

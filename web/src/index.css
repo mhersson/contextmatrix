@@ -7918,3 +7918,100 @@ button.bp-seg-hit {
     padding-left: 12px;
   }
 }
+
+.qb-assume .qb-opt-top {
+  cursor: default;
+}
+.qb-assume-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 12px 10px 36px;
+}
+.qb-choice {
+  padding: 4px 10px;
+  border: 1px solid var(--bg4);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.qb-choice.sel {
+  border-color: var(--aqua);
+  box-shadow: 0 0 0 1px var(--aqua) inset;
+}
+.qb-choice:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.qb-review td {
+  padding: 5px 10px 5px 0;
+  vertical-align: top;
+}
+.qb-review td:first-child {
+  color: var(--grey2);
+  white-space: nowrap;
+}
+.qb-review .missing {
+  color: var(--red);
+}
+.qb-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+.qb-ghost {
+  border-color: var(--aqua);
+  color: var(--aqua);
+}
+.qb-error {
+  margin-top: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--bg-red);
+  color: var(--red);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.qb-sep {
+  margin: 0 18px;
+  border-top: 2px dotted var(--bg4);
+}
+.qb-global {
+  padding: 8px 18px 12px;
+  background: var(--bg2);
+}
+.qb-chat {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg0);
+  font-size: 12.5px;
+}
+.qb-chat .me,
+.qb-chat .ai {
+  margin: 4px 0;
+  color: var(--fg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.qb-chat .me b {
+  color: var(--yellow);
+}
+.qb-chat .ai b {
+  color: var(--aqua);
+}
+.qb-chat-compose {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 8px;
+  margin-top: 8px;
+}
+.qb-chat-compose textarea {
+  resize: none;
+  font-size: 13px;
+}
