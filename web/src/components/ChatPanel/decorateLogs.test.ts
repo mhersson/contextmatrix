@@ -61,6 +61,15 @@ describe('filterLogEntries', () => {
     ];
     expect(filterLogEntries(kept, allOn)).toEqual(kept);
   });
+
+  it('keeps architect prompts when the Text filter is off', () => {
+    const rows: LogEntry[] = [
+      entry('text', 'plain'),
+      { ...entry('text', '{"text":"Sign off?","prompt":{"actions":[]}}'), kind: 'prompt' },
+    ];
+    const shown = filterLogEntries(rows, { showText: false, showToolCalls: false, showThinking: false });
+    expect(shown.map((e) => e.kind)).toEqual(['prompt']);
+  });
 });
 
 describe('decorateLogs', () => {

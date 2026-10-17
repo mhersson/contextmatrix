@@ -4,6 +4,7 @@ import type { WorkingState } from '../../hooks/useWorkingState';
 import { useRevealWindow } from '../../hooks/useRevealWindow';
 import { logRowKey } from '../../utils/logRowKey';
 import { ChatEntry } from './ChatEntry';
+import type { PromptState } from './prompts';
 import { WorkingIndicator } from './WorkingIndicator';
 import { decorateLogs } from './decorateLogs';
 import { INITIAL_TAIL, REVEAL_CHUNK } from './chatEntryUtils';
@@ -23,6 +24,10 @@ interface ChatTranscriptProps {
   /** Fetches one older history page; its rows arrive asynchronously as a
    *  prepend to filteredLogs. */
   onLoadOlder?: () => Promise<void> | void;
+  /** Architect prompt states keyed by row; see derivePromptStates. */
+  promptStates?: ReadonlyMap<LogEntry, PromptState>;
+  /** Sends a prompt reply; handed only to the open prompt's row. */
+  onReply?: (text: string) => Promise<void>;
 }
 
 interface PendingAnchor {
@@ -50,6 +55,8 @@ export function ChatTranscript({
   hasMoreHistory = false,
   loadingOlder = false,
   onLoadOlder,
+  promptStates,
+  onReply,
 }: ChatTranscriptProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -274,15 +281,21 @@ export function ChatTranscript({
           <div className="text-xs text-[var(--grey1)] italic font-mono">No messages yet.</div>
         ) : (
           <>
-            {decoratedLogs.map((d) => (
-              <div key={logRowKey(d.entry)} data-logkey={logRowKey(d.entry)}>
-                <ChatEntry
-                  entry={d.entry}
-                  stampHHMM={d.showStamp ? d.hhmm : undefined}
-                  stampTitle={d.showStamp ? d.title : undefined}
-                />
-              </div>
-            ))}
+            {decoratedLogs.map((d) => {
+              const ps = promptStates?.get(d.entry);
+              return (
+                <div key={logRowKey(d.entry)} data-logkey={logRowKey(d.entry)}>
+                  <ChatEntry
+                    entry={d.entry}
+                    stampHHMM={d.showStamp ? d.hhmm : undefined}
+                    stampTitle={d.showStamp ? d.title : undefined}
+                    promptStatus={ps?.status}
+                    promptAnswer={ps?.status === 'answered' ? ps.label : undefined}
+                    onReply={ps?.status === 'open' ? onReply : undefined}
+                  />
+                </div>
+              );
+            })}
             {working && <WorkingIndicator verb={working.verb} since={working.since} />}
           </>
         )}

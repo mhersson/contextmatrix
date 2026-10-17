@@ -166,3 +166,24 @@ describe('ChatEntry tool_result rendering', () => {
     expect(screen.getByText(/raw output/)).toBeInTheDocument();
   });
 });
+
+describe('ChatEntry prompt rows', () => {
+  const content = JSON.stringify({
+    text: 'Sign off v2?',
+    prompt: { id: 'gate:sign-off:v2', actions: [{ label: 'Approve', reply: 'approve' }] },
+  });
+
+  it('renders the envelope text as markdown and exposes the prompt id', () => {
+    const { container } = render(
+      <ChatEntry entry={{ ...makeEntry(1, 'text', content), kind: 'prompt' }} promptStatus="open" />,
+    );
+    expect(screen.getByTestId('markdown-stub')).toHaveTextContent('Sign off v2?');
+    expect(container.querySelector('[data-prompt-id="gate:sign-off:v2"]')).not.toBeNull();
+  });
+
+  it('renders a prompt row that does not parse as ordinary markdown', () => {
+    render(<ChatEntry entry={{ ...makeEntry(1, 'text', '{"text": 1}'), kind: 'prompt' }} promptStatus="open" />);
+    expect(screen.getByTestId('markdown-stub')).toHaveTextContent('{"text": 1}');
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+});

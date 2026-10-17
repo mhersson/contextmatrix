@@ -14,6 +14,8 @@ import {
   textFor,
 } from './chatEntryUtils';
 import { StructuredPayload } from './StructuredPayload';
+import { PromptActions } from './PromptActions';
+import { parsePromptEntry, type PromptState } from './prompts';
 
 interface ChatEntryProps {
   entry: LogEntry;
@@ -21,19 +23,26 @@ interface ChatEntryProps {
    *  Primitives (not an object) so the memo's shallow compare holds. */
   stampHHMM?: string;
   stampTitle?: string;
+  /** State of an architect prompt row; undefined on every other row. */
+  promptStatus?: PromptState['status'];
+  /** The answering action's label; null when a free-text reply answered. */
+  promptAnswer?: string | null;
+  /** Sends a reply; set only on the open prompt's row. */
+  onReply?: (text: string) => Promise<void>;
 }
 
-function ChatEntryImpl({ entry, stampHHMM, stampTitle }: ChatEntryProps) {
+function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswer, onReply }: ChatEntryProps) {
   const stamp = stampHHMM !== undefined && stampTitle !== undefined
     ? { hhmm: stampHHMM, title: stampTitle }
     : null;
 
-  // Entries are reference-stable ring-buffer rows, so this parses each text
-  // body at most once per mount.
+  // Entries are reference-stable ring-buffer rows, so each body parses at
+  // most once per mount. A structural row (divider, prompt) is never JSON.
   const structured = useMemo(
-    () => (entry.type === 'text' && entry.kind !== 'divider' ? parseStructured(entry.content) : null),
+    () => (entry.type === 'text' && !entry.kind ? parseStructured(entry.content) : null),
     [entry],
   );
+  const prompt = parsePromptEntry(entry);
 
   // Structural divider sentinel (kind="divider") rendered as a horizontal
   // rule with a small inline label rather than the normal system message
@@ -76,6 +85,7 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle }: ChatEntryProps) {
   }
 
   if (entry.type === 'text') {
+    const body = prompt ? prompt.text : entry.content;
     return (
       <div className="flex justify-start">
         <div className="flex flex-col items-start max-w-[85%] min-w-0">
@@ -88,14 +98,23 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle }: ChatEntryProps) {
           <div
             className="rounded-lg px-3 py-2 text-sm wrap-anywhere max-w-full"
             style={{ backgroundColor: 'var(--bg2)', color: 'var(--fg)' }}
+            data-prompt-id={prompt?.prompt.id}
           >
             {structured ? (
               <StructuredPayload pretty={structured} />
-            ) : entry.content.length > TEXT_CLAMP_CHAR_THRESHOLD ||
-              countNewlines(entry.content, TEXT_CLAMP_LINE_THRESHOLD) > TEXT_CLAMP_LINE_THRESHOLD ? (
-              <ClampedMarkdown source={entry.content} />
+            ) : body.length > TEXT_CLAMP_CHAR_THRESHOLD ||
+              countNewlines(body, TEXT_CLAMP_LINE_THRESHOLD) > TEXT_CLAMP_LINE_THRESHOLD ? (
+              <ClampedMarkdown source={body} />
             ) : (
-              <ChatMarkdown source={entry.content} />
+              <ChatMarkdown source={body} />
+            )}
+            {prompt && promptStatus && (
+              <PromptActions
+                prompt={prompt.prompt}
+                status={promptStatus}
+                answer={promptAnswer}
+                onReply={onReply}
+              />
             )}
           </div>
         </div>

@@ -53,6 +53,9 @@ export function ChatsTable({ chats, loading, error, onEnd, onDelete }: ChatsTabl
             <th className="px-4 py-2 font-medium">Title</th>
             <th className="px-4 py-2 font-medium">Owner</th>
             <th className="px-4 py-2 font-medium">Project</th>
+            <th className="px-4 py-2 font-medium">Kind</th>
+            <th className="px-4 py-2 font-medium">Mode</th>
+            <th className="px-4 py-2 font-medium">Cap</th>
             <th className="px-4 py-2 font-medium">Status</th>
             <th className="px-4 py-2 font-medium">Cost</th>
             <th className="px-4 py-2 font-medium">Last active</th>
@@ -65,6 +68,9 @@ export function ChatsTable({ chats, loading, error, onEnd, onDelete }: ChatsTabl
               <td className="px-4 py-2">{c.title || c.id}</td>
               <td className="px-4 py-2 font-mono text-xs">{c.created_by}</td>
               <td className="px-4 py-2">{c.project || ' - '}</td>
+              <td className="px-4 py-2">{c.kind === 'architect' ? 'Blueprint' : 'Chat'}</td>
+              <td className="px-4 py-2">{c.mode || ' - '}</td>
+              <td className="px-4 py-2">{fmtCost(c.cost_cap_usd)}</td>
               <td className="px-4 py-2">{c.status}</td>
               <td className="px-4 py-2">{fmtCost(c.estimated_cost_usd)}</td>
               <td className="px-4 py-2">{fmtWhen(c.last_active)}</td>

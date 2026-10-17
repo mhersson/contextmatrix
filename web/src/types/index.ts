@@ -547,8 +547,9 @@ export interface LogEntry {
   /** True when this message was produced during a chat-mode rehydration phase. */
   rehydration_phase?: boolean;
   /**
-   * Structural marker for chat messages - e.g. "divider" for the "Context
-   * cleared" sentinel appended on Clear Context. Empty / absent means a
+   * Structural marker for chat messages: "divider" for the "Context cleared"
+   * row appended on Clear Context, "prompt" for an architect question or gate
+   * whose content is a {text, prompt} JSON envelope. Empty / absent means a
    * regular message. The frontend matches on this rather than content
    * strings so the rendering rule is unambiguous and survives reloads.
    */

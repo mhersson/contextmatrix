@@ -141,9 +141,14 @@ interactions.
   (`web/src/components/ConfirmModal/ConfirmModal.tsx`), never `window.confirm()`.
   `variant="danger"` for destructive actions. Reference integrations:
   `CardChat.tsx` (promote), `CardPanel/CardPanelDangerZone.tsx` (delete).
-- **`AskUserQuestion` is denied at the MCP gate - do not build UI for it.** The
-  model asks its question as an ordinary chat `text` message with options inline.
-  Never add a `user_question` log type or a question card.
+- **Architect prompts are the only reply buttons.** The architect marks a
+  question or gate as a `text` frame with a `prompt` field; CM stores it on an
+  architect session as a `kind: "prompt"` row and `PromptActions` renders its
+  actions. A click sends the action's reply as an ordinary user message, and
+  whether a prompt is open is derived in the browser (`derivePromptStates`),
+  never stored. Agent and chat backends never emit a prompt: `AskUserQuestion`
+  stays denied at the MCP gate, and there is no `user_question` log type or
+  question card.
 - **Routing catch-all:** keep `<Route path="*" element={<NotFound />} />` as the
   **last** route at both levels - `App.tsx` (top-level) and `ProjectShell.tsx`
   (nested project routes). The Go backend serves `index.html` for all non-API

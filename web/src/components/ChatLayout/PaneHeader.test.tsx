@@ -262,3 +262,22 @@ describe('PaneContextUsage openrouter mode context-window denominator', () => {
     expect(screen.getByText('model-b')).toBeInTheDocument();
   });
 });
+
+describe('PaneHeader blueprint details', () => {
+  it("shows a blueprint session's mode and cost cap", () => {
+    render(<PaneHeader {...baseProps} chat={{ ...activeChat(), kind: 'architect', mode: 'auto', cost_cap_usd: 12.5 }} />);
+    const meta = screen.getByText(/Blueprint/);
+    expect(meta).toHaveTextContent('auto');
+    expect(meta).toHaveTextContent('$12.50');
+  });
+
+  it('shows no cap amount when the blueprint uses the architect default', () => {
+    render(<PaneHeader {...baseProps} chat={{ ...activeChat(), kind: 'architect', mode: 'yolo' }} />);
+    expect(screen.getByText(/Blueprint/)).not.toHaveTextContent('$');
+  });
+
+  it('shows no blueprint details on a chat session', () => {
+    render(<PaneHeader {...baseProps} chat={activeChat()} />);
+    expect(screen.queryByText(/Blueprint/)).not.toBeInTheDocument();
+  });
+});

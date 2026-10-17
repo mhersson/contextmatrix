@@ -279,6 +279,12 @@ type Manager struct {
 	statusLocksMu sync.Mutex
 	statusLocks   map[string]*sync.Mutex
 
+	// transcriptLocks serialise an architect session's transcript writes with
+	// its sends, so what the architect publishes inside /message lands after
+	// the user's row. Lazily allocated; dropped in DeleteSession.
+	transcriptLocksMu sync.Mutex
+	transcriptLocks   map[string]*sync.Mutex
+
 	closeOnce sync.Once
 
 	// costCache holds the most-recently computed GetChatCostSummary result.
@@ -325,6 +331,7 @@ func NewManager(cfg Config) *Manager {
 		working:           make(map[string]time.Time),
 		appendLocks:       map[string]*sync.Mutex{},
 		statusLocks:       map[string]*sync.Mutex{},
+		transcriptLocks:   map[string]*sync.Mutex{},
 	}
 }
 
@@ -341,6 +348,21 @@ func (m *Manager) appendLock(sessionID string) *sync.Mutex {
 	if !ok {
 		mu = &sync.Mutex{}
 		m.appendLocks[sessionID] = mu
+	}
+
+	return mu
+}
+
+// transcriptLock returns the architect session's transcript mutex, creating
+// it on first use. Lock order: the transcript lock, then the append lock.
+func (m *Manager) transcriptLock(sessionID string) *sync.Mutex {
+	m.transcriptLocksMu.Lock()
+	defer m.transcriptLocksMu.Unlock()
+
+	mu, ok := m.transcriptLocks[sessionID]
+	if !ok {
+		mu = &sync.Mutex{}
+		m.transcriptLocks[sessionID] = mu
 	}
 
 	return mu
@@ -700,7 +722,27 @@ func (m *Manager) startConsumer(sessionID string, restart bool) {
 				return
 			}
 
-			msg, err := m.AppendMessage(ctx, sessionID, role, e.Content)
+			// Waits out an architect send in flight: what the architect
+			// published inside /message belongs after the user's row.
+			if kind == KindArchitect {
+				tl := m.transcriptLock(sessionID)
+				tl.Lock()
+				defer tl.Unlock()
+			}
+
+			content, dataKind := e.Content, ""
+
+			if kind == KindArchitect && e.Type == "text" && e.Prompt != nil {
+				env, err := promptContent(e.Content, e.Prompt)
+				if err == nil {
+					content, dataKind = env, EventKindPrompt
+				} else {
+					m.logger.Warn("chat: architect prompt stored as plain text",
+						"session_id", sessionID, "error", err)
+				}
+			}
+
+			msg, err := m.appendMessageWithKind(ctx, sessionID, role, content, dataKind)
 			if err != nil {
 				m.logger.Warn("chat: consumer AppendMessage failed",
 					"session_id", sessionID, "type", e.Type, "error", err)
@@ -712,7 +754,8 @@ func (m *Manager) startConsumer(sessionID string, restart bool) {
 				m.hub.Publish(sessionID, SSEEvent{
 					Seq:              msg.Seq,
 					Role:             role,
-					Content:          e.Content,
+					Content:          content,
+					DataKind:         dataKind,
 					RehydrationPhase: msg.RehydrationPhase,
 				})
 			}
@@ -2263,6 +2306,10 @@ func (m *Manager) DeleteSession(ctx context.Context, id string) error {
 	delete(m.statusLocks, id)
 	m.statusLocksMu.Unlock()
 
+	m.transcriptLocksMu.Lock()
+	delete(m.transcriptLocks, id)
+	m.transcriptLocksMu.Unlock()
+
 	return nil
 }
 
@@ -2375,6 +2422,28 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 		return "", err
 	}
 
+	// An architect can answer inside /message. Its transcript lock, held from
+	// the send to the user row's publish, keeps that answer after the row;
+	// chat sessions never take it.
+	var tl *sync.Mutex
+	if sess.Kind == KindArchitect {
+		tl = m.transcriptLock(sessionID)
+		tl.Lock()
+	}
+
+	// held makes unlock idempotent, so the deferred call releases the lock on
+	// a panic without ever unlocking an unlocked mutex (a fatal error).
+	held := tl != nil
+
+	unlock := func() {
+		if held {
+			held = false
+
+			tl.Unlock()
+		}
+	}
+	defer unlock()
+
 	// Arm before the send. A backend that answers inside /message (the
 	// architect, for a note or an abort) publishes its idle frame before
 	// SendChatMessage returns; setWorking(false) on an unarmed session is a
@@ -2389,23 +2458,35 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 	if err != nil && sess.Kind == KindArchitect && errors.Is(err, ErrSessionUnknown) {
 		firstSend := m.clk.Now()
 
-		if rerr := m.restartArchitect(ctx, sessionID); rerr != nil {
+		// Released while the start and the wait run: only frames the reopened
+		// architect delivers meanwhile precede this message; later ones can follow.
+		unlock()
+
+		rerr := m.restartArchitect(ctx, sessionID)
+		if rerr == nil {
+			m.wakeConsumer(sessionID)
+			rerr = m.waitPastSecond(ctx, firstSend)
+		}
+
+		tl.Lock()
+
+		held = true
+
+		if rerr != nil {
 			err = errors.Join(err, rerr)
 		} else {
-			m.wakeConsumer(sessionID)
-
-			if werr := m.waitPastSecond(ctx, firstSend); werr != nil {
-				err = errors.Join(err, werr)
-			} else {
-				// The architect's replay cache already holds the first send's
-				// whole-second (timestamp, signature) pair despite the 404, so
-				// the re-send must sign in a later second.
-				err = backend.SendChatMessage(ctx, sessionID, content, msgID)
-			}
+			// The architect's replay cache already holds the first send's
+			// whole-second (timestamp, signature) pair despite the 404, so
+			// the re-send must sign in a later second.
+			err = backend.SendChatMessage(ctx, sessionID, content, msgID)
 		}
 	}
 
 	if err != nil {
+		// Before recordSendFailure: its EndSession waits for the consumer,
+		// which may be waiting on this lock.
+		unlock()
+
 		if armed {
 			m.setWorking(sessionID, false)
 		}
@@ -2420,6 +2501,8 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 	// Backend accepted the message - now safe to persist + publish.
 	msg, err := m.AppendMessage(ctx, sessionID, RoleUser, content)
 	if err != nil {
+		unlock()
+
 		return "", err
 	}
 
@@ -2430,6 +2513,8 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 			Content: content,
 		})
 	}
+
+	unlock()
 
 	return msgID, nil
 }

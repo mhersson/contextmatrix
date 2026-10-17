@@ -456,6 +456,14 @@ response returns. Differences from a chat start:
 `/chat/start` for the same session id. Architect sessions do not count toward
 `chat.max_concurrent`.
 
+A send to an architect session holds that session's transcript writes from
+the `/message` call until the user's row is persisted and published, so a frame
+the architect publishes inside `/message` (a decided gate, the reply to a note)
+lands after the message that caused it, in `seq` and on the browser stream.
+Recovery releases the hold for its start and wait, so only frames the reopened
+architect delivers during them land first; a later frame, for example one that
+arrives after CM's log stream reconnects, can follow the message. Chat sessions do not take it.
+
 Recovery: when a `/message` is answered with 404 and the protocol's `not_found`
 code (the architect restarted and no longer holds the session), CM re-sends
 `/chat/start` with the same payload as a cold open, never a resume, then waits
@@ -519,6 +527,15 @@ elsewhere. `agent` labels the speaker on mob discussion frames (`seat-1` ..
 frame. CM threads both fields through its session-log buffer into the browser
 stream, where the chat panel renders `agent` as a speaker chip and `model` as
 a second pill beside it.
+
+`prompt` marks a `text` frame as a question or gate with reply buttons, for
+example `{"id": "gate:sign-off:v2", "actions": [{"label": "Approve", "reply":
+"approve"}, {"label": "Reject", "reply": "reject", "feedback": true}]}`; a
+question adds `"free_text": true`. Only the architect sets it, and `content`
+stays the full readable message. CM stores such a frame on an architect
+session as a `kind: "prompt"` row whose content is a `{"text", "prompt"}` JSON
+envelope, cutting the text so the envelope fits the 32 KiB row cap. On any
+other session, and in task session logs, the field is ignored.
 
 The backend redacts credential patterns before publishing and sends keepalive
 comments to hold the connection open through proxy idle timeouts.

@@ -1629,6 +1629,14 @@ textarea {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.chat-pane-blueprint-pill {
+  max-width: 260px;
+}
+/* Only the blueprint pill yields on a narrow pane; the actions keep their size. */
+.chat-pane-meta:has(.chat-pane-blueprint-pill) {
+  flex-shrink: 1;
+  min-width: 0;
+}
 .chat-pane-pct {
   font-family: var(--font-mono);
   font-size: 10px;
