@@ -21,6 +21,11 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # Held at 4.0.2: @uiw pins ~4.0.0, so a newer copy nests and defeats
+      # the identity drop. A guard test fails on any bump.
+      - dependency-name: "rehype-attr"
+        versions: [">4.0.2"]
 
   - package-ecosystem: "gomod"
     directory: "/"
@@ -34,6 +39,12 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # Held at 5.19.2: 5.19.3 writes an empty extensions.objectformat into a
+      # format-version-1 .git/config and shell git then rejects it.
+      # TestNewManager_AddOriginKeepsConfigReadableByGit fails on any bump.
+      - dependency-name: "github.com/go-git/go-git/v5"
+        versions: [">5.19.2"]
 
   - package-ecosystem: "docker"
     directory: "/"
