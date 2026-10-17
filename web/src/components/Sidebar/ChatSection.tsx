@@ -5,6 +5,7 @@ import { useMobileSidebar } from '../../context/MobileSidebarContext';
 import { isTouchDevice } from '../../utils/isTouchDevice';
 import { safeGetString, safeSetString } from '../../utils/safeStorage';
 import type { ChatSession, ChatStatus } from '../../types';
+import { BlueprintIcon } from '../SessionIcons';
 
 const STORAGE_KEY = 'sidebar.chat_section_collapsed';
 
@@ -19,18 +20,6 @@ function statusDotColor(status: ChatStatus): string | null {
     default:
       return null;
   }
-}
-
-function BlueprintIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" role="img" aria-label="Blueprint session">
-      <path d="M12 2v2" />
-      <circle cx="12" cy="6" r="2" />
-      <path d="M11.15 7.81 5 21" />
-      <path d="M12.85 7.81 19 21" />
-      <path d="M7.8 15a9.93 9.93 0 0 0 8.4 0" />
-    </svg>
-  );
 }
 
 export function ChatSection({ onNewChat }: { onNewChat: () => void }) {
@@ -123,7 +112,7 @@ export function ChatSection({ onNewChat }: { onNewChat: () => void }) {
                       style={{ color: 'var(--aqua)' }}
                       title="Blueprint session"
                     >
-                      <BlueprintIcon />
+                      <BlueprintIcon label="Blueprint session" />
                     </span>
                   )}
                   <span className="truncate flex-1">{s.title || '(untitled)'}</span>

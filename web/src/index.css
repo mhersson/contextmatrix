@@ -6350,3 +6350,304 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+/* New chat / New blueprint dialog: fields, kind tiles, project list, modes, caps. */
+.nd-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.nd-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--fg);
+}
+.nd-label small {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--grey1);
+}
+.nd-kinds {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.nd-kind {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  padding: 11px 13px;
+  text-align: left;
+  border: 1px solid var(--bg3);
+  border-radius: 9px;
+  background: var(--bg0);
+  color: var(--fg);
+  cursor: pointer;
+}
+.nd-kind-icon {
+  display: inline-flex;
+  flex: none;
+  margin-top: 2px;
+  color: var(--grey1);
+}
+.nd-kind-copy b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.nd-kind-copy span {
+  display: block;
+  margin-top: 1px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--grey1);
+}
+.nd-kind--on {
+  border-color: color-mix(in oklab, var(--blue) 70%, var(--bg3));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--blue) 70%, var(--bg3));
+  background: color-mix(in oklab, var(--blue) 7%, var(--bg0));
+}
+.nd-kind--on .nd-kind-icon {
+  color: var(--blue);
+}
+.nd-kind:focus-visible,
+.nd-project:has(input:focus-visible),
+.nd-mode:has(input:focus-visible),
+.nd-cap:has(input:focus-visible) {
+  outline: 2px solid color-mix(in oklab, var(--blue) 60%, transparent);
+  outline-offset: 1px;
+}
+.nd-project:has(input:focus-visible) {
+  outline-offset: -2px;
+}
+.nd-projects {
+  display: flex;
+  flex-direction: column;
+  max-height: 222px;
+  overflow-y: auto;
+  border: 1px solid var(--bg3);
+  border-radius: 8px;
+}
+.nd-project {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--bg2);
+  background: var(--bg0);
+  color: var(--fg);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.nd-project:last-child {
+  border-bottom: 0;
+}
+.nd-project input {
+  flex: none;
+  accent-color: var(--blue);
+}
+.nd-project-name {
+  font-weight: 550;
+}
+.nd-project-repo {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--grey1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nd-project--on {
+  background: color-mix(in oklab, var(--blue) 9%, var(--bg0));
+}
+.nd-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.nd-mode {
+  position: relative;
+  display: block;
+  padding: 8px 10px;
+  text-align: left;
+  border: 1px solid var(--bg3);
+  border-radius: 8px;
+  background: var(--bg0);
+  color: var(--fg);
+  cursor: pointer;
+}
+.nd-mode b {
+  display: block;
+  font-size: 12.5px;
+}
+.nd-mode span {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--grey1);
+}
+.nd-mode--on {
+  border-color: color-mix(in oklab, var(--blue) 65%, var(--bg3));
+  background: color-mix(in oklab, var(--blue) 9%, var(--bg0));
+}
+.nd-mode--yolo.nd-mode--on {
+  border-color: color-mix(in oklab, var(--orange) 70%, var(--bg3));
+  background: color-mix(in oklab, var(--orange) 9%, var(--bg0));
+}
+.nd-caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.nd-cap {
+  position: relative;
+  padding: 4px 12px;
+  border: 1px solid var(--bg3);
+  border-radius: 999px;
+  background: var(--bg0);
+  color: var(--fg);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.nd-cap--on {
+  border-color: color-mix(in oklab, var(--blue) 65%, var(--bg3));
+  background: color-mix(in oklab, var(--blue) 12%, var(--bg0));
+}
+.nd-note {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--grey1);
+}
+@media (max-width: 480px) {
+  .nd-kinds,
+  .nd-modes {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* New chat / New blueprint dialog: shell and footer. */
+.nd-scrim {
+  background: color-mix(in oklab, var(--bg-dim) 55%, transparent);
+  backdrop-filter: blur(1.5px);
+}
+.nd-dialog {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  width: min(520px, calc(100vw - 32px));
+  max-height: 92dvh;
+  background: var(--bg1);
+  border: 1px solid var(--bg3);
+  border-radius: 12px;
+  box-shadow: 0 24px 70px color-mix(in oklab, var(--bg-dim) 80%, transparent);
+  transition: width 0.18s ease;
+}
+.nd-dialog--blueprint {
+  width: min(660px, calc(100vw - 32px));
+}
+.nd-head {
+  padding: 18px 22px 0;
+}
+.nd-head h2 {
+  margin: 0 0 14px;
+  font-family: var(--font-sans);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+.nd-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  padding: 16px 22px 6px;
+}
+/* Only the blueprint body scrolls; a chat body must not clip the model suggestion list. */
+.nd-dialog--blueprint .nd-body {
+  overflow-y: auto;
+}
+.nd-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 14px 22px 16px;
+  border-top: 1px solid var(--bg2);
+}
+.nd-why {
+  flex: 1 1 220px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--grey1);
+}
+.nd-why--error {
+  color: var(--red);
+}
+.nd-why kbd {
+  margin: 0 2px;
+  padding: 0 5px;
+  border: 1px solid var(--bg3);
+  border-radius: 4px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--grey2);
+}
+.nd-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 14px;
+  border: 1px solid var(--bg3);
+  border-radius: 8px;
+  background: var(--bg1);
+  color: var(--fg);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.nd-btn--primary {
+  background: color-mix(in oklab, var(--green) 26%, var(--bg1));
+  border-color: color-mix(in oklab, var(--green) 60%, var(--bg3));
+  font-weight: 550;
+}
+.nd-btn--yolo {
+  background: color-mix(in oklab, var(--orange) 24%, var(--bg1));
+  border-color: color-mix(in oklab, var(--orange) 60%, var(--bg3));
+}
+.nd-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.nd-spin {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 6px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: nd-spin 0.8s linear infinite;
+}
+@keyframes nd-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nd-dialog {
+    transition: none;
+  }
+  .nd-spin {
+    animation: none;
+  }
+}

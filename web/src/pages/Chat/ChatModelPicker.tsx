@@ -54,7 +54,7 @@ export function ChatModelPicker({
   const current = models.find((m) => m.id === model);
 
   const label = (
-    <label htmlFor={fieldId} className="block text-xs mb-1" style={{ color: 'var(--grey2)' }}>
+    <label htmlFor={fieldId} className="nd-label">
       Model
     </label>
   );
@@ -63,14 +63,9 @@ export function ChatModelPicker({
     // Endpoint model list - hide entirely when none configured.
     if (models.length === 0) return null;
     return (
-      <>
+      <div className="nd-field">
         {label}
-        <select
-          id={fieldId}
-          value={model}
-          onChange={(e) => onChange(e.target.value)}
-          className="bf-input w-full mb-4"
-        >
+        <select id={fieldId} value={model} onChange={(e) => onChange(e.target.value)} className="bf-input w-full">
           {models.map((m) => (
             <option key={m.id} value={m.id}>
               {m.label} ({formatTokens(m.max_tokens)} context)
@@ -79,15 +74,15 @@ export function ChatModelPicker({
             </option>
           ))}
         </select>
-      </>
+      </div>
     );
   }
 
   return (
-    <>
+    <div className="nd-field">
       {label}
       {favorites.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-2">
+        <div className="flex flex-wrap gap-1">
           {favorites.map((slug) => (
             <button
               key={slug}
@@ -116,7 +111,7 @@ export function ChatModelPicker({
           ))}
         </div>
       )}
-      <div className="mb-4">
+      <div>
         <div className="flex items-center gap-2 min-w-0">
           <ModelCombobox
             id={fieldId}
@@ -132,6 +127,6 @@ export function ChatModelPicker({
           {current && current.blacklisted && <BlacklistedChip />}
         </div>
       </div>
-    </>
+    </div>
   );
 }
