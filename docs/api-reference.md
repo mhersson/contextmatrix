@@ -2578,7 +2578,7 @@ CM forwards both to the architect unchanged:
 
 ```json
 {
-  "content": "Sent 2 of 3 answers; the rest later.\nQ1 Deploy tooling: Helm\nQ2 Logging: Loki only",
+  "content": "Sent 3 of 4 answers; the rest later.\nQ1 Deploy tooling: Helm\nQ2 Logging: Loki only\nTurn into a question: One cluster per environment.",
   "round": {
     "prompt_id": "round:1",
     "answers": [{ "number": 1, "option": 2 }, { "number": 2, "text": "Loki only" }],

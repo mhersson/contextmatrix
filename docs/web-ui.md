@@ -174,31 +174,33 @@ board. Promote-to-autonomous lives in that tab.
   stage states assumptions, and a Submit tab. A question tab shows the
   question, why it matters and numbered options; the suggested one carries a
   Recommended chip, and clicking an option selects it and shows its pros,
-  cons and sources (links, or "model knowledge" when the architect's research
-  is off). The last option on every question is "Type your own answer". The
-  Assumptions tab accepts each assumption or turns it into a question. The
-  Submit tab reviews every answer: "Submit all N" sends them as final, and
-  "Send N now, answer the rest later" stores the ones picked so far on the
-  architect, so they show on any device and survive leaving, and the round
-  stays open. Under a dotted line on every tab, "Chat about these questions"
-  holds the thread about the round and is the pane's only text box while the
-  round is open; the thread scrolls on its own, so the box and the foot stay
-  in view. What you type there reaches the architect as a plain message, so
-  session commands still work, and shows in the round's thread, not as a
-  transcript bubble: right away as your line, until the architect
-  republishes the round with its own thread. A message stored when no round
-  waits any more shows as an ordinary bubble. Left and right arrows switch
-  tabs, 1-9 pick an option and Enter moves to the next tab. Picks not
-  yet sent live only in the pane and are lost when it closes or the page
+  cons and sources (links and code paths; with the architect's research off,
+  its code paths and "model knowledge" instead of links). The last option on
+  every question is "Type your own answer". The Assumptions tab accepts each
+  assumption or turns it into a question. The Submit tab reviews every
+  answer: "Submit all N" sends them as final, and "Send N now, answer the
+  rest later" stores the ones picked so far on the architect, so they show
+  on any device and survive leaving, and the round stays open. Under a
+  dotted line on every tab, "Chat about these questions" holds the thread
+  about the round and is the pane's only text box while the round is open;
+  the thread scrolls on its own, so the box and the foot stay in view. What
+  you type there reaches the architect as a plain message, so session
+  commands still work, and shows in the round's thread, not as a transcript
+  bubble: right away as your line, until the architect republishes the round
+  with its own thread. A message stored when no round waits any more shows
+  as an ordinary bubble. Left and right arrows switch tabs, 1-9 pick an
+  option on a question tab and Enter moves to the next tab. Picks not yet
+  sent live only in the pane and are lost when it closes or the page
   reloads. The architect republishes a round whenever it changes, and only
   the newest version shows. A closed round (every question answered and the
   stage resumed, or the pipeline went past it) collapses into a list of each
   question and its answer, with any question left unanswered marked "not
   answered"; under the list a collapsed "Chat about these questions (N)"
   opens the round's thread of N messages, when it has one. A round the auto
-  responder answers shows read-only in the transcript and the message box
-  stays. While the session is not live the round stays docked with its
-  controls disabled.
+  responder answered arrives closed and shows as its summary, marked
+  answered by the responder, and the message box stays. While the session is
+  not live or its stream reconnects the round stays docked with its answers
+  disabled; its chat box sends whenever the message box would.
 - A blueprint pane adds a scale bar, a sheet and marker rows to the chat pane:
   - The scale bar under the pane header draws one segment per pipeline step:
     done steps filled green, the current step hatched (aqua while a run

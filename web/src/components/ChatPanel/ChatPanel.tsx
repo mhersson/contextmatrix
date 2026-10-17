@@ -165,6 +165,7 @@ export function ChatPanel({
           onSendRound={onSendRound}
           onSendChat={sendRoundChat}
           sentChat={docked.sent.map((e) => e.content)}
+          chatDisabled={sendDisabled}
           focusKey={focusKey}
         />
       )}

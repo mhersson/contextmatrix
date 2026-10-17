@@ -62,9 +62,6 @@ export function QuestionPane({ round, question, draft, own, mode, expanded, onOp
               maxLength={MAX_MESSAGE_LENGTH}
               disabled={mode !== 'open'}
               onChange={(e) => onOwn(e.target.value)}
-              onFocus={(e) => {
-                if (e.target.value.trim() !== '') onOwn(e.target.value);
-              }}
             />
           </div>
         </div>

@@ -14,14 +14,16 @@ interface OptionRowProps {
 /** One numbered option; the detail with pros, cons and sources sits outside the button so its links stay focusable. */
 export function OptionRow({ n, option, recommended, selected, expanded, researchOff, onClick }: OptionRowProps) {
   const detailId = useId();
-  const count = option.sources.length;
+  // With research off a web source comes from model knowledge; a code source (no URL) was read with the code tools.
+  const sources = researchOff ? option.sources.filter((s) => !s.url) : option.sources;
+  const count = sources.length;
   const hasPros = option.pros.length > 0;
   const hasCons = option.cons.length > 0;
-  const showSources = count > 0 || (researchOff && (hasPros || hasCons));
+  const showSources = option.sources.length > 0 || (researchOff && (hasPros || hasCons));
   const parts = [
     ...(hasPros ? ['pros'] : []),
     ...(hasCons ? ['cons'] : []),
-    ...(count > 0 && !researchOff ? [`${count} ${count === 1 ? 'source' : 'sources'}`] : []),
+    ...(count > 0 ? [`${count} ${count === 1 ? 'source' : 'sources'}`] : []),
   ];
   const more = expanded ? 'hide' : parts.join(' · ');
   const hasDetail = hasPros || hasCons || showSources;
@@ -66,19 +68,18 @@ export function OptionRow({ n, option, recommended, selected, expanded, research
           {showSources && (
             <div className="qb-src">
               Sources:{' '}
-              {researchOff
-                ? 'model knowledge'
-                : option.sources.map((s, i) =>
-                    s.url ? (
-                      <a key={i} href={s.url} target="_blank" rel="noopener noreferrer">
-                        {s.title}
-                      </a>
-                    ) : (
-                      <span key={i} className="qb-src-text">
-                        {s.title}
-                      </span>
-                    ),
-                  )}
+              {sources.map((s, i) =>
+                s.url ? (
+                  <a key={i} href={s.url} target="_blank" rel="noopener noreferrer">
+                    {s.title}
+                  </a>
+                ) : (
+                  <span key={i} className="qb-src-text">
+                    {s.title}
+                  </span>
+                ),
+              )}
+              {researchOff && 'model knowledge'}
             </div>
           )}
         </div>

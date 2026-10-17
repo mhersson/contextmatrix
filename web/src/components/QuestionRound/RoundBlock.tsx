@@ -39,6 +39,13 @@ function maxKey(round: Round): number {
   return Math.min(9, Math.max(1, ...round.questions.map((q) => q.options.length + 1)));
 }
 
+/** The foot's key hint: digits only on a question tab, Enter only where a next tab exists. */
+function keyHint(round: Round, mode: RoundMode, onQuestion: boolean, onLast: boolean): string {
+  if (mode !== 'open') return '← → switch questions';
+  if (onQuestion) return `← → switch questions · 1-${maxKey(round)} pick an option · Enter next`;
+  return onLast ? '← → switch questions' : '← → switch questions · Enter next';
+}
+
 interface RoundBlockProps {
   promptId: string;
   round: Round;
@@ -51,11 +58,23 @@ interface RoundBlockProps {
   onSendChat?: (text: string) => Promise<void>;
   /** Messages sent about the round since this frame. */
   sentChat?: readonly string[];
+  /** The session takes no messages; the chat box follows this, as the composer does, not the stream like answers. */
+  chatDisabled?: boolean;
   /** Focuses the active tab whenever it changes, as ChatComposer's focusKey does. */
   focusKey?: string | number;
 }
 
-export function RoundBlock({ promptId, round, mode, inline = false, onSendRound, onSendChat, sentChat, focusKey }: RoundBlockProps) {
+export function RoundBlock({
+  promptId,
+  round,
+  mode,
+  inline = false,
+  onSendRound,
+  onSendChat,
+  sentChat,
+  chatDisabled = false,
+  focusKey,
+}: RoundBlockProps) {
   const { draft, own, pickOption, typeOwn, decide } = useRoundDraft();
   const tabs = tabKeys(round, mode);
   const [picked, setPicked] = useState<TabKey | null>(null);
@@ -199,11 +218,9 @@ export function RoundBlock({ promptId, round, mode, inline = false, onSendRound,
           <SubmitPane round={round} draft={draft} mode={mode} phase={phase} error={sendError} onSend={(final) => void send(final)} />
         )}
       </div>
-      {mode !== 'readonly' && <RoundChat round={round} mode={mode} sent={sentChat} onSendChat={onSendChat} />}
+      {mode !== 'readonly' && <RoundChat round={round} disabled={chatDisabled} sent={sentChat} onSendChat={onSendChat} />}
       <div className="qb-foot">
-        <span>
-          {mode === 'open' ? `← → switch questions · 1-${maxKey(round)} pick an option · Enter next` : '← → switch questions'}
-        </span>
+        <span>{keyHint(round, mode, question !== null, active === tabs[tabs.length - 1])}</span>
         <span>{mode === 'readonly' ? 'Answered by the responder' : 'Composer is hidden while questions are open'}</span>
       </div>
     </section>

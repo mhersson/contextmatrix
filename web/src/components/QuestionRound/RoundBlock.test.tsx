@@ -157,6 +157,66 @@ describe('RoundBlock questions', () => {
     }
   });
 
+  it('keeps an option picked after a typed answer when the answer box only gains focus', () => {
+    renderBlock();
+    const own = screen.getByRole('textbox', { name: /Your own answer to Q1/ });
+    fireEvent.change(own, { target: { value: 'Plain YAML' } });
+    fireEvent.click(option(/Helm/));
+    fireEvent.focus(own);
+    expect(option(/Helm/)).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(tab(/Submit/));
+    const rows = screen.getAllByRole('row').map((r) => Array.from((r as HTMLTableRowElement).cells).map((c) => c.textContent));
+    expect(rows[0]).toEqual(['Q1 Deploy tooling', 'Helm']);
+  });
+
+  it('shows code sources beside model knowledge when research is off and counts only those', () => {
+    renderBlock({
+      research_off: true,
+      questions: [
+        {
+          number: 1,
+          title: 'T',
+          text: 'Q?',
+          options: [
+            {
+              title: 'Alpha',
+              pros: ['p'],
+              sources: [
+                { tag: 'C1', title: 'internal/api/chats.go' },
+                { tag: 'S1', title: 'a web page', url: 'https://a.example/' },
+                { tag: 'S2', title: 'evil', url: 'javascript:alert(1)' },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    expect(option(/Alpha/)).toHaveTextContent(/pros · 2 sources$/);
+    fireEvent.click(option(/Alpha/));
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    expect(screen.getByText('internal/api/chats.go')).toBeInTheDocument();
+    expect(screen.getByText('evil')).toBeInTheDocument();
+    expect(screen.queryByText('a web page')).not.toBeInTheDocument();
+    expect(screen.getByText(/model knowledge/)).toBeInTheDocument();
+  });
+
+  it('hints the option digits only on a question tab', () => {
+    const digits = '← → switch questions · 1-4 pick an option · Enter next';
+    renderBlock({ assumptions: [{ id: 'A1', text: 'One cluster per environment.' }] });
+    expect(screen.getByText(digits)).toBeInTheDocument();
+    for (const name of [/Assumptions/, /Submit/]) {
+      fireEvent.click(tab(name));
+      expect(screen.queryByText(/pick an option/)).not.toBeInTheDocument();
+    }
+    fireEvent.click(tab(/Postgres/));
+    expect(screen.getByText(digits)).toBeInTheDocument();
+  });
+
+  it('hints no option digits on a round of assumptions only', () => {
+    renderBlock({ questions: [], assumptions: [{ id: 'A1', text: 'One cluster per environment.' }] });
+    expect(screen.queryByText(/pick an option/)).not.toBeInTheDocument();
+  });
+
   it('shows the stored own answer in the input of an answered question', () => {
     renderBlock({ answers: [{ number: 2, text: 'Loki only' }] });
     fireEvent.click(tab(/Logging/));
@@ -283,7 +343,7 @@ describe('RoundBlock sending', () => {
     await waitFor(() => expect(box).toHaveValue(''));
   });
 
-  it('keeps the chat box enabled and focused while a send is in flight, without double sending', async () => {
+  it('keeps the chat box enabled while a send is in flight, without double sending', async () => {
     let finish!: () => void;
     const onSendChat = vi.fn(() => new Promise<void>((r) => (finish = r)));
     renderSending({ chat: [{ from: 'system_designer', text: 'Hi.' }] }, undefined, onSendChat);
@@ -296,6 +356,35 @@ describe('RoundBlock sending', () => {
     fireEvent.keyDown(box, { key: 'Enter' });
     expect(onSendChat).toHaveBeenCalledTimes(1);
     finish();
+    await waitFor(() => expect(box).toHaveValue(''));
+    expect(box).toHaveFocus();
+  });
+
+  it('keeps text typed and an option focused during a chat send', async () => {
+    let finish!: () => void;
+    const onSendChat = vi.fn(() => new Promise<void>((r) => (finish = r)));
+    renderSending({ chat: [{ from: 'system_designer', text: 'Hi.' }] }, undefined, onSendChat);
+    const box = screen.getByRole('textbox', { name: 'Message about these questions' });
+    box.focus();
+    fireEvent.change(box, { target: { value: 'hello' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    fireEvent.change(box, { target: { value: 'hello, and one more thing' } });
+    option(/Kustomize/).focus();
+    finish();
+    await waitFor(() => expect(onSendChat).toHaveBeenCalledWith('hello'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
+    expect(box).toHaveValue('hello, and one more thing');
+    expect(option(/Kustomize/)).toHaveFocus();
+  });
+
+  it('returns focus to the chat box after a click on Send', async () => {
+    const { onSendChat } = renderSending({ chat: [{ from: 'system_designer', text: 'Hi.' }] });
+    const box = screen.getByRole('textbox', { name: 'Message about these questions' });
+    fireEvent.change(box, { target: { value: 'hello' } });
+    const send = screen.getByRole('button', { name: 'Send' });
+    send.focus();
+    fireEvent.click(send);
+    await waitFor(() => expect(onSendChat).toHaveBeenCalledWith('hello'));
     await waitFor(() => expect(box).toHaveValue(''));
     expect(box).toHaveFocus();
   });

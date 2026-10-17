@@ -687,6 +687,26 @@ describe('ChatPanel question rounds', () => {
     expect(screen.queryByRole('textbox', { name: 'Message' })).not.toBeInTheDocument();
   });
 
+  it('keeps the round chat box sending while the stream reconnects, with answers held', async () => {
+    render(
+      <ChatPanel
+        logs={[roundEntry(1, 'round:1', rawRound())]}
+        onSend={onSend}
+        onSendRound={onSendRound}
+        onSendRoundChat={onSendRoundChat}
+        sendDisabled={false}
+        promptsLive={false}
+      />,
+    );
+    expect(screen.getByRole('textbox', { name: /Your own answer to Q1/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /Chat about these questions/ }));
+    const box = screen.getByRole('textbox', { name: 'Message about these questions' });
+    expect(box).toBeEnabled();
+    fireEvent.change(box, { target: { value: 'still there?' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(onSendRoundChat).toHaveBeenCalledWith('still there?', 'round:1'));
+  });
+
   it('sends the answers through onSendRound and the round chat through onSendRoundChat with the prompt id', async () => {
     const logs = [roundEntry(1, 'round:1', rawRound({ answers: [{ number: 1, option: 1 }, { number: 2, option: 1 }] }))];
     render(

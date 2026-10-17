@@ -68,6 +68,8 @@ export function useWorkingState(
   const latestRef = useRef({ assistantWorking, assistantWorkingSince });
   // undefined = not armed; null = armed with no turn seen yet.
   const armedSinceRef = useRef<string | null | undefined>(undefined);
+  // The session the refs above describe; a switch resets them in the effect, as refs cannot change during render.
+  const refsSessionRef = useRef(sessionID);
 
   useEffect(() => {
     latestRef.current = { assistantWorking, assistantWorkingSince };
@@ -79,6 +81,11 @@ export function useWorkingState(
   // cannot be expressed as an in-render state-marker reset like the
   // session-switch guard above.
   useEffect(() => {
+    if (refsSessionRef.current !== sessionID) {
+      refsSessionRef.current = sessionID;
+      prevWorkingRef.current = undefined;
+      armedSinceRef.current = undefined;
+    }
     const prev = prevWorkingRef.current;
     prevWorkingRef.current = assistantWorking;
 
@@ -104,7 +111,7 @@ export function useWorkingState(
       armedSinceRef.current = undefined;
       setWorking(null);
     }
-  }, [assistantWorking, assistantWorkingSince, status]);
+  }, [sessionID, assistantWorking, assistantWorkingSince, status]);
 
   const armOptimistic = () => {
     armedSinceRef.current = latestRef.current.assistantWorkingSince ?? null;

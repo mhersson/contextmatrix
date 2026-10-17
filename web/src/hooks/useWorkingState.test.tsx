@@ -105,6 +105,15 @@ describe('useWorkingState', () => {
     expect(result.current.working).toBeNull();
   });
 
+  it('starts the next session afresh even when its turn state matches the last one', () => {
+    const busy = { assistant_working: true, assistant_working_since: '2026-07-24T10:00:00Z' };
+    const { result, rerender } = renderHook(({ id, s }) => useWorkingState(id, s), {
+      initialProps: { id: 'S1', s: session(busy) },
+    });
+    rerender({ id: 'S2', s: session({ id: 'S2', ...busy }) });
+    expect(result.current.working?.since).toBe(Date.parse('2026-07-24T10:00:00Z'));
+  });
+
   describe('a send racing the turn', () => {
     const turnEnded = (since: string) =>
       session({ assistant_working: false, assistant_working_since: since });
