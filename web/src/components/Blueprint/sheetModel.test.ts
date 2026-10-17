@@ -19,6 +19,15 @@ describe('stampFor', () => {
     expect(stampFor(view, ref('solution_design', 2, 'rejected', { decided_by: 'responder' }))?.detail).toBe('by the responder');
   });
 
+  it('names the revision that replaced a superseded version', () => {
+    const three = {
+      ...view,
+      artifacts: [ref('solution_design', 1, 'superseded'), ref('solution_design', 2, 'superseded'), ref('solution_design', 3, 'at_gate')],
+    };
+    expect(stampFor(three, three.artifacts[0])?.detail).toBe('by rev 2');
+    expect(stampFor(three, three.artifacts[1])?.detail).toBe('by rev 3');
+  });
+
   it('leaves undecided versions unstamped', () => {
     expect(stampFor(view, view.artifacts[3])).toBeNull();
     expect(stampFor(view, view.artifacts[0])).toBeNull();

@@ -17,8 +17,8 @@ export function stampFor(view: BlueprintView, ref: BlueprintArtifactRef): StampT
     case 'rejected':
       return { tone: 'rejected', title: 'Rejected', detail: decidedByText(ref) };
     case 'superseded': {
-      const newest = latestArtifact(view, ref.stage);
-      return { tone: 'superseded', title: 'Superseded', detail: newest ? `by rev ${newest.version}` : '' };
+      const next = artifactsFor(view, ref.stage).find((r) => r.version > ref.version);
+      return { tone: 'superseded', title: 'Superseded', detail: next ? `by rev ${next.version}` : '' };
     }
     case 'folded': {
       const into = view.pipeline.find((s) => s.stage === ref.stage)?.folds_into;
