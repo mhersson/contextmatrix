@@ -21,6 +21,8 @@ interface TitleBlockProps {
 export function TitleBlock({ stage, persona, options, version, onPickVersion, review, reviewing, status, compare }: TitleBlockProps) {
   const revLabel = useId();
   const [reviewOpen, setReviewOpen] = useState(false);
+  // The score button unmounts while a review runs; close here so the popover cannot reappear when it ends.
+  if (reviewing && reviewOpen) setReviewOpen(false);
   const checkedRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const blockRef = useRef<HTMLDivElement>(null);

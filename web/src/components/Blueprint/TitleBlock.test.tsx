@@ -81,6 +81,31 @@ describe('TitleBlock', () => {
     expect(fireEvent.keyDown(trigger, { key: 'Escape' })).toBe(true);
   });
 
+  it('does not reopen the review by itself after a review run ends', () => {
+    const props: Parameters<typeof TitleBlock>[0] = {
+      stage: 'solution_design',
+      persona: 'system_designer',
+      options: [{ version: 2, label: '2' }],
+      version: 2,
+      onPickVersion: vi.fn(),
+      review: { review: DESIGN_REVIEW, version: 1 },
+      reviewing: null,
+      status: { text: 'At your gate', tone: 'waiting' },
+      compare: { available: false, on: false, onToggle: vi.fn() },
+    };
+    const ui = (over: Partial<typeof props>) => (
+      <section className="bp-sheet">
+        <TitleBlock {...props} {...over} />
+      </section>
+    );
+    const { rerender } = render(ui({}));
+    fireEvent.click(screen.getByRole('button', { name: 'Senior developer, 4 of 5' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    rerender(ui({ reviewing: 'senior_developer' }));
+    rerender(ui({ reviewing: null }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('shows a review without findings', () => {
     renderBlock({ review: { review: { ...DESIGN_REVIEW, findings: [] }, version: 1 } });
     fireEvent.click(screen.getByRole('button', { name: 'Senior developer, 4 of 5' }));
