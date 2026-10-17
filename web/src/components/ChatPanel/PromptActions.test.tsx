@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { PromptActions } from './PromptActions';
 import type { ChatPrompt } from './prompts';
 
@@ -55,8 +55,9 @@ describe('PromptActions', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
 
-    await screen.findByRole('alert');
-    expect(screen.getByRole('button', { name: 'Approve' })).toHaveFocus();
+    // The hand-back runs in an effect after the commit that shows the alert.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Approve' })).toHaveFocus());
+    expect(screen.getByRole('alert')).toBeInTheDocument();
   });
 
   it('returns focus to the feedback box when a feedback reply fails', async () => {
@@ -70,8 +71,8 @@ describe('PromptActions', () => {
     // jsdom keeps focus on a disabled control, so watch for the explicit hand-back.
     const refocus = vi.spyOn(box, 'focus');
 
-    await screen.findByRole('alert');
-    expect(refocus).toHaveBeenCalled();
+    await waitFor(() => expect(refocus).toHaveBeenCalled());
+    expect(screen.getByRole('alert')).toBeInTheDocument();
     expect(box).toHaveFocus();
   });
 
