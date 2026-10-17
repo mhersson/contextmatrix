@@ -19,7 +19,19 @@ describe('BodyMarkdown', () => {
   it('draws no clouds in plain mode', () => {
     render(<BodyMarkdown body={'A.\n\nB.'} previous={'A.'} mode="plain" version={2} />);
     expect(screen.queryByText(/Changed in rev/)).not.toBeInTheDocument();
-    expect(screen.getAllByTestId('md')).toHaveLength(2);
+    expect(screen.getAllByTestId('md')).toHaveLength(1);
+  });
+
+  it('renders plain markdown as one document so blocks that span blank lines stay together', () => {
+    const body = '1. First\n\n   More about first\n\n2. Second';
+    render(<BodyMarkdown body={body} previous="" mode="plain" version={2} />);
+    const md = screen.getByTestId('md');
+    expect(md.textContent).toBe(body);
+  });
+
+  it('renders one document when clouds find no change', () => {
+    render(<BodyMarkdown body={'A.\n\nB.'} previous={'A.\n\nB.'} mode="clouds" version={2} />);
+    expect(screen.getAllByTestId('md')).toHaveLength(1);
   });
 
   it('strikes removed words and marks added ones in compare mode', () => {

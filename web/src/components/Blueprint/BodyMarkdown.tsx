@@ -30,10 +30,18 @@ export function BodyMarkdown({ body, previous, mode, version }: BodyMarkdownProp
   }
   if (blocks.length === 0) return null;
   const changed = mode === 'clouds' && before ? changedBlocks(before, blocks) : null;
+  // Markdown can span blank lines (loose lists, reference links), so split only when a block is drawn apart.
+  if (!changed || changed.size === 0) {
+    return (
+      <div className="bp-body">
+        <Block text={body} />
+      </div>
+    );
+  }
   return (
     <div className="bp-body">
       {blocks.map((text, i) =>
-        changed?.has(i) ? (
+        changed.has(i) ? (
           <RevisionCloud key={i} version={version}>
             <Block text={text} />
           </RevisionCloud>
