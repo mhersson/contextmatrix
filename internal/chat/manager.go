@@ -43,8 +43,9 @@ var ErrSessionNotRunning = errors.New("chat: session is not running")
 // backend (an architect session on an instance without an architect entry).
 var ErrKindUnavailable = errors.New("chat: no backend configured for this session kind")
 
-// ErrInvalidSessionInput wraps every CreateSession validation failure so the
-// API layer can map the whole family to one 400.
+// ErrInvalidSessionInput wraps input a session cannot take, such as a
+// CreateSession validation failure or a round reply or round chat sent to a
+// chat session, so the API layer can map the whole family to one 400.
 var ErrInvalidSessionInput = errors.New("chat: invalid session input")
 
 // ContextClearedMarker is the canonical content string written to the

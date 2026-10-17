@@ -6205,3 +6205,21 @@ func TestManager_Consumer_OversizedRoundDropsTheOldestChatFirst(t *testing.T) {
 	assert.Less(t, len(kept), 60)
 	assert.Equal(t, p.Round.Chat[len(p.Round.Chat)-len(kept):], kept, "the newest messages are the ones kept")
 }
+
+func TestManager_Consumer_RoundWhoseQuestionsAloneOverflowIsStoredAsItsText(t *testing.T) {
+	p := &protocol.LogPrompt{ID: "round:1", Kind: "round", Round: bigRound(200, 4, 64)}
+
+	bare := *p.Round
+	bare.Chat = nil
+
+	questions, err := json.Marshal(bare)
+	require.NoError(t, err)
+	require.Greater(t, len(questions), 256*1024, "the questions alone overflow the round row cap")
+
+	const text = "200 questions from the system designer"
+
+	msg := storedArchitectRow(t, chat.LogEntry{Type: "text", Content: text, Prompt: p})
+	assert.Empty(t, msg.Kind, "not a prompt row")
+	assert.Equal(t, chat.RoleAssistantText, msg.Role)
+	assert.Equal(t, text, msg.Content, "the frame's text is kept")
+}
