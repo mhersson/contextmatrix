@@ -182,11 +182,13 @@ board. Promote-to-autonomous lives in that tab.
   architect, so they show on any device and survive leaving, and the round
   stays open. Under a dotted line on every tab, "Chat about these questions"
   holds the thread about the round and is the pane's only text box while the
-  round is open. What you type there reaches the architect as a plain
-  message, so session commands still work, and shows only in the round's
-  thread, never as a transcript bubble: right away as your line, until the
-  architect republishes the round with its own thread. Left and right arrows
-  switch tabs, 1-9 pick an option and Enter moves to the next tab. Picks not
+  round is open; the thread scrolls on its own, so the box and the foot stay
+  in view. What you type there reaches the architect as a plain message, so
+  session commands still work, and shows in the round's thread, not as a
+  transcript bubble: right away as your line, until the architect
+  republishes the round with its own thread. A message stored when no round
+  waits any more shows as an ordinary bubble. Left and right arrows switch
+  tabs, 1-9 pick an option and Enter moves to the next tab. Picks not
   yet sent live only in the pane and are lost when it closes or the page
   reloads. The architect republishes a round whenever it changes, and only
   the newest version shows. A closed round (every question answered and the

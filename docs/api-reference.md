@@ -2591,7 +2591,8 @@ CM forwards both to the architect unchanged:
 A message typed in an open round's chat box carries that round's prompt id in
 `round_chat` instead. CM forwards it to the architect as a plain message
 without `round` and stores the row with `kind` `"round_chat"`, so the panel
-shows it in the round's thread rather than the transcript:
+shows it in the waiting round's thread rather than the transcript (as an
+ordinary message when no round waits any more):
 
 ```json
 { "content": "Why not Helm?", "round_chat": "round:1" }

@@ -41,6 +41,59 @@ describe('deriveRounds', () => {
     expect(s.pending?.id).toBe('round:2');
   });
 
+  it('keeps the newest round docked when a late frame of an older round arrives', () => {
+    const one = roundEntry(1, 'round:1', rawRound());
+    const two = roundEntry(2, 'round:2', rawRound());
+    const lateClose = roundEntry(3, 'round:1', rawRound({ closed: true }));
+    const closed = deriveRounds([one, two, lateClose], true);
+    expect(closed.byEntry.get(lateClose)).toBe('closed');
+    expect(closed.byEntry.get(two)).toBe('open');
+    expect(closed.pending?.id).toBe('round:2');
+
+    const lateOpen = roundEntry(3, 'round:1', rawRound({ answers: [{ number: 1, option: 1 }] }));
+    const reopened = deriveRounds([one, two, lateOpen], true);
+    expect(reopened.byEntry.get(lateOpen)).toBe('superseded');
+    expect(reopened.pending?.id).toBe('round:2');
+  });
+
+  it('supersedes an open round with a later closed responder round and docks nothing', () => {
+    const one = roundEntry(1, 'round:1', rawRound());
+    const auto = roundEntry(2, 'round:2', rawRound({ responder: true, closed: true }));
+    const s = deriveRounds([one, auto], true);
+    expect(s.byEntry.get(one)).toBe('superseded');
+    expect(s.byEntry.get(auto)).toBe('closed');
+    expect(s.pending).toBeNull();
+  });
+
+  it('shows a round chat row no round was waiting for in the transcript, and only that one', () => {
+    const open = roundEntry(1, 'round:1', rawRound());
+    const held = roundChatEntry(2, 'held');
+    const closed = roundEntry(3, 'round:1', rawRound({ closed: true }));
+    const late = roundChatEntry(4, 'late');
+    const s = deriveRounds([open, held, closed, late], true);
+    expect([...s.stray]).toEqual([late]);
+
+    const auto = roundEntry(5, 'round:2', rawRound({ responder: true }));
+    const afterAuto = roundChatEntry(6, 'after the responder');
+    expect(deriveRounds([open, auto, afterAuto], true).stray.has(afterAuto)).toBe(true);
+  });
+
+  it('keeps a round chat row out of the transcript when its round is not loaded yet', () => {
+    const early = roundChatEntry(1, 'about an older round');
+    const s = deriveRounds([early, roundEntry(2, 'round:1', rawRound({ chat: [{ from: 'user', text: 'about an older round' }] }))], true);
+    expect(s.stray.size).toBe(0);
+    expect(s.pending?.sent).toEqual([]);
+  });
+
+  it('keeps the waiting round its chat rows across a late frame of an older round', () => {
+    const one = roundEntry(1, 'round:1', rawRound());
+    const two = roundEntry(2, 'round:2', rawRound());
+    const sent = roundChatEntry(3, 'about round 2');
+    const s = deriveRounds([one, two, sent, roundEntry(4, 'round:1', rawRound({ closed: true }))], true);
+    expect(s.pending?.sent).toEqual([sent]);
+    expect(s.stray.size).toBe(0);
+  });
+
   it('shows a responder round read-only and never docks it', () => {
     const a = roundEntry(1, 'round:1', rawRound({ responder: true }));
     const s = deriveRounds([a], true);

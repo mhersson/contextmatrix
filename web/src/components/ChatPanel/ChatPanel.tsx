@@ -94,7 +94,10 @@ export function ChatPanel({
 
   const rounds = useMemo(() => deriveRounds(logs, promptsLive), [logs, promptsLive]);
   const transcriptLogs = useMemo(
-    () => filteredLogs.filter((e) => e.kind !== ROUND_CHAT_KIND && !OUT_OF_TRANSCRIPT.has(rounds.byEntry.get(e))),
+    () =>
+      filteredLogs.filter(
+        (e) => (e.kind !== ROUND_CHAT_KIND || rounds.stray.has(e)) && !OUT_OF_TRANSCRIPT.has(rounds.byEntry.get(e)),
+      ),
     [filteredLogs, rounds],
   );
   const docked = rounds.pending;

@@ -156,15 +156,19 @@ interactions.
   `view.open.prompt_id`, with the same reply path. A closed non-gate
   prompt shows its options as a static list above the summary.
   A prompt of kind `"round"` is a question round instead: `deriveRounds`
-  (`QuestionRound/rounds.ts`) keeps only the newest frame per prompt id, the
-  waiting round docks as `RoundBlock` in place of `ChatComposer`, a closed or
-  superseded one renders as `RoundSummary`, and a responder round renders
-  read-only inline. Its answers go as a structured `round` on
-  `POST /api/chats/{id}/messages` (`onSendRound`); text typed in its chat box
-  goes with the round's prompt id in `round_chat` (`onSendRoundChat`), and its
-  `kind: "round_chat"` row never renders in the transcript: the docked block
-  shows it after the round's thread until a newer frame of the round arrives.
-  A closed round's summary keeps the thread behind a collapsed toggle.
+  (`QuestionRound/rounds.ts`) keeps only the newest frame per prompt id; the
+  current round is the one whose id appeared last, so a late frame of an
+  older round never displaces it. The waiting round docks as `RoundBlock` in
+  place of `ChatComposer`, a closed or superseded one renders as
+  `RoundSummary`, and a responder round renders read-only inline. Its answers
+  go as a structured `round` on `POST /api/chats/{id}/messages`
+  (`onSendRound`); text typed in its chat box goes with the round's prompt id
+  in `round_chat` (`onSendRoundChat`), and its `kind: "round_chat"` row
+  renders in the transcript only when no round waited where it was stored
+  (`stray`): otherwise the docked block shows it after the round's thread,
+  which scrolls on its own above the chat box, until a newer frame of the
+  round arrives. A closed round's summary keeps the thread behind a collapsed
+  toggle.
   Whether a prompt is open is derived in the browser (`derivePromptStates`),
   never stored. Agent and chat backends never emit a prompt:
   `AskUserQuestion` stays denied at the MCP gate, and there is no

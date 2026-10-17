@@ -735,6 +735,29 @@ describe('ChatPanel question rounds', () => {
     expect(within(block()).queryByText('export')).not.toBeInTheDocument();
   });
 
+  it('shows a round chat row stored after its round closed as an ordinary message', () => {
+    const logs = [
+      roundEntry(1, 'round:1', rawRound()),
+      roundEntry(2, 'round:1', rawRound({ ...allAnswered, closed: true })),
+      roundChatEntry(3, 'Does Q3 change Q1?'),
+    ];
+    render(<ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} onSendRoundChat={onSendRoundChat} sendDisabled={false} promptsLive />);
+    expect(within(screen.getByRole('log', { name: 'Chat log' })).getByText('Does Q3 change Q1?')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Message' })).toBeInTheDocument();
+  });
+
+  it('docks the newer round when a late frame of an older round arrives', () => {
+    const logs = [
+      roundEntry(1, 'round:1', rawRound()),
+      roundEntry(2, 'round:2', rawRound({ questions: [{ number: 4, title: 'Ingress', text: 'Which ingress?', options: [{ title: 'Traefik' }] }] })),
+      roundEntry(3, 'round:1', rawRound({ ...allAnswered, closed: true })),
+    ];
+    render(<ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);
+    expect(screen.getByRole('tab', { name: /Ingress/ })).toBeInTheDocument();
+    expect(screen.getAllByRole('group', { name: /Answered questions from the system designer/ })).toHaveLength(1);
+    expect(screen.queryByRole('textbox', { name: 'Message' })).not.toBeInTheDocument();
+  });
+
   it('keeps a closed round thread collapsed under its answers', () => {
     const chat = [
       { from: 'user', text: 'Why not Helm?' },

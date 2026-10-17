@@ -17,7 +17,7 @@ export interface RoundFrame {
   round: Round;
 }
 
-/** The kind of a user row typed in a round's chat box; it shows in that round's thread, never in the transcript. */
+/** The kind of a user row typed in a round's chat box; it shows in the waiting round's thread, not the transcript. */
 export const ROUND_CHAT_KIND = 'round_chat';
 
 export interface RoundStates {
@@ -27,6 +27,11 @@ export interface RoundStates {
    * the next frame's thread is their record.
    */
   pending: (RoundFrame & { status: 'open' | 'paused'; sent: LogEntry[] }) | null;
+  /**
+   * Round chat rows stored after a round frame that was not waiting (closed, or a responder's); they show in the
+   * transcript as ordinary messages. A row before the first loaded frame stays out: its round may be in older history.
+   */
+  stray: Set<LogEntry>;
 }
 
 export function roundFrame(entry: LogEntry): RoundFrame | null {
@@ -36,38 +41,42 @@ export function roundFrame(entry: LogEntry): RoundFrame | null {
 
 /**
  * Every round row's status. The architect republishes a round under the same prompt id whenever it changes, so only
- * the newest frame per id counts. Only the newest round can wait, and it is open only while `live`. A round chat row
- * belongs to the round waiting where it sits in the log, as the architect takes a plain message while a round is open.
+ * the newest frame per id counts. The current round is the one whose id appeared last: a late frame of an older round
+ * never displaces it. Only the current round can wait, and it is open only while `live`. A round chat row belongs to
+ * the round waiting where it sits in the log, as the architect takes a plain message while a round is open.
  */
 export function deriveRounds(logs: readonly LogEntry[], live: boolean): RoundStates {
   const byEntry = new Map<LogEntry, RoundStatus>();
   const newest = new Map<string, RoundFrame>();
-  let last: RoundFrame | null = null;
+  const stray = new Set<LogEntry>();
+  let current: string | null = null;
   let sent: LogEntry[] = [];
   for (const e of logs) {
     if (e.kind === ROUND_CHAT_KIND) {
-      sent.push(e);
+      const round = current === null ? undefined : newest.get(current)?.round;
+      if (round && !round.closed && !round.responder) sent.push(e);
+      else if (round) stray.add(e);
       continue;
     }
     const f = roundFrame(e);
     if (!f) continue;
     const prev = newest.get(f.id);
     if (prev) byEntry.set(prev.entry, 'history');
+    else current = f.id;
     newest.set(f.id, f);
-    last = f;
-    sent = [];
+    if (f.id === current) sent = [];
   }
   let pending: RoundStates['pending'] = null;
   for (const f of newest.values()) {
     let status: RoundStatus;
     if (f.round.closed) status = 'closed';
-    else if (f !== last) status = 'superseded';
+    else if (f.id !== current) status = 'superseded';
     else if (f.round.responder) status = 'responder';
     else status = live ? 'open' : 'paused';
     byEntry.set(f.entry, status);
     if (status === 'open' || status === 'paused') pending = { ...f, status, sent };
   }
-  return { byEntry, pending };
+  return { byEntry, pending, stray };
 }
 
 export interface RoundLeft {

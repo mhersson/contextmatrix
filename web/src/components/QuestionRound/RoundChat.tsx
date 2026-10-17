@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { MAX_MESSAGE_LENGTH } from '../ChatPanel/chatEntryUtils';
 import type { Round, RoundChatMessage } from './parseRound';
 import type { RoundMode } from './roundView';
@@ -21,9 +21,15 @@ export function RoundChat({ round, mode, sent = [], onSendChat }: RoundChatProps
   const [error, setError] = useState<string | null>(null);
   const chatId = useId();
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const threadRef = useRef<HTMLDivElement>(null);
   // The box is the only text input while a round is open, so it stays enabled; this ref blocks a double send.
   const inFlight = useRef(false);
   const canType = mode === 'open' && onSendChat !== undefined;
+
+  useLayoutEffect(() => {
+    const el = threadRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [thread.length, open]);
 
   const send = async () => {
     const t = text.trim();
@@ -66,7 +72,11 @@ export function RoundChat({ round, mode, sent = [], onSendChat }: RoundChatProps
         </div>
         {open && (
           <div className="qb-chat" id={chatId}>
-            <RoundThread chat={thread} />
+            {thread.length > 0 && (
+              <div ref={threadRef} className="qb-thread" role="log" aria-label="Chat thread">
+                <RoundThread chat={thread} />
+              </div>
+            )}
             <div className="qb-chat-compose">
               <textarea
                 ref={inputRef}

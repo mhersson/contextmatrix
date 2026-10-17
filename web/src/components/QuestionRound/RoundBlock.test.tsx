@@ -300,6 +300,21 @@ describe('RoundBlock sending', () => {
     expect(box).toHaveFocus();
   });
 
+  it('scrolls the thread on its own, apart from the chat box, and follows the newest message', () => {
+    const round = parseRound(rawRound({ chat: [{ from: 'system_designer', text: 'Ask me anything.' }] }))!;
+    const props = { promptId: 'round:1', round, mode: 'open' as const, onSendChat: vi.fn(async () => {}) };
+    const { rerender } = render(<RoundBlock {...props} sentChat={[]} />);
+    const thread = screen.getByRole('log', { name: 'Chat thread' });
+    expect(within(thread).getByText('Ask me anything.')).toBeInTheDocument();
+    expect(within(thread).queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Message about these questions' })).toBeInTheDocument();
+
+    Object.defineProperty(thread, 'scrollHeight', { configurable: true, value: 480 });
+    rerender(<RoundBlock {...props} sentChat={['Does Q3 change Q1?']} />);
+    expect(within(thread).getByText('Does Q3 change Q1?')).toBeInTheDocument();
+    expect(thread.scrollTop).toBe(480);
+  });
+
   it('opens the chat on a click when the round has no thread yet', () => {
     renderSending();
     expect(screen.queryByRole('textbox', { name: 'Message about these questions' })).not.toBeInTheDocument();
