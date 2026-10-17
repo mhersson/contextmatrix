@@ -4657,6 +4657,28 @@ func TestManager_OpenSession_ArchitectStartCarriesPrice(t *testing.T) {
 	assert.Equal(t, want, *got.Architect.Price)
 }
 
+func TestManager_ArchitectStartCarriesResearchOnlyWhenOn(t *testing.T) {
+	research := &protocol.ResearchStart{Provider: "brave", APIKey: "brave-key"}
+
+	mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) { c.ArchitectResearch = research })
+	openArchitect(t, mgr)
+
+	arch.mu.Lock()
+	got := arch.lastOpts.Architect
+	arch.mu.Unlock()
+
+	require.NotNil(t, got)
+	assert.Equal(t, research, got.Research)
+
+	plain, _, plainArch := newManagerWithArchitectStub(t)
+	openArchitect(t, plain)
+
+	plainArch.mu.Lock()
+	defer plainArch.mu.Unlock()
+
+	assert.Nil(t, plainArch.lastOpts.Architect.Research)
+}
+
 func TestManager_OpenSession_ArchitectStartOmitsUnknownPrice(t *testing.T) {
 	mgr, _, archStub := newManagerWithArchitectStub(t, func(c *chat.Config) {
 		c.ArchitectPrice = func(string) (protocol.ModelPrice, bool) { return protocol.ModelPrice{}, false }

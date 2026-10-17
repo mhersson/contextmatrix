@@ -34,6 +34,9 @@ func TestDefaultsRoundTrip(t *testing.T) {
 	assert.False(t, back.Backends.Chat.IsEnabled())
 	require.NotNil(t, back.Backends.Architect)
 	assert.False(t, back.Backends.Architect.IsEnabled())
+	assert.Equal(t, ResearchOff, back.Backends.Architect.Research)
+	assert.Equal(t, ResearchProviderBrave, back.Backends.Architect.ResearchProvider)
+	assert.Contains(t, text, "research_api_key:")
 	assert.Equal(t, "60s", back.Backends.Agent.ReconcileInterval)
 
 	// Boards print in the single mapping form, not the list form. Decoding

@@ -353,6 +353,9 @@ task_skills:
 #   CONTEXTMATRIX_BACKEND_<NAME>_RECONCILE_INTERVAL         (agent only)
 #   CONTEXTMATRIX_BACKEND_<NAME>_DEFAULT_MODEL              (agent, chat and architect)
 #   CONTEXTMATRIX_BACKEND_<NAME>_CATALOG_QUALITY_FLOOR      (agent only)
+#   CONTEXTMATRIX_BACKEND_<NAME>_RESEARCH                   (architect only)
+#   CONTEXTMATRIX_BACKEND_<NAME>_RESEARCH_PROVIDER          (architect only)
+#   CONTEXTMATRIX_BACKEND_<NAME>_RESEARCH_API_KEY           (architect only)
 backends: {}
 #  agent:
 #    # contextmatrix-agent: card execution only (no chat). Drives models over
@@ -448,6 +451,21 @@ backends: {}
 #    # entry is enabled; the architect has no server-side default.
 #    # Env: CONTEXTMATRIX_BACKEND_ARCHITECT_DEFAULT_MODEL
 #    default_model: "anthropic/claude-sonnet-5.5"
+#
+#    # Research behind the architect's interview questions: off (the default)
+#    # or search. With search, intake, slicing and design get web search and
+#    # page fetch through the provider below, so query text leaves this
+#    # installation. Leave it off where that is not allowed: the interview
+#    # works the same, with options drawn from the model's knowledge.
+#    # Env: CONTEXTMATRIX_BACKEND_ARCHITECT_RESEARCH
+#    research: off
+#    # Search provider; brave (Brave Search API) is the only one.
+#    # Env: CONTEXTMATRIX_BACKEND_ARCHITECT_RESEARCH_PROVIDER
+#    research_provider: brave
+#    # The provider's API key, required when research is search. CM hands it
+#    # to the architect in each session start.
+#    # Env: CONTEXTMATRIX_BACKEND_ARCHITECT_RESEARCH_API_KEY
+#    research_api_key: ""
 
 # Chat (global chat panel)
 # Chat sessions and transcripts are stored in the shared operational store

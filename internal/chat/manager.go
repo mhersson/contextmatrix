@@ -187,6 +187,10 @@ type Config struct {
 	// refuses capped runs. Production wires this over the card service's
 	// ResolvedRate in cmd/contextmatrix/wire_chat.go.
 	ArchitectPrice func(model string) (protocol.ModelPrice, bool)
+
+	// ArchitectResearch is the research block of every architect start; nil
+	// keeps research off. It carries the provider's API key: never log it.
+	ArchitectResearch *protocol.ResearchStart
 }
 
 // Manager orchestrates chat session lifecycle, transcript persistence,
@@ -218,6 +222,7 @@ type Manager struct {
 	architectDefaultModel           string
 	architectWorkerCredentialsToken func(sessionID string) string
 	architectPrice                  func(model string) (protocol.ModelPrice, bool)
+	architectResearch               *protocol.ResearchStart
 
 	mu           sync.Mutex
 	seqMap       map[string]int64           // sessionID → last assigned seq
@@ -324,6 +329,7 @@ func NewManager(cfg Config) *Manager {
 		architectDefaultModel:           cfg.ArchitectDefaultModel,
 		architectWorkerCredentialsToken: cfg.ArchitectWorkerCredentialsToken,
 		architectPrice:                  cfg.ArchitectPrice,
+		architectResearch:               cfg.ArchitectResearch,
 
 		seqMap:            make(map[string]int64),
 		titled:            make(map[string]bool),
@@ -1726,7 +1732,8 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 		}
 
 		m.logger.Info("chat: opening cold blueprint session",
-			"session_id", sess.ID, "projects", sess.Workspace, "mode", sess.Mode, "model", model)
+			"session_id", sess.ID, "projects", sess.Workspace, "mode", sess.Mode, "model", model,
+			"research", m.architectResearch != nil)
 
 		start := StartChatOpts{
 			SessionID:           sess.ID,
@@ -1737,6 +1744,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 				Projects:   sess.Workspace,
 				Mode:       sess.Mode,
 				CostCapUSD: sess.CostCapUSD,
+				Research:   m.architectResearch,
 			},
 		}
 
