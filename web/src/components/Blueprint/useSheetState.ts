@@ -30,7 +30,7 @@ function grew(before: string, after: string): boolean {
 /**
  * Whether the sheet is open, what it is pinned to, and the something-new dot.
  * A new artifact version or the start of a draft opens a closed sheet, except
- * over the transcript while a question waits; then only the dot shows. A pin
+ * over the transcript while a question or round waits; then only the dot shows. A pin
  * holds until the current stage changes.
  */
 export function useSheetState(view: BlueprintView | null, draft: HeldDraft | null, layout: SheetLayout) {
@@ -54,7 +54,9 @@ export function useSheetState(view: BlueprintView | null, draft: HeldDraft | nul
       setSeen(signal);
       const fresh =
         seen !== null && (grew(seen.artifacts, signal.artifacts) || (signal.draft !== '' && signal.draft !== seen.draft));
-      if (fresh && (layout === 'split' || view.open?.kind !== 'question')) {
+      // Over the transcript a fresh version must not cover a waiting question or the docked round.
+      const waits = view.open?.kind === 'question' || view.open?.kind === 'round';
+      if (fresh && (layout === 'split' || !waits)) {
         setOpen(true);
         setHasNew(false);
       } else if (fresh && !open) {

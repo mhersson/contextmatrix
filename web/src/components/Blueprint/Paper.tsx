@@ -1,12 +1,13 @@
 import type { ReactNode } from 'react';
 import type { BlueprintCurrentRun, BlueprintView } from '../../types';
+import type { RoundLeft } from '../QuestionRound/rounds';
 import type { RevisionMode } from './BodyMarkdown';
 import { DraftBody, ProgressLine, RefusedBand, WaitingLine } from './DraftBody';
 import { Stamp } from './Stamp';
 import { loadArtifact, useBlueprintArtifact } from './artifactCache';
 import type { HeldDraft } from './draft';
 import { ArtifactRenderer } from './renderers/ArtifactRenderer';
-import { stampFor, waitingQuestion } from './sheetModel';
+import { stampFor, waitingLine, waitingOn } from './sheetModel';
 import { artifactsFor, stageText } from './stages';
 
 interface PaperProps {
@@ -20,9 +21,11 @@ interface PaperProps {
   /** The shown version's streaming draft, if any. */
   draft: HeldDraft | null;
   compare: boolean;
+  /** What the open round still waits on, when the stage waits on one. */
+  roundLeft?: RoundLeft | null;
 }
 
-export function Paper({ chatId, view, stage, version, writing, draft, compare }: PaperProps) {
+export function Paper({ chatId, view, stage, version, writing, draft, compare, roundLeft }: PaperProps) {
   const refs = artifactsFor(view, stage);
   const stored = refs.find((r) => r.version === version) ?? null;
   const previousRef = refs.filter((r) => r.version < version).pop() ?? null;
@@ -34,16 +37,16 @@ export function Paper({ chatId, view, stage, version, writing, draft, compare }:
   const stamp = stored ? stampFor(view, stored) : null;
   const mode: RevisionMode = !previous ? 'plain' : compare ? 'compare' : isNewest ? 'clouds' : 'plain';
   const title = stageText(stage).title;
-  const question = waitingQuestion(view, stage);
+  const waiting = waitingOn(view, stage, roundLeft ?? null);
 
   let content: ReactNode;
   if (stored === null) {
     content =
       draft && draft.text !== '' ? (
-        <DraftBody draft={draft} waiting={question !== null} />
+        <DraftBody draft={draft} waiting={waiting !== null} />
       ) : (
         <>
-          {writing && (question ? <WaitingLine promptId={question} /> : <ProgressLine run={writing} stage={stage} />)}
+          {waiting ? <WaitingLine text={waitingLine(waiting)} /> : writing && <ProgressLine run={writing} stage={stage} />}
           {draft?.refused && <RefusedBand reason={draft.reason} />}
           {previous && (
             <div className="bp-dimmed">

@@ -3,6 +3,7 @@ import type { LogEntry } from '../../types';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { EdgeStrip } from './EdgeStrip';
 import { ScaleBar } from './ScaleBar';
+import { newestRound, roundLeft } from '../QuestionRound/rounds';
 import { Sheet } from './Sheet';
 import { publishSheetButton, registerSheetToggle } from './sheetButtonStore';
 import { BlueprintSheetContext } from './sheetContext';
@@ -55,6 +56,11 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
   const divider = useSheetDivider(bodyRef);
   const openGateId = view?.open?.kind === 'gate' ? view.open.prompt_id : undefined;
   const gatePrompt = useMemo(() => gatePromptFor(logs, promptsLive, openGateId), [logs, promptsLive, openGateId]);
+  const openRoundId = view?.open?.kind === 'round' ? view.open.prompt_id : undefined;
+  const openRoundLeft = useMemo(() => {
+    const r = openRoundId ? newestRound(logs, openRoundId) : null;
+    return r ? roundLeft(r) : null;
+  }, [logs, openRoundId]);
   const { show, close } = sheet;
   // The split slot or the overlay, whichever holds the sheet.
   const hostRef = useRef<HTMLDivElement>(null);
@@ -93,6 +99,7 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
           gatePrompt={gatePrompt}
           onReply={onReply}
           onClose={closeSheet}
+          roundLeft={openRoundLeft}
         />
       ) : (
         <SheetNotice

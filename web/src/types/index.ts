@@ -1223,7 +1223,7 @@ export interface BlueprintCurrentRun {
 export interface BlueprintOpenPrompt {
   /** "Q<n>", "gate:<stage>:v<n>", "gate:signoff:v<n>" or "emission:v<n>" (kind gate, an emission resume). */
   prompt_id: string;
-  kind: 'question' | 'gate';
+  kind: 'question' | 'gate' | 'round';
 }
 
 export interface BlueprintCost {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LogEntry } from '../../types';
 import { rawRound, roundEntry } from '../../test-utils/roundFixtures';
-import { deriveRounds } from './rounds';
+import { deriveRounds, newestRound, roundLeft } from './rounds';
 
 const text = (seq: number, content: string): LogEntry => ({ ts: '2026-10-17T10:00:00Z', card_id: '', type: 'text', content, seq });
 
@@ -52,5 +52,17 @@ describe('deriveRounds', () => {
     const s = deriveRounds([roundEntry(1, '', rawRound())], true);
     expect(s.byEntry.size).toBe(0);
     expect(s.pending).toBeNull();
+  });
+});
+
+describe('newestRound and roundLeft', () => {
+  it('counts what the newest frame of a round still lacks', () => {
+    const logs = [
+      roundEntry(1, 'round:1', rawRound()),
+      roundEntry(2, 'round:1', rawRound({ answers: [{ number: 1, option: 1 }], assumptions: [{ id: 'A1', text: 'x' }] })),
+    ];
+    const r = newestRound(logs, 'round:1');
+    expect(r && roundLeft(r)).toEqual({ questions: 2, assumptions: 1 });
+    expect(newestRound(logs, 'round:9')).toBeNull();
   });
 });

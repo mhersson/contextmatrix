@@ -1,6 +1,7 @@
 import type { LogEntry } from '../../types';
 import { parsePromptEntry } from '../ChatPanel/prompts';
 import type { Round } from './parseRound';
+import { storedAnswer, storedDecision } from './roundDraft';
 
 /**
  * history: an older frame of a round, never shown; open or paused: the round waits on the operator and docks in place
@@ -53,4 +54,26 @@ export function deriveRounds(logs: readonly LogEntry[], live: boolean): RoundSta
     if (status === 'open' || status === 'paused') pending = { ...f, status };
   }
   return { byEntry, pending };
+}
+
+export interface RoundLeft {
+  questions: number;
+  assumptions: number;
+}
+
+/** The newest frame of the round with this prompt id; null when the loaded transcript does not hold it. */
+export function newestRound(logs: readonly LogEntry[], id: string): Round | null {
+  for (let i = logs.length - 1; i >= 0; i--) {
+    const f = roundFrame(logs[i]);
+    if (f?.id === id) return f.round;
+  }
+  return null;
+}
+
+/** What the round still waits on, from what the architect stored. */
+export function roundLeft(round: Round): RoundLeft {
+  return {
+    questions: round.questions.filter((q) => storedAnswer(round, q) === null).length,
+    assumptions: round.assumptions.filter((a) => storedDecision(round, a.id) === null).length,
+  };
 }

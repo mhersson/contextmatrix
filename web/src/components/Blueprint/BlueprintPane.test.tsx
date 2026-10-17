@@ -5,8 +5,9 @@ import { BlueprintPane } from './BlueprintPane';
 import { resetArtifactCache } from './artifactCache';
 import { toggleSheet, useSheetButton } from './sheetButtonStore';
 import type { BlueprintState } from './state';
-import { findArtifact, viewAtDesignGate } from '../../test-utils/blueprintFixtures';
-import type { LogEntry } from '../../types';
+import { findArtifact, step, viewAtDesignGate } from '../../test-utils/blueprintFixtures';
+import { rawRound, roundEntry } from '../../test-utils/roundFixtures';
+import type { BlueprintView, LogEntry } from '../../types';
 
 vi.mock('../../api/client', () => ({ api: { getBlueprintArtifact: vi.fn() } }));
 vi.mock('../ChatPanel/ChatMarkdown', () => ({
@@ -287,5 +288,19 @@ describe('BlueprintPane on a phone', () => {
     expect(screen.getByTestId('probe')).toHaveTextContent('open:false');
     rerender({ phone: false });
     expect(screen.getByTestId('probe')).toHaveTextContent('none');
+  });
+  it('shows on the sheet how many questions the open round still waits on', () => {
+    const view: BlueprintView = {
+      ...viewAtDesignGate(),
+      pipeline: [step('intake', 'product_owner', 'waiting'), step('solution_design', 'system_designer', 'pending')],
+      current: undefined,
+      open: { prompt_id: 'round:1', kind: 'round' },
+      artifacts: [],
+    };
+    renderPane(
+      { status: 'ready', view, draft: null },
+      { logs: [roundEntry(1, 'round:1', rawRound({ answers: [{ number: 1, option: 1 }] }))] },
+    );
+    expect(screen.getAllByText('Waiting on 2 questions').length).toBeGreaterThan(0);
   });
 });

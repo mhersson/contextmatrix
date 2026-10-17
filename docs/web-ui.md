@@ -212,13 +212,16 @@ board. Promote-to-autonomous lives in that tab.
     superseded and folded versions. On the newest version a dashed cloud
     marks what changed, and Compare strikes removed words and highlights
     added ones. At a gate a bar above the title block repeats the gate's
-    buttons. While a run works the sheet shows its turns, tool calls and
+    buttons. While a question round waits, the asking stage's sheet shows the
+    version it owes with the status Waiting on N questions (or the assumptions
+    still undecided). While a run works the sheet shows its turns, tool calls and
     tokens, and fills in as the model writes when the model streams its draft.
   - From 760px pane width the sheet sits beside the transcript at 46% with a
     draggable divider (320px minimum each side). Narrower panes show an edge
     strip that opens the sheet over the transcript; on a phone a Sheet
     button in the pane header does. A new artifact version opens a closed
-    sheet, except over the transcript while a question waits, when the strip
+    sheet, except over the transcript while a question or a question round
+    waits, when the strip
     or the button shows a dot. Under 560px the current-stage label moves into
     the bar's tooltip. Sheet width and open state are not stored.
   - The transcript shows a divider at each stage start and a sheet reference

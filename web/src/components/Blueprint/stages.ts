@@ -166,6 +166,7 @@ export function describeCurrent(view: BlueprintView): CurrentText | null {
     return say(`${stageText(at.stage).tab} rev ${at.version} is at your gate`, 'waiting');
   }
   if (open?.kind === 'question') return say(`${open.prompt_id} is waiting for you`, 'waiting');
+  if (open?.kind === 'round') return say('Questions are waiting for you', 'waiting');
   if (run?.kind === 'reviewer') {
     return say(`${persona} is reviewing ${st.noun} rev ${step.latest_version || 1}`, 'running');
   }

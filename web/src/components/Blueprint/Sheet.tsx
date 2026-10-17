@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import type { BlueprintView } from '../../types';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { GateBar } from './GateBar';
+import type { RoundLeft } from '../QuestionRound/rounds';
 import { Paper } from './Paper';
 import { TitleBlock } from './TitleBlock';
 import type { HeldDraft } from './draft';
@@ -29,9 +30,11 @@ interface SheetProps {
   gatePrompt: GatePrompt | null;
   onReply: (text: string) => Promise<void>;
   onClose?: () => void;
+  /** What the open round still waits on, when the stage waits on one. */
+  roundLeft?: RoundLeft | null;
 }
 
-export function Sheet({ chatId, view, draft, shown, onShow, gatePrompt, onReply, onClose }: SheetProps) {
+export function Sheet({ chatId, view, draft, shown, onShow, gatePrompt, onReply, onClose, roundLeft }: SheetProps) {
   const tabs = sheetTabs(view, draft);
   const shownKey = shown ? `${shown.stage}/${shown.version}` : '';
   const [compare, setCompare] = useState(false);
@@ -98,6 +101,7 @@ export function Sheet({ chatId, view, draft, shown, onShow, gatePrompt, onReply,
               writing={isWriting ? (view.current ?? null) : null}
               draft={shownDraft}
               compare={compare && canCompare}
+              roundLeft={roundLeft}
             />
           </ErrorBoundary>
         ) : (
@@ -123,7 +127,7 @@ export function Sheet({ chatId, view, draft, shown, onShow, gatePrompt, onReply,
           onPickVersion={(v) => onShow(shown.stage, v)}
           review={reviewFor(view, shown.stage, shown.version)}
           reviewing={reviewingPersona(view, shown.stage, shown.version)}
-          status={shownStatus(view, shown.stage, stored, isWriting)}
+          status={shownStatus(view, shown.stage, stored, isWriting, roundLeft ?? null)}
           compare={{ available: canCompare, on: compare, onToggle: () => setCompare((c) => !c) }}
         />
       )}

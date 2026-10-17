@@ -132,4 +132,16 @@ describe('Paper', () => {
     render(<Paper chatId="S1" view={viewAtDesignGate()} stage="solution_design" version={2} writing={null} draft={null} compare={false} />);
     expect(await screen.findByText('DEC2 has no rejected option.')).toBeInTheDocument();
   });
+  it('says what an open round waits on with no run in flight', () => {
+    const view: BlueprintView = {
+      ...viewWritingRev2(),
+      current: undefined,
+      open: { prompt_id: 'round:1', kind: 'round' },
+      pipeline: viewWritingRev2().pipeline.map((s) => (s.stage === 'solution_design' ? { ...s, status: 'waiting' as const } : s)),
+    };
+    render(
+      <Paper chatId="S1" view={view} stage="solution_design" version={2} writing={null} draft={null} compare={false} roundLeft={{ questions: 3, assumptions: 0 }} />,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(/^Waiting on 3 questions$/);
+  });
 });
