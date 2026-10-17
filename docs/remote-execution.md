@@ -471,7 +471,8 @@ summary in `content`: `{"prompt_id": "round:1", "answers": [{"number": 1,
 position, or absent with `text` holding the person's own answer. Every reply
 carries all the answers and decisions the panel holds at that moment, stored
 or new, and `final` marks Submit all. Text typed in the round's chat box is
-an ordinary message without `round`.
+a plain message without `round`; CM stores its row with kind `round_chat` so
+the panel shows it in the round's thread instead of the transcript.
 
 Recovery: when a `/message` is answered with 404 and the protocol's `not_found`
 code (the architect restarted and no longer holds the session), CM re-sends

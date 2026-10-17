@@ -58,6 +58,11 @@ const ContextClearedMarker = "Context cleared"
 // Clear Context sentinel). Empty kind means "regular message".
 const EventKindDivider = "divider"
 
+// EventKindRoundChat is the persisted Message.Kind / SSE DataKind of a user
+// message about an open question round. Its Content is the plain text, as on
+// any user row; the panel shows it in the round's thread, not the transcript.
+const EventKindRoundChat = "round_chat"
+
 // Backend is the chat-execution surface chat.Manager drives (the roadmap's
 // ChatBackend): container start/end, message delivery, and the /logs SSE
 // bridge. The webhook-backed implementation lives in
@@ -1899,8 +1904,8 @@ func (m *Manager) AppendMessage(ctx context.Context, sessionID string, role Role
 }
 
 // appendMessageWithKind is the internal variant that stamps a non-empty
-// Message.Kind on the persisted row. Public callers reach this via
-// AppendMessage (kind="") or ClearContext (kind=EventKindDivider).
+// Message.Kind on the persisted row: the log consumer's prompt and marker
+// rows, and the send path's round chat rows.
 func (m *Manager) appendMessageWithKind(ctx context.Context, sessionID string, role Role, content, kind string) (Message, error) {
 	// promptContent bounds a prompt row itself, and a round row may exceed maxMessageBytes.
 	if kind != EventKindPrompt {
@@ -2416,23 +2421,47 @@ func (m *Manager) clearSendFailures(sessionID string) {
 }
 
 func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string) (string, error) {
-	return m.sendMessage(ctx, sessionID, content, nil)
+	return m.sendMessage(ctx, sessionID, content, userSend{})
 }
 
 // SendRoundReply forwards a question round's answers to a blueprint
 // session's architect; content is the readable summary the transcript keeps.
 func (m *Manager) SendRoundReply(ctx context.Context, sessionID, content string, round protocol.RoundReply) (string, error) {
-	return m.sendMessage(ctx, sessionID, content, &round)
+	return m.sendMessage(ctx, sessionID, content, userSend{round: &round})
 }
 
-func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, round *protocol.RoundReply) (string, error) {
+// SendRoundChat forwards a message about the open question round promptID to
+// a blueprint session's architect as a plain message, and stores it as a
+// round chat row.
+func (m *Manager) SendRoundChat(ctx context.Context, sessionID, content, promptID string) (string, error) {
+	return m.sendMessage(ctx, sessionID, content, userSend{roundChat: promptID})
+}
+
+// userSend is what a send carries beside its content: a round reply's
+// answers, or the prompt id of the round a chat message is about.
+type userSend struct {
+	round     *protocol.RoundReply
+	roundChat string
+}
+
+func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us userSend) (string, error) {
 	sess, err := m.store.GetSession(ctx, sessionID)
 	if err != nil {
 		return "", err
 	}
 
-	if round != nil && sess.Kind != KindArchitect {
-		return "", fmt.Errorf("%w: round replies go to blueprint sessions only", ErrInvalidSessionInput)
+	if sess.Kind != KindArchitect {
+		switch {
+		case us.round != nil:
+			return "", fmt.Errorf("%w: round replies go to blueprint sessions only", ErrInvalidSessionInput)
+		case us.roundChat != "":
+			return "", fmt.Errorf("%w: round chat goes to blueprint sessions only", ErrInvalidSessionInput)
+		}
+	}
+
+	kind := ""
+	if us.roundChat != "" {
+		kind = EventKindRoundChat
 	}
 
 	if err := m.ensureRunningForSend(ctx, sess); err != nil {
@@ -2450,10 +2479,14 @@ func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, ro
 	}
 
 	msgID := NewID()
-	payload := protocol.MessagePayload{SessionID: sessionID, Content: content, MessageID: msgID, Round: round}
+	payload := protocol.MessagePayload{SessionID: sessionID, Content: content, MessageID: msgID, Round: us.round}
 
-	m.logger.Info("chat: forwarding user message to backend",
-		"session_id", sessionID, "message_id", msgID, "content_len", len(content))
+	logAttrs := []any{"session_id", sessionID, "message_id", msgID, "content_len", len(content)}
+	if us.roundChat != "" {
+		logAttrs = append(logAttrs, "round_chat", us.roundChat)
+	}
+
+	m.logger.Info("chat: forwarding user message to backend", logAttrs...)
 
 	backend, err := m.backendFor(sess.Kind)
 	if err != nil {
@@ -2537,7 +2570,7 @@ func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, ro
 	m.clearSendFailures(sessionID)
 
 	// Backend accepted the message - now safe to persist + publish.
-	msg, err := m.AppendMessage(ctx, sessionID, RoleUser, content)
+	msg, err := m.appendMessageWithKind(ctx, sessionID, RoleUser, content, kind)
 	if err != nil {
 		unlock()
 
@@ -2546,9 +2579,10 @@ func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, ro
 
 	if m.hub != nil {
 		m.hub.Publish(sessionID, SSEEvent{
-			Seq:     msg.Seq,
-			Role:    RoleUser,
-			Content: content,
+			DataKind: kind,
+			Seq:      msg.Seq,
+			Role:     RoleUser,
+			Content:  content,
 		})
 	}
 

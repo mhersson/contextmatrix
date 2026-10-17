@@ -182,16 +182,20 @@ board. Promote-to-autonomous lives in that tab.
   architect, so they show on any device and survive leaving, and the round
   stays open. Under a dotted line on every tab, "Chat about these questions"
   holds the thread about the round and is the pane's only text box while the
-  round is open; what you type there goes as an ordinary message, so session
-  commands still work. Left and right arrows switch tabs, 1-9 pick an option
-  and Enter moves to the next tab. Picks not yet sent live only in the pane
-  and are lost when it closes or the page reloads. The architect republishes
-  a round whenever it changes, and only the newest version shows. A closed
-  round (every question answered and the stage resumed, or the pipeline went
-  past it) collapses into a list of each question and its answer, with any
-  question left unanswered marked "not answered"; a round the
-  auto responder answers shows read-only in the transcript and the message
-  box stays. While the session is not live the round stays docked with its
+  round is open. What you type there reaches the architect as a plain
+  message, so session commands still work, and shows only in the round's
+  thread, never as a transcript bubble: right away as your line, until the
+  architect republishes the round with its own thread. Left and right arrows
+  switch tabs, 1-9 pick an option and Enter moves to the next tab. Picks not
+  yet sent live only in the pane and are lost when it closes or the page
+  reloads. The architect republishes a round whenever it changes, and only
+  the newest version shows. A closed round (every question answered and the
+  stage resumed, or the pipeline went past it) collapses into a list of each
+  question and its answer, with any question left unanswered marked "not
+  answered"; under the list a collapsed "Chat about these questions (N)"
+  opens the round's thread of N messages, when it has one. A round the auto
+  responder answers shows read-only in the transcript and the message box
+  stays. While the session is not live the round stays docked with its
   controls disabled.
 - A blueprint pane adds a scale bar, a sheet and marker rows to the chat pane:
   - The scale bar under the pane header draws one segment per pipeline step:

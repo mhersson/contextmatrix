@@ -1,6 +1,26 @@
-import type { Round } from './parseRound';
+import { useId, useState } from 'react';
+import type { Round, RoundChatMessage } from './parseRound';
 import { answerLabel, storedAnswer, storedDecision } from './roundDraft';
 import { countText, personaPhrase } from './roundView';
+import { RoundThread } from './RoundThread';
+
+/** The thread behind a closed round's answers, collapsed until asked for. */
+function SummaryChat({ chat }: { chat: readonly RoundChatMessage[] }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return (
+    <div className="qb-summary-chat">
+      <button type="button" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen((o) => !o)}>
+        <span aria-hidden="true">{open ? '▾' : '▸'}</span> Chat about these questions ({chat.length})
+      </button>
+      {open && (
+        <div className="qb-chat" id={id}>
+          <RoundThread chat={chat} />
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** A closed or superseded round in the transcript: each question with the answer the architect stored. */
 export function RoundSummary({ round, superseded }: { round: Round; superseded: boolean }) {
@@ -41,6 +61,7 @@ export function RoundSummary({ round, superseded }: { round: Round; superseded: 
             );
           })}
         </ul>
+        {round.chat.length > 0 && <SummaryChat chat={round.chat} />}
       </div>
     </div>
   );

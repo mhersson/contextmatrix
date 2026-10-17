@@ -161,10 +161,14 @@ interactions.
   superseded one renders as `RoundSummary`, and a responder round renders
   read-only inline. Its answers go as a structured `round` on
   `POST /api/chats/{id}/messages` (`onSendRound`); text typed in its chat box
-  is an ordinary message. Whether a prompt is open is derived in the
-  browser (`derivePromptStates`), never stored. Agent and chat backends never
-  emit a prompt: `AskUserQuestion` stays denied at the MCP gate, and there is
-  no `user_question` log type or question card.
+  goes with the round's prompt id in `round_chat` (`onSendRoundChat`), and its
+  `kind: "round_chat"` row never renders in the transcript: the docked block
+  shows it after the round's thread until a newer frame of the round arrives.
+  A closed round's summary keeps the thread behind a collapsed toggle.
+  Whether a prompt is open is derived in the browser (`derivePromptStates`),
+  never stored. Agent and chat backends never emit a prompt:
+  `AskUserQuestion` stays denied at the MCP gate, and there is no
+  `user_question` log type or question card.
 - **Routing catch-all:** keep `<Route path="*" element={<NotFound />} />` as the
   **last** route at both levels - `App.tsx` (top-level) and `ProjectShell.tsx`
   (nested project routes). The Go backend serves `index.html` for all non-API

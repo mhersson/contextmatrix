@@ -1,18 +1,21 @@
 import { useId, useRef, useState } from 'react';
 import { MAX_MESSAGE_LENGTH } from '../ChatPanel/chatEntryUtils';
-import { personaName } from '../Blueprint/stages';
-import type { Round } from './parseRound';
+import type { Round, RoundChatMessage } from './parseRound';
 import type { RoundMode } from './roundView';
+import { RoundThread } from './RoundThread';
 
 interface RoundChatProps {
   round: Round;
   mode: RoundMode;
+  /** Messages sent from the box since this frame, shown after its thread until the architect republishes the round. */
+  sent?: readonly string[];
   onSendChat?: (text: string) => Promise<void>;
 }
 
 /** The dotted separator and the round-wide thread; its box is the session's text input while the round is open. */
-export function RoundChat({ round, mode, onSendChat }: RoundChatProps) {
-  const [open, setOpen] = useState(round.chat.length > 0);
+export function RoundChat({ round, mode, sent = [], onSendChat }: RoundChatProps) {
+  const thread: RoundChatMessage[] = [...round.chat, ...sent.map((text) => ({ from: 'user', text }))];
+  const [open, setOpen] = useState(thread.length > 0);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,11 +66,7 @@ export function RoundChat({ round, mode, onSendChat }: RoundChatProps) {
         </div>
         {open && (
           <div className="qb-chat" id={chatId}>
-            {round.chat.map((m, i) => (
-              <div key={i} className={m.from === 'user' ? 'me' : 'ai'}>
-                <b>{m.from === 'user' ? 'You' : personaName(m.from)}:</b> {m.text}
-              </div>
-            ))}
+            <RoundThread chat={thread} />
             <div className="qb-chat-compose">
               <textarea
                 ref={inputRef}

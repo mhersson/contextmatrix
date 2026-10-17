@@ -551,7 +551,8 @@ export interface LogEntry {
    * row appended on Clear Context, "prompt" for an architect question or gate
    * whose content is a {text, prompt} JSON envelope, "marker" for a blueprint
    * stage divider (type system) or sheet reference (type text) whose content
-   * is a {text, marker} JSON envelope. Empty / absent means a
+   * is a {text, marker} JSON envelope, "round_chat" for a user message typed
+   * in an open question round's chat box. Empty / absent means a
    * regular message. The frontend matches on this rather than content
    * strings so the rendering rule is unambiguous and survives reloads.
    */
@@ -578,6 +579,9 @@ export interface RoundReply {
   decisions?: AssumptionDecision[];
   final?: boolean;
 }
+
+/** What a chat send carries beside its content: a round's answers, or the prompt id of the open round a message is about. */
+export type ChatSendExtra = { round: RoundReply } | { round_chat: string };
 
 export type AuthMode = 'multi' | 'none';
 

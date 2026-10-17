@@ -2588,12 +2588,22 @@ CM forwards both to the architect unchanged:
 }
 ```
 
+A message typed in an open round's chat box carries that round's prompt id in
+`round_chat` instead. CM forwards it to the architect as a plain message
+without `round` and stores the row with `kind` `"round_chat"`, so the panel
+shows it in the round's thread rather than the transcript:
+
+```json
+{ "content": "Why not Helm?", "round_chat": "round:1" }
+```
+
 **Response:** 202 with `{ "ok": true, "message_id": "<26-char id>" }`.
-400 `BAD_REQUEST` for empty or whitespace `content`, or a `round` without
-`prompt_id`, with an answer `number` below 1, a negative `option`, an `option`
-of 0 without `text`, a `text` above 32 KiB or a decision without `id`; 400
-`INVALID_CHAT_INPUT` for a `round` on a chat session; 413 `CONTENT_TOO_LARGE`
-above 8 KiB.
+400 `BAD_REQUEST` for empty or whitespace `content`, a `round_chat` beside a
+`round` or not of the form `round:<n>` (n from 1, no leading zero), or a
+`round` without `prompt_id`, with an answer `number` below 1, a negative
+`option`, an `option` of 0 without `text`, a `text` above 32 KiB or a decision
+without `id`; 400 `INVALID_CHAT_INPUT` for a `round` or `round_chat` on a chat
+session; 413 `CONTENT_TOO_LARGE` above 8 KiB.
 
 ### GET /api/chats/{id}/messages
 
@@ -2623,8 +2633,9 @@ exactly while the oldest loaded seq is `> 1`.
 `role` is `user`, `assistant_text`, `assistant_thinking`, `tool_call`,
 `tool_result`, `stderr`, or `system`. `kind` (`"divider"` for the Clear
 Context row, `"prompt"` for an architect question or gate, `"marker"` for an
-architect stage divider or sheet reference) and `rehydration_phase` appear
-only when set. `content` is the raw text, except on a `prompt` row, where it
+architect stage divider or sheet reference, `"round_chat"` for a user message
+about an open question round) and `rehydration_phase` appear only when set.
+`content` is the raw text, except on a `prompt` row, where it
 is the JSON envelope `{"text": "<message>", "prompt": {"id": "...", "kind":
 "question", "text": "...", "free_text": true, "actions": [{"label": "...",
 "reply": "...", "feedback": true, "recommended": true}]}}` (`kind`, `text` and

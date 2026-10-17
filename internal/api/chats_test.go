@@ -1292,3 +1292,80 @@ func TestSendMessage_MalformedRoundIsRefusedBeforeSending(t *testing.T) {
 
 	assert.Empty(t, arch.sentPayloads())
 }
+
+func TestSendMessage_RoundChatReachesTheArchitectAsAPlainMessage(t *testing.T) {
+	var arch *chatStubBackend
+
+	opts := architectFixtureOpts()
+	opts.onArchitect = func(s *chatStubBackend) { arch = s }
+	mux, mgr := newChatFixture(t, opts)
+
+	bp, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats/"+bp.ID+"/messages",
+		`{"content":"Why not Helm?","round_chat":"round:2"}`))
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+
+	sent := arch.sentPayloads()
+	require.Len(t, sent, 1)
+	assert.Equal(t, "Why not Helm?", sent[0].Content)
+	assert.Nil(t, sent[0].Round, "the architect takes a plain message while a round is open as chat about it")
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, http.MethodGet, "/api/chats/"+bp.ID+"/messages", ""))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var got struct {
+		Messages []chat.Message `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Len(t, got.Messages, 1)
+	assert.Equal(t, chat.RoleUser, got.Messages[0].Role)
+	assert.Equal(t, "Why not Helm?", got.Messages[0].Content)
+	assert.Equal(t, chat.EventKindRoundChat, got.Messages[0].Kind)
+}
+
+func TestSendMessage_MalformedRoundChatIsRefusedBeforeSending(t *testing.T) {
+	var arch *chatStubBackend
+
+	opts := architectFixtureOpts()
+	opts.onArchitect = func(s *chatStubBackend) { arch = s }
+	mux, mgr := newChatFixture(t, opts)
+
+	bp, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	for name, body := range map[string]string{
+		"beside a round": `{"content":"x","round_chat":"round:1",` +
+			`"round":{"prompt_id":"round:1","answers":[{"number":1,"option":1}]}}`,
+		"a gate id":       `{"content":"x","round_chat":"gate:sign-off:v2"}`,
+		"no round number": `{"content":"x","round_chat":"round:"}`,
+		"round zero":      `{"content":"x","round_chat":"round:0"}`,
+		"padded number":   `{"content":"x","round_chat":"round:01"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats/"+bp.ID+"/messages", body))
+			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		})
+	}
+
+	assert.Empty(t, arch.sentPayloads())
+}
+
+func TestSendMessage_RoundChatOnAChatSessionIsRefused(t *testing.T) {
+	mux, mgr, backend := newChatFixtureWithBackend(t, defaultFixtureOpts())
+
+	sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats/"+sess.ID+"/messages",
+		`{"content":"x","round_chat":"round:1"}`))
+	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	assert.Empty(t, backend.sentPayloads())
+}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -574,10 +575,29 @@ func validateRoundReply(r *protocol.RoundReply) error {
 	return nil
 }
 
+// roundPromptIDPattern is the architect's round prompt id, round:<n> with n
+// counting rounds from 1.
+var roundPromptIDPattern = regexp.MustCompile(`^round:[1-9][0-9]*$`)
+
+// validateRoundChat refuses a round chat that names no round or rides beside
+// a round reply.
+func validateRoundChat(promptID string, round *protocol.RoundReply) error {
+	if round != nil {
+		return errors.New("round_chat and round are mutually exclusive")
+	}
+
+	if !roundPromptIDPattern.MatchString(promptID) {
+		return fmt.Errorf("round_chat %q is not a round prompt id (round:<n>)", promptID)
+	}
+
+	return nil
+}
+
 func (h *chatHandlers) sendMessage(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Content string               `json:"content"`
-		Round   *protocol.RoundReply `json:"round"`
+		Content   string               `json:"content"`
+		Round     *protocol.RoundReply `json:"round"`
+		RoundChat string               `json:"round_chat"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -593,6 +613,14 @@ func (h *chatHandlers) sendMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusRequestEntityTooLarge, ErrCodeContentTooLarge, "message too long", "")
 
 		return
+	}
+
+	if body.RoundChat != "" {
+		if err := validateRoundChat(body.RoundChat, body.Round); err != nil {
+			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid round chat", err.Error())
+
+			return
+		}
 	}
 
 	if body.Round != nil {
@@ -612,9 +640,12 @@ func (h *chatHandlers) sendMessage(w http.ResponseWriter, r *http.Request) {
 		err   error
 	)
 
-	if body.Round != nil {
+	switch {
+	case body.Round != nil:
 		msgID, err = h.mgr.SendRoundReply(r.Context(), r.PathValue("id"), body.Content, *body.Round)
-	} else {
+	case body.RoundChat != "":
+		msgID, err = h.mgr.SendRoundChat(r.Context(), r.PathValue("id"), body.Content, body.RoundChat)
+	default:
 		msgID, err = h.mgr.SendUserMessage(r.Context(), r.PathValue("id"), body.Content)
 	}
 

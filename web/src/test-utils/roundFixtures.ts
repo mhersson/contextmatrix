@@ -67,3 +67,8 @@ export function roundEntry(seq: number, id: string, round: Record<string, unknow
     content: JSON.stringify({ text: 'Questions from the system designer', prompt: { id, kind: 'round', round } }),
   };
 }
+
+/** A message typed in a round's chat box as CM stores it: a user row of kind "round_chat" holding the plain text. */
+export function roundChatEntry(seq: number, content: string): LogEntry {
+  return { ts: '2026-10-17T10:00:00Z', card_id: '', type: 'user', kind: 'round_chat', seq, content };
+}

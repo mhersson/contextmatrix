@@ -104,11 +104,27 @@ describe('ChatThread on an architect session', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Submit all 3' }));
     await waitFor(() =>
       expect(api.sendChatMessage).toHaveBeenCalledWith('S1', expect.any(String), {
-        prompt_id: 'round:1',
-        answers: [{ number: 1, option: 1 }, { number: 2, option: 1 }, { number: 3, option: 1 }],
-        decisions: [],
-        final: true,
+        round: {
+          prompt_id: 'round:1',
+          answers: [{ number: 1, option: 1 }, { number: 2, option: 1 }, { number: 3, option: 1 }],
+          decisions: [],
+          final: true,
+        },
       }),
     );
+  });
+
+  it('sends the round chat as a message about the waiting round', async () => {
+    vi.mocked(api.sendChatMessage).mockClear().mockResolvedValue({ ok: true, message_id: 'm1' });
+    render(<ChatThread sessionID="S1" embedded />);
+    await waitFor(() => expect(MockEventSource.instances).toHaveLength(1));
+    act(() => MockEventSource.instances[0].onopen?.());
+    const frame = roundEntry(1, 'round:2', rawRound());
+    emit({ seq: 1, role: 'assistant_text', content: frame.content, kind: 'prompt' });
+    fireEvent.click(await screen.findByRole('button', { name: /Chat about these questions/ }));
+    const box = screen.getByRole('textbox', { name: 'Message about these questions' });
+    fireEvent.change(box, { target: { value: 'Why not Helm?' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(api.sendChatMessage).toHaveBeenCalledWith('S1', 'Why not Helm?', { round_chat: 'round:2' }));
   });
 });

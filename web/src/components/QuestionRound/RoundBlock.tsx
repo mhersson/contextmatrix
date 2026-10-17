@@ -49,11 +49,13 @@ interface RoundBlockProps {
   onSendRound?: (content: string, reply: RoundReply) => Promise<void>;
   /** Sends a plain message about the round. */
   onSendChat?: (text: string) => Promise<void>;
+  /** Messages sent about the round since this frame. */
+  sentChat?: readonly string[];
   /** Focuses the active tab whenever it changes, as ChatComposer's focusKey does. */
   focusKey?: string | number;
 }
 
-export function RoundBlock({ promptId, round, mode, inline = false, onSendRound, onSendChat, focusKey }: RoundBlockProps) {
+export function RoundBlock({ promptId, round, mode, inline = false, onSendRound, onSendChat, sentChat, focusKey }: RoundBlockProps) {
   const { draft, own, pickOption, typeOwn, decide } = useRoundDraft();
   const tabs = tabKeys(round, mode);
   const [picked, setPicked] = useState<TabKey | null>(null);
@@ -197,7 +199,7 @@ export function RoundBlock({ promptId, round, mode, inline = false, onSendRound,
           <SubmitPane round={round} draft={draft} mode={mode} phase={phase} error={sendError} onSend={(final) => void send(final)} />
         )}
       </div>
-      {mode !== 'readonly' && <RoundChat round={round} mode={mode} onSendChat={onSendChat} />}
+      {mode !== 'readonly' && <RoundChat round={round} mode={mode} sent={sentChat} onSendChat={onSendChat} />}
       <div className="qb-foot">
         <span>
           {mode === 'open' ? `← → switch questions · 1-${maxKey(round)} pick an option · Enter next` : '← → switch questions'}

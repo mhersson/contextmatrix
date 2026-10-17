@@ -6112,6 +6112,51 @@ func TestManager_SendRoundReply_ResendsTheRoundAfterAnArchitectRestart(t *testin
 	assert.Equal(t, arch.sendArgs[0].MessageID, arch.sendArgs[1].MessageID)
 }
 
+func TestManager_SendRoundChat_ForwardsAPlainMessageAndStoresARoundChatRow(t *testing.T) {
+	hub := chat.NewSSEHub(128)
+	mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) { c.Hub = hub })
+	ctx := context.Background()
+	bp := openArchitect(t, mgr)
+
+	ch, _, err := hub.Subscribe(bp.ID, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { hub.Unsubscribe(bp.ID, ch) })
+
+	_, err = mgr.SendRoundChat(ctx, bp.ID, "Why not Helm?", "round:1")
+	require.NoError(t, err)
+
+	arch.mu.Lock()
+	sent := append([]sendArg(nil), arch.sendArgs...)
+	arch.mu.Unlock()
+
+	require.Len(t, sent, 1)
+	assert.Equal(t, "Why not Helm?", sent[0].Content)
+	assert.Nil(t, sent[0].Round)
+
+	msgs, err := mgr.ListMessages(ctx, bp.ID, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, chat.RoleUser, msgs[0].Role)
+	assert.Equal(t, "Why not Helm?", msgs[0].Content)
+	assert.Equal(t, chat.EventKindRoundChat, msgs[0].Kind)
+
+	ev := nextMessageEvent(t, ch)
+	assert.Equal(t, chat.RoleUser, ev.Role)
+	assert.Equal(t, "Why not Helm?", ev.Content)
+	assert.Equal(t, chat.EventKindRoundChat, ev.DataKind, "the live row carries its kind as the stored one does")
+}
+
+func TestManager_SendRoundChat_RefusesAChatSession(t *testing.T) {
+	mgr, chatStub, _ := newManagerWithArchitectStub(t)
+
+	sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{CreatedBy: "human:web"})
+	require.NoError(t, err)
+
+	_, err = mgr.SendRoundChat(context.Background(), sess.ID, "x", "round:1")
+	require.ErrorIs(t, err, chat.ErrInvalidSessionInput)
+	assert.Zero(t, chatStub.sendCalls.Load(), "nothing reaches a backend")
+}
+
 func bigRound(questions, chatMessages, chatBytes int) *protocol.LogRound {
 	r := &protocol.LogRound{Persona: "system_designer", Stage: "solution_design"}
 	for i := 1; i <= questions; i++ {

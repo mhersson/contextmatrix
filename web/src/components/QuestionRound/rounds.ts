@@ -17,10 +17,16 @@ export interface RoundFrame {
   round: Round;
 }
 
+/** The kind of a user row typed in a round's chat box; it shows in that round's thread, never in the transcript. */
+export const ROUND_CHAT_KIND = 'round_chat';
+
 export interface RoundStates {
   byEntry: Map<LogEntry, RoundStatus>;
-  /** The newest frame of the round waiting on the operator, if any. */
-  pending: (RoundFrame & { status: 'open' | 'paused' }) | null;
+  /**
+   * The newest frame of the round waiting on the operator, if any, and the round chat rows sent since that frame:
+   * the next frame's thread is their record.
+   */
+  pending: (RoundFrame & { status: 'open' | 'paused'; sent: LogEntry[] }) | null;
 }
 
 export function roundFrame(entry: LogEntry): RoundFrame | null {
@@ -30,19 +36,26 @@ export function roundFrame(entry: LogEntry): RoundFrame | null {
 
 /**
  * Every round row's status. The architect republishes a round under the same prompt id whenever it changes, so only
- * the newest frame per id counts. Only the newest round can wait, and it is open only while `live`.
+ * the newest frame per id counts. Only the newest round can wait, and it is open only while `live`. A round chat row
+ * belongs to the round waiting where it sits in the log, as the architect takes a plain message while a round is open.
  */
 export function deriveRounds(logs: readonly LogEntry[], live: boolean): RoundStates {
   const byEntry = new Map<LogEntry, RoundStatus>();
   const newest = new Map<string, RoundFrame>();
   let last: RoundFrame | null = null;
+  let sent: LogEntry[] = [];
   for (const e of logs) {
+    if (e.kind === ROUND_CHAT_KIND) {
+      sent.push(e);
+      continue;
+    }
     const f = roundFrame(e);
     if (!f) continue;
     const prev = newest.get(f.id);
     if (prev) byEntry.set(prev.entry, 'history');
     newest.set(f.id, f);
     last = f;
+    sent = [];
   }
   let pending: RoundStates['pending'] = null;
   for (const f of newest.values()) {
@@ -52,7 +65,7 @@ export function deriveRounds(logs: readonly LogEntry[], live: boolean): RoundSta
     else if (f.round.responder) status = 'responder';
     else status = live ? 'open' : 'paused';
     byEntry.set(f.entry, status);
-    if (status === 'open' || status === 'paused') pending = { ...f, status };
+    if (status === 'open' || status === 'paused') pending = { ...f, status, sent };
   }
   return { byEntry, pending };
 }

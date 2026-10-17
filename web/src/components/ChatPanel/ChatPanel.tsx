@@ -7,7 +7,7 @@ import { filterLogEntries } from './decorateLogs';
 import { derivePromptStates } from './prompts';
 import type { WorkingState } from '../../hooks/useWorkingState';
 import { RoundBlock } from '../QuestionRound/RoundBlock';
-import { deriveRounds, type RoundStatus } from '../QuestionRound/rounds';
+import { deriveRounds, ROUND_CHAT_KIND, type RoundStatus } from '../QuestionRound/rounds';
 
 // Older frames of a round never show; the waiting round docks below the transcript instead of in it.
 const OUT_OF_TRANSCRIPT: ReadonlySet<RoundStatus | undefined> = new Set<RoundStatus | undefined>(['history', 'open', 'paused']);
@@ -59,6 +59,8 @@ export interface ChatPanelProps {
    * without it a waiting round still docks, read-only.
    */
   onSendRound?: (content: string, reply: RoundReply) => Promise<void>;
+  /** Sends a message typed in the waiting round's chat box, with that round's prompt id. Set on architect sessions. */
+  onSendRoundChat?: (content: string, promptId: string) => Promise<void>;
 }
 
 export function ChatPanel({
@@ -74,6 +76,7 @@ export function ChatPanel({
   onLoadOlder,
   promptsLive = false,
   onSendRound,
+  onSendRoundChat,
 }: ChatPanelProps) {
   const { prefs, setPref } = useChatFilterPrefs();
   const { showText, showToolCalls, showThinking } = prefs;
@@ -91,10 +94,11 @@ export function ChatPanel({
 
   const rounds = useMemo(() => deriveRounds(logs, promptsLive), [logs, promptsLive]);
   const transcriptLogs = useMemo(
-    () => filteredLogs.filter((e) => !OUT_OF_TRANSCRIPT.has(rounds.byEntry.get(e))),
+    () => filteredLogs.filter((e) => e.kind !== ROUND_CHAT_KIND && !OUT_OF_TRANSCRIPT.has(rounds.byEntry.get(e))),
     [filteredLogs, rounds],
   );
   const docked = rounds.pending;
+  const sendRoundChat = docked && onSendRoundChat ? (text: string) => onSendRoundChat(text, docked.id) : undefined;
 
   // Ref-stable, so memoized rows never re-render on the parent's per-render
   // onSend. A sent reply returns focus to the composer, as a send does.
@@ -106,10 +110,6 @@ export function ChatPanel({
   const sendReply = useCallback(async (text: string) => {
     await onSendRef.current(text);
     setRefocus((n) => n + 1);
-  }, []);
-
-  const sendChat = useCallback(async (text: string) => {
-    await onSendRef.current(text);
   }, []);
 
   return (
@@ -160,7 +160,8 @@ export function ChatPanel({
           round={docked.round}
           mode={onSendRound && docked.status === 'open' ? 'open' : 'paused'}
           onSendRound={onSendRound}
-          onSendChat={sendChat}
+          onSendChat={sendRoundChat}
+          sentChat={docked.sent.map((e) => e.content)}
           focusKey={focusKey}
         />
       )}

@@ -103,7 +103,7 @@ describe('ChatThread blueprint pane', () => {
     expect(await screen.findByRole('region', { name: 'Blueprint pane, phone layout' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Gate reply' }));
-    await waitFor(() => expect(api.sendChatMessage).toHaveBeenCalledWith('bp-1', 'approve'));
+    await waitFor(() => expect(api.sendChatMessage).toHaveBeenCalledWith('bp-1', 'approve', undefined));
   });
 
   it('leaves a plain chat as a transcript', async () => {

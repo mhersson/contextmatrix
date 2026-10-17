@@ -8059,3 +8059,18 @@ button.bp-seg-hit {
 .qb-summary .missing {
   font-style: italic;
 }
+.qb-summary-chat {
+  margin-top: 6px;
+}
+.qb-summary-chat > button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.qb-summary-chat > button:hover {
+  text-decoration: underline;
+}

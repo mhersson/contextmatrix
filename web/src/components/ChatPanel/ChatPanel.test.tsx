@@ -4,7 +4,7 @@ import { ChatPanel } from './ChatPanel';
 import { useWorkerLogs } from '../../hooks/useWorkerLogs';
 import { formatHHMM, formatTitle } from '../../utils/chatTimestamp';
 import type { LogEntry } from '../../types';
-import { rawRound, roundEntry } from '../../test-utils/roundFixtures';
+import { rawRound, roundChatEntry, roundEntry } from '../../test-utils/roundFixtures';
 
 // Local formatter matching the production instance - locale pinned to 'en-GB'
 // so HH:MM output is deterministic regardless of the test environment's locale.
@@ -610,9 +610,11 @@ describe('ChatPanel architect prompts', () => {
 describe('ChatPanel question rounds', () => {
   const onSend = vi.fn(async () => {});
   const onSendRound = vi.fn(async () => {});
+  const onSendRoundChat = vi.fn(async () => {});
   beforeEach(() => {
     onSend.mockClear();
     onSendRound.mockClear();
+    onSendRoundChat.mockClear();
   });
 
   const allAnswered = { answers: [{ number: 1, option: 1 }, { number: 2, text: 'Loki only' }, { number: 3, option: 1 }] };
@@ -685,9 +687,11 @@ describe('ChatPanel question rounds', () => {
     expect(screen.queryByRole('textbox', { name: 'Message' })).not.toBeInTheDocument();
   });
 
-  it('sends the answers through onSendRound and the round chat through onSend', async () => {
+  it('sends the answers through onSendRound and the round chat through onSendRoundChat with the prompt id', async () => {
     const logs = [roundEntry(1, 'round:1', rawRound({ answers: [{ number: 1, option: 1 }, { number: 2, option: 1 }] }))];
-    render(<ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);
+    render(
+      <ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} onSendRoundChat={onSendRoundChat} sendDisabled={false} promptsLive />,
+    );
     fireEvent.click(screen.getByRole('tab', { name: /Postgres/ }));
     fireEvent.click(screen.getByRole('button', { name: /CloudNativePG/ }));
     fireEvent.click(screen.getByRole('tab', { name: /Submit/ }));
@@ -699,7 +703,62 @@ describe('ChatPanel question rounds', () => {
     const box = screen.getByRole('textbox', { name: 'Message about these questions' });
     fireEvent.change(box, { target: { value: 'export' } });
     fireEvent.keyDown(box, { key: 'Enter' });
-    await waitFor(() => expect(onSend).toHaveBeenCalledWith('export'));
+    await waitFor(() => expect(onSendRoundChat).toHaveBeenCalledWith('export', 'round:1'));
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('shows a round chat row only in the open thread, as a pending line until the round is republished', () => {
+    const thread = [{ from: 'system_designer', text: 'Ask me anything.' }];
+    const first = [roundEntry(1, 'round:1', rawRound({ chat: thread })), roundChatEntry(2, 'Why not Helm?')];
+    const props = { onSend, onSendRound, onSendRoundChat, sendDisabled: false, promptsLive: true };
+    const { rerender } = render(<ChatPanel logs={first} {...props} />);
+    expect(within(screen.getByRole('log', { name: 'Chat log' })).queryByText('Why not Helm?')).not.toBeInTheDocument();
+    const block = () => screen.getByRole('region', { name: /3 questions from the system designer/ });
+    expect(within(block()).getByText('Why not Helm?')).toHaveTextContent(/^You: Why not Helm\?$/);
+
+    const echoed = rawRound({
+      chat: [...thread, { from: 'user', text: 'Why not Helm?' }, { from: 'system_designer', text: 'Helm suits a published chart.' }],
+    });
+    rerender(<ChatPanel logs={[...first, roundEntry(3, 'round:1', echoed)]} {...props} />);
+    expect(within(block()).getAllByText('Why not Helm?')).toHaveLength(1);
+    expect(within(block()).getByText('Helm suits a published chart.')).toBeInTheDocument();
+    expect(within(screen.getByRole('log', { name: 'Chat log' })).queryByText('Why not Helm?')).not.toBeInTheDocument();
+  });
+
+  it('drops a pending line the republished round does not carry', () => {
+    const first = [roundEntry(1, 'round:1', rawRound()), roundChatEntry(2, 'export')];
+    const props = { onSend, onSendRound, onSendRoundChat, sendDisabled: false, promptsLive: true };
+    const { rerender } = render(<ChatPanel logs={first} {...props} />);
+    const block = () => screen.getByRole('region', { name: /3 questions from the system designer/ });
+    expect(within(block()).getByText('export')).toBeInTheDocument();
+    rerender(<ChatPanel logs={[...first, roundEntry(3, 'round:1', rawRound({ answers: [{ number: 1, option: 1 }] }))]} {...props} />);
+    expect(within(block()).queryByText('export')).not.toBeInTheDocument();
+  });
+
+  it('keeps a closed round thread collapsed under its answers', () => {
+    const chat = [
+      { from: 'user', text: 'Why not Helm?' },
+      { from: 'system_designer', text: 'Helm suits a published chart.' },
+    ];
+    const logs = [roundEntry(1, 'round:1', rawRound({ ...allAnswered, chat, closed: true }))];
+    render(<ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);
+    const summary = screen.getByRole('group', { name: /Answered questions from the system designer/ });
+    const toggle = within(summary).getByRole('button', { name: 'Chat about these questions (2)' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(within(summary).queryByText('Helm suits a published chart.')).not.toBeInTheDocument();
+    expect(within(summary).getAllByRole('listitem')).toHaveLength(3);
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(within(summary).getByText('Why not Helm?')).toHaveTextContent(/^You: Why not Helm\?$/);
+    expect(within(summary).getByText('Helm suits a published chart.')).toHaveTextContent(/^System designer: Helm suits/);
+  });
+
+  it('shows no chat control on a closed round without a thread', () => {
+    const logs = [roundEntry(1, 'round:1', rawRound({ ...allAnswered, closed: true }))];
+    render(<ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);
+    const summary = screen.getByRole('group', { name: /Answered questions from the system designer/ });
+    expect(within(summary).queryByRole('button', { name: /Chat about these questions/ })).not.toBeInTheDocument();
   });
 
   it('shows a responder round read-only in the transcript and keeps the composer', () => {

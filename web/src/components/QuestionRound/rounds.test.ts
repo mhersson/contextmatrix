@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LogEntry } from '../../types';
-import { rawRound, roundEntry } from '../../test-utils/roundFixtures';
+import { rawRound, roundChatEntry, roundEntry } from '../../test-utils/roundFixtures';
 import { deriveRounds, newestRound, roundLeft } from './rounds';
 
 const text = (seq: number, content: string): LogEntry => ({ ts: '2026-10-17T10:00:00Z', card_id: '', type: 'text', content, seq });
@@ -46,6 +46,16 @@ describe('deriveRounds', () => {
     const s = deriveRounds([a], true);
     expect(s.byEntry.get(a)).toBe('responder');
     expect(s.pending).toBeNull();
+  });
+
+  it('holds the round chat rows sent since the waiting frame, and none for a later round', () => {
+    const a = roundEntry(1, 'round:1', rawRound());
+    const early = roundChatEntry(2, 'early');
+    const b = roundEntry(3, 'round:1', rawRound());
+    const late = roundChatEntry(4, 'late');
+    expect(deriveRounds([a, early, b, late], true).pending?.sent).toEqual([late]);
+    const logs = [a, early, b, late, roundEntry(5, 'round:1', rawRound({ closed: true })), roundEntry(6, 'round:2', rawRound())];
+    expect(deriveRounds(logs, true).pending?.sent).toEqual([]);
   });
 
   it('ignores a round frame without an id', () => {
