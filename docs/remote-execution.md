@@ -480,6 +480,21 @@ own restart; frames the architect publishes in between are kept and replayed. Th
 session row is gone, cold or no longer an architect session. Chat sessions do
 not take these paths.
 
+CM also reads blueprints for the web UI's blueprint pane, through
+`GET /api/chats/{id}/blueprint`,
+`GET /api/chats/{id}/blueprint/artifacts/{stage}/{version}` and
+`GET /api/chats/{id}/blueprint/live` (see
+[api-reference.md](api-reference.md#get-apichatsidblueprint)): signed GETs of
+the architect's `/blueprints/{id}`,
+`/blueprints/{id}/artifacts/{stage}/{version}` and the SSE stream
+`/blueprints/{id}/live`, which CM relays unchanged, one upstream stream per
+browser connection. Every request carries a random
+`nonce` query parameter, so two reads of one path in the same second sign
+differently and both pass the architect's replay cache; the architect ignores
+the parameter. CM relays a 200 body unchanged, answers an upstream 404 with
+`BLUEPRINT_NOT_FOUND`, and any other failure, or a view or artifact read not
+answered within 30 seconds, with 502.
+
 ### Task/chat backend → CM: log stream
 
 #### GET {backend_url}/logs
@@ -541,8 +556,23 @@ three are optional. Only the architect sets `prompt`, and `content` stays the
 full readable message. CM stores such a frame on an architect session as a
 `kind: "prompt"` row whose content is a `{"text", "prompt"}` JSON envelope,
 cutting `content` first and `prompt.text` only if it alone overflows the
-32 KiB row cap. On any other session, and in task session logs, the field is
+32 KiB row cap; a prompt whose actions alone overflow it is stored as the
+plain message. On any other session, and in task session logs, the field is
 ignored.
+
+`marker` turns an architect frame into a transcript marker, for example
+`{"kind": "artifact", "stage": "solution_design", "persona": "System
+designer", "version": 2, "note": "Revised for the 3 findings"}`. `kind` is
+`stage` for a stage divider (sent on a `system` frame) or `artifact` for a
+sheet reference (sent on a `text` frame); `persona`, `version` and `note` are
+optional, and `content` stays a plain fallback line. Only the architect sets
+`marker`. CM stores such a frame on an architect session as a `kind:
+"marker"` row with the frame's role, whose content is a `{"text", "marker"}`
+JSON envelope, cutting `content` first and `marker.note` only if the marker
+alone overflows the 32 KiB row cap (a marker whose kind, stage and persona
+alone overflow it is stored as the plain message); a frame that carries both
+`marker` and `prompt` is stored as a marker. On any other session, and in
+task session logs, the field is ignored.
 
 The backend redacts credential patterns before publishing and sends keepalive
 comments to hold the connection open through proxy idle timeouts.

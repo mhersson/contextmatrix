@@ -61,6 +61,9 @@ POST   /api/chats/{id}/clear                           # clear worker context + 
 POST   /api/chats/{id}/messages                        # send a user message into the active container
 GET    /api/chats/{id}/messages                        ?since_seq=|tail=1|before_seq=&limit=  # transcript pages
 GET    /api/chats/{id}/stream                          ?since_seq=           # SSE stream of new entries
+GET    /api/chats/{id}/blueprint                       # blueprint view, read from the architect (architect sessions only)
+GET    /api/chats/{id}/blueprint/artifacts/{stage}/{version}  # one artifact version, read from the architect
+GET    /api/chats/{id}/blueprint/live                  # SSE relay of the architect's live blueprint stream
 
 POST   /api/sync                                       ?repo=                # trigger git sync
 GET    /api/sync                                       # sync status per boards repo
@@ -266,6 +269,8 @@ the request's `request_id`.
 | `PROTECTED_BRANCH`            | 403     | MCP `report_push` targeted `main` / `master`                                                                                                                                               |
 | `REVIEW_ATTEMPTS_CAPPED`      | 409     | Review attempts limit reached                                                                                                                                                              |
 | `CHAT_NOT_FOUND`              | 404     | Chat session ID does not exist (or belongs to another user in multi mode)                                                                                                                  |
+| `CHAT_KIND_UNAVAILABLE`       | 409     | No backend is configured for the chat session's kind (for example no architect backend for a blueprint)                                                                                    |
+| `BLUEPRINT_NOT_FOUND`         | 404     | Chat session is not a blueprint, or the architect answered 404 for the blueprint, artifact or route                                                                                        |
 | `INVALID_MODEL`               | 400     | Chat `model` not in the active model source                                                                                                                                                |
 | `TOO_MANY_CHATS`              | 429     | `chat.max_concurrent` reached, or 32 subscribers already on one chat stream                                                                                                                |
 | `TOO_MANY_SUBSCRIBERS`        | 429     | 128 concurrent `GET /api/events` subscribers already connected                                                                                                                             |
@@ -2599,12 +2604,18 @@ exactly while the oldest loaded seq is `> 1`.
 
 `role` is `user`, `assistant_text`, `assistant_thinking`, `tool_call`,
 `tool_result`, `stderr`, or `system`. `kind` (`"divider"` for the Clear
-Context row, `"prompt"` for an architect question or gate) and
-`rehydration_phase` appear only when set. `content` is the raw text, except on
-a `prompt` row, where it is the JSON envelope `{"text": "<message>", "prompt":
-{"id": "...", "kind": "question", "text": "...", "free_text": true,
-"actions": [{"label": "...", "reply": "...", "feedback": true, "recommended":
-true}]}}`. `kind`, `text` and `recommended` are optional.
+Context row, `"prompt"` for an architect question or gate, `"marker"` for an
+architect stage divider or sheet reference) and `rehydration_phase` appear
+only when set. `content` is the raw text, except on a `prompt` row, where it
+is the JSON envelope `{"text": "<message>", "prompt": {"id": "...", "kind":
+"question", "text": "...", "free_text": true, "actions": [{"label": "...",
+"reply": "...", "feedback": true, "recommended": true}]}}` (`kind`, `text` and
+`recommended` are optional), and on a `marker` row, where it is `{"text":
+"<fallback line>", "marker": {"kind": "artifact", "stage": "solution_design",
+"persona": "System designer", "version": 2, "note": "..."}}` (`kind` is
+`stage` or `artifact`; `persona`, `version` and `note` are optional). A prompt
+whose actions alone, or a marker whose kind, stage and persona alone, overflow
+the 32 KiB row cap is stored as a plain message with no `kind`.
 Empty transcripts return `{"messages": []}`; unknown session is 404.
 
 The browser fetches the newest page with `tail=1`, subscribes to
@@ -2649,6 +2660,45 @@ Two event kinds share the wire:
   leaves; `active/warm-idle → cold` on `/end` or the idle reaper
   (`chat.idle_ttl`; blueprints are exempt from the reaper). Clients should
   refetch `GET /api/chats` on a `status` change.
+
+### GET /api/chats/{id}/blueprint
+
+The blueprint view of an `architect` session: stage pipeline, current run,
+open prompt, cost and artifact index. CM reads it from the architect's signed
+`GET /blueprints/{id}` (the blueprint id is the session id) and relays the
+body unchanged as `application/json`; the architect owns the shape
+(`protocol.BlueprintView`). The session's status does not matter, so an ended
+blueprint stays readable while the architect holds it.
+
+### GET /api/chats/{id}/blueprint/artifacts/{stage}/{version}
+
+One artifact version (`protocol.BlueprintArtifact`: body, data, check
+problems), read from the architect's
+`GET /blueprints/{id}/artifacts/{stage}/{version}` the same way. `stage` is a
+stage id of letters, digits, `_` and `-`, at most 64 characters (for example
+`solution_design`, `signoff` or `emission`); `version` is a positive integer.
+
+### GET /api/chats/{id}/blueprint/live
+
+SSE relay of the architect's signed `GET /blueprints/{id}/live` stream:
+snapshot, `artifact_stored` and draft frames plus the architect's heartbeat
+comments. CM relays the bytes unchanged and flushes every chunk it reads, so
+each frame reaches the browser as the architect sends it. Each browser
+connection gets its own upstream stream, closed when the browser disconnects;
+when the architect ends its stream, the response ends and the browser's
+EventSource reconnects, and a new stream starts with a snapshot frame. The
+connection is exempt from the server write timeout.
+
+These three routes answer (the live route answers before any stream starts):
+
+| Status | Code                    | Meaning                                                                                                                         |
+| ------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| 200    | -                       | The architect's body                                                                                                            |
+| 400    | `BAD_REQUEST`           | Malformed `stage` or `version`; nothing is sent to the architect                                                                |
+| 404    | `CHAT_NOT_FOUND`        | Unknown session, or another user's session in `multi` mode                                                                      |
+| 404    | `BLUEPRINT_NOT_FOUND`   | Not an `architect` session, or the architect answered 404 (an architect without these routes, an unknown blueprint or artifact) |
+| 409    | `CHAT_KIND_UNAVAILABLE` | No architect backend is configured                                                                                              |
+| 502    | `BACKEND_UNAVAILABLE`   | The architect is unreachable, did not answer a view or artifact read within 30 seconds, or answered with another error          |
 
 ## Image Endpoints
 

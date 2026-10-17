@@ -205,6 +205,7 @@ func (c *backendClient) StreamLogs(ctx context.Context, sessionID string, onEntr
 			Content:   entry.Content,
 			Model:     entry.Model,
 			Prompt:    entry.Prompt,
+			Marker:    entry.Marker,
 		}
 
 		if entry.Usage != nil {

@@ -415,15 +415,16 @@ or reverse proxy not to buffer these paths and to allow long idle times. CM
 emits keepalive comments and clears its own write deadline on them, but a
 proxy idle timeout shorter than the keepalive still cuts the connection:
 
-| Path                         | Stream                                               | Keepalive |
-| ---------------------------- | ---------------------------------------------------- | --------- |
-| `GET /api/events`            | board events                                         | 30 s      |
-| `GET /api/worker/logs`       | worker log stream (card transcript, project console) | 30 s      |
-| `GET /api/chats/{id}/stream` | chat session events                                  | 15 s      |
+| Path                                 | Stream                                               | Keepalive                  |
+| ------------------------------------ | ---------------------------------------------------- | -------------------------- |
+| `GET /api/events`                    | board events                                         | 30 s                       |
+| `GET /api/worker/logs`               | worker log stream (card transcript, project console) | 30 s                       |
+| `GET /api/chats/{id}/stream`         | chat session events                                  | 15 s                       |
+| `GET /api/chats/{id}/blueprint/live` | blueprint live stream (relayed from the architect)   | 15 s (architect heartbeat) |
 
-The first two also send `X-Accel-Buffering: no`. A single dashboard tab holds
-several SSE connections at once. Everything streaming is SSE; there are no
-WebSockets.
+Every stream in the table sends `X-Accel-Buffering: no`. A single dashboard
+tab holds several SSE connections at once. Everything streaming is SSE; there
+are no WebSockets.
 
 ## Secrets to provision
 
