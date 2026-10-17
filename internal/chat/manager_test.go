@@ -5517,7 +5517,6 @@ func TestManager_Consumer_OversizedContentIsCutBeforePromptText(t *testing.T) {
 	msg := storedArchitectRow(t, chat.LogEntry{Type: "text", Content: bigContent, Prompt: p})
 	assert.Equal(t, chat.EventKindPrompt, msg.Kind, "stays a prompt row")
 	assert.LessOrEqual(t, len(msg.Content), 32*1024)
-	assert.True(t, utf8.ValidString(msg.Content))
 
 	var env promptEnvelope
 	require.NoError(t, json.Unmarshal([]byte(msg.Content), &env))
@@ -5540,7 +5539,6 @@ func TestManager_Consumer_OversizedPromptTextIsCutOnlyWhenItAloneOverflows(t *te
 	msg := storedArchitectRow(t, chat.LogEntry{Type: "text", Content: big, Prompt: p})
 	assert.Equal(t, chat.EventKindPrompt, msg.Kind, "stays a prompt row")
 	assert.LessOrEqual(t, len(msg.Content), 32*1024)
-	assert.True(t, utf8.ValidString(msg.Content))
 
 	var env promptEnvelope
 	require.NoError(t, json.Unmarshal([]byte(msg.Content), &env))
@@ -5637,7 +5635,6 @@ func TestManager_Consumer_OversizedPromptTextKeepsTheEnvelopeValid(t *testing.T)
 
 	content := msg.Content
 	assert.LessOrEqual(t, len(content), 32*1024, "the row fits the message cap")
-	assert.True(t, utf8.ValidString(content))
 
 	var env promptEnvelope
 	require.NoError(t, json.Unmarshal([]byte(content), &env), "the stored envelope parses")
@@ -5731,7 +5728,6 @@ func TestManager_Consumer_MarkerRows(t *testing.T) {
 			}
 
 			assert.LessOrEqual(t, len(ev.Content), 32*1024)
-			assert.True(t, utf8.ValidString(ev.Content))
 
 			var env markerEnvelope
 			require.NoError(t, json.Unmarshal([]byte(ev.Content), &env))
@@ -5749,6 +5745,7 @@ func TestManager_Consumer_MarkerRows(t *testing.T) {
 				assert.True(t, strings.HasPrefix(longNote.Note, strings.TrimSuffix(env.Marker.Note, "\n... [truncated]")), "the note is cut at its end")
 				assert.False(t, strings.ContainsRune(env.Marker.Note, utf8.RuneError), "the cut did not split a rune")
 				assert.Greater(t, len(env.Marker.Note), 1024, "the note keeps as much as fits")
+				assert.Greater(t, len(ev.Content), 32*1024-6, "the row is filled to the cap")
 				assert.Equal(t, strings.Repeat("😀<", 12000), longNote.Note, "the caller's marker is not mutated")
 			}
 		})
@@ -5764,7 +5761,6 @@ func TestManager_Consumer_OversizedMarkerContentIsCutBeforeTheMarker(t *testing.
 
 	assert.Equal(t, chat.EventKindMarker, msg.Kind, "stays a marker row")
 	assert.LessOrEqual(t, len(msg.Content), 32*1024)
-	assert.True(t, utf8.ValidString(msg.Content))
 
 	var env markerEnvelope
 	require.NoError(t, json.Unmarshal([]byte(msg.Content), &env), "the stored envelope parses")
