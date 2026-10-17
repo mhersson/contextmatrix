@@ -147,8 +147,9 @@ board. Promote-to-autonomous lives in that tab.
   and the admin Chats page lists every session's kind, mode and cap. The
   architect's questions and gates show reply buttons under the message. A
   question's options are stacked full-width buttons showing the whole option
-  text. The question has an accent that is pink in the dark themes and a dusty
-  rose to maroon in the light ones, and the suggested option carries a
+  text. The question bubble is tinted, with a 5px left bar and accent-bordered
+  options in pink in the dark themes and a dusty rose to maroon in the light
+  ones, and the suggested option carries a
   "recommended" chip. A prompt marked as a gate keeps compact buttons in a row.
   A click sends that reply as your message, a feedback action such as Reject
   asks for text first, and typing the reply works too. A prompt closes when a

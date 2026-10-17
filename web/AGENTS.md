@@ -79,7 +79,7 @@ keeps the hamburger and a way back to the board.
 | Foreground   | `--fg`, `--grey0/1/2`                                   | Primary text, then muted → tertiary                                |
 | Accents      | `--red --orange --yellow --green --aqua --blue --purple` | Priority / state / type accents (mapping below)                  |
 | Chat         | `--chat-assistant-bg/-ring`, `--chat-user-ring`        | Chat bubble fill and rings, shared by every palette                |
-| Prompt       | `--prompt-question-accent`                              | Architect question accent (pink dark, rose to maroon light), from red/purple/fg |
+| Prompt       | `--prompt-question-accent`, `--prompt-question-bg`, `--prompt-question-hover-bg`, `--chat-option-hover-bg` | Architect question accent (pink dark, rose to maroon light) and the light wash of the red/purple hue over the bubble for the bubble and option hover; neutral option hover mixes `--fg` into the bubble |
 
 **UI semantic mapping:**
 
@@ -148,7 +148,8 @@ interactions.
   architect session as a `kind: "prompt"` row and `PromptActions` renders its
   actions. The bubble shows the prompt's `Text` when set (else the envelope
   text); `Kind` `"gate"` keeps compact buttons, any other kind stacks
-  full-width wrapping options, and `"question"` adds the accent. A click
+  full-width wrapping options, and `"question"` adds the accent: a tinted
+  bubble, a 5px left bar, an accent ring and accent option borders. A click
   sends the action's reply as an ordinary user message. A closed non-gate
   prompt shows its options as a static list above the summary. Whether a
   prompt is open is derived in the browser (`derivePromptStates`), never

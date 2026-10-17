@@ -45,8 +45,7 @@ export function PromptActions({ prompt, status, answer, onReply }: PromptActions
           <ul
             data-testid="prompt-options"
             aria-label="Options offered"
-            className="m-0 mb-1 flex list-none flex-col gap-1 p-0 text-xs"
-            style={{ color: 'var(--grey1)' }}
+            className="chat-prompt-muted m-0 mb-1 flex list-none flex-col gap-1 p-0 text-xs"
           >
             {prompt.actions.map((a, i) => {
               const chosen = status === 'answered' && !!answer && a.label === answer;
@@ -73,7 +72,7 @@ export function PromptActions({ prompt, status, answer, onReply }: PromptActions
             })}
           </ul>
         )}
-        <p data-testid="prompt-summary" className="text-xs font-mono" style={{ color: 'var(--grey1)' }}>
+        <p data-testid="prompt-summary" className="chat-prompt-muted text-xs font-mono">
           {summary}
         </p>
       </div>

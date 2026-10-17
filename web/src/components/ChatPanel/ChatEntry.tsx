@@ -102,11 +102,12 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
           <div
             className="rounded-lg px-3 py-2 text-sm wrap-anywhere max-w-full"
             style={{
-              backgroundColor: 'var(--chat-assistant-bg)',
-              // The bar rides the same inset shadow as the ring.
+              backgroundColor:
+                prompt?.prompt.kind === 'question' ? 'var(--prompt-question-bg)' : 'var(--chat-assistant-bg)',
+              // The bar and the accent ring ride the same inset shadow as the plain ring.
               boxShadow:
                 prompt?.prompt.kind === 'question'
-                  ? 'inset 3px 0 0 0 var(--prompt-question-accent), inset 0 0 0 1px var(--chat-assistant-ring)'
+                  ? 'inset 5px 0 0 0 var(--prompt-question-accent), inset 0 0 0 1px color-mix(in oklab, var(--prompt-question-accent) 40%, transparent)'
                   : 'inset 0 0 0 1px var(--chat-assistant-ring)',
               color: 'var(--fg)',
             }}
