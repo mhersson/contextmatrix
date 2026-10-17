@@ -203,12 +203,6 @@ func (h *chatHandlers) streamBlueprint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rc := http.NewResponseController(w)
-	if err := rc.SetWriteDeadline(time.Time{}); err != nil {
-		ctxlog.Logger(r.Context()).Warn("blueprint live: could not clear write deadline; the stream drops on WriteTimeout",
-			"error", err)
-	}
-
 	path := "/blueprints/" + url.PathEscape(sess.ID) + "/live"
 
 	resp, ok := h.architectGet(r.Context(), w, r, path, "text/event-stream")
@@ -216,6 +210,12 @@ func (h *chatHandlers) streamBlueprint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
+
+	rc := http.NewResponseController(w)
+	if err := rc.SetWriteDeadline(time.Time{}); err != nil {
+		ctxlog.Logger(r.Context()).Warn("blueprint live: could not clear write deadline; the stream drops on WriteTimeout",
+			"error", err)
+	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -244,7 +244,7 @@ func (h *chatHandlers) streamBlueprint(w http.ResponseWriter, r *http.Request) {
 
 		if err != nil {
 			if !errors.Is(err, io.EOF) && r.Context().Err() == nil {
-				ctxlog.Logger(r.Context()).Debug("blueprint live: upstream ended", "session_id", sess.ID, "error", err)
+				ctxlog.Logger(r.Context()).Info("blueprint live: upstream failed mid-stream", "session_id", sess.ID, "error", err)
 			}
 
 			return

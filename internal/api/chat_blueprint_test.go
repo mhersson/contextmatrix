@@ -590,9 +590,25 @@ func TestBlueprintLive_EndsWhenTheArchitectEnds(t *testing.T) {
 	resp, _ := openLive(t, cm.URL, bp.ID)
 	defer closeBody(t, resp.Body)
 
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "the browser sees a clean end and reconnects")
-	assert.Equal(t, "data: {\"type\":\"snapshot\"}\n\n", string(body))
+	type readResult struct {
+		body []byte
+		err  error
+	}
+
+	done := make(chan readResult, 1)
+
+	go func() {
+		b, err := io.ReadAll(resp.Body)
+		done <- readResult{b, err}
+	}()
+
+	select {
+	case res := <-done:
+		require.NoError(t, res.err, "the browser sees a clean end and reconnects")
+		assert.Equal(t, "data: {\"type\":\"snapshot\"}\n\n", string(res.body))
+	case <-time.After(2 * time.Second):
+		t.Fatal("the relay did not end when the architect ended")
+	}
 }
 
 func TestBlueprintLive_OutlivesTheServerWriteTimeout(t *testing.T) {

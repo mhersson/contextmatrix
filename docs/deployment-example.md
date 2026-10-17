@@ -420,6 +420,7 @@ proxy idle timeout shorter than the keepalive still cuts the connection:
 | `GET /api/events`            | board events                                         | 30 s      |
 | `GET /api/worker/logs`       | worker log stream (card transcript, project console) | 30 s      |
 | `GET /api/chats/{id}/stream` | chat session events                                  | 15 s      |
+| `GET /api/chats/{id}/blueprint/live` | blueprint live stream (relayed from the architect) | architect heartbeat |
 
 The first two also send `X-Accel-Buffering: no`. A single dashboard tab holds
 several SSE connections at once. Everything streaming is SSE; there are no
