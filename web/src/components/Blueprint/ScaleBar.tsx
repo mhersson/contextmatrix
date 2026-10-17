@@ -8,6 +8,7 @@ import {
   personaName,
   stageText,
   stepStatusText,
+  visibleSteps,
   type Tone,
 } from './stages';
 
@@ -31,7 +32,7 @@ export function ScaleBar({ view, compact, onOpenStage }: ScaleBarProps) {
   const current = currentStep(view);
   const text = describeCurrent(view);
   const cost = costLabel(view.cost);
-  const steps = view.pipeline.filter((s) => s.status !== 'skipped');
+  const steps = visibleSteps(view);
   const lineClass = text?.tone === 'waiting' ? 'bp-ask' : text?.tone === 'failed' ? 'bp-failed' : undefined;
   return (
     <div className="bp-scale">

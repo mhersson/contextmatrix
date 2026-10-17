@@ -103,7 +103,8 @@ export function gateArtifact(view: BlueprintView): BlueprintArtifactRef | null {
   return waiting[waiting.length - 1] ?? null;
 }
 
-function visibleSteps(view: BlueprintView): BlueprintPipelineStep[] {
+/** The steps the pack runs; skipped steps show nowhere. */
+export function visibleSteps(view: BlueprintView): BlueprintPipelineStep[] {
   return view.pipeline.filter((s) => s.status !== 'skipped');
 }
 

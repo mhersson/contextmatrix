@@ -1,7 +1,7 @@
 import type { BlueprintArtifactRef, BlueprintArtifactReview, BlueprintView, LogEntry } from '../../types';
 import { derivePromptStates, parsePromptEntry, type ChatPrompt } from '../ChatPanel/prompts';
 import type { HeldDraft } from './draft';
-import { artifactsFor, currentStep, decidedByText, finished, latestArtifact, stageText } from './stages';
+import { artifactsFor, currentStep, decidedByText, finished, latestArtifact, stageText, visibleSteps } from './stages';
 
 export interface StampText {
   tone: 'approved' | 'rejected' | 'superseded' | 'folded';
@@ -130,14 +130,12 @@ export interface SheetTab {
 
 export function sheetTabs(view: BlueprintView, draft: HeldDraft | null): SheetTab[] {
   const current = finished(view) ? null : currentStep(view)?.stage;
-  return view.pipeline
-    .filter((s) => s.status !== 'skipped')
-    .map((s) => ({
-      stage: s.stage,
-      label: stageText(s.stage).tab,
-      enabled: view.artifacts.some((a) => a.stage === s.stage) || writingVersion(view, draft, s.stage) !== null,
-      current: s.stage === current,
-    }));
+  return visibleSteps(view).map((s) => ({
+    stage: s.stage,
+    label: stageText(s.stage).tab,
+    enabled: view.artifacts.some((a) => a.stage === s.stage) || writingVersion(view, draft, s.stage) !== null,
+    current: s.stage === current,
+  }));
 }
 
 /** The current stage's version being written or its newest, else the last stage with an artifact. */
