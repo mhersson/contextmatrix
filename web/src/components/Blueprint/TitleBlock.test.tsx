@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { TitleBlock } from './TitleBlock';
 import { DESIGN_REVIEW } from '../../test-utils/blueprintFixtures';
@@ -19,7 +19,11 @@ function renderBlock(over: Partial<Parameters<typeof TitleBlock>[0]> = {}) {
     compare: { available: true, on: false, onToggle: vi.fn() },
     ...over,
   };
-  render(<TitleBlock {...props} />);
+  render(
+    <section className="bp-sheet">
+      <TitleBlock {...props} />
+    </section>,
+  );
   return props;
 }
 
@@ -92,5 +96,42 @@ describe('TitleBlock', () => {
     const props = renderBlock();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Compare' }));
     expect(props.compare.onToggle).toHaveBeenCalled();
+  });
+
+  describe('review popover height', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    function stubTops(tops: { sheet: number; block: number }) {
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+        const top = this.classList.contains('bp-sheet') ? tops.sheet : this.classList.contains('bp-tb') ? tops.block : 0;
+        return { top, bottom: top, left: 0, right: 0, width: 0, height: 0, x: 0, y: top, toJSON: () => ({}) };
+      });
+    }
+
+    function openReview() {
+      fireEvent.click(screen.getByRole('button', { name: 'Senior developer, 4 of 5' }));
+      return screen.getByRole('dialog');
+    }
+
+    it('caps the review at the room above the title block inside the sheet', () => {
+      stubTops({ sheet: 100, block: 400 });
+      renderBlock();
+      expect(openReview()).toHaveStyle({ maxHeight: '288px' });
+    });
+
+    it('never caps the review below 80px', () => {
+      stubTops({ sheet: 100, block: 150 });
+      renderBlock();
+      expect(openReview()).toHaveStyle({ maxHeight: '80px' });
+    });
+
+    it('re-measures on window resize while open', () => {
+      stubTops({ sheet: 100, block: 400 });
+      renderBlock();
+      const dialog = openReview();
+      stubTops({ sheet: 100, block: 600 });
+      fireEvent(window, new Event('resize'));
+      expect(dialog).toHaveStyle({ maxHeight: '488px' });
+    });
   });
 });
