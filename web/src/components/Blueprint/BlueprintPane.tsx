@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import type { LogEntry } from '../../types';
+import { ErrorBoundary } from '../ErrorBoundary';
 import { EdgeStrip } from './EdgeStrip';
 import { ScaleBar } from './ScaleBar';
 import { Sheet } from './Sheet';
@@ -78,26 +79,37 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
   }, [sheet.open]);
   const shown = view ? resolveShown(view, draft, sheet.pin) : null;
   const stripLabel = shown ? stageText(shown.stage).tab : 'Blueprint';
-  const sheetEl = view ? (
-    <Sheet
-      chatId={chatId}
-      view={view}
-      draft={draft}
-      shown={shown}
-      onShow={show}
-      gatePrompt={gatePrompt}
-      onReply={onReply}
-      onClose={closeSheet}
-    />
-  ) : (
-    <SheetUnavailable onRetry={onRetry} onClose={layout === 'split' ? undefined : closeSheet} />
+  // A renderer bug blanks the sheet, not the transcript; reopening the sheet draws it afresh.
+  const sheetEl = (
+    <ErrorBoundary fallback={<SheetNotice text="This sheet could not be drawn." onClose={closeSheet} />}>
+      {view ? (
+        <Sheet
+          chatId={chatId}
+          view={view}
+          draft={draft}
+          shown={shown}
+          onShow={show}
+          gatePrompt={gatePrompt}
+          onReply={onReply}
+          onClose={closeSheet}
+        />
+      ) : (
+        <SheetNotice
+          text="Can't reach the architect."
+          onRetry={onRetry}
+          onClose={layout === 'split' ? undefined : closeSheet}
+        />
+      )}
+    </ErrorBoundary>
   );
 
   return (
     <BlueprintSheetContext.Provider value={view ? actions : null}>
       <div ref={rootRef} className="bp-pane">
         {view && (
-          <ScaleBar view={view} compact={width !== null && width < LABEL_MIN_WIDTH} onOpenStage={(stage) => show(stage, null)} />
+          <ErrorBoundary fallback={null}>
+            <ScaleBar view={view} compact={width !== null && width < LABEL_MIN_WIDTH} onOpenStage={(stage) => show(stage, null)} />
+          </ErrorBoundary>
         )}
         <div ref={bodyRef} className="bp-body-row">
           <div className="bp-transcript">{children}</div>
@@ -130,13 +142,15 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
   );
 }
 
-function SheetUnavailable({ onRetry, onClose }: { onRetry: () => void; onClose?: () => void }) {
+function SheetNotice({ text, onRetry, onClose }: { text: string; onRetry?: () => void; onClose?: () => void }) {
   return (
     <section className="bp-sheet bp-sheet--unavailable" aria-label="Blueprint sheet">
-      <p>Can&apos;t reach the architect.</p>
-      <button type="button" className="bf-btn-ghost bf-btn-sm" onClick={onRetry}>
-        Retry
-      </button>
+      <p>{text}</p>
+      {onRetry && (
+        <button type="button" className="bf-btn-ghost bf-btn-sm" onClick={onRetry}>
+          Retry
+        </button>
+      )}
       {onClose && (
         <button type="button" className="bf-btn-ghost bf-btn-sm" onClick={onClose}>
           Close

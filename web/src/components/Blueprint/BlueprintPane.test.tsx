@@ -12,6 +12,16 @@ vi.mock('../../api/client', () => ({ api: { getBlueprintArtifact: vi.fn() } }));
 vi.mock('../ChatPanel/ChatMarkdown', () => ({
   ChatMarkdown: ({ source }: { source: string }) => <div data-testid="md">{source}</div>,
 }));
+const renderer = vi.hoisted(() => ({ broken: false }));
+vi.mock('./renderers/ArtifactRenderer', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./renderers/ArtifactRenderer')>();
+  return {
+    ArtifactRenderer: (props: Parameters<typeof real.ArtifactRenderer>[0]) => {
+      if (renderer.broken) throw new Error('renderer bug');
+      return <real.ArtifactRenderer {...props} />;
+    },
+  };
+});
 
 let paneWidth = 1000;
 
@@ -70,11 +80,22 @@ function renderPane(state: BlueprintState, over: PaneOptions = {}) {
 describe('BlueprintPane', () => {
   beforeEach(() => {
     paneWidth = 1000;
+    renderer.broken = false;
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     resetArtifactCache();
     vi.mocked(api.getBlueprintArtifact).mockImplementation((_c, stage, version) => Promise.resolve(findArtifact(stage, version)));
   });
   afterEach(() => vi.unstubAllGlobals());
+
+  it('keeps the transcript and the scale bar when a sheet fails to draw', async () => {
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    renderer.broken = true;
+    renderPane(ready());
+    expect(await screen.findByText('This sheet could not be drawn.')).toBeInTheDocument();
+    expect(screen.getByText('transcript')).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Blueprint stages' })).toBeInTheDocument();
+    quiet.mockRestore();
+  });
 
   it('puts the sheet beside the transcript on a wide pane', () => {
     renderPane(ready());
