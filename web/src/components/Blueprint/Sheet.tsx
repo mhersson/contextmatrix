@@ -1,6 +1,5 @@
 import { useRef, useState } from 'react';
 import type { BlueprintView } from '../../types';
-import type { ChatPrompt } from '../ChatPanel/prompts';
 import { GateBar } from './GateBar';
 import { Paper } from './Paper';
 import { TitleBlock } from './TitleBlock';
@@ -11,6 +10,7 @@ import {
   shownStatus,
   versionOptions,
   writingVersion,
+  type GatePrompt,
   type Shown,
 } from './sheetModel';
 import { artifactsFor } from './stages';
@@ -24,7 +24,7 @@ interface SheetProps {
   /** Pins a stage, and a version when given. */
   onShow: (stage: string, version: number | null) => void;
   /** The open gate's transcript prompt, matched on the view's open prompt id. */
-  gatePrompt: ChatPrompt | null;
+  gatePrompt: GatePrompt | null;
   onReply: (text: string) => Promise<void>;
   onClose?: () => void;
 }
@@ -93,7 +93,13 @@ export function Sheet({ chatId, view, draft, shown, onShow, gatePrompt, onReply,
         )}
       </div>
       {shown && gatePrompt && stored?.status === 'at_gate' && (
-        <GateBar stage={shown.stage} version={shown.version} prompt={gatePrompt} onReply={onReply} />
+        <GateBar
+          stage={shown.stage}
+          version={shown.version}
+          prompt={gatePrompt.prompt}
+          status={gatePrompt.status}
+          onReply={onReply}
+        />
       )}
       {shown && (
         <TitleBlock

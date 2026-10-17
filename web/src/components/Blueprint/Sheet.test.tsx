@@ -4,7 +4,7 @@ import { api } from '../../api/client';
 import { Sheet } from './Sheet';
 import { resetArtifactCache } from './artifactCache';
 import { holdDraft } from './draft';
-import type { ChatPrompt } from '../ChatPanel/prompts';
+import type { GatePrompt } from './sheetModel';
 import { findArtifact, viewAtDesignGate } from '../../test-utils/blueprintFixtures';
 import type { BlueprintView } from '../../types';
 
@@ -13,11 +13,14 @@ vi.mock('../ChatPanel/ChatMarkdown', () => ({
   ChatMarkdown: ({ source }: { source: string }) => <div data-testid="md">{source}</div>,
 }));
 
-const gatePrompt: ChatPrompt = {
-  id: 'gate:solution_design:v2',
-  kind: 'gate',
-  freeText: false,
-  actions: [{ label: 'Approve', reply: 'approve', feedback: false, recommended: false }],
+const gatePrompt: GatePrompt = {
+  prompt: {
+    id: 'gate:solution_design:v2',
+    kind: 'gate',
+    freeText: false,
+    actions: [{ label: 'Approve', reply: 'approve', feedback: false, recommended: false }],
+  },
+  status: 'open',
 };
 
 function writingView(): BlueprintView {

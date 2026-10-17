@@ -171,17 +171,23 @@ export function resolveShown(
   return defaultShown(view, draft);
 }
 
-/** The open transcript prompt that is the gate the view reports open, matched on the prompt id. */
+export interface GatePrompt {
+  prompt: ChatPrompt;
+  /** Paused while the session is not live: the bar stays, its buttons disabled as in the transcript. */
+  status: 'open' | 'paused';
+}
+
+/** The unanswered transcript prompt that is the gate the view reports open, matched on the prompt id. */
 export function gatePromptFor(
   logs: readonly LogEntry[],
   live: boolean,
   openGateId: string | undefined,
-): ChatPrompt | null {
+): GatePrompt | null {
   if (!openGateId) return null;
   for (const [entry, state] of derivePromptStates(logs, live)) {
-    if (state.status !== 'open') continue;
+    if (state.status !== 'open' && state.status !== 'paused') continue;
     const prompt = parsePromptEntry(entry)?.prompt;
-    if (prompt?.id === openGateId) return prompt;
+    if (prompt?.id === openGateId) return { prompt, status: state.status };
   }
   return null;
 }

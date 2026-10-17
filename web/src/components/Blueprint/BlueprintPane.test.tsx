@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { api } from '../../api/client';
 import { BlueprintPane } from './BlueprintPane';
 import { resetArtifactCache } from './artifactCache';
@@ -41,16 +41,22 @@ const gateRow: LogEntry = {
 
 const ready = (): BlueprintState => ({ status: 'ready', view: viewAtDesignGate(), draft: null });
 
-function renderPane(state: BlueprintState, over: { phone?: boolean; logs?: LogEntry[] } = {}) {
+interface PaneOptions {
+  phone?: boolean;
+  logs?: LogEntry[];
+  live?: boolean;
+}
+
+function renderPane(state: BlueprintState, over: PaneOptions = {}) {
   const onRetry = vi.fn();
   const onReply = vi.fn().mockResolvedValue(undefined);
-  const pane = (o: { phone?: boolean; logs?: LogEntry[] }) => (
+  const pane = (o: PaneOptions) => (
     <BlueprintPane
       chatId="S1"
       state={state}
       onRetry={onRetry}
       logs={o.logs ?? []}
-      promptsLive
+      promptsLive={o.live ?? true}
       onReply={onReply}
       phone={o.phone ?? false}
     >
@@ -58,7 +64,7 @@ function renderPane(state: BlueprintState, over: { phone?: boolean; logs?: LogEn
     </BlueprintPane>
   );
   const view = render(pane(over));
-  return { onRetry, onReply, rerender: (next: { phone?: boolean; logs?: LogEntry[] }) => view.rerender(pane(next)) };
+  return { onRetry, onReply, rerender: (next: PaneOptions) => view.rerender(pane(next)) };
 }
 
 describe('BlueprintPane', () => {
@@ -156,6 +162,18 @@ describe('BlueprintPane', () => {
     const { onReply } = renderPane(ready(), { logs: [gateRow] });
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     await waitFor(() => expect(onReply).toHaveBeenCalledWith('approve'));
+  });
+
+  it('keeps the gate bar with its buttons disabled while the session is not live', () => {
+    renderPane(ready(), { logs: [gateRow], live: false });
+    const bar = screen.getByRole('region', { name: 'Gate decision' });
+    expect(within(bar).getByRole('button', { name: 'Approve' })).toBeDisabled();
+  });
+
+  it('drops the gate bar once the gate is answered', () => {
+    const answer: LogEntry = { ts: '2026-10-17T10:01:00Z', card_id: '', type: 'user', content: 'approve', seq: 10 };
+    renderPane(ready(), { logs: [gateRow, answer] });
+    expect(screen.queryByRole('region', { name: 'Gate decision' })).not.toBeInTheDocument();
   });
 
   it('opens the artifact a finished scale-bar segment names', async () => {

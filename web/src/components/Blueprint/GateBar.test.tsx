@@ -17,7 +17,7 @@ const prompt: ChatPrompt = {
 describe('GateBar', () => {
   it('names the gate and sends a reply through the given path', async () => {
     const onReply = vi.fn().mockResolvedValue(undefined);
-    render(<GateBar stage="solution_design" version={2} prompt={prompt} onReply={onReply} />);
+    render(<GateBar stage="solution_design" version={2} prompt={prompt} status="open" onReply={onReply} />);
     expect(screen.getByRole('region', { name: 'Gate decision' })).toHaveTextContent('Design rev 2 is waiting for your decision');
     fireEvent.click(screen.getByRole('button', { name: /^Approve/ }));
     await waitFor(() => expect(onReply).toHaveBeenCalledWith('approve'));
@@ -25,7 +25,7 @@ describe('GateBar', () => {
 
   it('asks for feedback before a reject', async () => {
     const onReply = vi.fn().mockResolvedValue(undefined);
-    render(<GateBar stage="solution_design" version={2} prompt={prompt} onReply={onReply} />);
+    render(<GateBar stage="solution_design" version={2} prompt={prompt} status="open" onReply={onReply} />);
     fireEvent.click(screen.getByRole('button', { name: 'Reject slicing' }));
     fireEvent.change(screen.getByLabelText('Feedback for Reject slicing'), { target: { value: 'merge them' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
