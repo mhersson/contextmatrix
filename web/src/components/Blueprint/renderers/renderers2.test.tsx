@@ -37,6 +37,32 @@ describe('CardsSheet', () => {
       'M1',
     ]);
   });
+
+  it('shows each manual check once when the playbook order already lists it', () => {
+    show(CARDS_V1);
+    expect(screen.getAllByText('M1', { selector: '.bp-id' })).toHaveLength(1);
+    expect(screen.queryByRole('heading', { name: 'Manual checks' })).not.toBeInTheDocument();
+  });
+
+  it('keeps a manual check missing from the order under Manual checks without repeating the ordered ones', () => {
+    const data = CARDS_V1.data as { manual: { id: string; text: string; criteria: string[] }[] };
+    show({
+      ...CARDS_V1,
+      data: { ...data, manual: [...data.manual, { id: 'M2', text: 'Open the health page.', criteria: [] }] },
+    });
+    const checks = screen.getByRole('heading', { name: 'Manual checks' }).closest('section')!;
+    expect(within(checks).getByText('M2')).toBeInTheDocument();
+    expect(within(checks).queryByText('M1')).not.toBeInTheDocument();
+    expect(screen.getAllByText('M1', { selector: '.bp-id' })).toHaveLength(1);
+  });
+
+  it('shows the manual checks under Manual checks for a single card', () => {
+    const data = CARDS_V1.data as { cards: unknown[]; manual: { id: string; text: string }[] };
+    show({ ...CARDS_V1, data: { ...data, cards: data.cards.slice(0, 1), order: ['D1', 'M1'] } });
+    expect(screen.queryByRole('heading', { name: /Playbook order/ })).not.toBeInTheDocument();
+    const checks = screen.getByRole('heading', { name: 'Manual checks' }).closest('section')!;
+    expect(within(checks).getByText('Run curl against the server.')).toBeInTheDocument();
+  });
 });
 
 describe('ReadinessSheet', () => {
