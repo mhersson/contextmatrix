@@ -333,16 +333,19 @@
   --purple: #a37acc; /* syntax.constant */
 }
 
-/* Assistant chat bubble on the --bg-dim transcript - every palette. Light
-   palettes put --bg2 at or near --bg-dim, so light mode lifts the bubble to
-   --bg0 and rings it with an --fg tint that clears every light pane. */
+/* Chat bubbles on the --bg-dim transcript - every palette. Light palettes put
+   --bg2 and --bg-blue within a few shades of --bg-dim, so light mode lifts the
+   assistant bubble to --bg0 and rings both: assistant with an --fg tint, user
+   with a --blue tint over its --bg-blue fill. */
 :root {
   --chat-assistant-bg: var(--bg2);
   --chat-assistant-ring: transparent;
+  --chat-user-ring: transparent;
 }
 [data-theme="light"] {
   --chat-assistant-bg: var(--bg0);
   --chat-assistant-ring: color-mix(in oklab, var(--fg) 20%, var(--bg0));
+  --chat-user-ring: color-mix(in oklab, var(--blue) 35%, var(--bg-blue));
 }
 
 @media (max-width: 1280px) {

@@ -75,7 +75,11 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
           {stamp && <TimestampLabel hhmm={stamp.hhmm} title={stamp.title} dateTime={entry.ts} />}
           <div
             className="rounded-lg px-3 py-2 text-sm whitespace-pre-wrap wrap-anywhere max-w-full"
-            style={{ backgroundColor: 'var(--bg-blue)', color: 'var(--fg)' }}
+            style={{
+              backgroundColor: 'var(--bg-blue)',
+              boxShadow: 'inset 0 0 0 1px var(--chat-user-ring)',
+              color: 'var(--fg)',
+            }}
           >
             {entry.content}
           </div>
