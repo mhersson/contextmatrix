@@ -78,6 +78,7 @@ keeps the hamburger and a way back to the board.
 | Semantic bg  | `--bg-red/-yellow/-green/-blue/-purple/-visual`        | Error, warning, success, info/active-agent, feature, selection     |
 | Foreground   | `--fg`, `--grey0/1/2`                                   | Primary text, then muted → tertiary                                |
 | Accents      | `--red --orange --yellow --green --aqua --blue --purple` | Priority / state / type accents (mapping below)                  |
+| Chat         | `--chat-assistant-bg`, `--chat-assistant-ring`         | Assistant bubble fill and ring, shared by every palette            |
 
 **UI semantic mapping:**
 
