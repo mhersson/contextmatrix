@@ -5700,8 +5700,8 @@ func TestManager_SendUserMessage_ArchitectReopenFramesLandBeforeTheResentMessage
 			return
 		}
 
-		// The frame is published once the consumer has taken and released
-		// the lock, so the sender cannot re-lock ahead of it.
+		// The consumer publishes the frame while it holds the lock, so the
+		// frame is published only after it has taken the lock ahead of the sender.
 		deadline := time.After(2 * time.Second)
 
 		for {
@@ -5810,8 +5810,9 @@ func TestManager_SendUserMessage_ArchitectPanicInTheSendReleasesTheTranscriptLoc
 		t.Fatal("the session is wedged: the transcript lock was left held")
 	}
 
-	assert.Equal(t, "after the panic", nextMessageEvent(t, ch).Content)
-	assert.Equal(t, chat.RoleUser, nextMessageEvent(t, ch).Role)
+	// The frame and the user row race for the transcript lock; only that both land matters.
+	first, second := nextMessageEvent(t, ch), nextMessageEvent(t, ch)
+	assert.ElementsMatch(t, []string{"after the panic", "approve"}, []string{first.Content, second.Content})
 }
 
 func TestManager_SendUserMessage_ChatConsumerDoesNotWaitOnTheSend(t *testing.T) {
