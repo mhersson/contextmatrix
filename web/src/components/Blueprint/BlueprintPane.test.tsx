@@ -12,13 +12,23 @@ vi.mock('../../api/client', () => ({ api: { getBlueprintArtifact: vi.fn() } }));
 vi.mock('../ChatPanel/ChatMarkdown', () => ({
   ChatMarkdown: ({ source }: { source: string }) => <div data-testid="md">{source}</div>,
 }));
-const renderer = vi.hoisted(() => ({ broken: false }));
+// Test switches: the stage whose renderer throws, and a throwing title block.
+const broken = vi.hoisted(() => ({ stage: null as string | null, titleBlock: false }));
 vi.mock('./renderers/ArtifactRenderer', async (importOriginal) => {
   const real = await importOriginal<typeof import('./renderers/ArtifactRenderer')>();
   return {
     ArtifactRenderer: (props: Parameters<typeof real.ArtifactRenderer>[0]) => {
-      if (renderer.broken) throw new Error('renderer bug');
+      if (props.artifact.stage === broken.stage) throw new Error('renderer bug');
       return <real.ArtifactRenderer {...props} />;
+    },
+  };
+});
+vi.mock('./TitleBlock', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./TitleBlock')>();
+  return {
+    TitleBlock: (props: Parameters<typeof real.TitleBlock>[0]) => {
+      if (broken.titleBlock) throw new Error('title block bug');
+      return <real.TitleBlock {...props} />;
     },
   };
 });
@@ -80,7 +90,8 @@ function renderPane(state: BlueprintState, over: PaneOptions = {}) {
 describe('BlueprintPane', () => {
   beforeEach(() => {
     paneWidth = 1000;
-    renderer.broken = false;
+    broken.stage = null;
+    broken.titleBlock = false;
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     resetArtifactCache();
     vi.mocked(api.getBlueprintArtifact).mockImplementation((_c, stage, version) => Promise.resolve(findArtifact(stage, version)));
@@ -89,11 +100,46 @@ describe('BlueprintPane', () => {
 
   it('keeps the transcript and the scale bar when a sheet fails to draw', async () => {
     const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
-    renderer.broken = true;
+    broken.stage = 'solution_design';
     renderPane(ready());
     expect(await screen.findByText('This sheet could not be drawn.')).toBeInTheDocument();
     expect(screen.getByText('transcript')).toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Blueprint stages' })).toBeInTheDocument();
+    quiet.mockRestore();
+  });
+
+  it('draws the next sheet after one fails to draw, keeping the picked tab focused', async () => {
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    broken.stage = 'solution_design';
+    renderPane(ready());
+    await screen.findByText('This sheet could not be drawn.');
+    const need = screen.getByRole('tab', { name: 'Need' });
+    need.focus();
+    fireEvent.click(need);
+    expect(await screen.findByRole('heading', { name: 'Assumptions' })).toBeInTheDocument();
+    expect(screen.queryByText('This sheet could not be drawn.')).not.toBeInTheDocument();
+    expect(need).toHaveFocus();
+    fireEvent.click(screen.getByRole('tab', { name: 'Design, current stage' }));
+    expect(await screen.findByText('This sheet could not be drawn.')).toBeInTheDocument();
+    quiet.mockRestore();
+  });
+
+  it('keeps focus on a picked tab', async () => {
+    renderPane(ready());
+    const need = screen.getByRole('tab', { name: 'Need' });
+    need.focus();
+    fireEvent.click(need);
+    expect(await screen.findByRole('article', { name: 'Need rev 1' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Need' })).toHaveFocus();
+  });
+
+  it('keeps the transcript when the sheet around the paper fails to draw', () => {
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    broken.titleBlock = true;
+    renderPane(ready());
+    expect(screen.getByText('This sheet could not be drawn.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+    expect(screen.getByText('transcript')).toBeInTheDocument();
     quiet.mockRestore();
   });
 

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import type { BlueprintView } from '../../types';
+import { ErrorBoundary } from '../ErrorBoundary';
 import { GateBar } from './GateBar';
 import { Paper } from './Paper';
 import { TitleBlock } from './TitleBlock';
@@ -79,15 +80,25 @@ export function Sheet({ chatId, view, draft, shown, onShow, gatePrompt, onReply,
       </div>
       <div className="bp-paperwrap" ref={scrollRef}>
         {shown ? (
-          <Paper
-            chatId={chatId}
-            view={view}
-            stage={shown.stage}
-            version={shown.version}
-            writing={isWriting ? (view.current ?? null) : null}
-            draft={shownDraft}
-            compare={compare && canCompare}
-          />
+          // Keyed on the shown sheet, so another sheet draws afresh; the tabs stay outside and keep their focus.
+          <ErrorBoundary
+            key={shownKey}
+            fallback={
+              <p className="bp-load-error" role="alert">
+                This sheet could not be drawn.
+              </p>
+            }
+          >
+            <Paper
+              chatId={chatId}
+              view={view}
+              stage={shown.stage}
+              version={shown.version}
+              writing={isWriting ? (view.current ?? null) : null}
+              draft={shownDraft}
+              compare={compare && canCompare}
+            />
+          </ErrorBoundary>
         ) : (
           <p className="bp-empty">Nothing on the sheet yet.</p>
         )}

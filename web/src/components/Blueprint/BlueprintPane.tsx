@@ -79,7 +79,8 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
   }, [sheet.open]);
   const shown = view ? resolveShown(view, draft, sheet.pin) : null;
   const stripLabel = shown ? stageText(shown.stage).tab : 'Blueprint';
-  // A renderer bug blanks the sheet, not the transcript; reopening the sheet draws it afresh.
+  // Renderer bugs stop at the paper's own boundary; anything else in the sheet blanks the sheet, not the
+  // transcript, and reopening the sheet draws it afresh.
   const sheetEl = (
     <ErrorBoundary fallback={<SheetNotice text="This sheet could not be drawn." onClose={closeSheet} />}>
       {view ? (
