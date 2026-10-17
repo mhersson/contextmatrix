@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 	"unicode/utf8"
 
@@ -2574,27 +2575,20 @@ func TestClearContext_SessionNotFound(t *testing.T) {
 		"unknown session must surface ErrSessionNotFound for 404 mapping, got: %v", err)
 }
 
-// clearGatingBackend wraps a stubBackend and blocks the very first
-// SendChatMessage call on a release channel, signalling its arrival on
-// `started`. Used by TestClearContext_ConcurrentCallsSerialised to hold
-// the singleflight slot open long enough for every concurrent caller to
-// arrive at clearGroup.Do - otherwise the in-flight body would finish
-// before the others arrive, the slot would reopen, and each late arrival
-// would execute its own /clear, producing multiple dividers and
-// defeating the deduplication invariant under test.
+// clearGatingBackend blocks the first SendChatMessage until release closes,
+// holding the clear singleflight slot open. Later sends never block, so a
+// /clear that escapes the slot shows as an extra divider, not a hung test.
 type clearGatingBackend struct {
 	*stubBackend
 
-	gateOnce sync.Once
-	started  chan struct{}
-	release  chan struct{}
+	gated   atomic.Bool
+	release chan struct{}
 }
 
 func (r *clearGatingBackend) SendChatMessage(ctx context.Context, sessionID, content, messageID string) error {
-	r.gateOnce.Do(func() {
-		close(r.started)
+	if r.gated.CompareAndSwap(false, true) {
 		<-r.release
-	})
+	}
 
 	return r.stubBackend.SendChatMessage(ctx, sessionID, content, messageID)
 }
@@ -2607,114 +2601,81 @@ func (r *clearGatingBackend) SendChatMessage(ctx context.Context, sessionID, con
 func TestClearContext_ConcurrentCallsSerialised(t *testing.T) {
 	t.Parallel()
 
-	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = store.Close() })
+	synctest.Test(t, func(t *testing.T) {
+		store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = store.Close() })
 
-	base := &stubBackend{}
-	backend := &clearGatingBackend{
-		stubBackend: base,
-		started:     make(chan struct{}),
-		release:     make(chan struct{}),
-	}
+		base := &stubBackend{}
+		backend := &clearGatingBackend{stubBackend: base, release: make(chan struct{})}
 
-	mgr := newManager(t, chat.Config{
-		Store:   store,
-		Backend: backend,
-		Clock:   clock.Real(),
-		IdleTTL: time.Hour,
-	})
+		mgr := newManager(t, chat.Config{
+			Store:   store,
+			Backend: backend,
+			Clock:   clock.Real(),
+			IdleTTL: time.Hour,
+		})
 
-	ctx := context.Background()
+		ctx := context.Background()
 
-	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
-	require.NoError(t, err)
+		sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+		require.NoError(t, err)
 
-	// Open so the session is active.
-	_, err = mgr.OpenSession(ctx, sess.ID)
-	require.NoError(t, err)
+		// Open so the session is active.
+		_, err = mgr.OpenSession(ctx, sess.ID)
+		require.NoError(t, err)
 
-	const n = 5
+		const n = 5
 
-	var wg sync.WaitGroup
+		var wg sync.WaitGroup
 
-	var startedGate sync.WaitGroup
+		errs := make([]error, n)
 
-	startedGate.Add(n)
-
-	errs := make([]error, n)
-
-	for i := range n {
-		wg.Add(1)
-
-		go func(idx int) {
-			defer wg.Done()
-
-			startedGate.Done()
-
-			errs[idx] = mgr.ClearContext(ctx, sess.ID)
-		}(i)
-	}
-
-	// All n goroutines are now running their function bodies.
-	startedGate.Wait()
-
-	// Wait for the singleflight body to enter the backend (the in-flight
-	// caller is now blocked inside our gate, holding the slot open).
-	select {
-	case <-backend.started:
-	case <-time.After(time.Second):
-		close(backend.release)
-		t.Fatal("first SendChatMessage call did not arrive within 1s")
-	}
-
-	// The other n-1 goroutines were started but may not yet have reached
-	// clearGroup.Do (the path from ClearContext entry to Do is GetSession
-	// plus a status check - a few microseconds). 100ms is overwhelming
-	// for that even on a loaded CI scheduler; without this wait, the
-	// in-flight slot would release before late arrivals queue up and
-	// each would execute its own fn on its own.
-	time.Sleep(100 * time.Millisecond)
-
-	// Release the gate. The in-flight caller completes /clear + divider,
-	// returns, and singleflight wakes the parked callers, who share the
-	// result without re-executing fn.
-	close(backend.release)
-
-	wg.Wait()
-
-	// All callers must succeed (singleflight shares the result).
-	for i, e := range errs {
-		require.NoError(t, e, "goroutine %d got unexpected error", i)
-	}
-
-	// Exactly one divider row should be in the transcript - singleflight
-	// deduplicates concurrent calls so only one tx commits.
-	msgs, err := store.ListMessagesTail(ctx, sess.ID, 100)
-	require.NoError(t, err)
-
-	var dividerCount int
-
-	for _, m := range msgs {
-		if m.Kind == chat.EventKindDivider {
-			dividerCount++
+		for i := range n {
+			wg.Go(func() { errs[i] = mgr.ClearContext(ctx, sess.ID) })
 		}
-	}
 
-	require.Equal(t, 1, dividerCount,
-		"singleflight must deduplicate concurrent clears to exactly one divider row")
+		// Returns once every caller is parked: one in the gated /clear, the rest
+		// in clearGroup.Do on it. An earlier release lets a caller short of Do run its own.
+		synctest.Wait()
 
-	// Every backend send that did run must be a /clear control message.
-	base.mu.Lock()
-	args := append([]sendArg(nil), base.sendArgs...)
-	base.mu.Unlock()
+		close(backend.release)
 
-	require.NotEmpty(t, args, "at least one /clear must have run")
+		wg.Wait()
 
-	for i, a := range args {
-		assert.Equal(t, "/clear", a.Content,
-			"expected /clear at index %d, got %q", i, a.Content)
-	}
+		// All callers must succeed (singleflight shares the result).
+		for i, e := range errs {
+			require.NoError(t, e, "goroutine %d got unexpected error", i)
+		}
+
+		// Exactly one divider row should be in the transcript - singleflight
+		// deduplicates concurrent calls so only one tx commits.
+		msgs, err := store.ListMessagesTail(ctx, sess.ID, 100)
+		require.NoError(t, err)
+
+		var dividerCount int
+
+		for _, m := range msgs {
+			if m.Kind == chat.EventKindDivider {
+				dividerCount++
+			}
+		}
+
+		require.Equal(t, 1, dividerCount,
+			"singleflight must deduplicate concurrent clears to exactly one divider row")
+
+		// Every backend send that did run must be a /clear control message.
+		base.mu.Lock()
+		args := append([]sendArg(nil), base.sendArgs...)
+		base.mu.Unlock()
+
+		require.NotEmpty(t, args, "at least one /clear must have run")
+
+		for i, a := range args {
+			assert.Equal(t, "/clear", a.Content,
+				"expected /clear at index %d, got %q", i, a.Content)
+		}
+	})
 }
 
 // TestClearContext_DividerFailureLeavesTranscriptClean verifies that when
