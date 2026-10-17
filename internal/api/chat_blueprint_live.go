@@ -75,21 +75,19 @@ func newBlueprintLive(up *architectUpstream, hub *chat.SSEHub) *blueprintLive {
 	}
 }
 
-// join counts a subscriber in and starts the session's upstream if none runs.
+// join counts a subscriber in and starts the session's upstream if none
+// runs or the last one stopped on 404.
 func (b *blueprintLive) join(sessionID string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	r := b.relays[sessionID]
 	if r == nil {
-		// The relay outlives the request that started it; leave and the
-		// linger end it.
-		ctx, cancel := context.WithCancel(context.Background())
-		b.epoch++
-		r = &liveRelay{cancel: cancel}
+		r = &liveRelay{}
 		b.relays[sessionID] = r
-
-		go b.run(ctx, sessionID, b.epoch, r)
+		b.startLocked(sessionID, r)
+	} else if r.stopped {
+		b.startLocked(sessionID, r)
 	}
 
 	if r.linger != nil {
@@ -98,6 +96,21 @@ func (b *blueprintLive) join(sessionID string) {
 	}
 
 	r.refs++
+}
+
+// startLocked runs r's upstream under a fresh context; the caller holds b.mu.
+// The relay outlives the request that started it; leave and the linger end it.
+func (b *blueprintLive) startLocked(sessionID string, r *liveRelay) {
+	if r.cancel != nil {
+		r.cancel()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	b.epoch++
+	r.cancel = cancel
+	r.stopped = false
+
+	go b.run(ctx, sessionID, b.epoch, r)
 }
 
 // leave counts a subscriber out; after the last one the upstream closes once
@@ -132,12 +145,7 @@ func (b *blueprintLive) retry(sessionID string) {
 		return
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	b.epoch++
-	r.cancel = cancel
-	r.stopped = false
-
-	go b.run(ctx, sessionID, b.epoch, r)
+	b.startLocked(sessionID, r)
 }
 
 func (b *blueprintLive) expire(sessionID string, r *liveRelay, gen uint64) {
@@ -235,7 +243,8 @@ func (b *blueprintLive) stream(ctx context.Context, sessionID string, epoch uint
 
 	err = readLiveFrames(resp.Body, func(frame string) { b.publish(sessionID, epoch, frame) },
 		func() { idle.Reset(b.idleTimeout) })
-	if err == nil && sctx.Err() != nil && ctx.Err() == nil {
+
+	if sctx.Err() != nil && ctx.Err() == nil {
 		return errors.New("architect live: no data within the idle timeout")
 	}
 

@@ -291,8 +291,8 @@ func (h *SSEHub) PublishSessionUpdate(sessionID string, u SessionUpdate) {
 }
 
 // Subscribe returns a channel for live events and the replay slice of buffered
-// events with Seq > sinceSeq, followed by the cached blueprint frames. The returned channel must be passed back to
-// Unsubscribe to release resources.
+// events with Seq > sinceSeq, followed by the cached blueprint frames. The
+// returned channel must be passed back to Unsubscribe to release resources.
 //
 // Returns an error if the per-session subscriber count would exceed
 // maxSubscribersPerSession. This caps memory and goroutine growth from leaky

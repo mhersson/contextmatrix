@@ -449,7 +449,7 @@ func TestBlueprintLive_SilentUpstreamReconnects(t *testing.T) {
 
 	a, _ := openChatStream(t, url, id)
 	assert.JSONEq(t, liveSnap, nextBlueprint(t, a))
-	assert.Eventually(t, func() bool { return u.openedCount() == 2 }, 3*time.Second, 10*time.Millisecond)
+	assert.Eventually(t, func() bool { return u.openedCount() >= 2 }, 3*time.Second, 10*time.Millisecond)
 }
 
 func TestBlueprintLive_StaleLingerTimerKeepsTheUpstream(t *testing.T) {
@@ -507,4 +507,92 @@ func TestNextLiveDelay(t *testing.T) {
 	wait, next := nextLiveDelay(ceiling, healthy, base, ceiling, healthy)
 	assert.Equal(t, base, wait, "a healthy stream starts the schedule over")
 	assert.Equal(t, 2*base, next)
+}
+
+func (b *blueprintLive) relayStopped(sessionID string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	r := b.relays[sessionID]
+
+	return r != nil && r.stopped
+}
+
+func TestBlueprintLive_StoppedRelayRestartsWhenABrowserReturns(t *testing.T) {
+	u := newLiveUpstream(nil, []string{liveSnap})
+	u.status = []int{http.StatusNotFound, 0}
+
+	var live *blueprintLive
+
+	url, id, _, _ := liveFixture(t, u, func(o *fixtureOpts) {
+		o.liveLinger = 2 * time.Second
+		o.onLive = func(l *blueprintLive) { live = l }
+	})
+
+	_, cancelA := openChatStream(t, url, id)
+
+	assert.Eventually(t, func() bool { return u.openedCount() == 1 && live.relayStopped(id) }, 2*time.Second, 10*time.Millisecond)
+
+	cancelA()
+
+	b, _ := openChatStream(t, url, id)
+	assert.Eventually(t, func() bool { return u.openedCount() == 2 }, 2*time.Second, 10*time.Millisecond)
+	assert.JSONEq(t, liveSnap, nextBlueprint(t, b))
+}
+
+func TestBlueprintLive_ClosedRelayLeavesNoStaleSnapshot(t *testing.T) {
+	u := newLiveUpstream([]string{liveSnap}, nil)
+	u.status = []int{0, http.StatusInternalServerError}
+
+	var live *blueprintLive
+
+	url, id, _, _ := liveFixture(t, u, func(o *fixtureOpts) { o.onLive = func(l *blueprintLive) { live = l } })
+
+	a, cancelA := openChatStream(t, url, id)
+	assert.JSONEq(t, liveSnap, nextBlueprint(t, a))
+	cancelA()
+
+	assert.Eventually(t, func() bool { return live.relayCount() == 0 }, 2*time.Second, 10*time.Millisecond)
+
+	b, _ := openChatStream(t, url, id)
+	got := make(chan string, 1)
+
+	go func() {
+		for {
+			line, err := b.ReadString('\n')
+			if err != nil {
+				return
+			}
+
+			if strings.Contains(line, `"kind":"blueprint"`) {
+				got <- line
+
+				return
+			}
+		}
+	}()
+
+	select {
+	case line := <-got:
+		t.Fatalf("a closed relay's snapshot reached a new subscriber: %s", line)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+func TestBlueprintLive_ActiveUpstreamIsNotCutIdle(t *testing.T) {
+	u := newLiveUpstream([]string{liveSnap})
+	url, id, _, _ := liveFixture(t, u, func(o *fixtureOpts) {
+		o.onLive = func(l *blueprintLive) { l.idleTimeout = 100 * time.Millisecond }
+	})
+
+	a, _ := openChatStream(t, url, id)
+	assert.JSONEq(t, liveSnap, nextBlueprint(t, a))
+
+	for range 16 {
+		pushFrame(t, u, liveD1)
+		nextBlueprint(t, a)
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	assert.Equal(t, 1, u.openedCount(), "frames within the idle timeout keep the stream")
 }

@@ -291,9 +291,11 @@ Developer traps in this codebase. Each entry names the code it describes.
   session has 32 live subscribers (`maxSubscribersPerSession` in
   `internal/chat/sse.go`). The replay ring is 128 events per session
   (`chat.NewSSEHub(128)` in `cmd/contextmatrix/wire_chat.go`); reconnects past
-  the window rely on the REST bootstrap in `useChatStream`. Only `message`
-  events enter the ring; `session_updated` events are not stored because
-  session metadata is re-fetched on reconnect.
+  the window rely on the REST bootstrap in `useChatStream`. Only persisted
+  transcript events enter the ring; `session_updated` events are not stored
+  because session metadata is re-fetched on reconnect, and `blueprint` frames
+  ride the message wire but are kept apart (latest snapshot plus drafts,
+  replayed after the ring).
 - **Op-store schema has no migration ledger.** `ensureSchema` in
   `internal/opstore/sqlite/schema.go` runs idempotent
   `CREATE TABLE IF NOT EXISTS` DDL for `model_blacklist`, `chat_sessions`,

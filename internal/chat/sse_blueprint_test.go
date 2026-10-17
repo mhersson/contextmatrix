@@ -80,7 +80,7 @@ func TestBlueprintFrames_ReachEverySubscriberAndStayOutOfTheRing(t *testing.T) {
 		require.NotEmpty(t, got)
 		last := got[len(got)-1]
 		assert.Equal(t, chat.EventKindBlueprint, last.DataKind)
-		assert.JSONEq(t, snap1, last.Content, "the frame is relayed verbatim")
+		assert.Equal(t, []string{snap1}, []string{last.Content}, "the frame is relayed verbatim")
 		assert.Zero(t, last.Seq)
 	}
 
@@ -166,7 +166,7 @@ func TestBlueprintCache_DraftOverflowKeepsTheSnapshot(t *testing.T) {
 
 	got := contents(drain(ch), chat.EventKindBlueprint)
 	require.GreaterOrEqual(t, len(got), 2)
-	assert.JSONEq(t, snap1, got[0])
+	assert.Equal(t, []string{snap1}, got[:1])
 	assert.Equal(t, big, got[1], "live subscribers still get drafts the cache dropped")
 }
 
