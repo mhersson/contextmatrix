@@ -61,6 +61,8 @@ POST   /api/chats/{id}/clear                           # clear worker context + 
 POST   /api/chats/{id}/messages                        # send a user message into the active container
 GET    /api/chats/{id}/messages                        ?since_seq=|tail=1|before_seq=&limit=  # transcript pages
 GET    /api/chats/{id}/stream                          ?since_seq=           # SSE stream of new entries
+GET    /api/chats/{id}/blueprint                       # blueprint view, read from the architect (architect sessions only)
+GET    /api/chats/{id}/blueprint/artifacts/{stage}/{version}  # one artifact version, read from the architect
 
 POST   /api/sync                                       ?repo=                # trigger git sync
 GET    /api/sync                                       # sync status per boards repo
@@ -2649,6 +2651,34 @@ Two event kinds share the wire:
   leaves; `active/warm-idle → cold` on `/end` or the idle reaper
   (`chat.idle_ttl`; blueprints are exempt from the reaper). Clients should
   refetch `GET /api/chats` on a `status` change.
+
+### GET /api/chats/{id}/blueprint
+
+The blueprint view of an `architect` session: stage pipeline, current run,
+open prompt, cost and artifact index. CM reads it from the architect's signed
+`GET /blueprints/{id}` (the blueprint id is the session id) and relays the
+body unchanged as `application/json`; the architect owns the shape
+(`protocol.BlueprintView`). The session's status does not matter, so an ended
+blueprint stays readable while the architect holds it.
+
+### GET /api/chats/{id}/blueprint/artifacts/{stage}/{version}
+
+One artifact version (`protocol.BlueprintArtifact`: body, data, check
+problems), read from the architect's
+`GET /blueprints/{id}/artifacts/{stage}/{version}` the same way. `stage` is a
+stage id of letters, digits, `_` and `-`, at most 64 characters (for example
+`solution_design`, `signoff` or `emission`); `version` is a positive integer.
+
+Both routes answer:
+
+| Status | Code                    | Meaning                                                                                                    |
+| ------ | ----------------------- | ---------------------------------------------------------------------------------------------------------- |
+| 200    | -                       | The architect's body                                                                                       |
+| 400    | `BAD_REQUEST`           | Malformed `stage` or `version`; nothing is sent to the architect                                           |
+| 404    | `CHAT_NOT_FOUND`        | Unknown session, or another user's session in `multi` mode                                                 |
+| 404    | `BLUEPRINT_NOT_FOUND`   | Not an `architect` session, or the architect answered 404 (an architect without these routes, an unknown blueprint or artifact) |
+| 409    | `CHAT_KIND_UNAVAILABLE` | No architect backend is configured                                                                         |
+| 502    | `BACKEND_UNAVAILABLE`   | The architect is unreachable, did not answer within 30 seconds, or answered with another error            |
 
 ## Image Endpoints
 

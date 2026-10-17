@@ -480,6 +480,18 @@ own restart; frames the architect publishes in between are kept and replayed. Th
 session row is gone, cold or no longer an architect session. Chat sessions do
 not take these paths.
 
+CM also reads blueprints for the web UI's blueprint pane, through
+`GET /api/chats/{id}/blueprint` and
+`GET /api/chats/{id}/blueprint/artifacts/{stage}/{version}` (see
+[api-reference.md](api-reference.md#get-apichatsidblueprint)): signed GETs of
+the architect's `/blueprints/{id}` and
+`/blueprints/{id}/artifacts/{stage}/{version}`. Every request carries a random
+`nonce` query parameter, so two reads of one path in the same second sign
+differently and both pass the architect's replay cache; the architect ignores
+the parameter. CM relays a 200 body unchanged, answers an upstream 404 with
+`BLUEPRINT_NOT_FOUND`, and any other failure, or a read not answered within 30
+seconds, with 502.
+
 ### Task/chat backend → CM: log stream
 
 #### GET {backend_url}/logs

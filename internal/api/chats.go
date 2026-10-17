@@ -106,6 +106,9 @@ type chatHandlers struct {
 	// the agent backend (best-effort: a read failure serves the list
 	// without flags). nil omits the field entirely.
 	blacklist blacklistReader
+	// architect signs the blueprint proxy reads; nil when no architect
+	// backend is configured.
+	architect *architectUpstream
 }
 
 func newChatHandlers(mgr *chat.Manager, hub *chat.SSEHub, chatBackendCfg *config.ChatBackendConfig) *chatHandlers {

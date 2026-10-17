@@ -703,6 +703,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 		chh.validateModel = cfg.ValidateChatModel
 
+		if architectBackendConfigured {
+			chh.architect = newArchitectUpstream(cfg.ArchitectBackendCfg.URL, cfg.ArchitectBackendCfg.APIKey)
+		}
+
 		mux.HandleFunc("GET /api/chats", chh.listChats)
 		mux.HandleFunc("POST /api/chats", chh.createChat)
 		mux.HandleFunc("GET /api/chats/{id}", chh.getChat)
@@ -714,6 +718,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("POST /api/chats/{id}/messages", chh.sendMessage)
 		mux.HandleFunc("GET /api/chats/{id}/messages", chh.listMessages)
 		mux.HandleFunc("GET /api/chats/{id}/stream", chh.streamChat)
+		mux.HandleFunc("GET /api/chats/{id}/blueprint", chh.getBlueprint)
+		mux.HandleFunc("GET /api/chats/{id}/blueprint/artifacts/{stage}/{version}", chh.getBlueprintArtifact)
 		mux.HandleFunc("GET /api/chats/models", chh.listModels)
 	}
 

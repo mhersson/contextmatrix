@@ -77,6 +77,9 @@ type fixtureOpts struct {
 	// architectBackendCfg, when non-nil, wires an architect stub backend and
 	// its default model into the manager, so kind=architect creates succeed.
 	architectBackendCfg *config.ArchitectBackendConfig
+	// architectReadTimeout, when non-zero, replaces the blueprint read
+	// timeout on the wired architect client.
+	architectReadTimeout time.Duration
 }
 
 // defaultFixtureOpts is the no-backend topology: no chat backend configured
@@ -163,6 +166,13 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 		chh.validateModel = opts.validateModel
 	}
 
+	if opts.architectBackendCfg != nil && opts.architectBackendCfg.URL != "" {
+		chh.architect = newArchitectUpstream(opts.architectBackendCfg.URL, opts.architectBackendCfg.APIKey)
+		if opts.architectReadTimeout > 0 {
+			chh.architect.readTimeout = opts.architectReadTimeout
+		}
+	}
+
 	mux.HandleFunc("GET /api/chats/models", chh.listModels)
 	mux.HandleFunc("GET /api/chats", chh.listChats)
 	mux.HandleFunc("POST /api/chats", chh.createChat)
@@ -175,6 +185,8 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 	mux.HandleFunc("POST /api/chats/{id}/messages", chh.sendMessage)
 	mux.HandleFunc("GET /api/chats/{id}/messages", chh.listMessages)
 	mux.HandleFunc("GET /api/chats/{id}/stream", chh.streamChat)
+	mux.HandleFunc("GET /api/chats/{id}/blueprint", chh.getBlueprint)
+	mux.HandleFunc("GET /api/chats/{id}/blueprint/artifacts/{stage}/{version}", chh.getBlueprintArtifact)
 
 	return mux, mgr, backend
 }
