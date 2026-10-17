@@ -5647,6 +5647,127 @@ func TestManager_Consumer_OversizedPromptTextKeepsTheEnvelopeValid(t *testing.T)
 	assert.Equal(t, *gate, env.Prompt, "every action survives")
 }
 
+type markerEnvelope struct {
+	Text   string             `json:"text"`
+	Marker protocol.LogMarker `json:"marker"`
+}
+
+func TestManager_Consumer_MarkerRows(t *testing.T) {
+	divider := &protocol.LogMarker{Kind: "stage", Stage: "solution_design", Persona: "System designer"}
+	sheet := &protocol.LogMarker{Kind: "artifact", Stage: "solution_design", Persona: "System designer", Version: 2, Note: "Revised for the 3 findings"}
+	longNote := &protocol.LogMarker{Kind: "artifact", Stage: "need", Persona: "Analyst", Version: 1, Note: strings.Repeat("é<", 12000)}
+	hugeStage := &protocol.LogMarker{Kind: "stage", Stage: strings.Repeat("s", 40*1024)}
+	gate := &protocol.LogPrompt{ID: "gate:solution_design:v2", Actions: []protocol.LogAction{{Label: "Approve", Reply: "approve"}}}
+
+	tests := []struct {
+		name     string
+		kind     chat.SessionKind
+		entry    chat.LogEntry
+		wantKind string
+		wantRole chat.Role
+	}{
+		{"stage divider", chat.KindArchitect, chat.LogEntry{Type: "system", Content: "Design: System designer", Marker: divider}, chat.EventKindMarker, chat.RoleSystem},
+		{"sheet reference", chat.KindArchitect, chat.LogEntry{Type: "text", Content: "Design rev 2", Marker: sheet}, chat.EventKindMarker, chat.RoleAssistantText},
+		{"marker beats a prompt on the same frame", chat.KindArchitect, chat.LogEntry{Type: "text", Content: "Design rev 2", Marker: sheet, Prompt: gate}, chat.EventKindMarker, chat.RoleAssistantText},
+		{"long note is cut, the marker stays", chat.KindArchitect, chat.LogEntry{Type: "text", Content: "Need rev 1", Marker: longNote}, chat.EventKindMarker, chat.RoleAssistantText},
+		{"architect frame without a marker", chat.KindArchitect, chat.LogEntry{Type: "system", Content: "Design: System designer"}, "", chat.RoleSystem},
+		{"chat session ignores the marker", chat.KindChat, chat.LogEntry{Type: "system", Content: "Design: System designer", Marker: divider}, "", chat.RoleSystem},
+		{"marker whose stage alone overflows the row", chat.KindArchitect, chat.LogEntry{Type: "system", Content: "Design", Marker: hugeStage}, "", chat.RoleSystem},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hub := chat.NewSSEHub(128)
+			mgr, chatStub, arch := newManagerWithArchitectStub(t, func(c *chat.Config) { c.Hub = hub })
+
+			in := chat.CreateInput{Kind: tt.kind, CreatedBy: "human:web"}
+			stub := chatStub
+
+			if tt.kind == chat.KindArchitect {
+				in.Projects = []string{"alpha"}
+				stub = arch
+			} else {
+				in.Project = "alpha"
+			}
+
+			stub.streamLogsFn = streamEntries(tt.entry)
+
+			ctx := context.Background()
+
+			sess, err := mgr.CreateSession(ctx, in)
+			require.NoError(t, err)
+
+			ch, _, err := hub.Subscribe(sess.ID, 0)
+			require.NoError(t, err)
+			t.Cleanup(func() { hub.Unsubscribe(sess.ID, ch) })
+
+			_, err = mgr.OpenSession(ctx, sess.ID)
+			require.NoError(t, err)
+
+			ev := nextMessageEvent(t, ch)
+			assert.Equal(t, tt.wantKind, ev.DataKind)
+			assert.Equal(t, tt.wantRole, ev.Role)
+
+			msgs, err := mgr.ListMessages(ctx, sess.ID, 0, 10)
+			require.NoError(t, err)
+			require.Len(t, msgs, 1)
+			assert.Equal(t, ev.Content, msgs[0].Content, "a reload sees what the live wire carried")
+			assert.Equal(t, ev.DataKind, msgs[0].Kind)
+
+			late, replay, err := hub.Subscribe(sess.ID, 0)
+			require.NoError(t, err)
+			t.Cleanup(func() { hub.Unsubscribe(sess.ID, late) })
+			require.Len(t, replay, 1)
+			assert.Equal(t, ev.DataKind, replay[0].DataKind, "a reconnect replays the same row")
+			assert.Equal(t, ev.Content, replay[0].Content, "a reconnect replays the same row")
+
+			if tt.wantKind == "" {
+				assert.Equal(t, tt.entry.Content, ev.Content, "stored as the plain message")
+
+				return
+			}
+
+			assert.LessOrEqual(t, len(ev.Content), 32*1024)
+			assert.True(t, utf8.ValidString(ev.Content))
+
+			var env markerEnvelope
+			require.NoError(t, json.Unmarshal([]byte(ev.Content), &env))
+			assert.Equal(t, tt.entry.Marker.Kind, env.Marker.Kind)
+			assert.Equal(t, tt.entry.Marker.Stage, env.Marker.Stage)
+			assert.Equal(t, tt.entry.Marker.Persona, env.Marker.Persona)
+			assert.Equal(t, tt.entry.Marker.Version, env.Marker.Version)
+
+			if len(tt.entry.Marker.Note) < 1024 {
+				assert.Equal(t, tt.entry.Content, env.Text)
+				assert.Equal(t, tt.entry.Marker.Note, env.Marker.Note)
+			} else {
+				assert.Equal(t, "\n... [truncated]", env.Text, "the fallback line is cut to its minimum before the note")
+				assert.True(t, strings.HasSuffix(env.Marker.Note, "\n... [truncated]"))
+				assert.Greater(t, len(env.Marker.Note), 1024, "the note keeps as much as fits")
+				assert.Equal(t, strings.Repeat("é<", 12000), longNote.Note, "the caller's marker is not mutated")
+			}
+		})
+	}
+}
+
+func TestManager_Consumer_OversizedMarkerContentIsCutBeforeTheMarker(t *testing.T) {
+	mk := &protocol.LogMarker{Kind: "artifact", Stage: "solution_design", Persona: "System designer", Version: 3, Note: "Revised for the 2 findings"}
+	// Multibyte runes and characters JSON escapes, so the cut must respect both.
+	text := strings.Repeat("é<\n", 15000)
+
+	msg := storedArchitectRow(t, chat.LogEntry{Type: "text", Content: text, Marker: mk})
+
+	assert.Equal(t, chat.EventKindMarker, msg.Kind, "stays a marker row")
+	assert.LessOrEqual(t, len(msg.Content), 32*1024)
+	assert.True(t, utf8.ValidString(msg.Content))
+
+	var env markerEnvelope
+	require.NoError(t, json.Unmarshal([]byte(msg.Content), &env), "the stored envelope parses")
+	assert.Equal(t, *mk, env.Marker, "the marker is kept whole")
+	assert.True(t, strings.HasSuffix(env.Text, "\n... [truncated]"))
+	assert.True(t, strings.HasPrefix(text, env.Text[:1024]), "cut at its end, not replaced")
+}
+
 // frameStream returns a StreamLogs func that hands each frame sent on frames
 // to the consumer, one at a time.
 func frameStream(frames <-chan chat.LogEntry) func(context.Context, string, func(chat.LogEntry)) error {

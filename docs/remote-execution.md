@@ -559,6 +559,19 @@ cutting `content` first and `prompt.text` only if it alone overflows the
 32 KiB row cap. On any other session, and in task session logs, the field is
 ignored.
 
+`marker` turns an architect frame into a transcript marker, for example
+`{"kind": "artifact", "stage": "solution_design", "persona": "System
+designer", "version": 2, "note": "Revised for the 3 findings"}`. `kind` is
+`stage` for a stage divider (sent on a `system` frame) or `artifact` for a
+sheet reference (sent on a `text` frame); `persona`, `version` and `note` are
+optional, and `content` stays a plain fallback line. Only the architect sets
+`marker`. CM stores such a frame on an architect session as a `kind:
+"marker"` row with the frame's role, whose content is a `{"text", "marker"}`
+JSON envelope, cutting `content` first and `marker.note` only if the marker
+alone overflows the 32 KiB row cap; a frame that carries both `marker` and
+`prompt` is stored as a marker. On any other session, and in task session
+logs, the field is ignored.
+
 The backend redacts credential patterns before publishing and sends keepalive
 comments to hold the connection open through proxy idle timeouts.
 

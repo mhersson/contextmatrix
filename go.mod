@@ -6,7 +6,7 @@ require (
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
-	github.com/mhersson/contextmatrix-protocol v0.25.0
+	github.com/mhersson/contextmatrix-protocol v0.26.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.3

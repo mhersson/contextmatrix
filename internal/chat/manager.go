@@ -732,7 +732,17 @@ func (m *Manager) startConsumer(sessionID string, restart bool) {
 
 			content, dataKind := e.Content, ""
 
-			if kind == KindArchitect && e.Type == "text" && e.Prompt != nil {
+			// A marker is checked first, so a marker frame never becomes a prompt row.
+			switch {
+			case kind == KindArchitect && e.Marker != nil:
+				env, err := markerContent(e.Content, e.Marker)
+				if err == nil {
+					content, dataKind = env, EventKindMarker
+				} else {
+					m.logger.Warn("chat: architect marker stored as plain text",
+						"session_id", sessionID, "error", err)
+				}
+			case kind == KindArchitect && e.Type == "text" && e.Prompt != nil:
 				env, err := promptContent(e.Content, e.Prompt)
 				if err == nil {
 					content, dataKind = env, EventKindPrompt

@@ -2604,12 +2604,16 @@ exactly while the oldest loaded seq is `> 1`.
 
 `role` is `user`, `assistant_text`, `assistant_thinking`, `tool_call`,
 `tool_result`, `stderr`, or `system`. `kind` (`"divider"` for the Clear
-Context row, `"prompt"` for an architect question or gate) and
-`rehydration_phase` appear only when set. `content` is the raw text, except on
-a `prompt` row, where it is the JSON envelope `{"text": "<message>", "prompt":
-{"id": "...", "kind": "question", "text": "...", "free_text": true,
-"actions": [{"label": "...", "reply": "...", "feedback": true, "recommended":
-true}]}}`. `kind`, `text` and `recommended` are optional.
+Context row, `"prompt"` for an architect question or gate, `"marker"` for an
+architect stage divider or sheet reference) and `rehydration_phase` appear
+only when set. `content` is the raw text, except on a `prompt` row, where it
+is the JSON envelope `{"text": "<message>", "prompt": {"id": "...", "kind":
+"question", "text": "...", "free_text": true, "actions": [{"label": "...",
+"reply": "...", "feedback": true, "recommended": true}]}}` (`kind`, `text` and
+`recommended` are optional), and on a `marker` row, where it is `{"text":
+"<fallback line>", "marker": {"kind": "artifact", "stage": "solution_design",
+"persona": "System designer", "version": 2, "note": "..."}}` (`kind` is
+`stage` or `artifact`; `persona`, `version` and `note` are optional).
 Empty transcripts return `{"messages": []}`; unknown session is 404.
 
 The browser fetches the newest page with `tail=1`, subscribes to
@@ -2685,14 +2689,14 @@ connection is exempt from the server write timeout.
 
 These three routes answer (the live route answers before any stream starts):
 
-| Status | Code                    | Meaning                                                                                                    |
-| ------ | ----------------------- | ---------------------------------------------------------------------------------------------------------- |
-| 200    | -                       | The architect's body                                                                                       |
-| 400    | `BAD_REQUEST`           | Malformed `stage` or `version`; nothing is sent to the architect                                           |
-| 404    | `CHAT_NOT_FOUND`        | Unknown session, or another user's session in `multi` mode                                                 |
+| Status | Code                    | Meaning                                                                                                                         |
+| ------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| 200    | -                       | The architect's body                                                                                                            |
+| 400    | `BAD_REQUEST`           | Malformed `stage` or `version`; nothing is sent to the architect                                                                |
+| 404    | `CHAT_NOT_FOUND`        | Unknown session, or another user's session in `multi` mode                                                                      |
 | 404    | `BLUEPRINT_NOT_FOUND`   | Not an `architect` session, or the architect answered 404 (an architect without these routes, an unknown blueprint or artifact) |
-| 409    | `CHAT_KIND_UNAVAILABLE` | No architect backend is configured                                                                         |
-| 502    | `BACKEND_UNAVAILABLE`   | The architect is unreachable, did not answer a view or artifact read within 30 seconds, or answered with another error            |
+| 409    | `CHAT_KIND_UNAVAILABLE` | No architect backend is configured                                                                                              |
+| 502    | `BACKEND_UNAVAILABLE`   | The architect is unreachable, did not answer a view or artifact read within 30 seconds, or answered with another error          |
 
 ## Image Endpoints
 

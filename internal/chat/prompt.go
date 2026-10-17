@@ -19,7 +19,7 @@ type promptEnvelope struct {
 	Prompt *protocol.LogPrompt `json:"prompt"`
 }
 
-var errPromptTooLarge = errors.New("prompt actions exceed the message cap")
+var errEnvelopeTooLarge = errors.New("envelope exceeds the message cap")
 
 // promptContent marshals a prompt row within maxMessageBytes. The envelope
 // text is only the fallback for a row CM renders from Prompt.Text, so it is
@@ -27,30 +27,39 @@ var errPromptTooLarge = errors.New("prompt actions exceed the message cap")
 // never the JSON, so a stored envelope always parses; the caller's prompt is
 // never modified.
 func promptContent(text string, p *protocol.LogPrompt) (string, error) {
-	env, err := marshalPrompt(text, p)
+	if p == nil {
+		return fitEnvelope(text, "", func(text, _ string) (string, error) { return marshalPrompt(text, nil) })
+	}
+
+	return fitEnvelope(text, p.Text, func(text, inner string) (string, error) {
+		cp := *p
+		cp.Text = inner
+
+		return marshalPrompt(text, &cp)
+	})
+}
+
+// fitEnvelope marshals an envelope within maxMessageBytes. It cuts the
+// fallback text first and the inner display text only if the envelope still
+// overflows with the text at its minimum.
+func fitEnvelope(text, inner string, marshal func(text, inner string) (string, error)) (string, error) {
+	env, err := marshal(text, inner)
 	if err != nil || len(env) <= maxMessageBytes {
 		return env, err
 	}
 
 	content, err := fitCut(len(text), func(n int) (string, error) {
-		return marshalPrompt(cutText(text, n), p)
+		return marshal(cutText(text, n), inner)
 	})
-	if p == nil || p.Text == "" || err == nil {
+	if inner == "" || !errors.Is(err, errEnvelopeTooLarge) {
 		return content, err
 	}
 
-	if !errors.Is(err, errPromptTooLarge) {
-		return "", err
-	}
-
-	// Content is already at its minimum: keep only the marker, or nothing if it was empty.
+	// The text is already at its minimum: keep only the truncation suffix, or nothing if it was empty.
 	minimal := cutText(text, 0)
 
-	return fitCut(len(p.Text), func(n int) (string, error) {
-		cp := *p
-		cp.Text = cutText(p.Text, n)
-
-		return marshalPrompt(minimal, &cp)
+	return fitCut(len(inner), func(n int) (string, error) {
+		return marshal(minimal, cutText(inner, n))
 	})
 }
 
@@ -80,7 +89,7 @@ func fitCut(size int, marshal func(n int) (string, error)) (string, error) {
 	}
 
 	if len(env) > maxMessageBytes {
-		return "", errPromptTooLarge
+		return "", errEnvelopeTooLarge
 	}
 
 	return env, nil

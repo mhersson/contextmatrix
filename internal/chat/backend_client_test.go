@@ -258,3 +258,26 @@ func TestBackendClient_StreamLogs_CarriesThePrompt(t *testing.T) {
 	}, *got[0].Prompt)
 	assert.Nil(t, got[1].Prompt, "a frame without a prompt carries none")
 }
+
+func TestBackendClient_StreamLogs_CarriesTheMarker(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"ts":"2026-01-02T03:04:05Z","type":"text","content":"Design rev 2",`+
+			`"marker":{"kind":"artifact","stage":"solution_design","persona":"System designer","version":2,"note":"Revised for the 3 findings"}}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"ts":"2026-01-02T03:04:06Z","type":"text","content":"plain"}`+"\n\n")
+	}))
+	t.Cleanup(srv.Close)
+
+	rc := chat.NewBackendClient(chat.BackendClientConfig{BaseURL: srv.URL, HMACKey: "k"})
+
+	var got []chat.LogEntry
+
+	require.NoError(t, rc.StreamLogs(context.Background(), "S1", func(e chat.LogEntry) { got = append(got, e) }))
+
+	require.Len(t, got, 2)
+	require.NotNil(t, got[0].Marker)
+	assert.Equal(t, protocol.LogMarker{
+		Kind: "artifact", Stage: "solution_design", Persona: "System designer", Version: 2, Note: "Revised for the 3 findings",
+	}, *got[0].Marker)
+	assert.Nil(t, got[1].Marker, "a frame without a marker carries none")
+}
