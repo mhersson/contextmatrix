@@ -1,255 +1,135 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
-import { api, isAPIError } from '../../api/client';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useProjects } from '../../hooks/useProjects';
-import { notifyChatSessionsChanged } from '../../hooks/useChatSessions';
 import { useTheme } from '../../hooks/useTheme';
-import { SessionTypePicker } from './SessionTypePicker';
+import { BlueprintFields } from './BlueprintFields';
 import { ChatModelPicker } from './ChatModelPicker';
-import { BlueprintSessionForm } from './BlueprintSessionForm';
-import { EMPTY_BLUEPRINT_DRAFT, type BlueprintDraft } from './blueprintDraft';
-import type { ChatModel } from '../../types';
+import { Field } from './Field';
+import { KindTiles } from './KindTiles';
+import { NewChatFooter } from './NewChatFooter';
+import { ProjectList } from './ProjectList';
+import { EMPTY_BLUEPRINT_FORM, createLabel, disabledReason, type BlueprintForm } from './blueprintForm';
+import { useChatModelChoice, type ChatModelChoice } from './useChatModelChoice';
+import { useCreateSession } from './useCreateSession';
 
 interface NewChatDialogProps {
   open: boolean;
   onClose: () => void;
 }
 
+// The model pick lives out here so it persists between opens; the body
+// remounts on every open, so everything else starts fresh.
 export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
-  const navigate = useNavigate();
+  const models = useChatModelChoice();
+  if (!open) return null;
+  return <NewChatDialogBody onClose={onClose} models={models} />;
+}
+
+function NewChatDialogBody({ onClose, models }: { onClose: () => void; models: ChatModelChoice }) {
   const { projects } = useProjects();
   const { architectEnabled } = useTheme();
   const [blueprint, setBlueprint] = useState(false);
-  const [draft, setDraft] = useState<BlueprintDraft>(EMPTY_BLUEPRINT_DRAFT);
+  const [form, setForm] = useState<BlueprintForm>(EMPTY_BLUEPRINT_FORM);
   const [title, setTitle] = useState('');
   const [project, setProject] = useState('');
-  const [model, setModel] = useState('');
-  const [models, setModels] = useState<ChatModel[]>([]);
-  const [defaultModel, setDefaultModel] = useState('');
-  const [modelSource, setModelSource] = useState<'openrouter' | 'endpoint'>('endpoint');
-  const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
+  const { create, creating, error } = useCreateSession(onClose);
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
-  const titleId = useId();
+  const headingId = useId();
+  const titleFieldId = useId();
 
-  useFocusTrap(dialogRef, open, titleInputRef);
+  useFocusTrap(dialogRef, true, titleInputRef);
 
-  // Escape key closes dialog
   useEffect(() => {
-    if (!open) return;
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose();
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open, onClose]);
+  }, [onClose]);
 
-  // Fetch the available models once on mount. Failures are non-fatal -
-  // we fall back to an empty list, the picker disappears, and the create
-  // POST omits the model field (the server applies its default).
-  //
-  // On success, seed `model` to the server default IF the user hasn't
-  // already picked something. Without this seed the state lags the
-  // visually-selected first option in the dropdown and submitting without
-  // touching the picker would send `model: undefined` (i.e. the user's
-  // "selection" silently degraded to "server default").
-  useEffect(() => {
-    let cancelled = false;
-    void api
-      .listChatModels()
-      .then((resp) => {
-        if (cancelled) return;
-        setModels(resp.models);
-        setDefaultModel(resp.default);
-        setModelSource(resp.source ?? 'endpoint');
-        setModel((cur) => cur || resp.default);
-      })
-      .catch((e) => {
-        console.warn('listChatModels failed; picker disabled', e);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const reason = disabledReason(blueprint, form);
+  const canCreate = !creating && reason === null;
 
-  // Reset form state when the dialog opens. Uses the in-render reset
-  // pattern (web/AGENTS.md § CardPanel) so the reset is synchronous with
-  // the prop change and the React 19 lint rule (no setState in effects)
-  // stays happy. We intentionally DO NOT reset `model` here - the user's
-  // last selection persists across dialog open/close cycles, and the
-  // initial value comes from the listChatModels useEffect above.
-  const [prevOpen, setPrevOpen] = useState(open);
-  if (open !== prevOpen) {
-    setPrevOpen(open);
-    if (open) {
-      setTitle('');
-      setProject('');
-      setBlueprint(false);
-      setDraft(EMPTY_BLUEPRINT_DRAFT);
-      setError(null);
-    }
-  }
-
-  if (!open) return null;
-
-  const canCreate = !creating && (!blueprint || draft.projects.length > 0);
-
-  const handleCreate = async () => {
-    setCreating(true);
-    setError(null);
-    try {
-      const cap = draft.costCapUSD.trim() === '' ? undefined : Number(draft.costCapUSD);
-      const sess = await api.createChat(
-        blueprint
-          ? {
-              title: title.trim() || undefined,
-              kind: 'architect',
-              projects: draft.projects,
-              mode: draft.mode,
-              cost_cap_usd: cap,
-            }
-          : {
-              title: title.trim() || undefined,
-              project: project || undefined,
-              model: model || undefined,
-            },
-      );
-      // Tell any mounted sidebar to refresh its list before we navigate -
-      // otherwise the user lands on the new chat but the sidebar still
-      // shows the old set until a manual refresh.
-      notifyChatSessionsChanged();
-      // Kick the worker so the container is spawning by the time the user
-      // lands on the chat thread. Failure is non-fatal: the session row
-      // exists, and the user can retry via the Reopen button on the cold
-      // status header.
-      try {
-        await api.openChat(sess.id);
-      } catch (openErr) {
-        console.warn('openChat failed; user can Reopen manually', openErr);
-      }
-      // Second notify so the sidebar status flips from cold → active once
-      // the worker is warm (the first notify above fired before openChat
-      // returned, so its result reflected the still-cold session).
-      notifyChatSessionsChanged();
-      onClose();
-      navigate(`/chat/${sess.id}`);
-    } catch (e) {
-      setError(isAPIError(e) ? e.error : 'Failed to create chat');
-    } finally {
-      setCreating(false);
-    }
+  const submit = () => {
+    if (!canCreate) return;
+    const name = title.trim() || undefined;
+    void create(
+      blueprint
+        ? {
+            title: name,
+            kind: 'architect',
+            projects: form.projects,
+            mode: form.mode,
+            cost_cap_usd: form.capUSD > 0 ? form.capUSD : undefined,
+          }
+        : { title: name, project: project || undefined, model: models.model || undefined },
+    );
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/50"
-        aria-hidden="true"
-        onClick={onClose}
-      />
-
-      {/* Dialog panel */}
+      <div className="nd-scrim absolute inset-0" aria-hidden="true" onClick={onClose} />
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={titleId}
-        className="relative z-10 w-full max-w-md rounded-lg shadow-lg mx-4 p-5 border"
-        style={{ backgroundColor: 'var(--bg1)', borderColor: 'var(--bg3)' }}
-        onClick={(e) => e.stopPropagation()}
+        aria-labelledby={headingId}
+        className={`nd-dialog${blueprint ? ' nd-dialog--blueprint' : ''}`}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            submit();
+          }
+        }}
       >
-        <h2
-          id={titleId}
-          className="text-sm font-semibold mb-4"
-          style={{ color: 'var(--fg)' }}
-        >
-          {blueprint ? 'New blueprint' : 'New chat'}
-        </h2>
-
-        <label
-          className="block text-xs mb-1"
-          style={{ color: 'var(--grey2)' }}
-        >
-          Title <span style={{ color: 'var(--grey1)' }}>(optional)</span>
-        </label>
-        <input
-          ref={titleInputRef}
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && canCreate) void handleCreate();
-          }}
-          className="bf-input w-full mb-3"
-          placeholder="Auto-generated from your first message if blank"
-        />
-
-        {architectEnabled && (
-          <SessionTypePicker blueprint={blueprint} onChange={setBlueprint} />
-        )}
-
-        {blueprint ? (
-          <BlueprintSessionForm projects={projects} value={draft} onChange={setDraft} />
-        ) : (
-          <>
-          <label
-            className="block text-xs mb-1"
-            style={{ color: 'var(--grey2)' }}
-          >
-            Project <span style={{ color: 'var(--grey1)' }}>(optional)</span>
-          </label>
-          <select
-            value={project}
-            onChange={(e) => setProject(e.target.value)}
-            className="bf-input w-full mb-3"
-          >
-            <option value="">- Cross-project (no clone) -</option>
-            {projects.map((p) => (
-              <option key={p.name} value={p.name}>
-                {p.display_name ?? p.name}
-              </option>
-            ))}
-          </select>
-          </>
-        )}
-
-        {!blueprint && (
-          <ChatModelPicker
-            source={modelSource}
-            model={model}
-            defaultModel={defaultModel}
-            models={models}
-            onChange={setModel}
-          />
-        )}
-
-        {error && (
-          <div className="text-xs mb-3" style={{ color: 'var(--red)' }}>
-            {error}
-          </div>
-        )}
-
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={creating}
-            className="bf-btn-ghost bf-btn-sm"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleCreate()}
-            disabled={!canCreate}
-            className="bf-btn-primary"
-          >
-            {creating ? 'Creating…' : 'Create'}
-          </button>
+        <div className="nd-head">
+          <h2 id={headingId}>{blueprint ? 'New blueprint' : 'New chat'}</h2>
+          {architectEnabled && <KindTiles blueprint={blueprint} onChange={setBlueprint} />}
         </div>
+        <div className="nd-body">
+          <Field label="Title" hint="Optional" htmlFor={titleFieldId}>
+            <input
+              id={titleFieldId}
+              ref={titleInputRef}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) {
+                  e.preventDefault();
+                  submit();
+                }
+              }}
+              className="bf-input"
+              placeholder="Named from your first message if blank"
+            />
+          </Field>
+          {blueprint ? (
+            <BlueprintFields projects={projects} value={form} onChange={setForm} />
+          ) : (
+            <>
+              <Field label="Project" hint={project ? 'The chat gets a checkout of its repo' : 'No checkout'}>
+                <ProjectList
+                  projects={projects}
+                  multi={false}
+                  selected={[project]}
+                  onChange={(next) => setProject(next[0] ?? '')}
+                />
+              </Field>
+              <ChatModelPicker {...models} />
+            </>
+          )}
+        </div>
+        <NewChatFooter
+          reason={reason}
+          error={error}
+          creating={creating}
+          canCreate={canCreate}
+          yolo={blueprint && form.mode === 'yolo'}
+          label={createLabel(blueprint, form.mode, creating)}
+          onCancel={onClose}
+          onCreate={submit}
+        />
       </div>
     </div>
   );
