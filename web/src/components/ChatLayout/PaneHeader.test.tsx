@@ -4,6 +4,7 @@ import { PaneHeader } from './PaneHeader';
 import type { AvailableChat } from './types';
 import { setChatLiveData, clearChatLiveData } from '../../hooks/useChatLiveData';
 import { useChatModels } from '../../utils/chatModels';
+import { publishSheetButton, registerSheetToggle } from '../Blueprint/sheetButtonStore';
 
 // Mock useChatModels so PaneContextUsage can render a model label without
 // an API call. The default return covers 'endpoint' mode (model-x, 200k tokens)
@@ -279,5 +280,24 @@ describe('PaneHeader blueprint details', () => {
   it('shows no blueprint details on a chat session', () => {
     render(<PaneHeader {...baseProps} chat={activeChat()} />);
     expect(screen.queryByText(/Blueprint/)).not.toBeInTheDocument();
+  });
+});
+
+describe('PaneHeader sheet button', () => {
+  afterEach(() => publishSheetButton('chat-1', null));
+
+  it('shows a Sheet button while a phone blueprint pane publishes one', () => {
+    const toggle = vi.fn();
+    const unregister = registerSheetToggle('chat-1', toggle);
+    render(<PaneHeader {...baseProps} />);
+    expect(screen.queryByRole('button', { name: /^Sheet/ })).not.toBeInTheDocument();
+    act(() => publishSheetButton('chat-1', { open: false, hasNew: true }));
+    const button = screen.getByRole('button', { name: 'Sheet, something new' });
+    expect(button).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(button);
+    expect(toggle).toHaveBeenCalled();
+    act(() => publishSheetButton('chat-1', { open: true, hasNew: false }));
+    expect(screen.getByRole('button', { name: 'Sheet' })).toHaveAttribute('aria-pressed', 'true');
+    unregister();
   });
 });

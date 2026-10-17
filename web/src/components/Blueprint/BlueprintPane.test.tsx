@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { api } from '../../api/client';
 import { BlueprintPane } from './BlueprintPane';
 import { resetArtifactCache } from './artifactCache';
+import { toggleSheet, useSheetButton } from './sheetButtonStore';
 import type { BlueprintState } from './state';
 import { findArtifact, viewAtDesignGate } from '../../test-utils/blueprintFixtures';
 import type { LogEntry } from '../../types';
@@ -43,20 +44,21 @@ const ready = (): BlueprintState => ({ status: 'ready', view: viewAtDesignGate()
 function renderPane(state: BlueprintState, over: { phone?: boolean; logs?: LogEntry[] } = {}) {
   const onRetry = vi.fn();
   const onReply = vi.fn().mockResolvedValue(undefined);
-  render(
+  const pane = (o: { phone?: boolean; logs?: LogEntry[] }) => (
     <BlueprintPane
       chatId="S1"
       state={state}
       onRetry={onRetry}
-      logs={over.logs ?? []}
+      logs={o.logs ?? []}
       promptsLive
       onReply={onReply}
-      phone={over.phone ?? false}
+      phone={o.phone ?? false}
     >
       <div>transcript</div>
-    </BlueprintPane>,
+    </BlueprintPane>
   );
-  return { onRetry, onReply };
+  const view = render(pane(over));
+  return { onRetry, onReply, rerender: (next: { phone?: boolean; logs?: LogEntry[] }) => view.rerender(pane(next)) };
 }
 
 describe('BlueprintPane', () => {
@@ -160,5 +162,36 @@ describe('BlueprintPane', () => {
     renderPane(ready());
     fireEvent.click(screen.getByRole('button', { name: /^Open Need/ }));
     expect(await screen.findByRole('article', { name: 'Need rev 1' })).toBeInTheDocument();
+  });
+});
+
+describe('BlueprintPane on a phone', () => {
+  beforeEach(() => {
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    resetArtifactCache();
+    vi.mocked(api.getBlueprintArtifact).mockImplementation((_c, stage, version) => Promise.resolve(findArtifact(stage, version)));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  function HeaderProbe() {
+    const button = useSheetButton('S1');
+    return <span data-testid="probe">{button ? `open:${button.open}` : 'none'}</span>;
+  }
+
+  it('publishes the header button and opens a full-pane sheet from it', () => {
+    render(<HeaderProbe />);
+    renderPane(ready(), { phone: true });
+    expect(screen.getByTestId('probe')).toHaveTextContent('open:false');
+    act(() => toggleSheet('S1'));
+    expect(screen.getByRole('region', { name: 'Blueprint sheet' })).toBeInTheDocument();
+    expect(screen.getByTestId('probe')).toHaveTextContent('open:true');
+  });
+
+  it('withdraws the button off the phone layout', () => {
+    render(<HeaderProbe />);
+    const { rerender } = renderPane(ready(), { phone: true });
+    expect(screen.getByTestId('probe')).toHaveTextContent('open:false');
+    rerender({ phone: false });
+    expect(screen.getByTestId('probe')).toHaveTextContent('none');
   });
 });

@@ -3,6 +3,7 @@ import type { LogEntry } from '../../types';
 import { EdgeStrip } from './EdgeStrip';
 import { ScaleBar } from './ScaleBar';
 import { Sheet } from './Sheet';
+import { publishSheetButton, registerSheetToggle } from './sheetButtonStore';
 import { BlueprintSheetContext } from './sheetContext';
 import { gatePromptFor, resolveShown } from './sheetModel';
 import { stageText } from './stages';
@@ -44,6 +45,12 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
   const view = state.status === 'ready' ? state.view : null;
   const draft = state.status === 'ready' ? state.draft : null;
   const sheet = useSheetState(view, draft, layout ?? 'overlay');
+  const phoneButton = layout === 'phone' && (state.status === 'ready' || state.status === 'unreachable');
+  useEffect(() => {
+    publishSheetButton(chatId, phoneButton ? { open: sheet.open, hasNew: sheet.hasNew } : null);
+  }, [chatId, phoneButton, sheet.open, sheet.hasNew]);
+  useEffect(() => () => publishSheetButton(chatId, null), [chatId]);
+  useEffect(() => registerSheetToggle(chatId, sheet.toggle), [chatId, sheet.toggle]);
   const divider = useSheetDivider(bodyRef);
   const openGateId = view?.open?.kind === 'gate' ? view.open.prompt_id : undefined;
   const gatePrompt = useMemo(() => gatePromptFor(logs, promptsLive, openGateId), [logs, promptsLive, openGateId]);

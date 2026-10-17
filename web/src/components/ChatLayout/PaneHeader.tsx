@@ -3,6 +3,7 @@ import type { AvailableChat, Slot } from './types';
 import { PaneAccentStripe } from './PaneAccentStripe';
 import { useChatLiveData } from '../../hooks/useChatLiveData';
 import { useMenuDismiss } from '../../hooks/useMenuDismiss';
+import { toggleSheet, useSheetButton } from '../Blueprint/sheetButtonStore';
 import { contextPct, formatCostTooltip, modelMaxTokens, useChatModels, usageColor } from '../../utils/chatModels';
 import {
   PANE_SOURCE_MIME,
@@ -44,6 +45,7 @@ export function PaneHeader({
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRootRef = useRef<HTMLDivElement | null>(null);
+  const sheetButton = useSheetButton(chatId);
 
   useMenuDismiss(menuRootRef, menuOpen, () => setMenuOpen(false));
 
@@ -94,6 +96,23 @@ export function PaneHeader({
         </div>
       )}
       <div className="chat-pane-actions">
+        {chatId && sheetButton && (
+          <button
+            type="button"
+            className={`chat-pane-btn chat-pane-sheet-btn${sheetButton.open ? ' chat-pane-sheet-btn--on' : ''}`}
+            draggable={false}
+            onDragStart={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleSheet(chatId);
+            }}
+            aria-pressed={sheetButton.open}
+            aria-label={sheetButton.hasNew && !sheetButton.open ? 'Sheet, something new' : 'Sheet'}
+          >
+            Sheet
+            {sheetButton.hasNew && !sheetButton.open && <i className="chat-pane-sheet-dot" aria-hidden="true" />}
+          </button>
+        )}
         {showSplit && chatId && (
           <button
             type="button"

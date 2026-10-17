@@ -7625,3 +7625,22 @@ button.bp-seg-hit {
     animation: none;
   }
 }
+
+/* Phone blueprint pane: the header's Sheet toggle. */
+.chat-pane-btn.chat-pane-sheet-btn {
+  gap: 5px;
+  width: auto;
+  padding: 0 8px;
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+}
+.chat-pane-sheet-btn--on {
+  background: var(--bg2);
+  color: var(--aqua);
+}
+.chat-pane-sheet-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--aqua);
+}
