@@ -7873,6 +7873,7 @@ button.bp-seg-hit {
 .qb-pc h5 {
   margin: 4px 0 2px;
   font-size: 11px;
+  font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -7962,6 +7963,17 @@ button.bp-seg-hit {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 14px;
+}
+.qb-actions .qb-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+.qb-input.bf-input {
+  background: var(--bg0);
+  border-color: var(--bg4);
+  border-radius: 6px;
+  padding: 7px 10px;
 }
 .qb-ghost {
   border-color: var(--aqua);

@@ -54,7 +54,7 @@ export function QuestionPane({ round, question, draft, own, mode, expanded, onOp
           <div className="qb-detail">
             <input
               ref={ownRef}
-              className="bf-input"
+              className="bf-input qb-input"
               data-own-answer=""
               aria-label={`Your own answer to Q${n}`}
               placeholder="Your answer to this question"

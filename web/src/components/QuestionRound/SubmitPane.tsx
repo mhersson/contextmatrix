@@ -45,12 +45,12 @@ export function SubmitPane({ round, draft, mode, phase, error, onSend }: SubmitP
         </tbody>
       </table>
       <p className="qb-actions">
-        <button type="button" className="bf-btn-primary" disabled={!live || answered < total} onClick={() => onSend(true)}>
+        <button type="button" className="bf-btn-primary qb-btn" disabled={!live || answered < total} onClick={() => onSend(true)}>
           Submit all {total}
         </button>
         <button
           type="button"
-          className="bf-btn-ghost qb-ghost"
+          className="bf-btn-ghost qb-ghost qb-btn"
           disabled={!live || answered === 0 || answered === total || !hasUnsent(round, draft)}
           onClick={() => onSend(false)}
         >

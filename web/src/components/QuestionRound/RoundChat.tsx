@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { MAX_MESSAGE_LENGTH } from '../ChatPanel/chatEntryUtils';
 import { personaName } from '../Blueprint/stages';
 import type { Round } from './parseRound';
@@ -17,11 +17,15 @@ export function RoundChat({ round, mode, onSendChat }: RoundChatProps) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const chatId = useId();
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  // The box is the only text input while a round is open, so it stays enabled; this ref blocks a double send.
+  const inFlight = useRef(false);
   const canType = mode === 'open' && onSendChat !== undefined;
 
   const send = async () => {
     const t = text.trim();
-    if (!onSendChat || t === '' || sending) return;
+    if (!onSendChat || t === '' || inFlight.current) return;
+    inFlight.current = true;
     setSending(true);
     setError(null);
     try {
@@ -30,7 +34,9 @@ export function RoundChat({ round, mode, onSendChat }: RoundChatProps) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message');
     } finally {
+      inFlight.current = false;
       setSending(false);
+      inputRef.current?.focus();
     }
   };
 
@@ -64,13 +70,14 @@ export function RoundChat({ round, mode, onSendChat }: RoundChatProps) {
             ))}
             <div className="qb-chat-compose">
               <textarea
+                ref={inputRef}
                 className="bf-input"
                 rows={2}
                 aria-label="Message about these questions"
                 placeholder="Ask about these questions, or type a command (Enter to send)"
                 value={text}
                 maxLength={MAX_MESSAGE_LENGTH}
-                disabled={!canType || sending}
+                disabled={!canType}
                 onChange={(e) => {
                   setText(e.target.value);
                   if (error) setError(null);

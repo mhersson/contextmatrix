@@ -46,6 +46,34 @@ describe('RoundBlock questions', () => {
     expect(screen.queryByText('Built into kubectl')).not.toBeInTheDocument();
   });
 
+  it('labels a collapsed option by what it carries and shows only those sections when expanded', () => {
+    renderBlock({
+      questions: [
+        {
+          number: 1,
+          title: 'Mixed',
+          text: 'Pick one?',
+          options: [
+            { title: 'Full', summary: 's', pros: ['p1'], cons: ['c1'], sources: [{ tag: 'S1', title: 'one', url: 'https://a.example/' }] },
+            { title: 'ProsOnly', summary: 's', pros: ['p2'] },
+            { title: 'Bare', summary: 's' },
+          ],
+        },
+      ],
+    });
+    expect(option(/Full/)).toHaveTextContent('pros · cons · 1 source');
+    expect(option(/ProsOnly/)).toHaveTextContent(/pros$/);
+    expect(option(/Bare/).textContent).toBe('3Bares');
+    fireEvent.click(option(/ProsOnly/));
+    expect(screen.getByRole('heading', { name: 'Pros' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Cons' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Sources/)).not.toBeInTheDocument();
+    fireEvent.click(option(/Bare/));
+    expect(option(/Bare/)).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByRole('heading', { name: 'Pros' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Sources/)).not.toBeInTheDocument();
+  });
+
   it('moves the selection, never stacking two picks on one question', () => {
     renderBlock();
     fireEvent.click(option(/Kustomize/));
@@ -253,6 +281,23 @@ describe('RoundBlock sending', () => {
     fireEvent.keyDown(box, { key: 'Enter' });
     await waitFor(() => expect(onSendChat).toHaveBeenCalledWith('Does Q3 change Q1?'));
     await waitFor(() => expect(box).toHaveValue(''));
+  });
+
+  it('keeps the chat box enabled and focused while a send is in flight, without double sending', async () => {
+    let finish!: () => void;
+    const onSendChat = vi.fn(() => new Promise<void>((r) => (finish = r)));
+    renderSending({ chat: [{ from: 'system_designer', text: 'Hi.' }] }, undefined, onSendChat);
+    const box = screen.getByRole('textbox', { name: 'Message about these questions' });
+    box.focus();
+    fireEvent.change(box, { target: { value: 'hello' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onSendChat).toHaveBeenCalledTimes(1);
+    expect(box).not.toBeDisabled();
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onSendChat).toHaveBeenCalledTimes(1);
+    finish();
+    await waitFor(() => expect(box).toHaveValue(''));
+    expect(box).toHaveFocus();
   });
 
   it('opens the chat on a click when the round has no thread yet', () => {
