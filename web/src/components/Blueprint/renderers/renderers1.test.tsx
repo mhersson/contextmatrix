@@ -21,6 +21,8 @@ vi.mock('../../ChatPanel/ChatMarkdown', () => ({
 
 const view = viewAtDesignGate();
 
+const clouded = (text: string | RegExp) => screen.getByText(text).closest('.bp-cloud') !== null;
+
 describe('NeedSheet', () => {
   it('renders the body and the assumptions with their basis', () => {
     render(<NeedSheet artifact={NEED_V1} previous={null} mode="plain" view={view} />);
@@ -90,6 +92,36 @@ describe('GroundingSheet', () => {
     expect(container.querySelector('details')!.open).toBe(true);
   });
 
+  describe('revision clouds', () => {
+    const next = GROUNDING_V1;
+    const data = next.data as { projects: Record<string, object>; verdicts: { id: string; status: string; evidence: string }[] };
+    const previousWith = (over: object): typeof next => ({ ...next, version: 0, data: { ...data, ...over } });
+    const nextV2 = { ...next, version: 2 };
+
+    it('clouds the verdict that changed and no other', () => {
+      const previous = previousWith({ verdicts: [data.verdicts[0], { ...data.verdicts[1], evidence: '[S2] Older evidence.' }] });
+      render(<GroundingSheet artifact={nextV2} previous={previous} mode="clouds" view={view} />);
+      expect(clouded(/README has no example/)).toBe(true);
+      expect(clouded(/Encode already ends/)).toBe(false);
+      expect(screen.getByText('Changed in rev 2.')).toBeInTheDocument();
+    });
+
+    it('clouds the checkout table when a project changed', () => {
+      const previous = previousWith({ projects: { ...data.projects, emptyrepo: { sha: 'abc' } } });
+      const { container } = render(<GroundingSheet artifact={nextV2} previous={previous} mode="clouds" view={view} />);
+      expect(container.querySelector('table')!.closest('.bp-cloud')).not.toBeNull();
+    });
+
+    it('marks nothing in plain mode or when nothing changed', () => {
+      const previous = previousWith({ verdicts: [data.verdicts[0]] });
+      const plain = render(<GroundingSheet artifact={nextV2} previous={previous} mode="plain" view={view} />);
+      expect(plain.container.querySelector('.bp-cloud')).toBeNull();
+      plain.unmount();
+      const same = render(<GroundingSheet artifact={nextV2} previous={{ ...next, version: 1 }} mode="clouds" view={view} />);
+      expect(same.container.querySelector('.bp-cloud')).toBeNull();
+    });
+  });
+
   it('renders the body plainly when there is no data', () => {
     const { container } = render(<GroundingSheet artifact={{ ...GROUNDING_V1, data: undefined }} previous={null} mode="plain" view={view} />);
     expect(container.querySelector('details')).toBeNull();
@@ -107,3 +139,32 @@ describe('AcceptanceSheet', () => {
     expect(within(manual).getByText('curl prints one key per line.')).toBeInTheDocument();
   });
 });
+
+describe('AcceptanceSheet revision clouds', () => {
+  const data = ACCEPTANCE_V1.data as { slices: { id: string; criteria: { id: string; project: string; text: string }[]; manual: { id: string; text: string }[] }[] };
+  const slice = data.slices[0];
+  const artifact = { ...ACCEPTANCE_V1, version: 2 };
+  const previousWith = (over: object) => ({ ...ACCEPTANCE_V1, version: 1, data: { slices: [{ ...slice, ...over }] } });
+
+  it('clouds the criterion that changed and no other', () => {
+    const previous = previousWith({ criteria: [slice.criteria[0], { ...slice.criteria[1], text: 'Older.' }] });
+    render(<AcceptanceSheet artifact={artifact} previous={previous} mode="clouds" view={view} />);
+    expect(clouded('Keys keep struct order.')).toBe(true);
+    expect(clouded('The body has several lines.')).toBe(false);
+    expect(screen.getByText('Changed in rev 2.')).toBeInTheDocument();
+  });
+
+  it('clouds a manual check that changed', () => {
+    const previous = previousWith({ manual: [{ id: 'MC1', text: 'Older.' }] });
+    render(<AcceptanceSheet artifact={artifact} previous={previous} mode="clouds" view={view} />);
+    expect(clouded('curl prints one key per line.')).toBe(true);
+    expect(clouded('The body has several lines.')).toBe(false);
+  });
+
+  it('marks nothing in plain mode', () => {
+    const previous = previousWith({ manual: [{ id: 'MC1', text: 'Older.' }] });
+    const { container } = render(<AcceptanceSheet artifact={artifact} previous={previous} mode="plain" view={view} />);
+    expect(container.querySelector('.bp-cloud')).toBeNull();
+  });
+});
+

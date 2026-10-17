@@ -1,5 +1,7 @@
 import { BodyMarkdown } from '../BodyMarkdown';
+import { RevisionCloud } from '../RevisionCloud';
 import { parseAcceptance, type Criterion } from '../artifactData';
+import { changedById } from '../revisions';
 import { ManualChecks } from './parts';
 import type { RendererProps } from './types';
 
@@ -8,6 +10,11 @@ export function AcceptanceSheet({ artifact, previous, mode }: RendererProps) {
   const fullText = <BodyMarkdown body={artifact.body} previous={previous?.body} mode={mode} version={artifact.version} />;
   if (!slices || slices.length === 0) return fullText;
   const manual = slices.flatMap((s) => s.manual);
+  const before = mode === 'clouds' && previous ? (parseAcceptance(previous.data) ?? []) : null;
+  const changedCriteria = before
+    ? changedById(before.flatMap((s) => s.criteria), slices.flatMap((s) => s.criteria))
+    : new Set<string>();
+  const changedManual = before ? changedById(before.flatMap((s) => s.manual), manual) : new Set<string>();
   return (
     <>
       {slices.map((s) => (
@@ -19,7 +26,11 @@ export function AcceptanceSheet({ artifact, previous, mode }: RendererProps) {
               <ul className="bp-criteria">
                 {criteria.map((c) => (
                   <li key={c.id}>
-                    <span className="bp-id">{c.id}</span> {c.text}
+                    {changedCriteria.has(c.id) ? (
+                      <RevisionCloud version={artifact.version}>{criterion(c)}</RevisionCloud>
+                    ) : (
+                      criterion(c)
+                    )}
                   </li>
                 ))}
               </ul>
@@ -27,7 +38,7 @@ export function AcceptanceSheet({ artifact, previous, mode }: RendererProps) {
           ))}
         </section>
       ))}
-      <ManualChecks title="Manual checks" items={manual} />
+      <ManualChecks title="Manual checks" items={manual} changed={changedManual} version={artifact.version} />
       <details className="bp-fulltext" open={mode === 'compare'}>
         <summary>Written criteria</summary>
         {fullText}
@@ -40,4 +51,12 @@ function byProject(criteria: Criterion[]): [string, Criterion[]][] {
   const groups = new Map<string, Criterion[]>();
   for (const c of criteria) groups.set(c.project, [...(groups.get(c.project) ?? []), c]);
   return [...groups.entries()];
+}
+
+function criterion(c: Criterion) {
+  return (
+    <>
+      <span className="bp-id">{c.id}</span> {c.text}
+    </>
+  );
 }

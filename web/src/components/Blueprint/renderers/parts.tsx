@@ -1,6 +1,15 @@
 import type { ManualCheck } from '../artifactData';
+import { RevisionCloud } from '../RevisionCloud';
 
-export function ManualChecks({ title, items }: { title: string; items: ManualCheck[] }) {
+interface ManualChecksProps {
+  title: string;
+  items: ManualCheck[];
+  /** Ids to mark with a revision cloud of `version`. */
+  changed?: Set<string>;
+  version?: number;
+}
+
+export function ManualChecks({ title, items, changed, version }: ManualChecksProps) {
   if (items.length === 0) return null;
   return (
     <section>
@@ -8,11 +17,19 @@ export function ManualChecks({ title, items }: { title: string; items: ManualChe
       <ul className="bp-criteria">
         {items.map((m) => (
           <li key={m.id}>
-            <span className="bp-id">{m.id}</span> {m.text}
+            {changed?.has(m.id) && version !== undefined ? <RevisionCloud version={version}>{row(m)}</RevisionCloud> : row(m)}
           </li>
         ))}
       </ul>
     </section>
+  );
+}
+
+function row(m: ManualCheck) {
+  return (
+    <>
+      <span className="bp-id">{m.id}</span> {m.text}
+    </>
   );
 }
 

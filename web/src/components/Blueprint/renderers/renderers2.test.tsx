@@ -164,3 +164,30 @@ describe('ArtifactRenderer', () => {
     expect(screen.getByTestId('md')).toHaveTextContent('Threats.');
   });
 });
+
+describe('ReadinessSheet revision clouds', () => {
+  const previous: BlueprintArtifact = {
+    ...READINESS_V2,
+    version: 1,
+    data: {
+      cards: [
+        { id: 'D1', ready: true, findings: [] },
+        { id: 'D3', ready: false, findings: ['An older finding.'] },
+      ],
+    },
+  };
+  const rowFor = (container: HTMLElement, id: string) => within(container).getByText(id, { selector: '.bp-id' }).closest('li')!;
+
+  it('clouds the card whose readiness changed and no other', () => {
+    const { container } = render(<ArtifactRenderer artifact={READINESS_V2} previous={previous} mode="clouds" view={view} />);
+    expect(rowFor(container, 'D3').querySelector('.bp-cloud')).not.toBeNull();
+    expect(rowFor(container, 'D1').querySelector('.bp-cloud')).toBeNull();
+    expect(screen.getByText('Changed in rev 2.')).toBeInTheDocument();
+  });
+
+  it('marks nothing in plain mode', () => {
+    const { container } = render(<ArtifactRenderer artifact={READINESS_V2} previous={previous} mode="plain" view={view} />);
+    expect(container.querySelector('.bp-cloud')).toBeNull();
+  });
+});
+

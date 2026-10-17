@@ -7130,6 +7130,12 @@ button.bp-seg-hit {
   padding: 6px 0;
   border-bottom: 1px solid var(--bg2);
 }
+.bp-readiness > li > .bp-cloud {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+}
 .bp-ready {
   font-size: 12px;
   font-weight: 600;
