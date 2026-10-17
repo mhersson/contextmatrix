@@ -2,7 +2,6 @@ package api
 
 import (
 	"bufio"
-	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"io"
@@ -106,7 +105,6 @@ func blueprintPaths(id string) []string {
 	return []string{
 		"/api/chats/" + id + "/blueprint",
 		"/api/chats/" + id + "/blueprint/artifacts/need/1",
-		"/api/chats/" + id + "/blueprint/live",
 	}
 }
 
@@ -424,23 +422,6 @@ func TestRouter_BlueprintRoutesFollowTheArchitectEntry(t *testing.T) {
 	}
 }
 
-// openLive opens the live relay on a real connection; cancel is the browser
-// leaving.
-func openLive(t *testing.T, baseURL, id string) (*http.Response, context.CancelFunc) {
-	t.Helper()
-
-	ctx, cancel := context.WithCancel(t.Context())
-	t.Cleanup(cancel)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/api/chats/"+id+"/blueprint/live", nil)
-	require.NoError(t, err)
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-
-	return resp, cancel
-}
-
 // readSSEFrame reads one SSE frame, through its blank line, within two
 // seconds; a stream that ends early returns what arrived.
 func readSSEFrame(t *testing.T, r *bufio.Reader) string {
@@ -473,167 +454,20 @@ func readSSEFrame(t *testing.T, r *bufio.Reader) string {
 	}
 }
 
-// advance lets a liveRoute handler write its next frame; it fails instead of
-// hanging when the handler already returned.
-func advance(t *testing.T, step chan<- struct{}) {
-	t.Helper()
-
-	select {
-	case step <- struct{}{}:
-	case <-time.After(2 * time.Second):
-		t.Fatal("the architect stream was no longer waiting")
-	}
-}
-
-// liveRoute serves the architect's live stream: it writes frames[0] at once,
-// then each next frame when step yields, and holds the stream open.
-func liveRoute(frames []string, step <-chan struct{}) map[string]http.HandlerFunc {
-	return map[string]http.HandlerFunc{
-		"GET /blueprints/{id}/live": func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "text/event-stream")
-			rc := http.NewResponseController(w)
-
-			for i, f := range frames {
-				if i > 0 {
-					select {
-					case <-step:
-					case <-r.Context().Done():
-						return
-					}
-				}
-
-				_, _ = io.WriteString(w, f)
-				_ = rc.Flush()
-			}
-
-			<-r.Context().Done()
-		},
-	}
-}
-
-func TestBlueprintLive_RelaysEachFrameAsItArrives(t *testing.T) {
-	frames := []string{
-		"data: {\"type\":\"snapshot\",\"view\":{\"seq\":1}}\n\n",
-		": heartbeat\n\n",
-		"data: {\"type\":\"draft\",\"draft\":{\"stage\":\"need\",\"version\":1,\"offset\":0,\"text\":\"Pr\"}}\n\n",
-	}
-	step := make(chan struct{})
-
-	fa := newFakeArchitect(t, liveRoute(frames, step))
-	mux, mgr := newChatFixture(t, blueprintFixtureOpts(fa.URL))
+func TestBlueprintLive_NoBrowserFacingRoute(t *testing.T) {
+	fa := newFakeArchitect(t, map[string]http.HandlerFunc{"/": okJSON})
+	_, mgr := newChatFixture(t, blueprintFixtureOpts(fa.URL))
 	bp := seedBlueprint(t, mgr, "human:web")
 
-	cm := httptest.NewServer(mux)
-	t.Cleanup(cm.Close)
-
-	resp, _ := openLive(t, cm.URL, bp.ID)
-	defer closeBody(t, resp.Body)
-
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
-	assert.Equal(t, "no", resp.Header.Get("X-Accel-Buffering"))
-
-	r := bufio.NewReader(resp.Body)
-	assert.Equal(t, frames[0], readSSEFrame(t, r), "the first frame arrives while the architect holds the stream open")
-
-	advance(t, step)
-	assert.Equal(t, frames[1], readSSEFrame(t, r), "comments pass through")
-
-	advance(t, step)
-	assert.Equal(t, frames[2], readSSEFrame(t, r))
-}
-
-func TestBlueprintLive_BrowserDisconnectClosesTheUpstream(t *testing.T) {
-	upstreamGone := make(chan struct{})
-
-	fa := newFakeArchitect(t, map[string]http.HandlerFunc{
-		"GET /blueprints/{id}/live": func(w http.ResponseWriter, r *http.Request) {
-			defer close(upstreamGone)
-
-			w.Header().Set("Content-Type", "text/event-stream")
-			_, _ = io.WriteString(w, "data: {\"type\":\"snapshot\"}\n\n")
-			_ = http.NewResponseController(w).Flush()
-
-			<-r.Context().Done()
-		},
-	})
-	mux, mgr := newChatFixture(t, blueprintFixtureOpts(fa.URL))
-	bp := seedBlueprint(t, mgr, "human:web")
-
-	cm := httptest.NewServer(mux)
-	t.Cleanup(cm.Close)
-
-	resp, leave := openLive(t, cm.URL, bp.ID)
-	defer closeBody(t, resp.Body)
-
-	readSSEFrame(t, bufio.NewReader(resp.Body))
-	leave()
-
-	select {
-	case <-upstreamGone:
-	case <-time.After(2 * time.Second):
-		t.Fatal("the architect stream stayed open after the browser left")
-	}
-}
-
-func TestBlueprintLive_EndsWhenTheArchitectEnds(t *testing.T) {
-	fa := newFakeArchitect(t, map[string]http.HandlerFunc{
-		"GET /blueprints/{id}/live": func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "text/event-stream")
-			_, _ = io.WriteString(w, "data: {\"type\":\"snapshot\"}\n\n")
-		},
-	})
-	mux, mgr := newChatFixture(t, blueprintFixtureOpts(fa.URL))
-	bp := seedBlueprint(t, mgr, "human:web")
-
-	cm := httptest.NewServer(mux)
-	t.Cleanup(cm.Close)
-
-	resp, _ := openLive(t, cm.URL, bp.ID)
-	defer closeBody(t, resp.Body)
-
-	type readResult struct {
-		body []byte
-		err  error
-	}
-
-	done := make(chan readResult, 1)
-
-	go func() {
-		b, err := io.ReadAll(resp.Body)
-		done <- readResult{b, err}
-	}()
-
-	select {
-	case res := <-done:
-		require.NoError(t, res.err, "the browser sees a clean end and reconnects")
-		assert.Equal(t, "data: {\"type\":\"snapshot\"}\n\n", string(res.body))
-	case <-time.After(2 * time.Second):
-		t.Fatal("the relay did not end when the architect ended")
-	}
-}
-
-func TestBlueprintLive_OutlivesTheServerWriteTimeout(t *testing.T) {
-	step := make(chan struct{})
-	fa := newFakeArchitect(t, liveRoute([]string{"data: 1\n\n", "data: 2\n\n"}, step))
 	opts := blueprintFixtureOpts(fa.URL)
-	_, mgr := newChatFixture(t, opts)
-	bp := seedBlueprint(t, mgr, "human:web")
-
-	srv := httptest.NewUnstartedServer(NewRouter(RouterConfig{
+	srv := httptest.NewServer(NewRouter(RouterConfig{
 		ChatManager: mgr, ChatHub: chat.NewSSEHub(8), ArchitectBackendCfg: opts.architectBackendCfg,
 	}))
-	srv.Config.WriteTimeout = 200 * time.Millisecond
-	srv.Start()
 	t.Cleanup(srv.Close)
 
-	resp, _ := openLive(t, srv.URL, bp.ID)
-	defer closeBody(t, resp.Body)
+	resp, err := http.Get(srv.URL + "/api/chats/" + bp.ID + "/blueprint/live")
+	require.NoError(t, err)
+	closeBody(t, resp.Body)
 
-	r := bufio.NewReader(resp.Body)
-	assert.Equal(t, "data: 1\n\n", readSSEFrame(t, r))
-
-	time.Sleep(400 * time.Millisecond)
-	advance(t, step)
-	assert.Equal(t, "data: 2\n\n", readSSEFrame(t, r), "a frame after the write timeout still arrives")
+	assert.Empty(t, fa.seen(), "the architect's live stream is reached only through the chat SSE")
 }

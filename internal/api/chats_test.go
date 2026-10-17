@@ -206,7 +206,6 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 	mux.HandleFunc("GET /api/chats/{id}/stream", chh.streamChat)
 	mux.HandleFunc("GET /api/chats/{id}/blueprint", chh.getBlueprint)
 	mux.HandleFunc("GET /api/chats/{id}/blueprint/artifacts/{stage}/{version}", chh.getBlueprintArtifact)
-	mux.HandleFunc("GET /api/chats/{id}/blueprint/live", chh.streamBlueprint)
 
 	return mux, mgr, backend
 }

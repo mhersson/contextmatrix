@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"crypto/rand"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -190,64 +189,4 @@ func (h *chatHandlers) getBlueprintArtifact(w http.ResponseWriter, r *http.Reque
 	}
 
 	h.proxyBlueprintRead(w, r, "/blueprints/"+url.PathEscape(sess.ID)+"/artifacts/"+stage+"/"+strconv.Itoa(version))
-}
-
-// streamBlueprint handles GET /api/chats/{id}/blueprint/live. It relays the
-// architect's live SSE stream byte for byte and flushes every chunk, so each
-// frame reaches the browser as the architect sends it. The upstream request
-// rides the browser's context: a browser that leaves closes it, and an
-// upstream that ends or fails a read ends the browser's response.
-func (h *chatHandlers) streamBlueprint(w http.ResponseWriter, r *http.Request) {
-	sess, ok := h.blueprintSession(w, r)
-	if !ok {
-		return
-	}
-
-	path := "/blueprints/" + url.PathEscape(sess.ID) + "/live"
-
-	resp, ok := h.architectGet(r.Context(), w, r, path, "text/event-stream")
-	if !ok {
-		return
-	}
-	defer resp.Body.Close()
-
-	rc := http.NewResponseController(w)
-	if err := rc.SetWriteDeadline(time.Time{}); err != nil {
-		ctxlog.Logger(r.Context()).Warn("blueprint live: could not clear write deadline; the stream drops on WriteTimeout",
-			"error", err)
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
-
-	if err := rc.Flush(); err != nil {
-		return
-	}
-
-	buf := make([]byte, 32*1024)
-
-	for {
-		n, err := resp.Body.Read(buf)
-		if n > 0 {
-			// A failed write returns, closing both sides; nothing is ever skipped.
-			if _, werr := w.Write(buf[:n]); werr != nil {
-				return
-			}
-
-			if ferr := rc.Flush(); ferr != nil {
-				return
-			}
-		}
-
-		if err != nil {
-			if !errors.Is(err, io.EOF) && r.Context().Err() == nil {
-				ctxlog.Logger(r.Context()).Info("blueprint live: upstream failed mid-stream", "session_id", sess.ID, "error", err)
-			}
-
-			return
-		}
-	}
 }
