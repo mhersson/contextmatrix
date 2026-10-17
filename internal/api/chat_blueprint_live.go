@@ -29,6 +29,8 @@ const (
 	liveBackoffBase  = 500 * time.Millisecond
 	liveBackoffCap   = 30 * time.Second
 	liveHealthyAfter = 30 * time.Second
+	// liveIdleTimeout is three of the architect's 15 s heartbeats.
+	liveIdleTimeout = 45 * time.Second
 )
 
 // blueprintLive holds one architect live stream per architect session with
@@ -41,6 +43,7 @@ type blueprintLive struct {
 	backoffBase  time.Duration
 	backoffCap   time.Duration
 	healthyAfter time.Duration
+	idleTimeout  time.Duration
 
 	mu     sync.Mutex
 	epoch  uint64
@@ -52,6 +55,11 @@ type liveRelay struct {
 	refs   int
 	cancel context.CancelFunc
 	linger *time.Timer
+	// gen counts leaves that armed a linger, so a timer that fired before a
+	// later join and leave replaced it cannot close the upstream early.
+	gen uint64
+	// stopped is set when the architect answered 404 and run returned.
+	stopped bool
 }
 
 func newBlueprintLive(up *architectUpstream, hub *chat.SSEHub) *blueprintLive {
@@ -62,6 +70,7 @@ func newBlueprintLive(up *architectUpstream, hub *chat.SSEHub) *blueprintLive {
 		backoffBase:  liveBackoffBase,
 		backoffCap:   liveBackoffCap,
 		healthyAfter: liveHealthyAfter,
+		idleTimeout:  liveIdleTimeout,
 		relays:       make(map[string]*liveRelay),
 	}
 }
@@ -80,7 +89,7 @@ func (b *blueprintLive) join(sessionID string) {
 		r = &liveRelay{cancel: cancel}
 		b.relays[sessionID] = r
 
-		go b.run(ctx, sessionID, b.epoch)
+		go b.run(ctx, sessionID, b.epoch, r)
 	}
 
 	if r.linger != nil {
@@ -107,14 +116,35 @@ func (b *blueprintLive) leave(sessionID string) {
 		return
 	}
 
-	r.linger = time.AfterFunc(b.linger, func() { b.expire(sessionID, r) })
+	r.gen++
+	gen := r.gen
+	r.linger = time.AfterFunc(b.linger, func() { b.expire(sessionID, r, gen) })
 }
 
-func (b *blueprintLive) expire(sessionID string, r *liveRelay) {
+// retry restarts a relay that stopped on 404 and still has subscribers; the
+// caller knows the architect now holds the blueprint.
+func (b *blueprintLive) retry(sessionID string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if b.relays[sessionID] != r || r.refs > 0 {
+	r := b.relays[sessionID]
+	if r == nil || !r.stopped || r.refs == 0 {
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	b.epoch++
+	r.cancel = cancel
+	r.stopped = false
+
+	go b.run(ctx, sessionID, b.epoch, r)
+}
+
+func (b *blueprintLive) expire(sessionID string, r *liveRelay, gen uint64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.relays[sessionID] != r || r.refs > 0 || r.gen != gen {
 		return
 	}
 
@@ -123,9 +153,9 @@ func (b *blueprintLive) expire(sessionID string, r *liveRelay) {
 }
 
 // run keeps the session's upstream open until ctx ends, reconnecting with
-// backoff. A 404 stops it until the last subscriber leaves. Its cached
-// frames go with it.
-func (b *blueprintLive) run(ctx context.Context, sessionID string, epoch uint64) {
+// backoff. A 404 stops it until the last subscriber leaves or retry. Its
+// cached frames go with it.
+func (b *blueprintLive) run(ctx context.Context, sessionID string, epoch uint64, r *liveRelay) {
 	defer b.hub.ResetBlueprint(sessionID, epoch)
 
 	delay := b.backoffBase
@@ -141,16 +171,21 @@ func (b *blueprintLive) run(ctx context.Context, sessionID string, epoch uint64)
 		if errors.Is(err, errLiveNotServed) {
 			slog.Info("blueprint live: the architect does not serve this stream; not retrying", "session_id", sessionID)
 
+			b.mu.Lock()
+			if b.relays[sessionID] == r {
+				r.stopped = true
+			}
+			b.mu.Unlock()
+
 			return
 		}
 
-		if time.Since(started) >= b.healthyAfter {
-			delay = b.backoffBase
-		}
+		wait, next := nextLiveDelay(delay, time.Since(started), b.backoffBase, b.backoffCap, b.healthyAfter)
+		delay = next
 
-		slog.Info("blueprint live: upstream ended; reconnecting", "session_id", sessionID, "error", err, "retry_in", delay)
+		slog.Info("blueprint live: upstream ended; reconnecting", "session_id", sessionID, "error", err, "retry_in", wait)
 
-		t := time.NewTimer(delay)
+		t := time.NewTimer(wait)
 
 		select {
 		case <-ctx.Done():
@@ -159,14 +194,30 @@ func (b *blueprintLive) run(ctx context.Context, sessionID string, epoch uint64)
 			return
 		case <-t.C:
 		}
-
-		delay = min(delay*2, b.backoffCap)
 	}
+}
+
+// nextLiveDelay returns how long to wait before reconnecting and the delay
+// after that; a stream that lived at least healthyAfter starts over at base.
+func nextLiveDelay(delay, lived, base, ceiling, healthyAfter time.Duration) (wait, next time.Duration) {
+	if lived >= healthyAfter {
+		delay = base
+	}
+
+	return delay, min(delay*2, ceiling)
 }
 
 // stream holds one upstream connection; nil means the architect ended it.
 func (b *blueprintLive) stream(ctx context.Context, sessionID string, epoch uint64) error {
-	resp, err := b.up.get(ctx, "/blueprints/"+url.PathEscape(sessionID)+"/live", "text/event-stream")
+	// A half-open connection never errors; cutting a silent one lets run
+	// reconnect.
+	sctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	idle := time.AfterFunc(b.idleTimeout, cancel)
+	defer idle.Stop()
+
+	resp, err := b.up.get(sctx, "/blueprints/"+url.PathEscape(sessionID)+"/live", "text/event-stream")
 	if err != nil {
 		return err
 	}
@@ -182,7 +233,13 @@ func (b *blueprintLive) stream(ctx context.Context, sessionID string, epoch uint
 		return fmt.Errorf("architect live: status %d: %s", resp.StatusCode, body)
 	}
 
-	return readLiveFrames(resp.Body, func(frame string) { b.publish(sessionID, epoch, frame) })
+	err = readLiveFrames(resp.Body, func(frame string) { b.publish(sessionID, epoch, frame) },
+		func() { idle.Reset(b.idleTimeout) })
+	if err == nil && sctx.Err() != nil && ctx.Err() == nil {
+		return errors.New("architect live: no data within the idle timeout")
+	}
+
+	return err
 }
 
 // publish reads only the frame's type and hands the frame on unchanged.
@@ -192,7 +249,7 @@ func (b *blueprintLive) publish(sessionID string, epoch uint64, frame string) {
 	}
 
 	if err := json.Unmarshal([]byte(frame), &head); err != nil {
-		slog.Debug("blueprint live: dropped an unparseable frame", "session_id", sessionID, "error", err)
+		slog.Warn("blueprint live: dropped an unparseable frame", "session_id", sessionID, "error", err)
 
 		return
 	}
@@ -202,14 +259,19 @@ func (b *blueprintLive) publish(sessionID string, epoch uint64, frame string) {
 
 // readLiveFrames calls onFrame with each SSE event's data, its data lines
 // joined by newlines; comments and other fields are skipped, and an event cut
-// off by the end of r is dropped. It returns nil when r ends.
-func readLiveFrames(r io.Reader, onFrame func(string)) error {
+// off by the end of r is dropped. onLine, when set, runs for every line read.
+// It returns nil when r ends.
+func readLiveFrames(r io.Reader, onFrame func(string), onLine func()) error {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64<<10), maxLiveFrameBytes)
 
 	var data []string
 
 	for sc.Scan() {
+		if onLine != nil {
+			onLine()
+		}
+
 		line := sc.Text()
 		if line == "" {
 			if len(data) > 0 {

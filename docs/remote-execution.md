@@ -500,10 +500,12 @@ keeps one signed `/blueprints/{id}/live` stream open for that session, however
 many browsers subscribe, and publishes each frame on the session's chat stream
 as an ephemeral `blueprint` event (see
 [api-reference.md](api-reference.md#get-apichatsidstream)). It reconnects with
-backoff (0.5 s, doubling to 30 s) while subscribers remain, stops on a 404
-until the last subscriber leaves, and closes the stream 5 seconds after the
-last subscriber leaves. The architect starts every connection with a snapshot
-frame.
+backoff (0.5 s, doubling to 30 s, starting over after a stream that stayed up
+30 seconds) while subscribers remain. A 404 stops it until the last subscriber
+leaves or the session is opened again. CM drops and reopens a stream that
+sends nothing for 45 seconds (the architect heartbeats every 15), and closes
+the stream 5 seconds after the last subscriber leaves. The architect starts
+every connection with a snapshot frame.
 
 ### Task/chat backend → CM: log stream
 

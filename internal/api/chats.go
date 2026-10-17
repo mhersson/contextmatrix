@@ -461,6 +461,12 @@ func (h *chatHandlers) openChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The architect now holds the blueprint, so a live stream that stopped on
+	// 404 can start.
+	if sess.Kind == chat.KindArchitect && h.live != nil {
+		h.live.retry(sess.ID)
+	}
+
 	writeJSON(w, http.StatusOK, sess)
 }
 

@@ -306,14 +306,17 @@ func TestBlueprintLive_FramesStayOutOfTheTranscript(t *testing.T) {
 func TestBlueprintLive_NotServedStopsReconnecting(t *testing.T) {
 	u := newLiveUpstream()
 	u.status = []int{http.StatusNotFound}
-	url, id, _, _ := liveFixture(t, u, nil)
+
+	var live *blueprintLive
+
+	url, id, _, _ := liveFixture(t, u, func(o *fixtureOpts) { o.onLive = func(l *blueprintLive) { live = l } })
 
 	_, cancelA := openChatStream(t, url, id)
 
 	assert.Never(t, func() bool { return u.openedCount() > 1 }, 300*time.Millisecond, 10*time.Millisecond)
 
 	cancelA()
-	time.Sleep(200 * time.Millisecond) // past the linger
+	assert.Eventually(t, func() bool { return live.relayCount() == 0 }, 2*time.Second, 10*time.Millisecond)
 
 	openChatStream(t, url, id)
 	assert.Eventually(t, func() bool { return u.openedCount() == 2 }, 2*time.Second, 10*time.Millisecond)
@@ -401,8 +404,107 @@ func TestReadLiveFrames(t *testing.T) {
 
 			var got []string
 
-			require.NoError(t, readLiveFrames(strings.NewReader(tt.in), func(f string) { got = append(got, f) }))
+			require.NoError(t, readLiveFrames(strings.NewReader(tt.in), func(f string) { got = append(got, f) }, nil))
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func (b *blueprintLive) relayCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return len(b.relays)
+}
+
+func TestBlueprintLive_OpenRestartsAStoppedRelay(t *testing.T) {
+	u := newLiveUpstream(nil, []string{liveSnap})
+	u.status = []int{http.StatusNotFound, 0}
+	url, id, _, mux := liveFixture(t, u, nil)
+
+	a, _ := openChatStream(t, url, id)
+
+	assert.Eventually(t, func() bool { return u.openedCount() == 1 }, 2*time.Second, 10*time.Millisecond)
+	assert.Never(t, func() bool { return u.openedCount() > 1 }, 300*time.Millisecond, 10*time.Millisecond)
+
+	open := func() {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats/"+id+"/open", ""))
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	open()
+	assert.Eventually(t, func() bool { return u.openedCount() == 2 }, 2*time.Second, 10*time.Millisecond)
+	assert.JSONEq(t, liveSnap, nextBlueprint(t, a))
+
+	open()
+	assert.Never(t, func() bool { return u.openedCount() > 2 }, 300*time.Millisecond, 10*time.Millisecond)
+}
+
+func TestBlueprintLive_SilentUpstreamReconnects(t *testing.T) {
+	u := newLiveUpstream([]string{liveSnap})
+	url, id, _, _ := liveFixture(t, u, func(o *fixtureOpts) {
+		o.onLive = func(l *blueprintLive) { l.idleTimeout = 100 * time.Millisecond }
+	})
+
+	a, _ := openChatStream(t, url, id)
+	assert.JSONEq(t, liveSnap, nextBlueprint(t, a))
+	assert.Eventually(t, func() bool { return u.openedCount() == 2 }, 3*time.Second, 10*time.Millisecond)
+}
+
+func TestBlueprintLive_StaleLingerTimerKeepsTheUpstream(t *testing.T) {
+	hub := chat.NewSSEHub(8)
+	b := newBlueprintLive(newArchitectUpstream("http://127.0.0.1:1", "k"), hub)
+	b.linger = time.Hour
+
+	b.join("s")
+	b.leave("s")
+
+	b.mu.Lock()
+	staleGen := b.relays["s"].gen
+	b.mu.Unlock()
+
+	b.join("s")
+	b.leave("s")
+
+	b.mu.Lock()
+	r := b.relays["s"]
+	b.mu.Unlock()
+
+	b.expire("s", r, staleGen)
+	assert.Equal(t, 1, b.relayCount(), "a timer from an earlier leave must not close the upstream")
+
+	b.mu.Lock()
+	gen := r.gen
+	b.mu.Unlock()
+
+	b.expire("s", r, gen)
+	assert.Zero(t, b.relayCount())
+}
+
+func TestNextLiveDelay(t *testing.T) {
+	t.Parallel()
+
+	const (
+		base    = 500 * time.Millisecond
+		ceiling = 2 * time.Second
+		healthy = 30 * time.Second
+	)
+
+	delay := base
+
+	var waits []time.Duration
+
+	for range 5 {
+		var wait time.Duration
+
+		wait, delay = nextLiveDelay(delay, time.Second, base, ceiling, healthy)
+		waits = append(waits, wait)
+	}
+
+	assert.Equal(t, []time.Duration{base, 2 * base, ceiling, ceiling, ceiling}, waits)
+
+	wait, next := nextLiveDelay(ceiling, healthy, base, ceiling, healthy)
+	assert.Equal(t, base, wait, "a healthy stream starts the schedule over")
+	assert.Equal(t, 2*base, next)
 }

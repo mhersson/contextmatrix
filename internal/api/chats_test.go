@@ -84,6 +84,8 @@ type fixtureOpts struct {
 	// relay's linger and its reconnect backoff (base and cap).
 	liveLinger  time.Duration
 	liveBackoff time.Duration
+	// onLive, when set, receives the built relay before the mux serves.
+	onLive func(*blueprintLive)
 }
 
 // defaultFixtureOpts is the no-backend topology: no chat backend configured
@@ -183,6 +185,10 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 
 		if opts.liveBackoff > 0 {
 			chh.live.backoffBase, chh.live.backoffCap = opts.liveBackoff, opts.liveBackoff
+		}
+
+		if opts.onLive != nil {
+			opts.onLive(chh.live)
 		}
 	}
 
