@@ -5810,7 +5810,8 @@ func TestManager_SendUserMessage_ArchitectPanicInTheSendReleasesTheTranscriptLoc
 		t.Fatal("the session is wedged: the transcript lock was left held")
 	}
 
-	// The frame and the user row race for the transcript lock; only that both land matters.
+	// The frame and the user row race for the transcript lock, so their order
+	// is unspecified; only that both land matters.
 	first, second := nextMessageEvent(t, ch), nextMessageEvent(t, ch)
 	assert.ElementsMatch(t, []string{"after the panic", "approve"}, []string{first.Content, second.Content})
 }
