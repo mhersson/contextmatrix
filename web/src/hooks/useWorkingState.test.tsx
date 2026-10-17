@@ -104,4 +104,74 @@ describe('useWorkingState', () => {
     rerender({ id: 'S2', s: session({ id: 'S2' }) });
     expect(result.current.working).toBeNull();
   });
+
+  describe('a send racing the turn', () => {
+    const turnEnded = (since: string) =>
+      session({ assistant_working: false, assistant_working_since: since });
+
+    it('clears when the turn starts and ends before the send resolves', () => {
+      const { result, rerender } = renderHook(({ s }) => useWorkingState('S1', s), {
+        initialProps: { s: session({ assistant_working: false }) },
+      });
+      act(() => result.current.armOptimistic());
+
+      rerender({ s: session({ assistant_working: true, assistant_working_since: '2026-07-24T10:00:01Z' }) });
+      rerender({ s: turnEnded('2026-07-24T10:00:01Z') });
+      expect(result.current.working).toBeNull();
+    });
+
+    it('clears when the true and false updates land in one batch', () => {
+      const { result, rerender } = renderHook(({ s }) => useWorkingState('S1', s), {
+        initialProps: { s: session({ assistant_working: false }) },
+      });
+      act(() => result.current.armOptimistic());
+
+      // The hook only sees the final false; its new since proves a turn ran.
+      rerender({ s: turnEnded('2026-07-24T10:00:01Z') });
+      expect(result.current.working).toBeNull();
+    });
+
+    it('stays through an async turn until its false arrives', () => {
+      const { result, rerender } = renderHook(({ s }) => useWorkingState('S1', s), {
+        initialProps: { s: session({ assistant_working: false }) },
+      });
+      act(() => result.current.armOptimistic());
+      expect(result.current.working).not.toBeNull();
+
+      rerender({ s: session({ assistant_working: true, assistant_working_since: '2026-07-24T10:00:05Z' }) });
+      expect(result.current.working).not.toBeNull();
+
+      rerender({ s: turnEnded('2026-07-24T10:00:05Z') });
+      expect(result.current.working).toBeNull();
+    });
+
+    it('keeps the arm when the stale false of the previous turn is re-delivered', () => {
+      const prev = turnEnded('2026-07-24T09:00:00Z');
+      const { result, rerender } = renderHook(({ s }) => useWorkingState('S1', s), {
+        initialProps: { s: prev },
+      });
+      act(() => result.current.armOptimistic());
+
+      rerender({ s: { ...prev, context_tokens: 10 } });
+      rerender({ s: { ...prev, context_tokens: 10, status: 'active' } });
+      expect(result.current.working).not.toBeNull();
+    });
+
+    it('disarms when the send fails', () => {
+      const { result } = renderHook(() => useWorkingState('S1', session({ assistant_working: false })));
+      act(() => result.current.armOptimistic());
+      expect(result.current.working).not.toBeNull();
+
+      act(() => result.current.disarmOptimistic());
+      expect(result.current.working).toBeNull();
+    });
+
+    it('does not drop a server-reported turn when a send fails', () => {
+      const { result } = renderHook(() =>
+        useWorkingState('S1', session({ assistant_working: true, assistant_working_since: '2026-07-24T10:00:00Z' })),
+      );
+      act(() => result.current.disarmOptimistic());
+      expect(result.current.working).not.toBeNull();
+    });
+  });
 });

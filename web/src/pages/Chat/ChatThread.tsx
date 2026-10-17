@@ -72,7 +72,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
     } as ChatSession;
   }, [session, sessionUpdate]);
 
-  const { working, armOptimistic } = useWorkingState(sessionID, merged);
+  const { working, armOptimistic, disarmOptimistic } = useWorkingState(sessionID, merged);
 
   // Reset local state synchronously when the sessionID prop changes - see
   // web/AGENTS.md § CardPanel for why this lives in render, not useEffect.
@@ -215,22 +215,24 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
   const view = merged;
 
   const handleSend = async (content: string) => {
+    armOptimistic();
     try {
       await api.sendChatMessage(sessionID, content);
       setUserHasSent(true);
-      armOptimistic();
     } catch (e) {
+      disarmOptimistic();
       const msg = isAPIError(e) ? e.error : 'Failed to send message';
       throw new Error(msg, { cause: e });
     }
   };
 
   const handleSendRound = async (content: string, reply: RoundReply) => {
+    armOptimistic();
     try {
       await api.sendChatMessage(sessionID, content, reply);
       setUserHasSent(true);
-      armOptimistic();
     } catch (e) {
+      disarmOptimistic();
       const msg = isAPIError(e) ? e.error : 'Failed to send answers';
       throw new Error(msg, { cause: e });
     }

@@ -38,17 +38,18 @@ function pickVerb(): string {
 
 /**
  * Owns the working-indicator state machine for one chat session. Arms
- * optimistically when a send resolves (instant feedback); the server's
+ * optimistically when a send starts (instant feedback); the server's
  * assistant_working signal is the sole clearing authority, with the session
  * leaving `active` as the teardown catch-all. A stale `false` left in the
  * merged session view from the previous turn must not cancel a fresh
- * optimistic arm, so only a fresh transition to explicit false clears
- * (mirrors the prevStatusRef idiom in useChatStream).
+ * optimistic arm, so only evidence newer than the arm clears: a transition to
+ * explicit false, or a false whose assistant_working_since differs from the
+ * arm-time value (a turn ran, even if its true update was batched away).
  */
 export function useWorkingState(
   sessionID: string,
   session: ChatSession | null,
-): { working: WorkingState | null; armOptimistic: () => void } {
+): { working: WorkingState | null; armOptimistic: () => void; disarmOptimistic: () => void } {
   const [working, setWorking] = useState<WorkingState | null>(null);
 
   // Reset synchronously on session switch - see web/AGENTS.md § CardPanel
@@ -64,6 +65,13 @@ export function useWorkingState(
   const status = session?.status;
 
   const prevWorkingRef = useRef<boolean | undefined>(undefined);
+  const latestRef = useRef({ assistantWorking, assistantWorkingSince });
+  // undefined = not armed; null = armed with no turn seen yet.
+  const armedSinceRef = useRef<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    latestRef.current = { assistantWorking, assistantWorkingSince };
+  });
 
   // setState-in-effect is intentional: this effect derives `working` from
   // the previous-vs-current assistant_working comparison (prevWorkingRef),
@@ -75,6 +83,7 @@ export function useWorkingState(
     prevWorkingRef.current = assistantWorking;
 
     if (status !== undefined && status !== 'active') {
+      armedSinceRef.current = undefined;
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setWorking(null);
       return;
@@ -89,14 +98,24 @@ export function useWorkingState(
       return;
     }
 
-    if (assistantWorking === false && prev !== false) {
+    const turnRanSinceArm =
+      armedSinceRef.current !== undefined && assistantWorkingSince !== (armedSinceRef.current ?? undefined);
+    if (assistantWorking === false && (prev !== false || turnRanSinceArm)) {
+      armedSinceRef.current = undefined;
       setWorking(null);
     }
   }, [assistantWorking, assistantWorkingSince, status]);
 
   const armOptimistic = () => {
+    armedSinceRef.current = latestRef.current.assistantWorkingSince ?? null;
     setWorking((w) => w ?? { verb: pickVerb(), since: Date.now() });
   };
 
-  return { working, armOptimistic };
+  // A failed send must not discard a turn the server is already reporting.
+  const disarmOptimistic = () => {
+    armedSinceRef.current = undefined;
+    if (latestRef.current.assistantWorking !== true) setWorking(null);
+  };
+
+  return { working, armOptimistic, disarmOptimistic };
 }
