@@ -63,4 +63,12 @@ describe('ChatThread prompt buttons', () => {
 
     expect(await screen.findByRole('button', { name: 'Approve' })).toBeEnabled();
   });
+
+  it('disables the open prompt while the session is not taking sends', async () => {
+    vi.mocked(api.getChat).mockResolvedValue({ ...session, status: 'cold' });
+    streamState(true);
+    render(<ChatThread sessionID="bp-1" embedded />);
+
+    expect(await screen.findByRole('button', { name: 'Approve' })).toBeDisabled();
+  });
 });
