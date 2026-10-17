@@ -6840,3 +6840,51 @@ button.bp-seg-hit {
     animation: none;
   }
 }
+
+/* Blueprint sheet: revision clouds and compare marks. */
+.bp-cloud {
+  position: relative;
+  margin: 10px 0;
+  border-radius: 10px;
+  outline: 1.5px dashed var(--blueprint-cloud);
+  outline-offset: 5px;
+}
+.bp-cloud-tri {
+  position: absolute;
+  top: 1px;
+  left: -26px;
+  width: 16px;
+  height: 14px;
+}
+.bp-cloud-tri path {
+  fill: none;
+  stroke: var(--orange);
+  stroke-width: 1.2;
+}
+.bp-cloud-tri text {
+  font: 600 8px var(--font-sans);
+  fill: var(--orange);
+}
+.bp-diff {
+  max-width: 70ch;
+  margin: 6px 0;
+  font-size: 13px;
+  line-height: 1.62;
+  white-space: pre-wrap;
+}
+.bp-body del,
+.bp-dec del {
+  padding: 0 2px;
+  border-radius: 2px;
+  background: var(--bg-red);
+  color: var(--red);
+  text-decoration: line-through;
+}
+.bp-body ins,
+.bp-dec ins {
+  padding: 0 2px;
+  border-radius: 2px;
+  background: var(--bg-green);
+  color: var(--fg);
+  text-decoration: none;
+}
