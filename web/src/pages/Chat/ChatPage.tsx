@@ -157,9 +157,9 @@ export function ChatPage() {
 
   const renderPaneBody = useCallback(
     (chatId: string, _slot: Slot, isFocused: boolean) => (
-      <ChatThread sessionID={chatId} embedded isFocused={isFocused} />
+      <ChatThread sessionID={chatId} embedded isFocused={isFocused} phone={isMobile} />
     ),
-    [],
+    [isMobile],
   );
 
   // Per-pane chat actions (End / Reopen / Delete). Each calls the API,

@@ -9,7 +9,7 @@ import { ErrorBoundary } from '../ErrorBoundary';
 // chunk fetch instead of blanking behind a single transcript-level boundary.
 const MarkdownPreview = lazy(() => import('../Markdown/SafeMarkdownPreview'));
 
-function ChatMarkdownImpl({ source }: { source: string }) {
+function ChatMarkdownImpl({ source, className }: { source: string; className?: string }) {
   const plainText = <div className="whitespace-pre-wrap break-words text-sm">{source}</div>;
   // The ErrorBoundary keeps a rejected markdown-chunk import (or a
   // pathological message) contained to this one bubble as plain text instead
@@ -17,7 +17,7 @@ function ChatMarkdownImpl({ source }: { source: string }) {
   // No retry control: React.lazy caches a rejected import, so a retry could
   // only re-throw - a page reload recovers.
   return (
-    <div className="bf-chat-markdown">
+    <div className={className ? `bf-chat-markdown ${className}` : 'bf-chat-markdown'}>
       <ErrorBoundary fallback={plainText}>
         <Suspense fallback={plainText}>
           <MarkdownPreview source={source} />

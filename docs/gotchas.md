@@ -250,7 +250,14 @@ Developer traps in this codebase. Each entry names the code it describes.
   fetches the persisted transcript, records the highest `seq`, then
   subscribes with `since_seq=<last>`; SSE events inside the bootstrap window
   are deduped. SSE-only would lose everything older than the server-side
-  128-entry ring on refresh.
+  128-entry ring on refresh. Architect live frames ride the same stream as
+  `kind: "blueprint"` events with `seq: 0`; the hook hands them to
+  `subscribeBlueprint` listeners before the seq dedupe, so they never reach
+  the transcript or move the last seq. A backed-up stream can drop blueprint
+  frames, snapshots included, and a reconnect replays no `artifact_stored`
+  hints, so the pane refetches the view after every chat-stream reconnect
+  and on each new marker or prompt row, and refetches a cached Board
+  (`emission` v1) on reconnect and whenever a reader mounts.
 
 ## Session logs and chat
 

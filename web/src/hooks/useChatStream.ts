@@ -12,6 +12,7 @@ interface ChatSSEEvent {
    * Structural marker, e.g. "divider" for the Clear Context sentinel.
    * Empty / absent means a regular message. Matched on by ChatPanel to
    * render a horizontal rule instead of the normal system-message style.
+   * "blueprint" marks an architect live frame, not a transcript row.
    */
   kind?: string;
   rehydration_phase?: boolean;
@@ -63,9 +64,14 @@ function messageToLog(m: ChatMessage): LogEntry {
   };
 }
 
+type BlueprintListener = (frame: string) => void;
+
 export interface UseChatStream {
   logs: readonly LogEntry[];
   connected: boolean;
+  /** Counts this session's stream opens: 1 once connected, one more for each
+   *  reconnect. A reopened stream may have missed ephemeral events. */
+  connection: number;
   /**
    * Session-metadata updates pushed by the worker-log bridge (context_tokens
    * increments after each Claude turn, rehydration_active flips when the
@@ -81,6 +87,9 @@ export interface UseChatStream {
    *  and prepends them. No-op while loading, when hasMore is false, or
    *  before the bootstrap resolves. */
   loadOlder: () => Promise<void>;
+  /** Registers a listener for the architect's live frames on this stream; it
+   *  gets each frame's JSON as sent. Returns the unsubscribe. */
+  subscribeBlueprint: (listener: BlueprintListener) => () => void;
 }
 
 const CHAT_LOG_RING_CAPACITY = 2000;
@@ -108,6 +117,7 @@ export function useChatStream(
 ): UseChatStream {
   const { logs, append, prepend, clear } = useRingBuffer(ringCapacity);
   const [connected, setConnected] = useState(false);
+  const [connection, setConnection] = useState(0);
   const [sessionUpdate, setSessionUpdate] = useState<ChatSessionUpdate | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -125,11 +135,22 @@ export function useChatStream(
    *  re-bootstrapped second one would corrupt oldestSeqRef and duplicate
    *  rows. */
   const streamEpochRef = useRef(0);
+  const [blueprintListeners] = useState(() => new Set<BlueprintListener>());
+  const subscribeBlueprint = useCallback(
+    (listener: BlueprintListener) => {
+      blueprintListeners.add(listener);
+      return () => {
+        blueprintListeners.delete(listener);
+      };
+    },
+    [blueprintListeners],
+  );
 
   const [prevSessionID, setPrevSessionID] = useState(sessionID);
   if (sessionID !== prevSessionID) {
     setPrevSessionID(sessionID);
     setConnected(false);
+    setConnection(0);
     setSessionUpdate(null);
     setHasMore(false);
     setLoadingOlder(false);
@@ -181,11 +202,17 @@ export function useChatStream(
       es = new EventSource(`/api/chats/${encodeURIComponent(sessionID)}/stream?since_seq=${sinceSeq}`);
       es.onopen = () => {
         setConnected(true);
+        setConnection((n) => n + 1);
         retry = 1000;
       };
       es.onmessage = (ev) => {
         try {
           const data = JSON.parse(ev.data) as ChatSSEEvent;
+          // Live frames all carry seq 0 and are never persisted: route them before the seq dedupe.
+          if (data.kind === 'blueprint') {
+            blueprintListeners.forEach((listener) => listener(data.content));
+            return;
+          }
           if (typeof data.seq === 'number') {
             if (data.seq <= lastSeq) return;
             lastSeq = data.seq;
@@ -278,7 +305,7 @@ export function useChatStream(
       if (retryTimer) clearTimeout(retryTimer);
       es?.close();
     };
-  }, [sessionID, append]);
+  }, [sessionID, append, blueprintListeners]);
 
   const loadOlder = useCallback(async () => {
     const before = oldestSeqRef.current;
@@ -321,5 +348,5 @@ export function useChatStream(
     }
   }, [sessionID, prepend]);
 
-  return { logs, connected, sessionUpdate, hasMore, loadingOlder, loadOlder };
+  return { logs, connected, connection, sessionUpdate, hasMore, loadingOlder, loadOlder, subscribeBlueprint };
 }

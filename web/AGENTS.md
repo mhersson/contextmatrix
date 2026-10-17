@@ -80,6 +80,7 @@ keeps the hamburger and a way back to the board.
 | Accents      | `--red --orange --yellow --green --aqua --blue --purple` | Priority / state / type accents (mapping below)                  |
 | Chat         | `--chat-assistant-bg/-ring`, `--chat-user-ring`        | Chat bubble fill and rings, shared by every palette                |
 | Prompt       | `--prompt-question-accent`, `--prompt-question-bg`, `--prompt-question-hover-bg`, `--prompt-question-ring`, `--chat-option-hover-bg` | Architect question accent (pink dark, rose to maroon light) and the light wash of the red/purple hue over the bubble for the bubble and option hover; neutral option hover mixes `--fg` into the bubble |
+| Blueprint    | `--blueprint-done`, `--blueprint-cloud`                | Done segments and their gate notches on the blueprint scale bar; the dashed revision cloud on the sheet. Both derive from palette tokens in `:root` |
 
 **UI semantic mapping:**
 
@@ -150,7 +151,9 @@ interactions.
   text); `Kind` `"gate"` keeps compact buttons, any other kind stacks
   full-width wrapping options, and `"question"` adds the accent: a tinted
   bubble, a 5px left bar, an accent ring and accent option borders. A click
-  sends the action's reply as an ordinary user message. A closed non-gate
+  sends the action's reply as an ordinary user message. A blueprint pane's
+  gate bar repeats the open gate prompt's `PromptActions`, matched on
+  `view.open.prompt_id`, with the same reply path. A closed non-gate
   prompt shows its options as a static list above the summary. Whether a
   prompt is open is derived in the browser (`derivePromptStates`), never
   stored. Agent and chat backends never emit a prompt: `AskUserQuestion`

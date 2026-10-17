@@ -45,6 +45,8 @@ import type {
   PatchPlaybookInput,
   NewPlaybookEntry,
   PatchPlaybookEntryInput,
+  BlueprintArtifact,
+  BlueprintView,
 } from '../types';
 
 const BASE_URL = '/api';
@@ -548,6 +550,16 @@ class APIClient {
 
   async getChat(id: string): Promise<ChatSession> {
     return this.request<ChatSession>(`/chats/${encodeURIComponent(id)}`);
+  }
+
+  async getBlueprintView(chatId: string): Promise<BlueprintView> {
+    return this.request<BlueprintView>(`/chats/${encodeURIComponent(chatId)}/blueprint`);
+  }
+
+  async getBlueprintArtifact(chatId: string, stage: string, version: number): Promise<BlueprintArtifact> {
+    return this.request<BlueprintArtifact>(
+      `/chats/${encodeURIComponent(chatId)}/blueprint/artifacts/${encodeURIComponent(stage)}/${version}`,
+    );
   }
 
   async deleteChat(id: string): Promise<void> {

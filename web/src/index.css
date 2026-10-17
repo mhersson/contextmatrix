@@ -6651,3 +6651,1061 @@ textarea {
     animation: none;
   }
 }
+
+/* Blueprint pane. Tokens derive from palette tokens, so every palette and theme gets them. */
+:root {
+  --blueprint-done: color-mix(in oklab, var(--green) 75%, var(--bg0));
+  --blueprint-cloud: color-mix(in oklab, var(--orange) 70%, transparent);
+}
+
+/* Blueprint scale bar. */
+.bp-scale {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 9px 12px 10px;
+  background: var(--bg0);
+  border-bottom: 1px solid var(--bg2);
+}
+.bp-scale-bar {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: flex-start;
+  min-width: 120px;
+  max-width: 620px;
+  padding-top: 8px;
+}
+.bp-seg {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.bp-seg--folded {
+  flex: 0.45;
+}
+.bp-seg-hit {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+button.bp-seg-hit {
+  cursor: pointer;
+}
+.bp-seg-rule {
+  display: block;
+  height: 10px;
+  border: 1px solid var(--grey1);
+  border-left-width: 0;
+}
+.bp-seg:first-child .bp-seg-rule {
+  border-left-width: 1px;
+}
+.bp-seg--done .bp-seg-rule {
+  background: var(--blueprint-done);
+  border-color: var(--blueprint-done);
+}
+.bp-seg--failed .bp-seg-rule {
+  border-color: var(--red);
+}
+.bp-seg--running .bp-seg-rule {
+  border-color: var(--aqua);
+  background: repeating-linear-gradient(-45deg, var(--aqua) 0 2px, transparent 2px 5px);
+  background-size: 14px 14px;
+  animation: bp-hatch 1.2s linear infinite;
+}
+.bp-seg--waiting .bp-seg-rule {
+  border-color: var(--prompt-question-accent);
+  background: repeating-linear-gradient(-45deg, var(--prompt-question-accent) 0 2px, transparent 2px 5px);
+}
+@keyframes bp-hatch {
+  to {
+    background-position: 14px 0;
+  }
+}
+.bp-seg-notch {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 6px solid var(--grey1);
+}
+.bp-seg--done .bp-seg-notch {
+  border-top-color: var(--blueprint-done);
+}
+.bp-seg--failed .bp-seg-notch {
+  border-top-color: var(--red);
+}
+.bp-seg--running .bp-seg-notch {
+  border-top-color: var(--aqua);
+}
+.bp-seg--waiting .bp-seg-notch {
+  border-top-color: var(--prompt-question-accent);
+}
+.bp-seg-tip {
+  position: absolute;
+  top: 18px;
+  left: 0;
+  z-index: 5;
+  display: none;
+  padding: 6px 9px;
+  border: 1px solid var(--bg3);
+  border-radius: 6px;
+  background: var(--bg2);
+  color: var(--fg);
+  font-size: 11.5px;
+  text-align: left;
+  white-space: nowrap;
+}
+.bp-seg:nth-last-child(-n + 3) .bp-seg-tip {
+  right: 0;
+  left: auto;
+}
+.bp-seg-tip small {
+  display: block;
+  font-size: 11px;
+  color: var(--grey1);
+}
+.bp-seg-hit:hover .bp-seg-tip,
+.bp-seg-hit:focus-visible .bp-seg-tip {
+  display: block;
+}
+.bp-scale-where {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+.bp-scale-where b {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--fg);
+  white-space: nowrap;
+}
+.bp-scale-where span {
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--grey1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bp-scale-where .bp-ask {
+  color: var(--prompt-question-accent);
+}
+.bp-scale-where .bp-failed {
+  color: var(--red);
+}
+.bp-cost {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  margin-left: auto;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--grey2);
+  white-space: nowrap;
+}
+.bp-cost i {
+  display: block;
+  width: 84px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--bg3);
+}
+.bp-cost i::before {
+  content: '';
+  display: block;
+  width: var(--bp-cost-pct, 0%);
+  height: 100%;
+  background: var(--aqua);
+}
+.bp-cost--warn i::before {
+  background: var(--orange);
+}
+.bp-cost--over i::before {
+  background: var(--red);
+}
+@media (prefers-reduced-motion: reduce) {
+  .bp-seg--running .bp-seg-rule {
+    animation: none;
+  }
+}
+
+/* Blueprint sheet: revision clouds and compare marks. */
+.bp-cloud {
+  position: relative;
+  margin: 10px 0;
+  border-radius: 10px;
+  outline: 1.5px dashed var(--blueprint-cloud);
+  outline-offset: 5px;
+}
+.bp-cloud-tri {
+  position: absolute;
+  top: 1px;
+  left: -26px;
+  width: 16px;
+  height: 14px;
+}
+.bp-cloud-tri path {
+  fill: none;
+  stroke: var(--orange);
+  stroke-width: 1.2;
+}
+.bp-cloud-tri text {
+  font: 600 8px var(--font-sans);
+  fill: var(--orange);
+}
+.bp-diff {
+  max-width: 70ch;
+  margin: 6px 0;
+  font-size: 13px;
+  line-height: 1.62;
+  white-space: pre-wrap;
+}
+.bp-body del,
+.bp-dec del {
+  padding: 0 2px;
+  border-radius: 2px;
+  background: var(--bg-red);
+  color: var(--red);
+  text-decoration: line-through;
+}
+.bp-body ins,
+.bp-dec ins {
+  padding: 0 2px;
+  border-radius: 2px;
+  background: var(--bg-green);
+  color: var(--fg);
+  text-decoration: none;
+}
+
+/* Blueprint sheet: chips, rows, decisions, tables. */
+.bp-chip {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.bp-chip + .bp-chip {
+  margin-left: 4px;
+}
+.bp-chip--yellow {
+  background: var(--bg-yellow);
+  color: var(--yellow);
+}
+.bp-chip--red {
+  background: var(--bg-red);
+  color: var(--red);
+}
+.bp-chip--purple {
+  background: var(--bg-purple);
+  color: var(--purple);
+}
+.bp-chip--blue {
+  background: var(--bg-blue);
+  color: var(--blue);
+}
+.bp-chip--green {
+  background: var(--bg-green);
+  color: var(--green);
+}
+.bp-chip--grey {
+  background: var(--bg2);
+  color: var(--grey2);
+}
+.bp-assumptions {
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+}
+.bp-assumptions li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 5px 0;
+}
+.bp-assumption-chip {
+  flex: none;
+}
+.bp-id {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--bg2);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+}
+.bp-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--grey2);
+}
+.bp-pill {
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--bg2);
+}
+.bp-rows {
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+.bp-row {
+  display: flex;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--bg2);
+}
+.bp-row p {
+  margin: 2px 0;
+}
+.bp-dec {
+  position: relative;
+  margin: 10px 0;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--bg3);
+}
+.bp-dec--added {
+  border-left-color: var(--green);
+}
+.bp-dec--removed {
+  border-left-color: var(--red);
+}
+.bp-dec-head {
+  font-weight: 600;
+}
+.bp-dec p {
+  margin: 4px 0;
+}
+.bp-dec-label {
+  color: var(--grey1);
+}
+.bp-rejected {
+  margin: 4px 0;
+  padding-left: 18px;
+  color: var(--grey1);
+}
+.bp-basis-rest {
+  font-size: 11.5px;
+  color: var(--grey1);
+}
+.bp-h-sub {
+  font-weight: 400;
+  color: var(--grey1);
+}
+.bp-table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.bp-table th,
+.bp-table td {
+  padding: 4px 12px 4px 0;
+  border-bottom: 1px solid var(--bg2);
+  text-align: left;
+  vertical-align: top;
+}
+.bp-table th {
+  font-weight: 550;
+  color: var(--grey1);
+}
+.bp-verdicts,
+.bp-criteria,
+.bp-list {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+.bp-verdicts li,
+.bp-criteria li,
+.bp-list li {
+  margin: 4px 0;
+}
+.bp-fulltext {
+  margin-top: 16px;
+}
+.bp-fulltext summary {
+  font-size: 12px;
+  color: var(--grey1);
+  cursor: pointer;
+}
+
+/* Blueprint sheet: card previews, order, readiness. */
+.bp-card {
+  margin: 8px 0;
+  padding: 9px 12px;
+  border: 1px solid var(--bg3);
+  border-left: 3px solid var(--bg4);
+  border-radius: 6px;
+  background: var(--bg1);
+}
+.bp-card--feature {
+  border-left-color: var(--green);
+}
+.bp-card--task {
+  border-left-color: var(--blue);
+}
+.bp-card--bug {
+  border-left-color: var(--red);
+}
+.bp-card-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 550;
+}
+.bp-card details {
+  margin-top: 6px;
+  font-size: 12px;
+}
+.bp-card summary {
+  color: var(--grey1);
+  cursor: pointer;
+}
+.bp-card a {
+  color: var(--blue);
+}
+.bp-pill--feature {
+  background: var(--bg-green);
+  color: var(--green);
+}
+.bp-pill--task {
+  background: var(--bg-blue);
+  color: var(--blue);
+}
+.bp-pill--bug,
+.bp-pill--critical {
+  background: var(--bg-red);
+  color: var(--red);
+}
+.bp-pill--high {
+  background: var(--bg-orange);
+  color: var(--orange);
+}
+.bp-pill--medium {
+  background: var(--bg-yellow);
+  color: var(--yellow);
+}
+.bp-pill--low {
+  color: var(--grey1);
+}
+.bp-order {
+  margin: 4px 0 10px;
+  padding-left: 20px;
+  font-size: 12.5px;
+}
+.bp-order li {
+  margin: 3px 0;
+}
+.bp-after {
+  color: var(--grey1);
+}
+.bp-readiness {
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+.bp-readiness > li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--bg2);
+}
+.bp-ready {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--green);
+}
+.bp-not-ready {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--orange);
+}
+.bp-list--red li {
+  color: var(--red);
+}
+.bp-list--orange li {
+  color: var(--orange);
+}
+
+/* Blueprint sheet: paper, stamps and live writing. */
+.bp-paper {
+  position: relative;
+  min-height: calc(100% - 8px);
+  margin: 4px;
+  padding: 24px 26px 22px 30px;
+  border: 1px solid var(--bg3);
+  border-radius: 4px;
+  background: var(--bg0);
+  color: var(--fg);
+}
+.bp-paper h1 {
+  margin: 0 0 14px;
+  font-family: var(--font-sans);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.bp-paper:has(.bp-stamp) h1 {
+  padding-right: 120px;
+}
+.bp-paper h3 {
+  margin: 18px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.bp-paper h4 {
+  margin: 12px 0 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--grey2);
+}
+.bp-paper p,
+.bp-paper li {
+  max-width: 70ch;
+  font-size: 13px;
+  line-height: 1.62;
+}
+.bp-paper code {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--bg2);
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+}
+.bp-paper .bp-markdown .wmde-markdown {
+  max-width: 70ch;
+}
+.bp-paper .bp-markdown h1,
+.bp-paper .bp-markdown h2,
+.bp-paper .bp-markdown h3,
+.bp-paper .bp-markdown h4 {
+  font-family: var(--font-sans);
+  font-weight: 600;
+}
+.bp-sub {
+  margin: -8px 0 14px;
+  font-size: 12px;
+  color: var(--grey1);
+}
+.bp-stamp {
+  position: absolute;
+  top: 20px;
+  right: 22px;
+  padding: 3px 10px 4px;
+  transform: rotate(-5deg);
+  border: 2px solid currentColor;
+  border-radius: 4px;
+  outline: 1px solid currentColor;
+  outline-offset: 2px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-style: italic;
+  line-height: 1.2;
+  text-align: center;
+  opacity: 0.85;
+}
+.bp-stamp small {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  font-style: normal;
+}
+.bp-stamp--approved {
+  color: var(--green);
+}
+.bp-stamp--rejected {
+  color: var(--red);
+}
+.bp-stamp--superseded {
+  color: var(--orange);
+}
+.bp-stamp--folded {
+  color: var(--grey1);
+}
+.bp-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--aqua);
+}
+.bp-progress-rule {
+  flex: none;
+  width: 70px;
+  height: 6px;
+  border: 1px solid var(--aqua);
+  background: repeating-linear-gradient(-45deg, var(--aqua) 0 2px, transparent 2px 5px);
+  background-size: 14px 14px;
+  animation: bp-hatch 1.2s linear infinite;
+}
+.bp-progress--waiting {
+  color: var(--prompt-question-accent);
+}
+.bp-progress--waiting .bp-progress-rule {
+  border-color: var(--prompt-question-accent);
+  background: repeating-linear-gradient(-45deg, var(--prompt-question-accent) 0 2px, transparent 2px 5px);
+  animation: none;
+}
+.bp-dimmed {
+  opacity: 0.4;
+}
+.bp-writing {
+  white-space: pre-wrap;
+  box-shadow: -2px 0 0 var(--aqua);
+}
+.bp-caret {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: var(--aqua);
+  animation: bp-blink 1s steps(2) infinite;
+}
+@keyframes bp-blink {
+  50% {
+    opacity: 0;
+  }
+}
+.bp-refused {
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: var(--bg-red);
+  color: var(--red);
+  font-size: 12px;
+}
+.bp-check-problems {
+  margin-bottom: 12px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: var(--bg-yellow);
+  color: var(--fg);
+  font-size: 12px;
+}
+.bp-load-error {
+  font-size: 12.5px;
+  color: var(--red);
+}
+@media (prefers-reduced-motion: reduce) {
+  .bp-progress-rule,
+  .bp-caret {
+    animation: none;
+  }
+}
+
+/* Blueprint sheet: title block, review and gate bar. */
+.bp-tb {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--bg3);
+  background: var(--bg0);
+}
+.bp-tb > div {
+  position: relative;
+  flex: 1 1 110px;
+  min-width: 0;
+  padding: 6px 10px 7px;
+  border-right: 1px solid var(--bg2);
+}
+.bp-tb > div:last-child {
+  border-right: 0;
+}
+.bp-tb small {
+  display: block;
+  font-size: 10.5px;
+  color: var(--grey1);
+}
+.bp-tb-value {
+  display: block;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bp-tb-name {
+  font-family: var(--font-display);
+  font-size: 14px;
+}
+.bp-tb select {
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px dotted var(--grey1);
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+.bp-tb-compare {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--grey2);
+  cursor: pointer;
+}
+.bp-tb-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
+  text-decoration: underline dotted var(--grey1);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.bp-st--running {
+  color: var(--aqua);
+}
+.bp-st--waiting {
+  color: var(--prompt-question-accent);
+}
+.bp-st--ok {
+  color: var(--green);
+}
+.bp-st--old {
+  color: var(--orange);
+}
+.bp-st--bad {
+  color: var(--red);
+}
+.bp-st--muted {
+  color: var(--grey1);
+}
+.bp-review {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 6;
+  width: min(330px, 80vw);
+  padding: 10px 12px;
+  border: 1px solid var(--bg3);
+  border-radius: 8px;
+  background: var(--bg2);
+  color: var(--fg);
+  box-shadow: 0 10px 30px color-mix(in oklab, var(--bg-dim) 70%, transparent);
+  white-space: normal;
+}
+.bp-review b {
+  font-size: 12.5px;
+}
+.bp-review ol {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+.bp-review li {
+  margin: 3px 0;
+}
+.bp-fix {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--green);
+}
+.bp-sent {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--grey1);
+}
+.bp-gatebar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--prompt-question-ring);
+  background: var(--prompt-question-bg);
+  color: var(--fg);
+}
+.bp-gatebar > span {
+  flex: 1 1 200px;
+  font-size: 12px;
+}
+.bp-gatebar b {
+  color: var(--prompt-question-accent);
+}
+.bp-gatebar > div {
+  margin-top: 0;
+}
+
+/* Blueprint sheet frame and tabs. */
+.bp-sheet {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--bg2);
+  background: var(--bg1);
+}
+.bp-tabs {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 1px;
+  padding: 6px 8px 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--bg2);
+  background: var(--bg0);
+  scrollbar-width: none;
+}
+.bp-tab {
+  padding: 5px 8px 7px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--grey1);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.bp-tab--on {
+  border-bottom-color: var(--blue);
+  color: var(--fg);
+}
+.bp-tab:disabled {
+  color: var(--grey0);
+  opacity: 0.5;
+  cursor: default;
+}
+.bp-tab-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 5px;
+  vertical-align: 1px;
+  border-radius: 50%;
+  background: var(--aqua);
+}
+.bp-tabs-fill {
+  flex: 1;
+}
+.bp-tabs-close {
+  padding: 4px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--grey1);
+  font-size: 12px;
+  cursor: pointer;
+}
+.bp-tabs-close:hover {
+  color: var(--fg);
+}
+.bp-paperwrap {
+  flex: 1;
+  min-height: 0;
+  padding: 16px;
+  overflow-y: auto;
+}
+.bp-empty {
+  margin: 24px;
+  font-size: 12.5px;
+  color: var(--grey1);
+}
+
+/* Blueprint pane layout: transcript, divider, sheet, edge strip, overlay. */
+.bp-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.bp-body-row {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.bp-transcript {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.bp-sheet-slot {
+  display: flex;
+  flex: 0 0 46%;
+  min-width: 0;
+  min-height: 0;
+}
+.bp-divider {
+  flex: 0 0 5px;
+  background: var(--bg2);
+  cursor: col-resize;
+  touch-action: none;
+}
+.bp-divider:hover,
+.bp-divider:focus-visible {
+  background: var(--bg4);
+  outline: none;
+}
+.bp-overlay {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 10%;
+  z-index: 3;
+  display: flex;
+  box-shadow: -18px 0 40px color-mix(in oklab, var(--bg-dim) 70%, transparent);
+  animation: bp-slide-in 0.22s ease-out;
+}
+.bp-overlay--phone {
+  left: 0;
+}
+@keyframes bp-slide-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0.4;
+  }
+}
+.bp-edge {
+  display: flex;
+  flex: 0 0 30px;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border: 0;
+  border-left: 1px solid var(--bg2);
+  background: var(--bg0);
+  color: var(--grey2);
+  cursor: pointer;
+}
+.bp-edge-text {
+  transform: rotate(180deg);
+  font-size: 12px;
+  white-space: nowrap;
+  writing-mode: vertical-rl;
+}
+.bp-edge-text b {
+  font-family: var(--font-display);
+  font-weight: 500;
+  color: var(--fg);
+}
+.bp-edge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--aqua);
+}
+.bp-sheet--unavailable {
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+}
+.bp-sheet--unavailable p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--fg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .bp-overlay {
+    animation: none;
+  }
+}
+
+/* Phone blueprint pane: the header's Sheet toggle. */
+.chat-pane-btn.chat-pane-sheet-btn {
+  gap: 5px;
+  width: auto;
+  padding: 0 8px;
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+}
+.chat-pane-sheet-btn--on {
+  background: var(--bg2);
+  color: var(--aqua);
+}
+.chat-pane-sheet-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--aqua);
+}
+
+/* Blueprint transcript markers. */
+.bp-stage-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--grey1);
+}
+.bp-stage-divider::before,
+.bp-stage-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--bg3);
+}
+.bp-stage-divider b {
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--grey2);
+}
+.bp-ref {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  max-width: 88%;
+  padding: 7px 11px;
+  border: 1px solid var(--bg3);
+  border-radius: 8px;
+  background: var(--bg0);
+  color: var(--fg);
+  text-align: left;
+}
+.bp-ref--link {
+  cursor: pointer;
+}
+.bp-ref--link:hover {
+  border-color: color-mix(in oklab, var(--blue) 60%, var(--bg3));
+}
+.bp-ref svg {
+  flex: none;
+  color: var(--blue);
+}
+.bp-ref-text b {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 500;
+}
+.bp-ref-text span {
+  font-size: 11.5px;
+  color: var(--grey1);
+}
+.bp-ref-note {
+  display: block;
+}
