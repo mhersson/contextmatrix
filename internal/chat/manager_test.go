@@ -5505,9 +5505,9 @@ func TestManager_Consumer_PromptDisplayFieldsRoundTrip(t *testing.T) {
 
 func TestManager_Consumer_OversizedContentIsCutBeforePromptText(t *testing.T) {
 	// Multibyte runes and characters JSON escapes, so the cut must respect both.
-	bigContent := strings.Repeat("é<\n", 15000)
+	bigContent := strings.Repeat("😀<\n", 15000)
 	// Alone it fits the row cap, but a shared cut length would still shorten it.
-	text := strings.Repeat("é<\n", 2500)
+	text := strings.Repeat("😀<\n", 2500)
 	p := &protocol.LogPrompt{
 		Kind:    "question",
 		Text:    text,
@@ -5522,6 +5522,7 @@ func TestManager_Consumer_OversizedContentIsCutBeforePromptText(t *testing.T) {
 	var env promptEnvelope
 	require.NoError(t, json.Unmarshal([]byte(msg.Content), &env))
 	assert.Equal(t, text, env.Prompt.Text, "the prompt text is kept whole")
+	assert.False(t, strings.ContainsRune(env.Text, utf8.RuneError), "the cut did not split a rune")
 	assert.True(t, strings.HasSuffix(env.Text, "\n... [truncated]"))
 	assert.Less(t, len(env.Text), len(bigContent))
 	assert.Equal(t, p.Actions, env.Prompt.Actions, "every action survives")
@@ -5529,7 +5530,7 @@ func TestManager_Consumer_OversizedContentIsCutBeforePromptText(t *testing.T) {
 }
 
 func TestManager_Consumer_OversizedPromptTextIsCutOnlyWhenItAloneOverflows(t *testing.T) {
-	big := strings.Repeat("é<\n", 15000)
+	big := strings.Repeat("😀<\n", 15000)
 	p := &protocol.LogPrompt{
 		Kind:    "question",
 		Text:    big,
@@ -5547,6 +5548,8 @@ func TestManager_Consumer_OversizedPromptTextIsCutOnlyWhenItAloneOverflows(t *te
 	assert.True(t, strings.HasSuffix(env.Prompt.Text, "\n... [truncated]"))
 	assert.Less(t, len(env.Prompt.Text), len(big))
 	assert.Greater(t, len(env.Prompt.Text), 1024, "the prompt text keeps as much as fits")
+	assert.False(t, strings.ContainsRune(env.Text, utf8.RuneError), "the cut did not split a rune")
+	assert.False(t, strings.ContainsRune(env.Prompt.Text, utf8.RuneError), "the cut did not split a rune")
 	assert.Equal(t, p.Actions, env.Prompt.Actions, "every action survives")
 	assert.Equal(t, big, p.Text, "the caller's prompt is not mutated")
 }
@@ -5629,7 +5632,7 @@ func TestManager_Consumer_PromptRows(t *testing.T) {
 func TestManager_Consumer_OversizedPromptTextKeepsTheEnvelopeValid(t *testing.T) {
 	gate := &protocol.LogPrompt{Actions: []protocol.LogAction{{Label: "Approve", Reply: "approve"}}}
 	// Multibyte runes and characters JSON escapes, so the cut must respect both.
-	text := strings.Repeat("é<\n", 15000)
+	text := strings.Repeat("😀<\n", 15000)
 	msg := storedArchitectRow(t, chat.LogEntry{Type: "text", Content: text, Prompt: gate})
 
 	content := msg.Content
@@ -5655,7 +5658,7 @@ type markerEnvelope struct {
 func TestManager_Consumer_MarkerRows(t *testing.T) {
 	divider := &protocol.LogMarker{Kind: "stage", Stage: "solution_design", Persona: "System designer"}
 	sheet := &protocol.LogMarker{Kind: "artifact", Stage: "solution_design", Persona: "System designer", Version: 2, Note: "Revised for the 3 findings"}
-	longNote := &protocol.LogMarker{Kind: "artifact", Stage: "need", Persona: "Analyst", Version: 1, Note: strings.Repeat("é<", 12000)}
+	longNote := &protocol.LogMarker{Kind: "artifact", Stage: "need", Persona: "Analyst", Version: 1, Note: strings.Repeat("😀<", 12000)}
 	hugeStage := &protocol.LogMarker{Kind: "stage", Stage: strings.Repeat("s", 40*1024)}
 	gate := &protocol.LogPrompt{ID: "gate:solution_design:v2", Actions: []protocol.LogAction{{Label: "Approve", Reply: "approve"}}}
 
@@ -5743,8 +5746,10 @@ func TestManager_Consumer_MarkerRows(t *testing.T) {
 			} else {
 				assert.Equal(t, "\n... [truncated]", env.Text, "the fallback line is cut to its minimum before the note")
 				assert.True(t, strings.HasSuffix(env.Marker.Note, "\n... [truncated]"))
+				assert.True(t, strings.HasPrefix(longNote.Note, strings.TrimSuffix(env.Marker.Note, "\n... [truncated]")), "the note is cut at its end")
+				assert.False(t, strings.ContainsRune(env.Marker.Note, utf8.RuneError), "the cut did not split a rune")
 				assert.Greater(t, len(env.Marker.Note), 1024, "the note keeps as much as fits")
-				assert.Equal(t, strings.Repeat("é<", 12000), longNote.Note, "the caller's marker is not mutated")
+				assert.Equal(t, strings.Repeat("😀<", 12000), longNote.Note, "the caller's marker is not mutated")
 			}
 		})
 	}
@@ -5753,7 +5758,7 @@ func TestManager_Consumer_MarkerRows(t *testing.T) {
 func TestManager_Consumer_OversizedMarkerContentIsCutBeforeTheMarker(t *testing.T) {
 	mk := &protocol.LogMarker{Kind: "artifact", Stage: "solution_design", Persona: "System designer", Version: 3, Note: "Revised for the 2 findings"}
 	// Multibyte runes and characters JSON escapes, so the cut must respect both.
-	text := strings.Repeat("é<\n", 15000)
+	text := strings.Repeat("😀<\n", 15000)
 
 	msg := storedArchitectRow(t, chat.LogEntry{Type: "text", Content: text, Marker: mk})
 
@@ -5766,6 +5771,8 @@ func TestManager_Consumer_OversizedMarkerContentIsCutBeforeTheMarker(t *testing.
 	assert.Equal(t, *mk, env.Marker, "the marker is kept whole")
 	assert.True(t, strings.HasSuffix(env.Text, "\n... [truncated]"))
 	assert.True(t, strings.HasPrefix(text, env.Text[:1024]), "cut at its end, not replaced")
+	assert.False(t, strings.ContainsRune(env.Text, utf8.RuneError), "the cut did not split a rune")
+	assert.Greater(t, len(msg.Content), 32*1024-6, "the text keeps as much as fits")
 }
 
 // frameStream returns a StreamLogs func that hands each frame sent on frames

@@ -556,7 +556,8 @@ three are optional. Only the architect sets `prompt`, and `content` stays the
 full readable message. CM stores such a frame on an architect session as a
 `kind: "prompt"` row whose content is a `{"text", "prompt"}` JSON envelope,
 cutting `content` first and `prompt.text` only if it alone overflows the
-32 KiB row cap. On any other session, and in task session logs, the field is
+32 KiB row cap; a prompt whose actions alone overflow it is stored as the
+plain message. On any other session, and in task session logs, the field is
 ignored.
 
 `marker` turns an architect frame into a transcript marker, for example
@@ -568,9 +569,10 @@ optional, and `content` stays a plain fallback line. Only the architect sets
 `marker`. CM stores such a frame on an architect session as a `kind:
 "marker"` row with the frame's role, whose content is a `{"text", "marker"}`
 JSON envelope, cutting `content` first and `marker.note` only if the marker
-alone overflows the 32 KiB row cap; a frame that carries both `marker` and
-`prompt` is stored as a marker. On any other session, and in task session
-logs, the field is ignored.
+alone overflows the 32 KiB row cap (a marker whose kind, stage and persona
+alone overflow it is stored as the plain message); a frame that carries both
+`marker` and `prompt` is stored as a marker. On any other session, and in
+task session logs, the field is ignored.
 
 The backend redacts credential patterns before publishing and sends keepalive
 comments to hold the connection open through proxy idle timeouts.

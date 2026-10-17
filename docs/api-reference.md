@@ -2613,7 +2613,9 @@ is the JSON envelope `{"text": "<message>", "prompt": {"id": "...", "kind":
 `recommended` are optional), and on a `marker` row, where it is `{"text":
 "<fallback line>", "marker": {"kind": "artifact", "stage": "solution_design",
 "persona": "System designer", "version": 2, "note": "..."}}` (`kind` is
-`stage` or `artifact`; `persona`, `version` and `note` are optional).
+`stage` or `artifact`; `persona`, `version` and `note` are optional). A prompt
+whose actions alone, or a marker whose kind, stage and persona alone, overflow
+the 32 KiB row cap is stored as a plain message with no `kind`.
 Empty transcripts return `{"messages": []}`; unknown session is 404.
 
 The browser fetches the newest page with `tail=1`, subscribes to

@@ -108,10 +108,11 @@ type Session struct {
 
 // Message is a single persisted transcript entry. Kind discriminates
 // structural rows from regular ones: empty is a regular message, "divider"
-// marks the Clear Context row, and "prompt" marks an architect question or
-// gate whose Content is a {text, prompt} JSON envelope, and "marker" marks an architect
-// stage divider or sheet reference whose Content is a {text, marker} JSON envelope. Kind rides the live
-// SSE wire and the REST bootstrap alike, so the browser renders both the same.
+// marks the Clear Context row, "prompt" marks an architect question or gate
+// whose Content is a {text, prompt} JSON envelope, and "marker" marks an
+// architect stage divider or sheet reference whose Content is a {text, marker}
+// JSON envelope. Kind rides the live SSE wire and the REST bootstrap alike, so
+// the browser renders both the same.
 type Message struct {
 	ID               int64     `json:"id"`
 	SessionID        string    `json:"session_id"`
