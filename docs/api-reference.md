@@ -2783,7 +2783,7 @@ These two routes answer:
 | Status | Code                    | Meaning                                                                                                                         |
 | ------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | 200    | -                       | The architect's body                                                                                                            |
-| 400    | `BAD_REQUEST`           | Malformed `stage`, `version` or `slice`, or more than one `slice`; nothing is sent to the architect                              |
+| 400    | `BAD_REQUEST`           | Malformed `stage`, `version` or `slice`, more than one `slice`, or an undecodable query; nothing is sent to the architect       |
 | 404    | `CHAT_NOT_FOUND`        | Unknown session, or another user's session in `multi` mode                                                                      |
 | 404    | `BLUEPRINT_NOT_FOUND`   | Not an `architect` session, or the architect answered 404 (an architect without these routes, an unknown blueprint or artifact) |
 | 409    | `CHAT_KIND_UNAVAILABLE` | No architect backend is configured                                                                                              |

@@ -206,10 +206,18 @@ func (h *chatHandlers) getBlueprintArtifact(w http.ResponseWriter, r *http.Reque
 }
 
 // blueprintSliceQuery reads the optional slice parameter: absent forwards
-// nothing, one well-formed id forwards it, anything else answers 400.
-// ok=false means a response was written.
+// nothing, one well-formed id forwards it, anything else (including an
+// undecodable query) answers 400. ok=false means a response was written.
 func blueprintSliceQuery(w http.ResponseWriter, r *http.Request) (url.Values, bool) {
-	vals, present := r.URL.Query()["slice"]
+	// r.URL.Query() silently drops pairs it cannot decode, which would read as absent.
+	q, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid query", "")
+
+		return nil, false
+	}
+
+	vals, present := q["slice"]
 	if !present {
 		return nil, true
 	}

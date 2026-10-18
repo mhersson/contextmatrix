@@ -605,6 +605,9 @@ func TestBlueprintArtifact_MalformedSliceNeverReachesTheArchitect(t *testing.T) 
 		{"no number", "slice=SL"},
 		{"smuggled parameter", "slice=SL2%26nonce%3Dx"},
 		{"two slices", "slice=SL1&slice=SL2"},
+		{"undecodable", "slice=%ZZ"},
+		{"semicolon", "slice=SL2;x"},
+		{"valid then undecodable", "slice=SL2&slice=%ZZ"},
 	}
 
 	for _, tt := range tests {
