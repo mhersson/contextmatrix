@@ -178,6 +178,8 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 	mux := http.NewServeMux()
 
 	chh := newChatHandlers(mgr, hub, opts.chatBackendCfg)
+	chh.architectDefault = archDefault
+
 	if opts.endpointModels != nil {
 		chh.endpointModels = newCachedEndpointFetcher(opts.endpointModels, endpointModelCacheTTL)
 	}
@@ -888,6 +890,47 @@ func TestCreateChat_Endpoint_RejectsUnknownModel(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "INVALID_MODEL")
+}
+
+func TestCreateChat_ArchitectDefaultSkipsCatalogValidation(t *testing.T) {
+	t.Parallel()
+
+	opts := architectFixtureOpts()
+	opts.endpointModels = func(context.Context) ([]chatModelEntry, error) {
+		return []chatModelEntry{{ID: "model-a"}}, nil
+	}
+
+	tests := []struct {
+		name     string
+		model    string
+		wantCode int
+	}{
+		{"architect default absent from the catalog", "arch/default", http.StatusCreated},
+		{"other model absent from the catalog", "arch/other", http.StatusBadRequest},
+		{"other model in the catalog", "model-a", http.StatusCreated},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			mux, _ := newChatFixture(t, opts)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats",
+				`{"kind":"architect","projects":["alpha"],"model":"`+tt.model+`"}`))
+			assert.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
+		})
+	}
+
+	t.Run("a chat session still validates the architect default", func(t *testing.T) {
+		t.Parallel()
+
+		mux, _ := newChatFixture(t, opts)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats",
+			`{"project":"alpha","model":"arch/default"}`))
+		assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	})
 }
 
 func TestCreateChat_Endpoint_EmptyCatalogFailsOpen(t *testing.T) {

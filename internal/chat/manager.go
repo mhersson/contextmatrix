@@ -66,7 +66,8 @@ const EventKindRoundChat = "round_chat"
 
 // EventKindRoundReply is the persisted Message.Kind / SSE DataKind of a user
 // message that answers a question round. Its Content is the readable summary;
-// the panel keeps it out of the transcript, as the round's block is its record.
+// the panel hides it when its round is loaded (the block is its record) and
+// shows an orphan as a plain message.
 const EventKindRoundReply = "round_reply"
 
 // Backend is the chat-execution surface chat.Manager drives (the roadmap's

@@ -246,6 +246,13 @@ func (h *chatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sessions)
 }
 
+// isArchitectDefault reports whether model is the architect backend's own
+// default, which the picker seeds and the backend already accepts, so it skips
+// catalog validation exactly as an omitted model does.
+func (h *chatHandlers) isArchitectDefault(kind chat.SessionKind, model string) bool {
+	return kind == chat.KindArchitect && h.architectDefault != "" && model == h.architectDefault
+}
+
 func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Title      string   `json:"title"`
@@ -276,7 +283,7 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 		// fetch error or an empty catalog (cold start, endpoint outage -
 		// the builder-backed fetcher reports both as an empty list with a
 		// nil error) fails open so an upstream outage never blocks chat.
-		if model != "" {
+		if model != "" && !h.isArchitectDefault(kind, model) {
 			if models, err := h.endpointModels(r.Context()); err == nil && len(models) > 0 && !containsModelID(models, model) {
 				writeError(w, http.StatusBadRequest, ErrCodeInvalidModel, "model not in catalog", model)
 
@@ -289,7 +296,7 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 		}
 		// Validate against CM's vendor-screened catalog copy. validateModel
 		// fails open on an empty catalog (cold start, OpenRouter outage).
-		if model != "" && h.validateModel != nil && !h.validateModel(r.Context(), model) {
+		if model != "" && !h.isArchitectDefault(kind, model) && h.validateModel != nil && !h.validateModel(r.Context(), model) {
 			writeError(w, http.StatusBadRequest, ErrCodeInvalidModel, "model not in catalog", model)
 
 			return
