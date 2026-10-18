@@ -148,7 +148,7 @@ export function PromptActions({ prompt, status, answer, onReply }: PromptActions
       </div>
       {feedbackFor && (
         <div className="flex flex-col gap-1.5">
-          <label htmlFor={feedbackId} className="text-xs" style={{ color: 'var(--grey2)' }}>
+          <label htmlFor={feedbackId} className="chat-prompt-muted text-xs">
             Feedback for {feedbackFor.label}
           </label>
           <textarea

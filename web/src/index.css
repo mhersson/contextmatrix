@@ -1176,11 +1176,12 @@ textarea {
   cursor: not-allowed;
 }
 
-/* Closed-prompt option list and summary; --fg inside a question, since no softer colour keeps 4.5:1 on the wash. */
+/* Closed-prompt options, summary and feedback label; --fg on the question wash, since no softer colour keeps 4.5:1 there. */
 .chat-prompt-muted {
-  color: var(--grey1);
+  color: var(--blueprint-quiet-strong);
 }
-[data-prompt-kind="question"] .chat-prompt-muted {
+[data-prompt-kind="question"] .chat-prompt-muted,
+.bp-gatebar .chat-prompt-muted {
   color: var(--fg);
 }
 
@@ -6656,8 +6657,10 @@ textarea {
 :root {
   --blueprint-done: color-mix(in oklab, var(--green) 75%, var(--bg0));
   --blueprint-cloud: color-mix(in oklab, var(--orange) 70%, transparent);
-  /* Muted sheet labels: bare --grey1 falls to about 3:1 in ayu light; 60% --fg clears 4.5:1 in every palette. */
+  /* Muted text on the --bg0 paper and bars: bare --grey1 falls to about 3:1 in ayu light; 60% --fg clears 4.5:1 in every palette. */
   --blueprint-quiet: color-mix(in oklab, var(--grey1) 40%, var(--fg));
+  /* Muted text on --bg1, --bg2, --bg-dim and --bg-red, where quiet falls below 4.5:1 in several palettes. */
+  --blueprint-quiet-strong: color-mix(in oklab, var(--grey1) 22%, var(--fg));
 }
 
 /* Blueprint scale bar. */
@@ -6773,7 +6776,7 @@ button.bp-seg-hit {
 .bp-seg-tip small {
   display: block;
   font-size: 11px;
-  color: var(--grey1);
+  color: var(--blueprint-quiet-strong);
 }
 .bp-scale-bar--grouped {
   padding-bottom: 14px;
@@ -6830,7 +6833,7 @@ button.bp-seg-hit {
 .bp-scale-where span {
   overflow: hidden;
   font-size: 11.5px;
-  color: var(--grey1);
+  color: var(--blueprint-quiet);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -6856,7 +6859,7 @@ button.bp-seg-hit {
   gap: 3px;
   font-size: 11.5px;
   font-variant-numeric: tabular-nums;
-  color: var(--grey2);
+  color: var(--blueprint-quiet);
   white-space: nowrap;
 }
 .bp-cost:hover span {
@@ -6996,7 +6999,7 @@ button.bp-seg-hit {
   gap: 6px;
   margin-top: 6px;
   font-size: 11.5px;
-  color: var(--grey2);
+  color: var(--blueprint-quiet-strong);
 }
 .bp-pill {
   padding: 0 7px;
@@ -7022,12 +7025,12 @@ button.bp-seg-hit {
   margin: 4px 0;
 }
 .bp-dec-label {
-  color: var(--grey1);
+  color: var(--blueprint-quiet);
 }
 .bp-rejected {
   margin: 4px 0;
   padding-left: 18px;
-  color: var(--grey1);
+  color: var(--blueprint-quiet);
 }
 .bp-basis-rest {
   font-size: 11.5px;
@@ -7225,7 +7228,7 @@ button.bp-seg-hit {
 }
 .bp-fulltext summary {
   font-size: 12px;
-  color: var(--grey1);
+  color: var(--blueprint-quiet);
   cursor: pointer;
 }
 
@@ -7259,7 +7262,7 @@ button.bp-seg-hit {
   font-size: 12px;
 }
 .bp-card summary {
-  color: var(--grey1);
+  color: var(--blueprint-quiet-strong);
   cursor: pointer;
 }
 .bp-card a {
@@ -7287,7 +7290,7 @@ button.bp-seg-hit {
   color: var(--yellow);
 }
 .bp-pill--low {
-  color: var(--grey1);
+  color: var(--blueprint-quiet-strong);
 }
 .bp-order {
   margin: 4px 0 10px;
@@ -7298,7 +7301,7 @@ button.bp-seg-hit {
   margin: 3px 0;
 }
 .bp-after {
-  color: var(--grey1);
+  color: var(--blueprint-quiet);
 }
 .bp-readiness {
   margin: 8px 0;
@@ -7361,11 +7364,12 @@ button.bp-seg-hit {
   font-size: 13px;
   font-weight: 600;
 }
+/* Strong, not quiet: an h4 in a card body sits on the card's --bg1. */
 .bp-paper h4 {
   margin: 12px 0 4px;
   font-size: 12.5px;
   font-weight: 600;
-  color: var(--grey2);
+  color: var(--blueprint-quiet-strong);
 }
 .bp-paper p,
 .bp-paper li {
@@ -7428,7 +7432,7 @@ button.bp-seg-hit {
   color: var(--orange);
 }
 .bp-stamp--folded {
-  color: var(--grey1);
+  color: var(--blueprint-quiet);
 }
 .bp-progress {
   display: flex;
@@ -7523,7 +7527,7 @@ button.bp-seg-hit {
 .bp-tb small {
   display: block;
   font-size: 10.5px;
-  color: var(--grey1);
+  color: var(--blueprint-quiet);
 }
 .bp-tb-value {
   display: block;
@@ -7552,7 +7556,7 @@ button.bp-seg-hit {
   gap: 4px;
   margin-top: 2px;
   font-size: 11px;
-  color: var(--grey2);
+  color: var(--blueprint-quiet);
   cursor: pointer;
 }
 .bp-tb-link,
@@ -7582,7 +7586,7 @@ button.bp-seg-hit {
   color: var(--red);
 }
 .bp-st--muted {
-  color: var(--grey1);
+  color: var(--blueprint-quiet-strong);
 }
 .bp-review {
   position: absolute;
@@ -7601,6 +7605,9 @@ button.bp-seg-hit {
 }
 .bp-review > b {
   font-size: 12.5px;
+}
+.bp-review small {
+  color: var(--blueprint-quiet-strong);
 }
 .bp-review ol {
   margin: 6px 0 0;
@@ -7629,7 +7636,7 @@ button.bp-seg-hit {
   font-size: 12.5px;
 }
 .bp-cap small {
-  color: var(--grey1);
+  color: var(--blueprint-quiet-strong);
 }
 .bp-cap-raises,
 .bp-cap-actions {
@@ -7683,7 +7690,7 @@ button.bp-seg-hit {
 .bp-sent {
   margin-left: 4px;
   font-size: 11px;
-  color: var(--grey1);
+  color: var(--blueprint-quiet-strong);
 }
 .bp-tb-link--bad {
   color: var(--red);
@@ -7720,7 +7727,7 @@ button.bp-seg-hit {
   padding: 0 5px;
   border: 1px solid var(--grey1);
   border-radius: 999px;
-  color: var(--grey1);
+  color: var(--blueprint-quiet-strong);
   font-size: 10.5px;
   line-height: 15px;
 }
@@ -7736,7 +7743,7 @@ button.bp-seg-hit {
   display: block;
   font-size: 11px;
   font-style: italic;
-  color: var(--grey2);
+  color: var(--blueprint-quiet-strong);
 }
 .bp-gatebar {
   display: flex;
@@ -7760,6 +7767,8 @@ button.bp-seg-hit {
   margin-top: 0;
 }
 .bp-gate-ledger {
+  /* Only --fg clears 4.5:1 on the question wash, so the ledger's muted text takes it. */
+  --blueprint-quiet-strong: var(--fg);
   flex: 1 1 100%;
   min-width: 0;
   font-size: 12px;
@@ -7811,7 +7820,7 @@ button.bp-seg-hit {
   border: 0;
   border-bottom: 2px solid transparent;
   background: transparent;
-  color: var(--grey1);
+  color: var(--blueprint-quiet);
   font-size: 12px;
   white-space: nowrap;
   cursor: pointer;
@@ -7841,7 +7850,7 @@ button.bp-seg-hit {
   padding: 4px 6px;
   border: 0;
   background: transparent;
-  color: var(--grey1);
+  color: var(--blueprint-quiet);
   font-size: 12px;
   cursor: pointer;
 }
@@ -7874,19 +7883,20 @@ button.bp-seg-hit {
   background: var(--bg2);
   scrollbar-width: none;
 }
+/* Strong, not quiet: quiet reaches only 4.44:1 on the unselected tab (--bg0 45% over --bg2) in ayu light. */
 .bp-slice {
   padding: 4px 9px;
   border: 1px solid var(--bg4);
   border-bottom: none;
   border-radius: 6px 6px 0 0;
   background: color-mix(in oklab, var(--bg0) 45%, transparent);
-  color: var(--blueprint-quiet);
+  color: var(--blueprint-quiet-strong);
   font-size: 12px;
   white-space: nowrap;
   cursor: pointer;
 }
 .bp-slice small {
-  color: var(--blueprint-quiet);
+  color: var(--blueprint-quiet-strong);
   font-size: 11px;
 }
 .bp-slice--on {
@@ -7909,7 +7919,7 @@ button.bp-seg-hit {
 .bp-empty {
   margin: 24px;
   font-size: 12.5px;
-  color: var(--grey1);
+  color: var(--blueprint-quiet-strong);
 }
 
 /* Blueprint pane layout: transcript, divider, sheet, edge strip, overlay. */
@@ -7981,7 +7991,7 @@ button.bp-seg-hit {
   border: 0;
   border-left: 1px solid var(--bg2);
   background: var(--bg0);
-  color: var(--grey2);
+  color: var(--blueprint-quiet);
   cursor: pointer;
 }
 .bp-edge-text {
@@ -8045,7 +8055,7 @@ button.bp-seg-hit {
   gap: 10px;
   margin: 6px 0 0;
   font-size: 11.5px;
-  color: var(--grey1);
+  color: var(--blueprint-quiet-strong);
 }
 .bp-stage-divider::before,
 .bp-stage-divider::after {
@@ -8057,7 +8067,7 @@ button.bp-seg-hit {
   font-family: var(--font-display);
   font-size: 12.5px;
   font-weight: 500;
-  color: var(--grey2);
+  color: var(--blueprint-quiet-strong);
 }
 .bp-ref {
   display: flex;
@@ -8089,7 +8099,7 @@ button.bp-seg-hit {
 }
 .bp-ref-text span {
   font-size: 11.5px;
-  color: var(--grey1);
+  color: var(--blueprint-quiet);
 }
 .bp-ref-note {
   display: block;
