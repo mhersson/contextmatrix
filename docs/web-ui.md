@@ -143,10 +143,10 @@ board. Promote-to-autonomous lives in that tab.
   without one it creates chats only. Both kinds take an optional title. A
   chat picks one project from a list (or Across projects, with no checkout)
   and a model. A blueprint picks one or more target projects, one of four
-  described modes (default, auto, auto + emit, yolo) and a cost cap preset
-  ($1, $2, $5, $10 or no cap), and runs on the architect backend instead of
-  a chat worker. A blueprint also picks a model, defaulting to the
-  architect's default and kept separate from the chat pick. The footer says
+  described modes (default, auto, auto + emit, yolo), a model (defaulting to
+  the architect's default, kept separate from the chat pick) and a cost cap
+  preset ($1, $2, $5, $10 or no cap), in that order, and runs on the
+  architect backend instead of a chat worker. The footer says
   why Create is disabled, including a cost cap on a model CM cannot price;
   Ctrl+Enter anywhere, or Enter in the title, creates. The button names the outcome
   (Create chat, Create blueprint, or Create and run for yolo). A blueprint

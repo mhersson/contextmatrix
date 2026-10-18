@@ -68,4 +68,17 @@ describe('BlueprintFields', () => {
     fireEvent.click(screen.getByRole('radio', { name: '$5' }));
     expect(onChange).toHaveBeenCalledWith({ ...EMPTY_BLUEPRINT_FORM, capUSD: 5 });
   });
+
+  it('orders the fields projects, mode, model, cost cap', () => {
+    render(<BlueprintFields projects={projects} value={EMPTY_BLUEPRINT_FORM} onChange={() => {}} models={{ ...noModels, models: [{ id: 'm1', name: 'M1' }] as never }} />);
+    const before = (a: HTMLElement, b: HTMLElement) =>
+      expect(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const projectsEl = screen.getByRole('checkbox', { name: 'Alpha' });
+    const modeEl = screen.getByRole('radiogroup', { name: 'Mode' });
+    const modelEl = screen.getByLabelText('Model');
+    const capEl = screen.getByRole('radiogroup', { name: 'Cost cap' });
+    before(projectsEl, modeEl);
+    before(modeEl, modelEl);
+    before(modelEl, capEl);
+  });
 });
