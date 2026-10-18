@@ -171,8 +171,8 @@ board. Promote-to-autonomous lives in that tab.
   disconnected, and prompts show with the Text filter off.
 - A question round from the architect docks at the bottom of the pane in place
   of the message box while it waits for you; the transcript keeps scrolling
-  above it. It has one tab per question, ticked once the architect has stored an
-  answer and dotted while open, an Assumptions tab when the stage states
+  above it. It has one tab per question, ticked once it has an answer (stored by
+  the architect or picked here) and dotted while open, an Assumptions tab when the stage states
   assumptions, and a Submit tab. A question tab shows the question, why it
   matters and numbered options; the suggested one carries a Recommended chip,
   and clicking an option selects it and shows its pros, cons and sources (links
@@ -193,6 +193,8 @@ board. Promote-to-autonomous lives in that tab.
   1-9 pick an option on a question tab and Enter moves to the next tab. Picks,
   assumption decisions and typed answers not yet sent are kept in this browser
   per round, so closing the pane, reloading or navigating away restores them;
+  they count in "K of N answered" and the tab ticks, and a restored block opens
+  on its first unanswered tab (picking never moves you on);
   one is dropped when the architect has since stored that question or decision,
   or revised the option it picked, and a round's drafts are cleared when it
   closes or a newer round replaces it. The architect republishes a round

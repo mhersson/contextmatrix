@@ -455,7 +455,15 @@ describe('RoundBlock kept drafts', () => {
     makeDraft();
     first.unmount();
     mount();
-    expect(answered()).toMatch(/^0 of 4 answered/);
+    expect(answered()).toMatch(/^3 of 4 answered/);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual([
+      'Deploy tooling, answered',
+      'Logging, answered',
+      'Postgres, open',
+      'Assumptions, answered',
+      'Submit',
+    ]);
+    expect(tab(/Postgres/)).toHaveAttribute('aria-selected', 'true');
     fireEvent.click(tab(/Deploy tooling/));
     expect(option(/Helm/)).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(tab(/Logging/));
@@ -466,6 +474,14 @@ describe('RoundBlock kept drafts', () => {
     const rows = screen.getAllByRole('row').map((r) => Array.from((r as HTMLTableRowElement).cells).map((c) => c.textContent));
     expect(rows).toContainEqual(['Q1 Deploy tooling', 'Helm']);
     expect(rows).toContainEqual(['Q2 Logging', 'Loki only']);
+  });
+
+  it('keeps the opening tab active when a pick answers it', () => {
+    mount();
+    fireEvent.click(option(/Kustomize/));
+    expect(tab(/Deploy tooling/)).toHaveAttribute('aria-selected', 'true');
+    expect(tab(/Deploy tooling/).textContent).toBe('Deploy tooling, answered');
+    expect(answered()).toMatch(/^1 of 4 answered/);
   });
 
   it('drops a restored pick once the newest frame stores that question', () => {

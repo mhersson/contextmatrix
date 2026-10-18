@@ -858,6 +858,7 @@ describe('ChatPanel kept round drafts', () => {
     draftIt();
     first.unmount();
     render(panel(logs));
+    fireEvent.click(screen.getByRole('tab', { name: /Deploy tooling/ }));
     expect(screen.getByRole('button', { name: /Helm/ })).toHaveAttribute('aria-pressed', 'true');
   });
 
