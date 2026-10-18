@@ -77,9 +77,9 @@ export function useSheetState(view: BlueprintView | null, draft: HeldDraft | nul
     setHasNew(false);
   }, []);
   const show = useCallback(
-    (stage: string, slice: string, version: number | null) => {
-      // The last slice picked outlives a whole-blueprint pick, so a stage tab can return to it.
-      setPin((p) => ({ stage, slice, version, at, picked: slice || (p && p.at === at ? p.picked : '') }));
+    (stage: string, slice: string, version: number | null, remember: string = slice) => {
+      // picked is the slice the person chose: a whole-blueprint pick keeps it, a stage tab's fallback never sets it.
+      setPin((p) => ({ stage, slice, version, at, picked: remember || (p && p.at === at ? p.picked : '') }));
       setOpen(true);
       setHasNew(false);
     },

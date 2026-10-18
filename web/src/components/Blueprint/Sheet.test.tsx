@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { api } from '../../api/client';
 import { Sheet } from './Sheet';
+import { useSheetState } from './useSheetState';
+import { resolveShown } from './sheetModel';
 import { resetArtifactCache } from './artifactCache';
 import { holdDraft } from './draft';
 import type { GatePrompt } from './sheetModel';
@@ -65,7 +67,7 @@ describe('Sheet', () => {
     const p = props();
     render(<Sheet {...p} />);
     fireEvent.click(screen.getByRole('tab', { name: 'Need' }));
-    expect(p.onShow).toHaveBeenCalledWith('intake', '', null);
+    expect(p.onShow).toHaveBeenCalledWith('intake', '', null, '');
   });
 
   it('picks a revision from the title block', () => {
@@ -175,23 +177,52 @@ describe('Sheet slices', () => {
     const onShow = vi.fn();
     render(<Sheet {...sliced({ shown: { stage: 'solution_design', slice: 'SL1', version: 1 }, onShow })} />);
     fireEvent.click(screen.getByRole('tab', { name: 'Grounding' }));
-    expect(onShow).toHaveBeenLastCalledWith('grounding', 'SL1', null);
+    expect(onShow).toHaveBeenLastCalledWith('grounding', 'SL1', null, 'SL1');
   });
 
   it('returns to the picked slice from a whole-blueprint sheet', () => {
     const onShow = vi.fn();
     render(<Sheet {...sliced({ shown: { stage: 'intake', slice: '', version: 1 }, picked: 'SL1', onShow })} />);
     fireEvent.click(screen.getByRole('tab', { name: /^Design/ }));
-    expect(onShow).toHaveBeenLastCalledWith('solution_design', 'SL1', null);
+    expect(onShow).toHaveBeenLastCalledWith('solution_design', 'SL1', null, 'SL1');
   });
 
-  it('prefers the shown slice over the picked one when both have the sheet', () => {
+  it('prefers the picked slice over the shown one when both have the sheet', () => {
     const onShow = vi.fn();
     const view = viewSliced();
     view.artifacts = [...view.artifacts, ref('grounding', 1, 'current', { slice: 'SL2' })];
     render(<Sheet {...sliced({ view, shown: { stage: 'solution_design', slice: 'SL1', version: 1 }, picked: 'SL2', onShow })} />);
     fireEvent.click(screen.getByRole('tab', { name: 'Grounding' }));
-    expect(onShow).toHaveBeenLastCalledWith('grounding', 'SL1', null);
+    expect(onShow).toHaveBeenLastCalledWith('grounding', 'SL2', null, 'SL2');
+  });
+
+  describe('with the pane state', () => {
+    function Harness({ view }: { view: BlueprintView }) {
+      const sheet = useSheetState(view, null, 'split');
+      const shown = resolveShown(view, null, sheet.pin);
+      return <Sheet {...props({ chatId: 'S2', view, shown, onShow: sheet.show, picked: sheet.picked })} />;
+    }
+    const selectedSlice = () => within(screen.getByRole('tablist', { name: 'Slices' })).getByRole('tab', { selected: true });
+
+    it('returns a stage tab to the chosen slice after a fallback', () => {
+      render(<Harness view={viewSliced()} />);
+      fireEvent.click(screen.getByRole('tab', { name: /^Design/ }));
+      expect(selectedSlice()).toHaveTextContent(/^SL2/);
+      fireEvent.click(screen.getByRole('tab', { name: 'Grounding' }));
+      expect(selectedSlice()).toHaveTextContent(/^SL1/);
+      fireEvent.click(screen.getByRole('tab', { name: /^Design/ }));
+      expect(selectedSlice()).toHaveTextContent(/^SL2/);
+    });
+
+    it('survives two fallbacks in a row', () => {
+      render(<Harness view={viewSliced()} />);
+      fireEvent.click(screen.getByRole('tab', { name: /^Design/ }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Grounding' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Acceptance' }));
+      expect(selectedSlice()).toHaveTextContent(/^SL1/);
+      fireEvent.click(screen.getByRole('tab', { name: /^Design/ }));
+      expect(selectedSlice()).toHaveTextContent(/^SL2/);
+    });
   });
 
   it('names the slice under the sheet title', async () => {

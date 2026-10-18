@@ -28,7 +28,7 @@ interface SheetProps {
   draft: HeldDraft | null;
   shown: Shown | null;
   /** Pins a stage in a slice ("" for the whole blueprint), and a version when given. */
-  onShow: (stage: string, slice: string, version: number | null) => void;
+  onShow: (stage: string, slice: string, version: number | null, remember?: string) => void;
   /** The open gate's transcript prompt, matched on the view's open prompt id. */
   gatePrompt: GatePrompt | null;
   onReply: (text: string) => Promise<void>;
@@ -75,7 +75,10 @@ export function Sheet({ chatId, view, draft, shown, onShow, gatePrompt, onReply,
         slices={sliceTabs(view, draft, shown)}
         stage={shown?.stage ?? null}
         grouped={showSlices(view.slices)}
-        onStage={(stage) => onShow(stage, sliceForTab(view, draft, stage, [shown?.slice ?? '', picked]), null)}
+        onStage={(stage) => {
+          const chosen = picked || shown?.slice || '';
+          onShow(stage, sliceForTab(view, draft, stage, [picked, shown?.slice ?? '']), null, chosen);
+        }}
         onSlice={(slice) => shown && onShow(shown.stage, slice, null)}
         onClose={onClose}
       />
