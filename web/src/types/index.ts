@@ -901,6 +901,8 @@ export interface ChatModel {
   max_tokens: number;
   /** Present with true when the slug is on the ops.db model blacklist. */
   blacklisted?: boolean;
+  /** Present with true when CM cannot price the model, so a cost cap cannot hold. */
+  unpriced?: boolean;
 }
 
 export interface ChatModelList {
@@ -914,6 +916,8 @@ export interface ChatModelList {
   source: 'openrouter' | 'endpoint';
   models: ChatModel[];
   default: string;
+  /** The architect backend's default model; "" when no architect backend is configured. */
+  architect_default: string;
 }
 
 export interface ModelCatalogEntry {

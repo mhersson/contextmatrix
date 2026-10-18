@@ -10,15 +10,23 @@ export interface ChatModelChoice {
   onChange: (model: string) => void;
 }
 
+export interface ChatModelChoices {
+  chat: ChatModelChoice;
+  blueprint: ChatModelChoice;
+}
+
 /**
- * The chat model list and the current pick. A failed fetch leaves the list
- * empty, which hides the endpoint picker, and the create POST omits the model.
- * The pick seeds to the server default so an untouched picker sends what it shows.
+ * The model list and two independent picks, one for chats and one for
+ * blueprints, from a single fetch. A failed fetch leaves the list empty, which
+ * hides the endpoint picker, and the create POST omits the model.
+ * Each pick seeds to its server default so an untouched picker sends what it shows.
  */
-export function useChatModelChoice(): ChatModelChoice {
+export function useChatModelChoice(): ChatModelChoices {
   const [model, setModel] = useState('');
+  const [blueprintModel, setBlueprintModel] = useState('');
   const [models, setModels] = useState<ChatModel[]>([]);
   const [defaultModel, setDefaultModel] = useState('');
+  const [architectDefault, setArchitectDefault] = useState('');
   const [source, setSource] = useState<'openrouter' | 'endpoint'>('endpoint');
 
   useEffect(() => {
@@ -30,7 +38,9 @@ export function useChatModelChoice(): ChatModelChoice {
         setModels(resp.models);
         setDefaultModel(resp.default);
         setSource(resp.source ?? 'endpoint');
+        setArchitectDefault(resp.architect_default);
         setModel((cur) => cur || resp.default);
+        setBlueprintModel((cur) => cur || resp.architect_default);
       })
       .catch((e) => {
         console.warn('listChatModels failed; picker disabled', e);
@@ -40,5 +50,14 @@ export function useChatModelChoice(): ChatModelChoice {
     };
   }, []);
 
-  return { source, model, defaultModel, models, onChange: setModel };
+  return {
+    chat: { source, model, defaultModel, models, onChange: setModel },
+    blueprint: {
+      source,
+      model: blueprintModel,
+      defaultModel: architectDefault,
+      models,
+      onChange: setBlueprintModel,
+    },
+  };
 }

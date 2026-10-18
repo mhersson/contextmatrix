@@ -17,8 +17,9 @@ vi.mock('../../api/client', () => {
       listChatModels: () =>
         Promise.resolve({
           source: modelSource,
-          models: [{ id: 'chat/default', label: 'Chat default', max_tokens: 1000 }],
+          models: modelList,
           default: 'chat/default',
+          architect_default: 'arch/default',
         }),
     },
     isAPIError,
@@ -35,6 +36,13 @@ vi.mock('../../hooks/useChatSessions', () => ({ notifyChatSessionsChanged: vi.fn
 
 let architectEnabled = true;
 let modelSource: 'endpoint' | 'openrouter' = 'endpoint';
+const baseModels = [
+  { id: 'chat/default', label: 'Chat default', max_tokens: 1000 },
+  { id: 'arch/default', label: 'Arch default', max_tokens: 1000 },
+  { id: 'other/priced', label: 'Other priced', max_tokens: 1000 },
+  { id: 'free/unpriced', label: 'Free unpriced', max_tokens: 1000, unpriced: true },
+];
+let modelList = baseModels;
 vi.mock('../../hooks/useTheme', () => ({ useTheme: () => ({ architectEnabled, favorites: null }) }));
 
 function renderDialog() {
@@ -53,6 +61,7 @@ describe('NewChatDialog', () => {
     navigate.mockReset();
     architectEnabled = true;
     modelSource = 'endpoint';
+    modelList = baseModels;
     createChat.mockResolvedValue({ id: 'S1', title: '', status: 'cold' });
     openChat.mockResolvedValue({ id: 'S1', title: '', status: 'active' });
   });
@@ -76,6 +85,7 @@ describe('NewChatDialog', () => {
 
   it('creates an architect session with projects, mode and a cap preset', async () => {
     startBlueprint();
+    await screen.findByLabelText('Model');
     fireEvent.click(screen.getByRole('checkbox', { name: 'Alpha' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'beta' }));
     fireEvent.click(screen.getByRole('radio', { name: 'Auto' }));
@@ -86,6 +96,7 @@ describe('NewChatDialog', () => {
       title: undefined,
       kind: 'architect',
       projects: ['alpha', 'beta'],
+      model: 'arch/default',
       mode: 'auto',
       cost_cap_usd: 5,
     });
@@ -98,6 +109,71 @@ describe('NewChatDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create blueprint' }));
     await waitFor(() => expect(createChat).toHaveBeenCalled());
     expect(createChat.mock.calls[0][0].cost_cap_usd).toBeUndefined();
+  });
+
+  it('sends the model picked for the blueprint', async () => {
+    startBlueprint();
+    fireEvent.change(await screen.findByLabelText('Model'), { target: { value: 'other/priced' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Alpha' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create blueprint' }));
+    await waitFor(() => expect(createChat).toHaveBeenCalled());
+    expect(createChat.mock.calls[0][0].model).toBe('other/priced');
+  });
+
+  it('keeps the blueprint and chat picks independent', async () => {
+    startBlueprint();
+    fireEvent.change(await screen.findByLabelText('Model'), { target: { value: 'other/priced' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'Chat' }));
+    expect(screen.getByLabelText('Model')).toHaveValue('chat/default');
+    fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'free/unpriced' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'Blueprint' }));
+    expect(screen.getByLabelText('Model')).toHaveValue('other/priced');
+    fireEvent.click(screen.getByRole('radio', { name: 'Chat' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create chat' }));
+    await waitFor(() => expect(createChat).toHaveBeenCalled());
+    expect(createChat.mock.calls[0][0].model).toBe('free/unpriced');
+  });
+
+  describe('cost cap on an unpriced model', () => {
+    async function pickUnpricedWithCap() {
+      startBlueprint();
+      fireEvent.change(await screen.findByLabelText('Model'), { target: { value: 'free/unpriced' } });
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Alpha' }));
+      fireEvent.click(screen.getByRole('radio', { name: '$5' }));
+    }
+    const reason = /cannot price this model/;
+
+    it('disables Create and says why, on the button and on the keyboard paths', async () => {
+      await pickUnpricedWithCap();
+      expect(screen.getByRole('button', { name: 'Create blueprint' })).toBeDisabled();
+      expect(screen.getByText(reason)).toBeInTheDocument();
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Enter', ctrlKey: true });
+      fireEvent.keyDown(screen.getByLabelText('Title'), { key: 'Enter' });
+      expect(createChat).not.toHaveBeenCalled();
+    });
+
+    it('enables Create again on No cap', async () => {
+      await pickUnpricedWithCap();
+      fireEvent.click(screen.getByRole('radio', { name: 'No cap' }));
+      expect(screen.getByRole('button', { name: 'Create blueprint' })).toBeEnabled();
+      expect(screen.queryByText(reason)).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Create blueprint' }));
+      await waitFor(() => expect(createChat).toHaveBeenCalled());
+      expect(createChat.mock.calls[0][0].model).toBe('free/unpriced');
+      expect(createChat.mock.calls[0][0].cost_cap_usd).toBeUndefined();
+    });
+
+    it('enables Create again on a priced model', async () => {
+      await pickUnpricedWithCap();
+      fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'other/priced' } });
+      expect(screen.getByRole('button', { name: 'Create blueprint' })).toBeEnabled();
+    });
+
+    it('does not block a chat on an unpriced model', async () => {
+      renderDialog();
+      fireEvent.change(await screen.findByLabelText('Model'), { target: { value: 'free/unpriced' } });
+      expect(screen.getByRole('button', { name: 'Create chat' })).toBeEnabled();
+    });
   });
 
   it('names the yolo outcome on the button', () => {
@@ -120,6 +196,7 @@ describe('NewChatDialog', () => {
   it('keeps the dialog open when the architect does not start, and retries the same session', async () => {
     openChat.mockRejectedValueOnce({ error: 'internal error', code: 'INTERNAL_ERROR' });
     startBlueprint();
+    await screen.findByLabelText('Model');
     fireEvent.click(screen.getByRole('checkbox', { name: 'Alpha' }));
     fireEvent.click(screen.getByRole('button', { name: 'Create blueprint' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/architect is not reachable/);
