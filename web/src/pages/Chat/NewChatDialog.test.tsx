@@ -141,7 +141,7 @@ describe('NewChatDialog', () => {
       fireEvent.click(screen.getByRole('checkbox', { name: 'Alpha' }));
       fireEvent.click(screen.getByRole('radio', { name: '$5' }));
     }
-    const reason = /cannot price this model/;
+    const reason = /No price is known for this model/;
 
     it('disables Create and says why, on the button and on the keyboard paths', async () => {
       await pickUnpricedWithCap();

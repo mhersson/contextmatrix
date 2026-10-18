@@ -55,7 +55,7 @@ export function disabledReason(blueprint: boolean, form: BlueprintForm, modelUnp
   if (!blueprint) return null;
   if (form.projects.length === 0) return 'Pick at least one project to create the blueprint.';
   if (form.capUSD > 0 && modelUnpriced) {
-    return 'CM cannot price this model, so a cost cap cannot hold. Pick another model or choose No cap.';
+    return "No price is known for this model, so a cost cap can't be enforced: pick No cap or another model";
   }
   return null;
 }
