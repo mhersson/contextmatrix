@@ -46,19 +46,6 @@ function props(over: Partial<Props> = {}): Props {
 }
 
 describe('Sheet', () => {
-  it('hands the gate the review of the version it decides, never an earlier one', () => {
-    const { rerender } = render(
-      <Sheet {...props({ gatePrompt, view: viewAtLedgerGate(), shown: { stage: 'solution_design', version: 3 } })} />,
-    );
-    expect(screen.getByRole('region', { name: 'Gate decision' })).toHaveTextContent('R5 critical, open');
-    expect(screen.getByRole('button', { name: 'Findings (3)' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Senior developer, 3 of 5, failed' })).toBeInTheDocument();
-    // An older architect never reviews rev 2: rev 1's review stands in on the title block, not at the gate.
-    rerender(<Sheet {...props({ gatePrompt })} />);
-    expect(screen.getByRole('region', { name: 'Gate decision' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^Findings/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Senior developer, 4 of 5' })).toBeInTheDocument();
-  });
   beforeEach(() => {
     resetArtifactCache();
     vi.mocked(api.getBlueprintArtifact).mockImplementation((_c, stage, version) => Promise.resolve(findArtifact(stage, version)));
@@ -124,5 +111,19 @@ describe('Sheet', () => {
     render(<Sheet {...props({ onClose })} />);
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('hands the gate the review of the version it decides, never an earlier one', () => {
+    const { rerender } = render(
+      <Sheet {...props({ gatePrompt, view: viewAtLedgerGate(), shown: { stage: 'solution_design', version: 3 } })} />,
+    );
+    expect(screen.getByRole('region', { name: 'Gate decision' })).toHaveTextContent('R5 critical, open');
+    expect(screen.getByRole('button', { name: 'Findings (3)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Senior developer, 3 of 5, failed' })).toBeInTheDocument();
+    // An older architect never reviews rev 2: rev 1's review stands in on the title block, not at the gate.
+    rerender(<Sheet {...props({ gatePrompt })} />);
+    expect(screen.getByRole('region', { name: 'Gate decision' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Findings/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Senior developer, 4 of 5' })).toBeInTheDocument();
   });
 });

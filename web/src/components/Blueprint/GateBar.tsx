@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { PromptActions } from '../ChatPanel/PromptActions';
 import type { ChatPrompt } from '../ChatPanel/prompts';
 import { FindingList } from './FindingList';
@@ -34,6 +34,7 @@ export function GateBar({ stage, version, prompt, status, review, onReply }: Gat
 
 function GateLedger({ review: { review } }: { review: ShownReview }) {
   const [open, setOpen] = useState(false);
+  const id = useId();
   return (
     <div className="bp-gate-ledger">
       {blockingFindings(review).map((f, i) => (
@@ -41,11 +42,17 @@ function GateLedger({ review: { review } }: { review: ShownReview }) {
           <b>{[f.id, 'critical'].filter(Boolean).join(' ')}</b>, {findingStatus(f)?.text ?? 'open'}: {f.text}
         </p>
       ))}
-      <button type="button" className="bp-gate-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+      <button
+        type="button"
+        className="bp-gate-toggle"
+        aria-expanded={open}
+        aria-controls={open ? id : undefined}
+        onClick={() => setOpen((o) => !o)}
+      >
         Findings ({review.findings.length})
       </button>
       {open && (
-        <div>
+        <div id={id}>
           <FindingList findings={review.findings} />
         </div>
       )}

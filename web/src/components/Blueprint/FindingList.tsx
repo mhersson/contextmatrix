@@ -30,6 +30,7 @@ function FindingItem({ finding: f }: { finding: BlueprintReviewFinding }) {
         </span>
       )}
       {f.text}
+      {(claim || sent) && ' '}
       {claim ? <span className="bp-claim">{claim}</span> : sent ? <span className="bp-sent">{sent}</span> : null}
     </li>
   );

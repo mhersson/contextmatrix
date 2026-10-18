@@ -66,7 +66,9 @@ describe('GateBar', () => {
     expect(screen.queryByRole('list', { name: 'Findings' })).not.toBeInTheDocument();
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(within(screen.getByRole('list', { name: 'Findings' })).getAllByRole('listitem')).toHaveLength(3);
+    const list = screen.getByRole('list', { name: 'Findings' });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(3);
+    expect(document.getElementById(toggle.getAttribute('aria-controls') ?? '')).toContainElement(list);
   });
 
   it('names nothing when every critical finding is fixed', () => {
