@@ -234,13 +234,15 @@ board. Promote-to-autonomous lives in that tab.
     critical finding not yet fixed sits on a red wash. Beside it the builder's
     note shows as a claim, "rev N says: ...", or else the revision the finding
     was sent to; only the reviewer's status says a finding is fixed. An older
-    architect's findings show as a numbered list without id, severity or status.
+    architect's review shows no round or verdict and never reads failed; its
+    findings show as a numbered list without id, severity or status.
     Stamps mark approved, rejected, superseded and folded versions. On the
     newest version a dashed cloud marks what changed, and Compare strikes
     removed words and highlights added ones. At a gate a bar above the title
     block repeats the gate's buttons. When the version at the gate has its own
     review, the bar also names each critical finding not yet fixed, with its id,
-    status and text, and a Findings (N) toggle opens the whole ledger there.
+    status and text, and, when it has findings, a Findings (N) toggle opens the
+    whole ledger there.
     While a question round waits, the asking stage's sheet shows the version it
     owes with the status Waiting on N questions (or the assumptions still
     undecided). While a run works the sheet shows its turns, tool calls and
