@@ -26,11 +26,11 @@ export function OptionRow({ n, option, recommended, selected, expanded, research
     ...(hasCons ? ['cons'] : []),
     ...(count > 0 ? [`${count} ${count === 1 ? 'source' : 'sources'}`] : []),
   ];
-  const more = expanded ? 'hide' : parts.join(' · ');
+  const more = expanded ? 'hide' : parts.join(' · ') || 'sources';
   const hasDetail = hasPros || hasCons || showSources;
   return (
     <div className={`qb-opt${selected ? ' sel' : ''}${expanded ? ' expanded' : ''}`}>
-      <div className="qb-opt-top">
+      <div className="qb-opt-top qb-opt-row">
         <button type="button" className="qb-opt-pick" aria-pressed={selected} onClick={onClick}>
           <span className="qb-n">{n}</span>
           <span>

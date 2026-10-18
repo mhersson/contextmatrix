@@ -124,6 +124,28 @@ describe('RoundBlock questions', () => {
     expect(screen.getByText(/model knowledge/)).toBeInTheDocument();
   });
 
+  it('labels a research-off option that has only web sources so it can still be opened', () => {
+    renderBlock({
+      research_off: true,
+      questions: [
+        { number: 1, title: 'T', text: 'Q?', options: [{ title: 'Alpha', sources: [{ tag: 'S1', title: 'w', url: 'https://a.example/' }] }] },
+      ],
+    });
+    expect(toggle('Alpha')).toHaveTextContent('sources');
+    fireEvent.click(toggle('Alpha'));
+    expect(screen.getByText(/model knowledge/)).toBeInTheDocument();
+  });
+
+  it('keeps an expanded option open after switching tabs and back', () => {
+    renderBlock();
+    fireEvent.click(tab(/Deploy tooling/));
+    fireEvent.click(toggle('Kustomize'));
+    fireEvent.click(tab(/Logging/));
+    fireEvent.click(tab(/Deploy tooling/));
+    expect(toggle('Kustomize')).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Built into kubectl')).toBeInTheDocument();
+  });
+
   it('shows a code source and an unsafe url as text, never as a link', () => {
     renderBlock({
       questions: [
