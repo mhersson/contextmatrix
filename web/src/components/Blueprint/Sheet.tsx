@@ -127,7 +127,7 @@ export function Sheet({ chatId, view, draft, shown, onShow, gatePrompt, onReply,
           persona={stepFor(view, shown.stage, shown.slice)?.persona ?? ''}
           options={versionOptions(view, shown.stage, shown.slice, writing)}
           version={shown.version}
-          onPickVersion={(v) => onShow(shown.stage, shown.slice, v)}
+          onPickVersion={(v) => onShow(shown.stage, shown.slice, v, picked)}
           review={review}
           reviewing={reviewingPersona(view, shown.stage, shown.slice, shown.version)}
           status={shownStatus(view, shown.stage, shown.slice, stored, isWriting, roundLeft ?? null)}

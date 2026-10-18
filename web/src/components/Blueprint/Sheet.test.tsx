@@ -74,7 +74,7 @@ describe('Sheet', () => {
     const p = props();
     render(<Sheet {...p} />);
     fireEvent.change(screen.getByRole('combobox', { name: 'Rev' }), { target: { value: '1' } });
-    expect(p.onShow).toHaveBeenCalledWith('solution_design', '', 1);
+    expect(p.onShow).toHaveBeenCalledWith('solution_design', '', 1, '');
   });
 
   it('repeats the open gate only under the version it decides', () => {
@@ -210,6 +210,21 @@ describe('Sheet slices', () => {
       expect(selectedSlice()).toHaveTextContent(/^SL2/);
       fireEvent.click(screen.getByRole('tab', { name: 'Grounding' }));
       expect(selectedSlice()).toHaveTextContent(/^SL1/);
+      fireEvent.click(screen.getByRole('tab', { name: /^Design/ }));
+      expect(selectedSlice()).toHaveTextContent(/^SL2/);
+    });
+
+    it('keeps the chosen slice when picking a revision of a fallback sheet', () => {
+      const view = viewSliced();
+      view.artifacts = [...view.artifacts, ref('grounding', 2, 'current', { slice: 'SL1' })];
+      get.mockImplementation((_c, stage, slice, version) =>
+        stage === 'grounding' ? Promise.reject(new Error('no fixture')) : Promise.resolve(findArtifact(stage, version, slice)),
+      );
+      render(<Harness view={view} />);
+      fireEvent.click(screen.getByRole('tab', { name: /^Design/ }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Grounding' }));
+      expect(selectedSlice()).toHaveTextContent(/^SL1/);
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '1' } });
       fireEvent.click(screen.getByRole('tab', { name: /^Design/ }));
       expect(selectedSlice()).toHaveTextContent(/^SL2/);
     });
