@@ -313,6 +313,7 @@ describe('slice tabs', () => {
     expect(sliceForTab(view, null, 'solution_design', ['', ''])).toBe('SL2');
     expect(sliceForTab(view, null, 'grounding', ['SL2', ''])).toBe('SL1');
     expect(sliceForTab(view, null, 'intake', ['SL1', ''])).toBe('');
+    expect(sliceForTab(viewOneSlice(), null, 'solution_design', ['', ''])).toBe('SL1');
   });
 
   it('subtitles a per-slice sheet only while the blueprint shows slices', () => {

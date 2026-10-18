@@ -237,7 +237,6 @@ describe('AcceptanceSheet revision clouds', () => {
   });
 });
 
-
 describe('SharedDecisionsSheet', () => {
   it('renders the shared decisions, contracts and assumptions as one unsliced section', () => {
     render(<SharedDecisionsSheet artifact={SHARED_V1} previous={null} mode="plain" view={view} />);

@@ -1,8 +1,8 @@
 import type {
   BlueprintArtifactRef,
-  BlueprintSlice,
   BlueprintCost,
   BlueprintPipelineStep,
+  BlueprintSlice,
   BlueprintStepStatus,
   BlueprintView,
 } from '../../types';

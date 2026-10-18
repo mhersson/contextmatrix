@@ -249,7 +249,7 @@ board. Promote-to-autonomous lives in that tab.
     the run. Below 520px of sheet width each table row stacks into a block;
     the sign-off's assumptions, with more columns, stack below 720px.
     Tabs follow the current stage until you pick one; a pick holds until the
-    stage changes.
+    current stage, or the slice it runs for, changes.
     Stages without an artifact are dimmed and stages the pack does not run are
     hidden. The shared decisions sheet shows the decisions every slice builds
     on as the design sheet shows a slice's, with their contracts and

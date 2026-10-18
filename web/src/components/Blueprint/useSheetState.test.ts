@@ -123,4 +123,16 @@ describe('useSheetState', () => {
     act(() => result.current.show('intake', '', null));
     expect(result.current.picked).toBe('SL1');
   });
+
+  it('forgets the picked slice when the current step moves', () => {
+    const { result, rerender } = setup({ view: viewSliced(), draft: null, layout: 'split' });
+    act(() => result.current.show('solution_design', 'SL1', null));
+    expect(result.current.picked).toBe('SL1');
+    const next = viewSliced();
+    next.open = undefined;
+    next.artifacts = next.artifacts.map((a) => (a.status === 'at_gate' ? { ...a, status: 'approved' as const } : a));
+    next.current = { stage: 'solution_design', slice: 'SL3', kind: 'stage', persona: 'system_designer', model: 'm', started_at: '', turns: 0, tool_calls: 0, tokens: 0 };
+    rerender({ view: next, draft: null, layout: 'split' });
+    expect(result.current.picked).toBe('');
+  });
 });

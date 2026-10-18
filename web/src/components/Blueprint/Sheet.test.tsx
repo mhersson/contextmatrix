@@ -5,7 +5,7 @@ import { Sheet } from './Sheet';
 import { resetArtifactCache } from './artifactCache';
 import { holdDraft } from './draft';
 import type { GatePrompt } from './sheetModel';
-import { findArtifact, viewAtDesignGate, viewAtLedgerGate, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
+import { findArtifact, ref, viewAtDesignGate, viewAtLedgerGate, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
 import type { BlueprintView } from '../../types';
 
 vi.mock('../../api/client', () => ({ api: { getBlueprintArtifact: vi.fn() } }));
@@ -183,6 +183,15 @@ describe('Sheet slices', () => {
     render(<Sheet {...sliced({ shown: { stage: 'intake', slice: '', version: 1 }, picked: 'SL1', onShow })} />);
     fireEvent.click(screen.getByRole('tab', { name: /^Design/ }));
     expect(onShow).toHaveBeenLastCalledWith('solution_design', 'SL1', null);
+  });
+
+  it('prefers the shown slice over the picked one when both have the sheet', () => {
+    const onShow = vi.fn();
+    const view = viewSliced();
+    view.artifacts = [...view.artifacts, ref('grounding', 1, 'current', { slice: 'SL2' })];
+    render(<Sheet {...sliced({ view, shown: { stage: 'solution_design', slice: 'SL1', version: 1 }, picked: 'SL2', onShow })} />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Grounding' }));
+    expect(onShow).toHaveBeenLastCalledWith('grounding', 'SL1', null);
   });
 
   it('names the slice under the sheet title', async () => {
