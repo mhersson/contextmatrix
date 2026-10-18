@@ -281,3 +281,44 @@ func TestBackendClient_StreamLogs_CarriesTheMarker(t *testing.T) {
 	}, *got[0].Marker)
 	assert.Nil(t, got[1].Marker, "a frame without a marker carries none")
 }
+
+func TestBackendClient_StreamLogs_KeepsTheSlice(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"ts":"2026-01-02T03:04:05Z","type":"text","content":"Design rev 1",`+
+			`"marker":{"kind":"artifact","stage":"solution_design","slice":"SL2","version":1}}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"ts":"2026-01-02T03:04:06Z","type":"text","content":"1 question",`+
+			`"prompt":{"id":"round:4","kind":"round","round":{"persona":"system_designer","stage":"solution_design","slice":"SL2",`+
+			`"questions":[{"number":1,"title":"Q1","text":"Which log store?","options":[{"title":"Loki"}]}]}}}`+"\n\n")
+	}))
+	t.Cleanup(srv.Close)
+
+	rc := chat.NewBackendClient(chat.BackendClientConfig{BaseURL: srv.URL, HMACKey: "k"})
+
+	var got []chat.LogEntry
+
+	require.NoError(t, rc.StreamLogs(context.Background(), "S1", func(e chat.LogEntry) { got = append(got, e) }))
+	require.Len(t, got, 2)
+	require.NotNil(t, got[0].Marker)
+	require.NotNil(t, got[1].Prompt)
+	require.NotNil(t, got[1].Prompt.Round)
+
+	assert.Equal(t, "SL2", jsonField(t, got[0].Marker, "slice"), "a sheet reference opens its slice's version")
+	assert.Equal(t, "SL2", jsonField(t, got[1].Prompt.Round, "slice"), "a round header names its slice")
+}
+
+// jsonField marshals v and returns one top-level string field: the wire
+// shape CM stores, whichever protocol version the build pins.
+func jsonField(t *testing.T, v any, key string) string {
+	t.Helper()
+
+	b, err := json.Marshal(v)
+	require.NoError(t, err)
+
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(b, &m))
+
+	s, _ := m[key].(string)
+
+	return s
+}
