@@ -208,6 +208,11 @@ type Config struct {
 	// ResolvedRate in cmd/contextmatrix/wire_chat.go.
 	ArchitectPrice func(model string) (protocol.ModelPrice, bool)
 
+	// ArchitectContextWindow returns a blueprint model's context length in
+	// tokens from CM's model catalog, 0 when the catalog does not list it; the
+	// architect then sizes compaction by its own default. nil sends 0.
+	ArchitectContextWindow func(ctx context.Context, model string) int
+
 	// ArchitectResearch is the research block of every architect start; nil
 	// keeps research off. It carries the provider's API key: never log it.
 	ArchitectResearch *protocol.ResearchStart
@@ -242,6 +247,7 @@ type Manager struct {
 	architectDefaultModel           string
 	architectWorkerCredentialsToken func(sessionID string) string
 	architectPrice                  func(model string) (protocol.ModelPrice, bool)
+	architectContextWindow          func(ctx context.Context, model string) int
 	architectResearch               *protocol.ResearchStart
 
 	mu           sync.Mutex
@@ -349,6 +355,7 @@ func NewManager(cfg Config) *Manager {
 		architectDefaultModel:           cfg.ArchitectDefaultModel,
 		architectWorkerCredentialsToken: cfg.ArchitectWorkerCredentialsToken,
 		architectPrice:                  cfg.ArchitectPrice,
+		architectContextWindow:          cfg.ArchitectContextWindow,
 		architectResearch:               cfg.ArchitectResearch,
 
 		seqMap:            make(map[string]int64),
@@ -1775,6 +1782,10 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 				m.logger.Warn("chat: blueprint model has no price, the architect cannot bind its cost cap",
 					"session_id", sess.ID, "model", model)
 			}
+		}
+
+		if m.architectContextWindow != nil {
+			start.Architect.ContextWindow = m.architectContextWindow(ctx, model)
 		}
 
 		return start, nil

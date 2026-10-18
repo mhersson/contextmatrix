@@ -6433,3 +6433,52 @@ func TestManager_CommandRowDoesNotTitleAnUntitledSession(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "build me a thing", got.Title, "the first real message still titles the session")
 }
+
+func TestManager_ArchitectStartCarriesContextWindow(t *testing.T) {
+	catalog := func(_ context.Context, model string) int {
+		return map[string]int{"arch/default": 200000, "arch/pinned": 1000000}[model]
+	}
+
+	tests := []struct {
+		name   string
+		model  string
+		lookup func(context.Context, string) int
+		want   int
+	}{
+		{name: "the default model's window", lookup: catalog, want: 200000},
+		{name: "the session's own model", model: "arch/pinned", lookup: catalog, want: 1000000},
+		{name: "0 for a model the catalog does not list", model: "vendor/unlisted", lookup: catalog, want: 0},
+		{name: "0 without a catalog", want: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) { c.ArchitectContextWindow = tt.lookup })
+			ctx := context.Background()
+
+			window := func() int {
+				t.Helper()
+				arch.mu.Lock()
+				defer arch.mu.Unlock()
+
+				require.NotNil(t, arch.lastOpts.Architect)
+
+				return arch.lastOpts.Architect.ContextWindow
+			}
+
+			bp, err := mgr.CreateSession(ctx, chat.CreateInput{
+				Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web", Model: tt.model,
+			})
+			require.NoError(t, err)
+			_, err = mgr.OpenSession(ctx, bp.ID)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, window())
+
+			require.NoError(t, mgr.EndSession(ctx, bp.ID))
+			_, err = mgr.OpenSession(ctx, bp.ID)
+			require.NoError(t, err)
+			require.Equal(t, int64(2), arch.startCalls.Load())
+			assert.Equal(t, tt.want, window(), "a cold open of the existing blueprint sends it again")
+		})
+	}
+}

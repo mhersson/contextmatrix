@@ -1055,3 +1055,72 @@ func TestBuilderRateResolvesGatewayEchoedName(t *testing.T) {
 		})
 	}
 }
+
+// TestBuilderContextWindowOpenRouterExactOnly pins the frozen OpenRouter leg:
+// the window resolves by the exact served slug only, as Rate does, and the
+// vendor screen that shapes Served does not apply.
+func TestBuilderContextWindowOpenRouterExactOnly(t *testing.T) {
+	or := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"anthropic/claude-sonnet-5.5","context_length":1000000,
+			 "pricing":{"prompt":"0.000003","completion":"0.000015"},
+			 "supported_parameters":["tools"]}]}`))
+	}))
+	defer or.Close()
+
+	b := NewBuilder("", 0.65, []string{"openai"}, 0)
+	b.orEndpoint = or.URL
+	ctx := context.Background()
+
+	assert.Equal(t, 1000000, b.ContextWindow(ctx, "anthropic/claude-sonnet-5.5"), "exact slug, outside the allowlist")
+	assert.Zero(t, b.ContextWindow(ctx, "claude-sonnet-5.5"), "no name resolution on the OpenRouter leg")
+	assert.Zero(t, b.ContextWindow(ctx, "anthropic/claude-sonnet-5.5-20261001"), "no snapshot resolution on the OpenRouter leg")
+	assert.Zero(t, b.ContextWindow(ctx, "anthropic/unknown"))
+
+	_, priced := b.Rate(ctx, "claude-sonnet-5.5")
+	assert.False(t, priced, "Rate stays exact-slug on the OpenRouter leg")
+}
+
+// TestBuilderContextWindowEndpointResolvesLikeRate: on the endpoint leg the
+// window is found for every name Rate prices, through the same alias and
+// snapshot fallbacks.
+func TestBuilderContextWindowEndpointResolvesLikeRate(t *testing.T) {
+	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"vendor/model-a","context_length":200000,"alias_names":["eu-model-a"],
+			 "pricing":{"prompt":"0.000003","completion":"0.000015"},
+			 "capabilities":{"features":["tools"]}},
+			{"id":"vendor/model-b","pricing":{"prompt":"0.000003","completion":"0.000015"},
+			 "capabilities":{"features":["tools"]}}]}`))
+	}))
+	defer endpointSrv.Close()
+
+	b := NewBuilder("", 0, nil, 0, WithEndpoint(endpointSrv.URL, "secret", nil))
+	ctx := context.Background()
+
+	tests := []struct {
+		name   string
+		want   int
+		listed bool
+	}{
+		{name: "vendor/model-a", want: 200000, listed: true},
+		{name: "model-a", want: 200000, listed: true},
+		{name: "eu-model-a", want: 200000, listed: true},
+		{name: "model-a-2026-01-01", want: 200000, listed: true},
+		{name: "vendor/model-b", want: 0, listed: true},
+		{name: "vendor/unknown", want: 0, listed: false},
+	}
+
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, b.ContextWindow(ctx, tt.name), tt.name)
+
+		_, found := b.Rate(ctx, tt.name)
+		assert.Equal(t, tt.listed, found, "Rate resolves %s the same way", tt.name)
+	}
+}
+
+func TestBuilderContextWindowNilReceiver(t *testing.T) {
+	var b *Builder
+
+	assert.Zero(t, b.ContextWindow(context.Background(), "any-model"))
+}

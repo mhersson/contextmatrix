@@ -335,6 +335,28 @@ func (b *Builder) Rate(ctx context.Context, slug string) (ModelPrice, bool) {
 	}, true
 }
 
+// ContextWindow returns the context length in tokens of the model a name
+// resolves to, by the same lookup as Rate: the exact slug on the OpenRouter
+// leg, plus the gateway's other names on the endpoint leg. No vendor screen.
+// 0 on a nil receiver, an unknown name, or an entry without a context length.
+func (b *Builder) ContextWindow(ctx context.Context, name string) int {
+	if b == nil {
+		return 0
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.refreshIfStaleLocked(ctx)
+
+	e, found := b.entryFor(name)
+	if !found {
+		return 0
+	}
+
+	return e.ContextWindow
+}
+
 // entryFor resolves a model name to its catalog entry. A usage report
 // carries the name the gateway echoed in the completion, which on an
 // endpoint gateway that serves vendor-prefixed ids is the bare name
