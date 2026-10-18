@@ -8247,49 +8247,182 @@ button.bp-seg-hit {
   font-size: 13px;
 }
 
-/* A closed question round in the transcript; the question bubble's tint, bar and ring. */
-.qb-summary {
-  max-width: 85%;
-  padding: 8px 12px;
+/* A closed or superseded question round in the transcript: a sibling of the sheet reference card that opens in place. */
+.qb-card {
+  width: fit-content;
+  max-width: 88%;
+  border: 1px solid var(--bg3);
   border-radius: 8px;
-  background: var(--prompt-question-bg);
-  box-shadow:
-    inset 5px 0 0 0 var(--prompt-question-accent),
-    inset 0 0 0 1px var(--prompt-question-ring);
+  background: var(--bg0);
   color: var(--fg);
-  font-size: 13px;
   overflow-wrap: anywhere;
 }
-.qb-summary-head {
-  margin: 0 0 4px;
+.qb-card.open {
+  width: 88%;
 }
-.qb-summary-head b {
-  color: var(--prompt-question-accent);
+.qb-card:has(> .qb-card-head:hover) {
+  border-color: color-mix(in oklab, var(--blue) 60%, var(--bg3));
 }
-.qb-summary ul {
+.qb-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 11px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.qb-card-head:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+.qb-card-head > svg:first-child {
+  flex: none;
+  color: var(--purple);
+}
+.qb-card-text {
+  flex: 1;
+  min-width: 0;
+}
+.qb-card-text b {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 500;
+}
+.qb-card-text span {
+  font-size: 11.5px;
+  color: var(--grey1);
+}
+.qb-card-note {
+  display: block;
+}
+.qb-card-chev {
+  flex: none;
+  color: var(--grey1);
+  transition: transform 0.15s ease;
+}
+.qb-card.open .qb-card-chev {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .qb-card-chev {
+    transition: none;
+  }
+}
+.qb-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--bg3);
+  font-size: 13px;
+}
+.qb-card-sec {
+  margin: 2px 0 -4px;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--grey1);
+}
+.qb-card-body ul {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.qb-summary li {
-  margin: 2px 0;
+.qb-card-body ul.qb-card-asms {
+  gap: 6px;
 }
-/* --fg on the wash, as closed prompts do: no softer colour keeps 4.5:1 on it. */
-.qb-summary .missing {
+.qb-card-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.qb-card-num {
+  flex: none;
+  min-width: 24px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--grey1);
+}
+.qb-card-main {
+  flex: 1;
+  min-width: 0;
+}
+.qb-card-asms .qb-card-row {
+  font-size: 12.5px;
+}
+.qb-card-qtitle {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 500;
+}
+.qb-card-qtext {
+  font-size: 12.5px;
+  color: var(--grey2);
+}
+.qb-card-ans {
+  margin: 5px 0 0;
+  padding: 1px 0 1px 9px;
+  border-left: 2px solid var(--green);
+  font-weight: 500;
+}
+.qb-card-ans.missing {
+  border-left-color: var(--bg3);
+  font-weight: 400;
   font-style: italic;
+  color: var(--grey1);
 }
-.qb-summary-chat {
-  margin-top: 6px;
+.qb-card-who {
+  margin-right: 6px;
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--grey1);
 }
-.qb-summary-chat > button {
+/* --fg text: the accent-tinted text the chips' washes suggest falls below 4.5:1 in the light palettes. */
+.qb-card-chip {
+  flex: none;
+  padding: 3px 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--fg);
+}
+.qb-card-chip.accepted {
+  background: var(--bg-green);
+}
+.qb-card-chip.asked {
+  background: var(--bg-yellow);
+}
+/* Bare --grey1 drops to about 3:1 in ayu light; mixing in 60% --fg lifts it past 4.5:1 in every palette. */
+.qb-card-chip.undecided {
+  padding: 2px 5px;
+  border: 1px solid var(--bg3);
+  color: color-mix(in oklab, var(--grey1) 40%, var(--fg));
+}
+.qb-card-chat > button {
   padding: 0;
   border: 0;
   background: none;
   color: var(--fg);
   font: inherit;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
 }
-.qb-summary-chat > button:hover {
+.qb-card-chat > button:hover {
   text-decoration: underline;
+}
+.qb-card-chat .qb-chat {
+  background: var(--bg1);
 }

@@ -202,11 +202,18 @@ board. Promote-to-autonomous lives in that tab.
   or revised the option it picked, and a round's drafts are cleared when it
   closes or a newer round replaces it. The architect republishes a round
   whenever it changes, and only the newest version shows. A closed round (every
-  question answered and the stage resumed, or the pipeline went past it)
-  collapses into a list of each question and its answer, with any question left
-  unanswered marked "not answered"; under the list a collapsed "Chat about these
+  question answered and the stage resumed, or the pipeline went past it), and a
+  round a newer one replaced, collapses into a card in the style of a sheet
+  reference, titled after the asking stage's questions (or assumptions, for a
+  round of only assumptions), with how many of each, the persona and what
+  became of the round: answered by you, how many were answered, accepted or turned into questions, or
+  no longer open for a replaced round. Clicking the card, or Enter or Space on
+  it, opens it in place: each question with its number, title and text and the
+  stored answer beneath it, any question left unanswered marked "not answered",
+  then each assumption with its decision (accepted, turned into a question or
+  not decided). At the bottom of the open card a collapsed "Chat about these
   questions (N)" opens the round's thread of N messages, when it has one. A
-  round the auto responder answered arrives closed and shows as its summary,
+  round the auto responder answered arrives closed and shows as the same card,
   marked answered by the responder, and the message box stays. While the session
   is not live or its stream reconnects the round stays docked with its answers
   disabled; its chat box sends whenever the message box would.
