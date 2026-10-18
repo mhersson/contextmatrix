@@ -626,6 +626,7 @@ describe('ChatPanel question rounds', () => {
   });
 
   const allAnswered = { answers: [{ number: 1, option: 1 }, { number: 2, text: 'Loki only' }, { number: 3, option: 1 }] };
+  const expand = (summary: HTMLElement) => fireEvent.click(within(summary).getByRole('button', { expanded: false }));
 
   it('docks the waiting round in place of the composer and draws only its newest frame', () => {
     const logs = [roundEntry(1, 'round:1', rawRound()), roundEntry(2, 'round:1', rawRound({ answers: [{ number: 1, option: 1 }] }))];
@@ -642,6 +643,7 @@ describe('ChatPanel question rounds', () => {
     expect(screen.queryByRole('tablist', { name: 'Questions' })).not.toBeInTheDocument();
     const summaries = screen.getAllByRole('group', { name: /Answered questions from the system designer/ });
     expect(summaries).toHaveLength(1);
+    expand(summaries[0]);
     expect(within(summaries[0]).getAllByRole('listitem')).toHaveLength(3);
     expect(within(summaries[0]).getByText(/Loki only/)).toBeInTheDocument();
   });
@@ -690,6 +692,7 @@ describe('ChatPanel question rounds', () => {
     expect(screen.queryByRole('tablist', { name: 'Questions' })).not.toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Message' })).toBeInTheDocument();
     const summary = screen.getByRole('group', { name: /Answered questions from the system designer/ });
+    expand(summary);
     const items = within(summary).getAllByRole('listitem');
     expect(items).toHaveLength(3);
     expect(within(items[0]).queryByText(/not answered/)).not.toBeInTheDocument();
@@ -700,14 +703,15 @@ describe('ChatPanel question rounds', () => {
   it('summarises decided assumptions by their text', () => {
     const closed = rawRound({
       ...allAnswered,
-      assumptions: [{ id: 'A1', text: 'One cluster per environment.' }],
-      decisions: [{ id: 'A1', accept: true }],
+      assumptions: [{ id: 'envs', text: 'One cluster per environment.' }],
+      decisions: [{ id: 'envs', accept: true }],
       closed: true,
     });
     render(<ChatPanel logs={[roundEntry(1, 'round:1', closed)]} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);
     const summary = screen.getByRole('group', { name: /Answered questions/ });
+    expand(summary);
     expect(within(summary).getByText(/One cluster per environment\./)).toBeInTheDocument();
-    expect(within(summary).queryByText(/\bA1\b/)).not.toBeInTheDocument();
+    expect(within(summary).queryByText(/\benvs\b/)).not.toBeInTheDocument();
   });
 
   it('summarises a round a later round replaced and docks only the later one', () => {
@@ -860,6 +864,7 @@ describe('ChatPanel question rounds', () => {
     const logs = [roundEntry(1, 'round:1', rawRound({ ...allAnswered, chat, closed: true }))];
     render(<ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);
     const summary = screen.getByRole('group', { name: /Answered questions from the system designer/ });
+    expand(summary);
     const toggle = within(summary).getByRole('button', { name: 'Chat about these questions (2)' });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect(within(summary).queryByText('Helm suits a published chart.')).not.toBeInTheDocument();
@@ -875,6 +880,7 @@ describe('ChatPanel question rounds', () => {
     const logs = [roundEntry(1, 'round:1', rawRound({ ...allAnswered, closed: true }))];
     render(<ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);
     const summary = screen.getByRole('group', { name: /Answered questions from the system designer/ });
+    expand(summary);
     expect(within(summary).queryByRole('button', { name: /Chat about these questions/ })).not.toBeInTheDocument();
   });
 

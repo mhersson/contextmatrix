@@ -6,11 +6,11 @@ export type RoundMode = 'open' | 'paused' | 'readonly';
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-export function countText(round: Round): string {
+export function countText(round: Round, joiner = ' and '): string {
   const q = round.questions.length;
   const a = round.assumptions.length;
   if (q === 0) return plural(a, 'assumption');
-  return a === 0 ? plural(q, 'question') : `${plural(q, 'question')} and ${plural(a, 'assumption')}`;
+  return a === 0 ? plural(q, 'question') : `${plural(q, 'question')}${joiner}${plural(a, 'assumption')}`;
 }
 
 /** The asking persona inside a sentence: "the system designer". */
