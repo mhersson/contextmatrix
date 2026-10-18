@@ -508,9 +508,10 @@ the architect's `/blueprints/{id}` and
 `/blueprints/{id}/artifacts/{stage}/{version}`. Every request carries a random
 `nonce` query parameter, so two reads of one path in the same second sign
 differently and both pass the architect's replay cache; the architect ignores
-the parameter. CM relays a 200 body unchanged, answers an upstream 404 with
-`BLUEPRINT_NOT_FOUND`, and any other failure, or a view or artifact read not
-answered within 30 seconds, with 502. These reads are the only blueprint
+the parameter. An artifact read may carry a `slice` (`SL<n>`), which CM
+validates and forwards in the signed request. CM relays a 200 body unchanged,
+answers an upstream 404 with `BLUEPRINT_NOT_FOUND`, and any other failure, or a
+view or artifact read not answered within 30 seconds, with 502. These reads are the only blueprint
 routes the browser calls; live frames reach it through the chat stream.
 
 While at least one browser holds an architect session's chat stream, CM also

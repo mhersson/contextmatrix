@@ -266,8 +266,9 @@ board. Promote-to-autonomous lives in that tab.
     the question accent, and slices without that sheet yet are dimmed.
     Switching stage tabs keeps the chosen slice, and the sheet names the
     slice under its title. A blueprint with one slice shows none of this and
-    no Shared tab. The title block names the sheet, its revision (a picker when there
-    are several), who drew it, who checked it and its status. Checked by gives
+    no Shared tab. The title block names the sheet, its revision (a picker
+    when there are several), who drew it, who checked it and its status.
+    Checked by gives
     the reviewer and score, in red and ending "failed" when the shown version's
     own review failed (a score under the pass mark or a critical finding not
     fixed). Click it for the findings ledger: the round, the pass mark and the
