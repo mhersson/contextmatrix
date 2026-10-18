@@ -58,7 +58,7 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
   if (marker) {
     const fallback = (
       <div
-        className="pl-3 border-l-2 text-sm leading-relaxed break-words"
+        className="pl-3 border-l-2 text-sm leading-relaxed break-words whitespace-pre-line"
         style={{ borderLeftColor: accentFor('system'), color: textFor('system') }}
       >
         {marker.text}
