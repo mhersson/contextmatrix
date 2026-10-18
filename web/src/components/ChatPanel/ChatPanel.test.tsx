@@ -727,6 +727,34 @@ describe('ChatPanel question rounds', () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
+  it('never resends a stored answer the newest frame dropped', async () => {
+    const revised = rawRound();
+    const questions = revised.questions as Array<Record<string, unknown>>;
+    questions[0] = {
+      ...questions[0],
+      options: [
+        { title: 'Argo CD ApplicationSets', summary: 'Generate one application per environment.' },
+        { title: 'Kustomize', summary: 'Plain manifests with overlays per environment.' },
+      ],
+    };
+    const logs = [
+      roundEntry(1, 'round:1', rawRound({ answers: [{ number: 1, option: 2 }, { number: 2, option: 1 }] })),
+      roundEntry(2, 'round:1', { ...revised, answers: [{ number: 2, option: 1 }] }),
+    ];
+    render(<ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);
+    expect(screen.getByRole('tab', { name: /Deploy tooling/ })).not.toHaveClass('done');
+    fireEvent.click(screen.getByRole('tab', { name: /Postgres/ }));
+    fireEvent.click(screen.getByRole('button', { name: /CloudNativePG/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /Submit/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send 2 now, answer the rest later' }));
+    await waitFor(() => expect(onSendRound).toHaveBeenCalledTimes(1));
+    const [, round] = onSendRound.mock.calls[0] as unknown as [string, { answers: Array<{ number: number }> }];
+    expect(round.answers).toEqual(
+      expect.arrayContaining([expect.objectContaining({ number: 2, option: 1 }), expect.objectContaining({ number: 3, option: 1 })]),
+    );
+    expect(round.answers.map((a) => a.number).sort()).toEqual([2, 3]);
+  });
+
   it('shows a round chat row only in the open thread, as a pending line until the round is republished', () => {
     const thread = [{ from: 'system_designer', text: 'Ask me anything.' }];
     const first = [roundEntry(1, 'round:1', rawRound({ chat: thread })), roundChatEntry(2, 'Why not Helm?')];
