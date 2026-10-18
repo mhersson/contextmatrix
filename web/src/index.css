@@ -7373,7 +7373,8 @@ button.bp-seg-hit {
   color: var(--grey2);
   cursor: pointer;
 }
-.bp-tb-link {
+.bp-tb-link,
+.bp-gate-toggle {
   padding: 0;
   border: 0;
   background: transparent;
@@ -7499,11 +7500,35 @@ button.bp-seg-hit {
   flex: 1 1 200px;
   font-size: 12px;
 }
-.bp-gatebar b {
+.bp-gatebar > span > b {
   color: var(--prompt-question-accent);
 }
 .bp-gatebar > div {
   margin-top: 0;
+}
+.bp-gate-ledger {
+  flex: 1 1 100%;
+  min-width: 0;
+  font-size: 12px;
+}
+.bp-gate-block {
+  margin: 0 0 4px;
+  padding: 3px 6px;
+  border-left: 3px solid var(--red);
+  border-radius: 3px;
+  background: var(--bg-red);
+}
+.bp-gate-block > b {
+  color: var(--red);
+}
+.bp-gate-ledger > div {
+  max-height: 12rem;
+  margin-top: 4px;
+  overflow-y: auto;
+}
+.bp-gate-ledger ol {
+  margin: 0;
+  padding-left: 18px;
 }
 
 /* Blueprint sheet frame and tabs. */
