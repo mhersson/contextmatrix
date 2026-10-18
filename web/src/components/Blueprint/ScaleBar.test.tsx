@@ -58,6 +58,13 @@ describe('ScaleBar', () => {
     expect(container.querySelector('.bp-cost')).toHaveClass('bp-cost--warn');
   });
 
+  it('opens a finished slice step only when its own slice has the sheet', () => {
+    const view = viewSliced();
+    view.pipeline = view.pipeline.map((s) => (s.stage === 'grounding' && s.slice === 'SL2' ? { ...s, status: 'done' as const } : s));
+    render(<ScaleBar chatId="S2" view={view} compact={false} onOpenStage={() => {}} />);
+    expect(screen.getAllByRole('button', { name: /^Open Grounding/ })).toHaveLength(1);
+  });
+
   it('opens a finished slice step on its own sheet', () => {
     const onOpen = vi.fn();
     render(<ScaleBar chatId="S2" view={viewSliced()} compact={false} onOpenStage={onOpen} />);

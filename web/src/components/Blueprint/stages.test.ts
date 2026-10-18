@@ -162,6 +162,7 @@ describe('costLabel', () => {
     expect(costLabel({ ...cost, cap_usd: 0 }).percent).toBeNull();
     expect(costLabel(cost).percent).toBeCloseTo(17.5);
   });
+});
 
 describe('slices', () => {
   it('fills a missing slice list', () => {
@@ -190,5 +191,4 @@ describe('slices', () => {
     expect(stepStatusText(stepFor(view, 'solution_design', 'SL1')!, view)).toBe('Approved by you');
     expect(stepStatusText(stepFor(view, 'solution_design', 'SL2')!, view)).toBe('Waiting for you');
   });
-});
 });

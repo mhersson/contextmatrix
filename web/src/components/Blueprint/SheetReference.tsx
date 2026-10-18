@@ -1,7 +1,7 @@
 import type { LogMarker } from '../../types';
 import { SheetIcon } from './icons';
 import { useBlueprintSheet } from './sheetContext';
-import { stageText } from './stages';
+import { sliceOf, stageText } from './stages';
 
 /** A stored artifact in the transcript; inside a blueprint pane a click opens that version on the sheet. */
 export function SheetReference({ marker }: { marker: LogMarker }) {
@@ -28,7 +28,7 @@ export function SheetReference({ marker }: { marker: LogMarker }) {
       type="button"
       className="bp-ref bp-ref--link"
       data-testid="sheet-reference"
-      onClick={() => sheet.openArtifact(marker.stage, marker.slice ?? '', marker.version)}
+      onClick={() => sheet.openArtifact(marker.stage, sliceOf(marker), marker.version)}
     >
       {content}
     </button>

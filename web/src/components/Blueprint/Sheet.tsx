@@ -47,8 +47,14 @@ export function Sheet({ chatId, view, draft, shown, onShow, gatePrompt, onReply,
   const writing = shown ? writingVersion(view, draft, shown.stage, shown.slice) : null;
   const isWriting = shown !== null && writing === shown.version;
   const shownDraft =
-    shown && isWriting && draft && draft.stage === shown.stage && draft.slice === shown.slice && draft.version === shown.version
-      ? draft : null;
+    shown &&
+    isWriting &&
+    draft &&
+    draft.stage === shown.stage &&
+    draft.slice === shown.slice &&
+    draft.version === shown.version
+      ? draft
+      : null;
   useFollowEnd(scrollRef, shownDraft?.text);
 
   const refs = shown ? artifactsFor(view, shown.stage, shown.slice) : [];
@@ -64,22 +70,22 @@ export function Sheet({ chatId, view, draft, shown, onShow, gatePrompt, onReply,
         {tabs.map((t) => {
           const on = shown?.stage === t.stage && shown.slice === t.slice;
           return (
-          <button
-            key={`${t.stage}/${t.slice}`}
-            type="button"
-            role="tab"
-            aria-selected={on}
-            disabled={!t.enabled}
-            className={`bp-tab${on ? ' bp-tab--on' : ''}`}
-            onClick={() => onShow(t.stage, t.slice, null)}
-          >
-            {t.label}
-            {t.current && (
-              <span className="bp-tab-dot">
-                <span className="sr-only">, current stage</span>
-              </span>
-            )}
-          </button>
+            <button
+              key={`${t.stage}/${t.slice}`}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              disabled={!t.enabled}
+              className={`bp-tab${on ? ' bp-tab--on' : ''}`}
+              onClick={() => onShow(t.stage, t.slice, null)}
+            >
+              {t.label}
+              {t.current && (
+                <span className="bp-tab-dot">
+                  <span className="sr-only">, current stage</span>
+                </span>
+              )}
+            </button>
           );
         })}
         <span className="bp-tabs-fill" />
