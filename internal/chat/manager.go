@@ -43,8 +43,9 @@ var ErrSessionNotRunning = errors.New("chat: session is not running")
 // backend (an architect session on an instance without an architect entry).
 var ErrKindUnavailable = errors.New("chat: no backend configured for this session kind")
 
-// ErrInvalidSessionInput wraps every CreateSession validation failure so the
-// API layer can map the whole family to one 400.
+// ErrInvalidSessionInput wraps input a session cannot take, such as a
+// CreateSession validation failure or a round reply or round chat sent to a
+// chat session, so the API layer can map the whole family to one 400.
 var ErrInvalidSessionInput = errors.New("chat: invalid session input")
 
 // ContextClearedMarker is the canonical content string written to the
@@ -58,6 +59,11 @@ const ContextClearedMarker = "Context cleared"
 // Clear Context sentinel). Empty kind means "regular message".
 const EventKindDivider = "divider"
 
+// EventKindRoundChat is the persisted Message.Kind / SSE DataKind of a user
+// message about an open question round. Its Content is the plain text, as on
+// any user row; the panel shows it in the round's thread, not the transcript.
+const EventKindRoundChat = "round_chat"
+
 // Backend is the chat-execution surface chat.Manager drives (the roadmap's
 // ChatBackend): container start/end, message delivery, and the /logs SSE
 // bridge. The webhook-backed implementation lives in
@@ -65,7 +71,9 @@ const EventKindDivider = "divider"
 type Backend interface {
 	StartChat(ctx context.Context, opts StartChatOpts) (containerID string, err error)
 	EndChat(ctx context.Context, sessionID string) error
-	SendChatMessage(ctx context.Context, sessionID, content, messageID string) error
+	// SendChatMessage delivers one message; msg.Round is set only on a
+	// question round's answers to an architect session.
+	SendChatMessage(ctx context.Context, msg protocol.MessagePayload) error
 	// StreamLogs opens a long-lived SSE subscription to the backend's
 	// /logs?session_id=<id> endpoint and invokes onEntry for each parsed
 	// LogEntry. Returns when ctx is cancelled or the stream closes.
@@ -185,6 +193,10 @@ type Config struct {
 	// refuses capped runs. Production wires this over the card service's
 	// ResolvedRate in cmd/contextmatrix/wire_chat.go.
 	ArchitectPrice func(model string) (protocol.ModelPrice, bool)
+
+	// ArchitectResearch is the research block of every architect start; nil
+	// keeps research off. It carries the provider's API key: never log it.
+	ArchitectResearch *protocol.ResearchStart
 }
 
 // Manager orchestrates chat session lifecycle, transcript persistence,
@@ -216,6 +228,7 @@ type Manager struct {
 	architectDefaultModel           string
 	architectWorkerCredentialsToken func(sessionID string) string
 	architectPrice                  func(model string) (protocol.ModelPrice, bool)
+	architectResearch               *protocol.ResearchStart
 
 	mu           sync.Mutex
 	seqMap       map[string]int64           // sessionID → last assigned seq
@@ -322,6 +335,7 @@ func NewManager(cfg Config) *Manager {
 		architectDefaultModel:           cfg.ArchitectDefaultModel,
 		architectWorkerCredentialsToken: cfg.ArchitectWorkerCredentialsToken,
 		architectPrice:                  cfg.ArchitectPrice,
+		architectResearch:               cfg.ArchitectResearch,
 
 		seqMap:            make(map[string]int64),
 		titled:            make(map[string]bool),
@@ -1240,7 +1254,7 @@ func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
 	}
 
 	clearMsgID := NewID()
-	if err := backend.SendChatMessage(ctx, sessionID, "/clear", clearMsgID); err != nil {
+	if err := backend.SendChatMessage(ctx, protocol.MessagePayload{SessionID: sessionID, Content: "/clear", MessageID: clearMsgID}); err != nil {
 		return fmt.Errorf("chat: ClearContext: /clear: %w: %w", ErrBackendSend, err)
 	}
 
@@ -1724,7 +1738,8 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 		}
 
 		m.logger.Info("chat: opening cold blueprint session",
-			"session_id", sess.ID, "projects", sess.Workspace, "mode", sess.Mode, "model", model)
+			"session_id", sess.ID, "projects", sess.Workspace, "mode", sess.Mode, "model", model,
+			"research", m.architectResearch != nil)
 
 		start := StartChatOpts{
 			SessionID:           sess.ID,
@@ -1735,6 +1750,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 				Projects:   sess.Workspace,
 				Mode:       sess.Mode,
 				CostCapUSD: sess.CostCapUSD,
+				Research:   m.architectResearch,
 			},
 		}
 
@@ -1889,10 +1905,13 @@ func (m *Manager) AppendMessage(ctx context.Context, sessionID string, role Role
 }
 
 // appendMessageWithKind is the internal variant that stamps a non-empty
-// Message.Kind on the persisted row. Public callers reach this via
-// AppendMessage (kind="") or ClearContext (kind=EventKindDivider).
+// Message.Kind on the persisted row: the log consumer's prompt and marker
+// rows, and the send path's round chat rows.
 func (m *Manager) appendMessageWithKind(ctx context.Context, sessionID string, role Role, content, kind string) (Message, error) {
-	content = truncateMessageContent(content)
+	// promptContent bounds a prompt row itself, and a round row may exceed maxMessageBytes.
+	if kind != EventKindPrompt {
+		content = truncateMessageContent(content)
+	}
 
 	phase := m.isRehydrationActive(ctx, sessionID)
 
@@ -2403,9 +2422,47 @@ func (m *Manager) clearSendFailures(sessionID string) {
 }
 
 func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string) (string, error) {
+	return m.sendMessage(ctx, sessionID, content, userSend{})
+}
+
+// SendRoundReply forwards a question round's answers to a blueprint
+// session's architect; content is the readable summary the transcript keeps.
+func (m *Manager) SendRoundReply(ctx context.Context, sessionID, content string, round protocol.RoundReply) (string, error) {
+	return m.sendMessage(ctx, sessionID, content, userSend{round: &round})
+}
+
+// SendRoundChat forwards a message about the open question round promptID to
+// a blueprint session's architect as a plain message, and stores it as a
+// round chat row.
+func (m *Manager) SendRoundChat(ctx context.Context, sessionID, content, promptID string) (string, error) {
+	return m.sendMessage(ctx, sessionID, content, userSend{roundChat: promptID})
+}
+
+// userSend is what a send carries beside its content: a round reply's
+// answers, or the prompt id of the round a chat message is about.
+type userSend struct {
+	round     *protocol.RoundReply
+	roundChat string
+}
+
+func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us userSend) (string, error) {
 	sess, err := m.store.GetSession(ctx, sessionID)
 	if err != nil {
 		return "", err
+	}
+
+	if sess.Kind != KindArchitect {
+		switch {
+		case us.round != nil:
+			return "", fmt.Errorf("%w: round replies go to blueprint sessions only", ErrInvalidSessionInput)
+		case us.roundChat != "":
+			return "", fmt.Errorf("%w: round chat goes to blueprint sessions only", ErrInvalidSessionInput)
+		}
+	}
+
+	kind := ""
+	if us.roundChat != "" {
+		kind = EventKindRoundChat
 	}
 
 	if err := m.ensureRunningForSend(ctx, sess); err != nil {
@@ -2423,9 +2480,14 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 	}
 
 	msgID := NewID()
+	payload := protocol.MessagePayload{SessionID: sessionID, Content: content, MessageID: msgID, Round: us.round}
 
-	m.logger.Info("chat: forwarding user message to backend",
-		"session_id", sessionID, "message_id", msgID, "content_len", len(content))
+	logAttrs := []any{"session_id", sessionID, "message_id", msgID, "content_len", len(content)}
+	if us.roundChat != "" {
+		logAttrs = append(logAttrs, "round_chat", us.roundChat)
+	}
+
+	m.logger.Info("chat: forwarding user message to backend", logAttrs...)
 
 	backend, err := m.backendFor(sess.Kind)
 	if err != nil {
@@ -2461,7 +2523,7 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 	// send disarms only what it armed: an earlier turn may still be running.
 	armed := m.setWorking(sessionID, true)
 
-	err = backend.SendChatMessage(ctx, sessionID, content, msgID)
+	err = backend.SendChatMessage(ctx, payload)
 
 	// A restarted architect no longer holds the session: re-send its start
 	// and the message once, with the same id.
@@ -2488,7 +2550,7 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 			// The architect's replay cache already holds the first send's
 			// whole-second (timestamp, signature) pair despite the 404, so
 			// the re-send must sign in a later second.
-			err = backend.SendChatMessage(ctx, sessionID, content, msgID)
+			err = backend.SendChatMessage(ctx, payload)
 		}
 	}
 
@@ -2509,7 +2571,7 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 	m.clearSendFailures(sessionID)
 
 	// Backend accepted the message - now safe to persist + publish.
-	msg, err := m.AppendMessage(ctx, sessionID, RoleUser, content)
+	msg, err := m.appendMessageWithKind(ctx, sessionID, RoleUser, content, kind)
 	if err != nil {
 		unlock()
 
@@ -2518,9 +2580,10 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 
 	if m.hub != nil {
 		m.hub.Publish(sessionID, SSEEvent{
-			Seq:     msg.Seq,
-			Role:    RoleUser,
-			Content: content,
+			DataKind: kind,
+			Seq:      msg.Seq,
+			Role:     RoleUser,
+			Content:  content,
 		})
 	}
 

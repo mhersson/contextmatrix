@@ -30,7 +30,10 @@ Auto-loaded when working in `web/`. Backend conventions live in the root
   `contextmatrix-board-header-collapsed`,
   `contextmatrix-sidebar-repo-collapsed` (sidebar repo sections),
   `contextmatrix-ladder-provider-filter` (model selection ladder provider
-  checkboxes; stores the set of hidden providers).
+  checkboxes; stores the set of hidden providers),
+  `contextmatrix-round-drafts` (unsent question-round picks, decisions and typed
+  own answers kept per session and round until sent; cleared when the round
+  closes, pruned per session, capped at 50 entries).
   Adding a key means adding it here.
 - Comments explain only non-obvious decisions, constraints, safety invariants,
   or workarounds. Do not narrate what code does or record change history; git
@@ -154,11 +157,25 @@ interactions.
   sends the action's reply as an ordinary user message. A blueprint pane's
   gate bar repeats the open gate prompt's `PromptActions`, matched on
   `view.open.prompt_id`, with the same reply path. A closed non-gate
-  prompt shows its options as a static list above the summary. Whether a
-  prompt is open is derived in the browser (`derivePromptStates`), never
-  stored. Agent and chat backends never emit a prompt: `AskUserQuestion`
-  stays denied at the MCP gate, and there is no `user_question` log type or
-  question card.
+  prompt shows its options as a static list above the summary.
+  A prompt of kind `"round"` is a question round instead: `deriveRounds`
+  (`QuestionRound/rounds.ts`) keeps only the newest frame per prompt id; the
+  current round is the one whose id appeared last, so a late frame of an
+  older round never displaces it. The waiting round docks as `RoundBlock` in
+  place of `ChatComposer`, a closed or superseded one renders as
+  `RoundSummary`, and a responder round renders read-only inline. Its answers
+  go as a structured `round` on `POST /api/chats/{id}/messages`
+  (`onSendRound`); text typed in its chat box goes with the round's prompt id
+  in `round_chat` (`onSendRoundChat`), and its `kind: "round_chat"` row
+  renders in the transcript only when no round waited where it was stored
+  (`stray`): otherwise the docked block shows it after the round's thread,
+  which scrolls on its own above the chat box, until a newer frame of the
+  round arrives. A closed round's summary keeps the thread behind a collapsed
+  toggle.
+  Whether a prompt is open is derived in the browser (`derivePromptStates`),
+  never stored. Agent and chat backends never emit a prompt:
+  `AskUserQuestion` stays denied at the MCP gate, and there is no
+  `user_question` log type or question card.
 - **Routing catch-all:** keep `<Route path="*" element={<NotFound />} />` as the
   **last** route at both levels - `App.tsx` (top-level) and `ProjectShell.tsx`
   (nested project routes). The Go backend serves `index.html` for all non-API

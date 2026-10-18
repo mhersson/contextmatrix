@@ -1,5 +1,6 @@
 import type { BlueprintArtifactRef, BlueprintArtifactReview, BlueprintView, LogEntry } from '../../types';
 import { derivePromptStates, parsePromptEntry, type ChatPrompt } from '../ChatPanel/prompts';
+import type { RoundLeft } from '../QuestionRound/rounds';
 import type { HeldDraft } from './draft';
 import { artifactsFor, currentStep, decidedByText, finished, latestArtifact, stageText, visibleSteps } from './stages';
 
@@ -56,9 +57,29 @@ export interface ShownStatus {
   tone: StatusTone;
 }
 
-/** The open question's prompt id when it waits on this stage; null otherwise. */
-export function waitingQuestion(view: BlueprintView, stage: string): string | null {
-  return view.open?.kind === 'question' && currentStep(view)?.stage === stage ? view.open.prompt_id : null;
+/** What the stage waits on: the open question, or the open round and what it still lacks (null when not loaded). */
+export type Waiting = { kind: 'question'; id: string } | { kind: 'round'; left: RoundLeft | null };
+
+export function waitingOn(view: BlueprintView, stage: string, roundLeft: RoundLeft | null): Waiting | null {
+  if (currentStep(view)?.stage !== stage) return null;
+  if (view.open?.kind === 'question') return { kind: 'question', id: view.open.prompt_id };
+  if (view.open?.kind === 'round') return { kind: 'round', left: roundLeft };
+  return null;
+}
+
+const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** "Q4", "3 questions", "2 assumptions", or "your answers" once only the submit is missing. */
+export function waitingLabel(w: Waiting): string {
+  if (w.kind === 'question') return w.id;
+  if (w.left && w.left.questions > 0) return count(w.left.questions, 'question');
+  if (w.left && w.left.assumptions > 0) return count(w.left.assumptions, 'assumption');
+  return 'your answers';
+}
+
+/** The sheet's waiting line. */
+export function waitingLine(w: Waiting): string {
+  return w.kind === 'question' ? `${w.id} is waiting for you` : `Waiting on ${waitingLabel(w)}`;
 }
 
 export function shownStatus(
@@ -66,11 +87,12 @@ export function shownStatus(
   stage: string,
   stored: BlueprintArtifactRef | null,
   writing: boolean,
+  roundLeft: RoundLeft | null = null,
 ): ShownStatus {
-  // The asking stage run stays current while its question waits, so the wait outranks Writing.
-  const question = waitingQuestion(view, stage);
-  if (question && (writing || (stored !== null && stored.version === latestArtifact(view, stage)?.version))) {
-    return { text: `Waiting on ${question}`, tone: 'waiting' };
+  // The asking stage stays current while its question or round waits, so the wait outranks Writing.
+  const waiting = waitingOn(view, stage, roundLeft);
+  if (waiting && (writing || (stored !== null && stored.version === latestArtifact(view, stage)?.version))) {
+    return { text: `Waiting on ${waitingLabel(waiting)}`, tone: 'waiting' };
   }
   if (writing) return { text: 'Writing', tone: 'running' };
   if (!stored) return { text: '', tone: 'muted' };
@@ -130,6 +152,8 @@ export interface Shown {
 export function writingVersion(view: BlueprintView, draft: HeldDraft | null, stage: string): number | null {
   const stored = artifactsFor(view, stage);
   if (draft && draft.stage === stage && !stored.some((r) => r.version === draft.version)) return draft.version;
+  // A round ends its stage run, yet the stage still owes its next version while the round waits.
+  if (view.open?.kind === 'round' && currentStep(view)?.stage === stage) return (stored[stored.length - 1]?.version ?? 0) + 1;
   const run = view.current;
   // A responder run answers the asking stage's question mid-run, so that stage is still writing.
   if (run && run.kind !== 'reviewer' && run.stage === stage) return (stored[stored.length - 1]?.version ?? 0) + 1;

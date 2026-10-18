@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -142,4 +143,11 @@ func TestModelPriceFromRate(t *testing.T) {
 			assert.InDelta(t, tt.cacheW, got.CacheWriteUSDPerMTok, 1e-9)
 		})
 	}
+}
+
+func TestArchitectResearch(t *testing.T) {
+	assert.Nil(t, architectResearch(&config.ArchitectBackendConfig{}))
+	assert.Nil(t, architectResearch(&config.ArchitectBackendConfig{Research: config.ResearchOff, ResearchAPIKey: "k"}))
+	assert.Equal(t, &protocol.ResearchStart{Provider: "brave", APIKey: "k"},
+		architectResearch(&config.ArchitectBackendConfig{Research: config.ResearchSearch, ResearchAPIKey: "k"}))
 }

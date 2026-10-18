@@ -121,8 +121,8 @@ func (c *backendClient) EndChat(ctx context.Context, sessionID string) error {
 	return err
 }
 
-func (c *backendClient) SendChatMessage(ctx context.Context, sessionID, content, messageID string) error {
-	body, err := json.Marshal(protocol.MessagePayload{SessionID: sessionID, Content: content, MessageID: messageID})
+func (c *backendClient) SendChatMessage(ctx context.Context, msg protocol.MessagePayload) error {
+	body, err := json.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("chat: backend: marshal SendChatMessage payload: %w", err)
 	}

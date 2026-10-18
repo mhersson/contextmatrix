@@ -80,6 +80,7 @@ func wireChat(
 		architectBackend                chat.Backend
 		architectDefaultModel           string
 		architectWorkerCredentialsToken func(sessionID string) string
+		research                        *protocol.ResearchStart
 	)
 
 	if entry, ok := cfg.ArchitectBackend(); ok {
@@ -89,6 +90,7 @@ func wireChat(
 			MCPAPIKey: cfg.MCPAPIKey,
 		})
 		architectDefaultModel = entry.DefaultModel
+		research = architectResearch(entry)
 
 		// GET /api/worker/git-credentials verifies these against the same architect entry's api_key.
 		architectKey := entry.APIKey
@@ -116,6 +118,7 @@ func wireChat(
 		ArchitectDefaultModel:           architectDefaultModel,
 		ArchitectWorkerCredentialsToken: architectWorkerCredentialsToken,
 		ArchitectPrice:                  architectPriceFor(svc),
+		ArchitectResearch:               research,
 		ResolveProjectExec: func(rctx context.Context, project string) (chat.ProjectExecInfo, error) {
 			p, err := svc.GetProject(rctx, project)
 			if err != nil {
@@ -285,4 +288,14 @@ func modelPriceFromRate(rate service.ModelRate) protocol.ModelPrice {
 		CacheReadUSDPerMTok:  rate.CacheRead * perMTok,
 		CacheWriteUSDPerMTok: rate.CacheWrite * perMTok,
 	}
+}
+
+// architectResearch is the research block of the architect start payload;
+// nil keeps research off.
+func architectResearch(entry *config.ArchitectBackendConfig) *protocol.ResearchStart {
+	if entry.ResearchLevel() != config.ResearchSearch {
+		return nil
+	}
+
+	return &protocol.ResearchStart{Provider: entry.ResearchProviderName(), APIKey: entry.ResearchAPIKey}
 }

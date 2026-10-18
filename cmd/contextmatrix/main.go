@@ -1130,7 +1130,7 @@ func (chatBackendDisabled) EndChat(_ context.Context, _ string) error {
 	return fmt.Errorf("chat: no chat backend configured")
 }
 
-func (chatBackendDisabled) SendChatMessage(_ context.Context, _, _, _ string) error {
+func (chatBackendDisabled) SendChatMessage(_ context.Context, _ protocol.MessagePayload) error {
 	return fmt.Errorf("chat: no chat backend configured")
 }
 

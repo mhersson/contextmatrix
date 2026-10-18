@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, isAPIError } from '../../api/client';
-import type { ChatSession } from '../../types';
+import type { ChatSendExtra, ChatSession, RoundReply } from '../../types';
 import { ChatPanel } from '../../components/ChatPanel';
 import { BlueprintSession } from '../../components/Blueprint/BlueprintSession';
 import { useChatStream } from '../../hooks/useChatStream';
@@ -72,7 +72,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
     } as ChatSession;
   }, [session, sessionUpdate]);
 
-  const { working, armOptimistic } = useWorkingState(sessionID, merged);
+  const { working, armOptimistic, disarmOptimistic } = useWorkingState(sessionID, merged);
 
   // Reset local state synchronously when the sessionID prop changes - see
   // web/AGENTS.md § CardPanel for why this lives in render, not useEffect.
@@ -214,16 +214,22 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
   }
   const view = merged;
 
-  const handleSend = async (content: string) => {
+  // Arms the indicator before the POST: an architect may end its turn before the send returns.
+  const post = async (content: string, extra: ChatSendExtra | undefined, failure: string) => {
+    armOptimistic();
     try {
-      await api.sendChatMessage(sessionID, content);
+      await api.sendChatMessage(sessionID, content, extra);
       setUserHasSent(true);
-      armOptimistic();
     } catch (e) {
-      const msg = isAPIError(e) ? e.error : 'Failed to send message';
+      disarmOptimistic();
+      const msg = isAPIError(e) ? e.error : failure;
       throw new Error(msg, { cause: e });
     }
   };
+  const handleSend = (content: string) => post(content, undefined, 'Failed to send message');
+  const handleSendRound = (content: string, reply: RoundReply) => post(content, { round: reply }, 'Failed to send answers');
+  const handleSendRoundChat = (content: string, promptId: string) =>
+    post(content, { round_chat: promptId }, 'Failed to send message');
 
   const isEnding = view.status === 'ending';
   const isCold = view.status === 'cold';
@@ -242,7 +248,10 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
   const panel = (
     <ChatPanel
       logs={logs}
+      sessionID={sessionID}
       onSend={handleSend}
+      onSendRound={view.kind === 'architect' ? handleSendRound : undefined}
+      onSendRoundChat={view.kind === 'architect' ? handleSendRoundChat : undefined}
       sendDisabled={sendDisabled}
       promptsLive={connected && !sendDisabled}
       readOnlyMessage={readOnlyMessage}

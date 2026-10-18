@@ -147,6 +147,9 @@ var (
 		"_API_KEY",
 		"_ENABLED",
 		"_DEFAULT_MODEL",
+		"_RESEARCH",
+		"_RESEARCH_PROVIDER",
+		"_RESEARCH_API_KEY",
 	}
 )
 
@@ -277,6 +280,13 @@ type ChatBackendConfig struct {
 	DefaultModel string `yaml:"default_model"`
 }
 
+// Architect research levels and the one search provider.
+const (
+	ResearchOff           = "off"
+	ResearchSearch        = "search"
+	ResearchProviderBrave = "brave"
+)
+
 // ArchitectBackendConfig is the contextmatrix-architect blueprint backend
 // entry. The architect speaks the chat-backend protocol, so the entry has
 // the chat entry's fields.
@@ -287,6 +297,34 @@ type ArchitectBackendConfig struct {
 	// DefaultModel - required when enabled: the architect has no server-side
 	// default and takes the model from every session start.
 	DefaultModel string `yaml:"default_model"`
+	// Research is off (the default) or search. Search gives the architect's
+	// interviewing stages web search and fetch, so query text leaves the
+	// installation for the provider.
+	Research string `yaml:"research"`
+	// ResearchProvider is the search provider; brave is the only one.
+	ResearchProvider string `yaml:"research_provider"`
+	// ResearchAPIKey is the provider's key, required for search. CM hands it
+	// to the architect in each session start; never log it.
+	ResearchAPIKey string `yaml:"research_api_key"`
+}
+
+// ResearchLevel is Research with its default; an entry built from env vars
+// alone never passes through applyBackendDefaults.
+func (a *ArchitectBackendConfig) ResearchLevel() string {
+	if a.Research == "" {
+		return ResearchOff
+	}
+
+	return a.Research
+}
+
+// ResearchProviderName is ResearchProvider with its default.
+func (a *ArchitectBackendConfig) ResearchProviderName() string {
+	if a.ResearchProvider == "" {
+		return ResearchProviderBrave
+	}
+
+	return a.ResearchProvider
 }
 
 // IsEnabled reports whether the agent entry is present and active. A nil
@@ -1042,6 +1080,18 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("backends.architect.default_model is required when the architect backend " +
 				"is enabled (the architect has no server-side default; CM supplies the model on every session start)")
 		}
+
+		if lvl := ab.ResearchLevel(); lvl != ResearchOff && lvl != ResearchSearch {
+			return fmt.Errorf("backends.architect.research must be %q or %q, got %q", ResearchOff, ResearchSearch, ab.Research)
+		}
+
+		if ab.ResearchProviderName() != ResearchProviderBrave {
+			return fmt.Errorf("backends.architect.research_provider must be %q, got %q", ResearchProviderBrave, ab.ResearchProvider)
+		}
+
+		if ab.ResearchLevel() == ResearchSearch && ab.ResearchAPIKey == "" {
+			return fmt.Errorf("backends.architect.research_api_key is required when research is %q", ResearchSearch)
+		}
 	}
 
 	if c.Theme == "" {
@@ -1686,6 +1736,11 @@ func applyBackendDefaults(cfg *Config) {
 	if a := cfg.Backends.Agent; a.IsEnabled() && a.ReconcileInterval == "" {
 		a.ReconcileInterval = "60s"
 	}
+
+	if a := cfg.Backends.Architect; a.IsEnabled() {
+		a.Research = a.ResearchLevel()
+		a.ResearchProvider = a.ResearchProviderName()
+	}
 }
 
 // applyChatDefaults sets Chat fields that were not supplied by YAML.
@@ -2230,6 +2285,18 @@ func applyArchitectBackendEnv(cfg *Config) error {
 
 	if v := os.Getenv(prefix + "_DEFAULT_MODEL"); v != "" {
 		a.DefaultModel = v
+	}
+
+	if v := os.Getenv(prefix + "_RESEARCH"); v != "" {
+		a.Research = v
+	}
+
+	if v := os.Getenv(prefix + "_RESEARCH_PROVIDER"); v != "" {
+		a.ResearchProvider = v
+	}
+
+	if v := os.Getenv(prefix + "_RESEARCH_API_KEY"); v != "" {
+		a.ResearchAPIKey = v
 	}
 
 	return nil

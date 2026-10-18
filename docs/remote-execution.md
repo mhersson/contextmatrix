@@ -450,7 +450,7 @@ response returns. Differences from a chat start:
 | `model`                                         | The session row's model, else `backends.architect.default_model`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `llm_endpoint`, `mcp_api_key`                   | As for chat: the configured `llm_endpoint` and CM's `mcp_api_key`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `git_credentials_token`                         | Minted over the architect entry's `api_key`, in the same `<session_id>.<mac>` form as for chat. `GET /api/worker/git-credentials` verifies it and refuses it once the session ends.                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `architect`                                     | `{"projects": ["alpha", "beta"], "mode": "default", "cost_cap_usd": 3, "price": {"prompt_usd_per_mtok": 3, "completion_usd_per_mtok": 15, "cache_read_usd_per_mtok": 0.3, "cache_write_usd_per_mtok": 3.75}}`. `mode` is `default`, `auto`, `auto+emit` or `yolo`. `price` is the model's resolved per-token rate from CM's `token_costs` and catalog lookup, in USD per million tokens with the cache defaults applied; it is omitted when CM has no price for the model, or prices neither its prompt nor its completion tokens, and the architect then refuses to run a capped blueprint. |
+| `architect`                                     | `{"projects": ["alpha", "beta"], "mode": "default", "cost_cap_usd": 3, "price": {"prompt_usd_per_mtok": 3, "completion_usd_per_mtok": 15, "cache_read_usd_per_mtok": 0.3, "cache_write_usd_per_mtok": 3.75}}`. `mode` is `default`, `auto`, `auto+emit` or `yolo`. `price` is the model's resolved per-token rate from CM's `token_costs` and catalog lookup, in USD per million tokens with the cache defaults applied; it is omitted when CM has no price for the model, or prices neither its prompt nor its completion tokens, and the architect then refuses to run a capped blueprint. `research`, `{"provider": "brave", "api_key": "..."}`, is present only when `backends.architect.research` is `search`; the architect then gives its interviewing stages web search and fetch. |
 
 `/chat/end` ends the session on the architect; reopening it sends a new
 `/chat/start` for the same session id. Architect sessions do not count toward
@@ -463,6 +463,17 @@ lands after the message that caused it, in `seq` and on the browser stream.
 Recovery releases the hold for its start and wait, so only frames the reopened
 architect delivers during them land first; a later frame, for example one that
 arrives after CM's log stream reconnects, can follow the message. Chat sessions do not take it.
+
+A question round's answers go to `/message` with `round` beside the readable
+summary in `content`: `{"prompt_id": "round:1", "answers": [{"number": 1,
+"option": 2}, {"number": 2, "text": "Loki only"}], "decisions": [{"id": "A1",
+"accept": false}], "final": true}`. `option` is the chosen option's 1-based
+position, or absent with `text` holding the person's own answer. Every reply
+carries all the answers and decisions the panel holds at that moment, stored
+or new, and `final` marks Submit all. Text typed in the round's chat box is
+a plain message without `round`; CM stores its row with kind `round_chat` so
+the panel shows it in the waiting round's thread instead of the transcript (as
+an ordinary message when no round waits any more).
 
 Recovery: when a `/message` is answered with 404 and the protocol's `not_found`
 code (the architect restarted and no longer holds the session), CM re-sends
@@ -583,6 +594,19 @@ alone overflows the 32 KiB row cap (a marker whose kind, stage and persona
 alone overflow it is stored as the plain message); a frame that carries both
 `marker` and `prompt` is stored as a marker. On any other session, and in
 task session logs, the field is ignored.
+
+A prompt of kind `round` is a question round: instead of actions it carries
+`round`, with the asking `persona` and `stage`, the `questions` (each with
+`number`, a tab `title`, `text`, `why`, `options` with `title`, `summary`,
+`pros`, `cons` and `sources` of `tag`, `title` and `url`, and the 1-based
+`recommended` option), optional `assumptions` (`id`, `text`), the `answers`
+and assumption `decisions` stored so far, the `chat` thread about the round,
+and the flags `research_off`, `responder` and `closed`. Its id is
+`round:<n>`. The architect republishes the same id whenever the round
+changes; consumers show only the newest frame per id. CM stores a round row
+up to 256 KiB: it cuts `content` and `prompt.text` first, then drops the
+oldest chat messages, and stores a round whose questions alone overflow as
+the plain message.
 
 The backend redacts credential patterns before publishing and sends keepalive
 comments to hold the connection open through proxy idle timeouts.

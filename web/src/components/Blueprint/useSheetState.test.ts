@@ -90,4 +90,11 @@ describe('useSheetState', () => {
     rerender({ view: grounding, draft: null, layout: 'split' });
     expect(result.current.pin).toBeNull();
   });
+  it('only marks something new over the transcript while a round waits', () => {
+    const asking = { ...idle(), open: { prompt_id: 'round:1', kind: 'round' as const } };
+    const { result, rerender } = setup({ view: asking, draft: null, layout: 'phone' });
+    rerender({ view: withNewVersion(asking), draft: null, layout: 'phone' });
+    expect(result.current.open).toBe(false);
+    expect(result.current.hasNew).toBe(true);
+  });
 });

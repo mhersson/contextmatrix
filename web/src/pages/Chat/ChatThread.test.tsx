@@ -16,7 +16,7 @@ vi.mock('../../components/Blueprint/BlueprintSession', () => ({
   BlueprintSession: ({ phone, onReply, children }: { phone: boolean; onReply: (text: string) => Promise<void>; children: ReactNode }) => (
     <section aria-label={phone ? 'Blueprint pane, phone layout' : 'Blueprint pane'}>
       {children}
-      <button type="button" onClick={() => void onReply('approve')}>
+      <button type="button" onClick={() => onReply('approve').catch(() => undefined)}>
         Gate reply
       </button>
     </section>
@@ -103,7 +103,7 @@ describe('ChatThread blueprint pane', () => {
     expect(await screen.findByRole('region', { name: 'Blueprint pane, phone layout' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Gate reply' }));
-    await waitFor(() => expect(api.sendChatMessage).toHaveBeenCalledWith('bp-1', 'approve'));
+    await waitFor(() => expect(api.sendChatMessage).toHaveBeenCalledWith('bp-1', 'approve', undefined));
   });
 
   it('leaves a plain chat as a transcript', async () => {
@@ -112,5 +112,18 @@ describe('ChatThread blueprint pane', () => {
 
     await screen.findByRole('button', { name: 'Approve' });
     expect(screen.queryByRole('region', { name: /Blueprint pane/ })).not.toBeInTheDocument();
+  });
+
+  it('shows the working indicator while the send is in flight and drops it when the send fails', async () => {
+    vi.mocked(api.getChat).mockResolvedValue(session);
+    let reject!: (e: Error) => void;
+    vi.mocked(api.sendChatMessage).mockReturnValue(new Promise((_, r) => { reject = r; }));
+    render(<ChatThread sessionID="bp-1" embedded />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Gate reply' }));
+    expect(await screen.findByTestId('working-indicator')).toBeInTheDocument();
+
+    reject(new Error('boom'));
+    await waitFor(() => expect(screen.queryByTestId('working-indicator')).not.toBeInTheDocument());
   });
 });

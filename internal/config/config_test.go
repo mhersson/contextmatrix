@@ -4248,3 +4248,69 @@ backends:
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `"architect"`)
 }
+
+func TestArchitectResearch_Validate(t *testing.T) {
+	for name, tc := range map[string]struct {
+		mut     func(a *ArchitectBackendConfig)
+		wantErr string
+	}{
+		"unset is off":         {mut: func(*ArchitectBackendConfig) {}},
+		"off":                  {mut: func(a *ArchitectBackendConfig) { a.Research = "off" }},
+		"search with a key":    {mut: func(a *ArchitectBackendConfig) { a.Research = "search"; a.ResearchAPIKey = "brave-key" }},
+		"search without a key": {mut: func(a *ArchitectBackendConfig) { a.Research = "search" }, wantErr: "research_api_key"},
+		"unknown level":        {mut: func(a *ArchitectBackendConfig) { a.Research = "fetch" }, wantErr: "backends.architect.research"},
+		"unknown provider":     {mut: func(a *ArchitectBackendConfig) { a.ResearchProvider = "duckduckgo" }, wantErr: "research_provider"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := validBaseConfig(t)
+			a := &ArchitectBackendConfig{URL: "http://architect:9095", APIKey: strings.Repeat("k", 32), DefaultModel: "m"}
+			tc.mut(a)
+			cfg.Backends.Architect = a
+
+			err := cfg.Validate()
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestArchitectResearch_UnquotedOffLoadsAsOff(t *testing.T) {
+	// YAML 1.1 reads a bare off as false; yaml.v3 keeps it a string for a string field.
+	dir := t.TempDir()
+	path := writeConfigFile(t, dir, minValidBase(t.TempDir())+`
+backends:
+  architect:
+    url: http://localhost:9094
+    api_key: "0123456789abcdef0123456789abcdef"
+    default_model: "m"
+    research: off
+`)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, ResearchOff, cfg.Backends.Architect.Research)
+}
+
+func TestArchitectResearch_EnvOverrides(t *testing.T) {
+	t.Setenv("CONTEXTMATRIX_BACKEND_ARCHITECT_URL", "http://architect:9095")
+	t.Setenv("CONTEXTMATRIX_BACKEND_ARCHITECT_API_KEY", strings.Repeat("k", 32))
+	t.Setenv("CONTEXTMATRIX_BACKEND_ARCHITECT_DEFAULT_MODEL", "m")
+	t.Setenv("CONTEXTMATRIX_BACKEND_ARCHITECT_RESEARCH", "search")
+	t.Setenv("CONTEXTMATRIX_BACKEND_ARCHITECT_RESEARCH_PROVIDER", "brave")
+	t.Setenv("CONTEXTMATRIX_BACKEND_ARCHITECT_RESEARCH_API_KEY", "brave-key")
+
+	cfg, err := Load(writeConfigFile(t, t.TempDir(), minValidBase(t.TempDir())))
+	require.NoError(t, err)
+
+	ab, ok := cfg.ArchitectBackend()
+	require.True(t, ok)
+	assert.Equal(t, ResearchSearch, ab.ResearchLevel())
+	assert.Equal(t, ResearchProviderBrave, ab.ResearchProviderName())
+	assert.Equal(t, "brave-key", ab.ResearchAPIKey)
+}

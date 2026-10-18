@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { LogEntry } from '../../types';
+import type { LogEntry, RoundReply } from '../../types';
 import { useChatFilterPrefs } from '../../hooks/useChatFilterPrefs';
 import { ChatComposer } from './ChatComposer';
 import { ChatTranscript } from './ChatTranscript';
 import { filterLogEntries } from './decorateLogs';
 import { derivePromptStates } from './prompts';
 import type { WorkingState } from '../../hooks/useWorkingState';
+import { RoundBlock } from '../QuestionRound/RoundBlock';
+import { pruneSession } from '../QuestionRound/roundDraftStore';
+import { deriveRounds, ROUND_CHAT_KIND, type RoundStatus } from '../QuestionRound/rounds';
+
+// Older frames of a round never show; the waiting round docks below the transcript instead of in it.
+const OUT_OF_TRANSCRIPT: ReadonlySet<RoundStatus | undefined> = new Set<RoundStatus | undefined>(['history', 'open', 'paused']);
 
 export interface ChatPanelProps {
   logs: readonly LogEntry[];
@@ -49,6 +55,15 @@ export interface ChatPanelProps {
    * sends and its stream is connected. Card-bound chat passes nothing.
    */
   promptsLive?: boolean;
+  /** Keeps a waiting round's unsent picks in this browser under this session. Global chat passes it. */
+  sessionID?: string;
+  /**
+   * Sends a question round's answers as the readable summary plus the structured reply. Set on architect sessions;
+   * without it a waiting round still docks, read-only.
+   */
+  onSendRound?: (content: string, reply: RoundReply) => Promise<void>;
+  /** Sends a message typed in the waiting round's chat box, with that round's prompt id. Set on architect sessions. */
+  onSendRoundChat?: (content: string, promptId: string) => Promise<void>;
 }
 
 export function ChatPanel({
@@ -63,6 +78,9 @@ export function ChatPanel({
   loadingOlder,
   onLoadOlder,
   promptsLive = false,
+  sessionID,
+  onSendRound,
+  onSendRoundChat,
 }: ChatPanelProps) {
   const { prefs, setPref } = useChatFilterPrefs();
   const { showText, showToolCalls, showThinking } = prefs;
@@ -77,6 +95,23 @@ export function ChatPanel({
   // Over the whole ring, not the filtered tail: a reply further down closes
   // a prompt even when the reply's row is filtered or not yet revealed.
   const promptStates = useMemo(() => derivePromptStates(logs, promptsLive), [logs, promptsLive]);
+
+  const rounds = useMemo(() => deriveRounds(logs, promptsLive), [logs, promptsLive]);
+  const transcriptLogs = useMemo(
+    () =>
+      filteredLogs.filter(
+        (e) => (e.kind !== ROUND_CHAT_KIND || rounds.stray.has(e)) && !OUT_OF_TRANSCRIPT.has(rounds.byEntry.get(e)),
+      ),
+    [filteredLogs, rounds],
+  );
+  const docked = rounds.pending;
+  const dockedId = docked?.id ?? null;
+  const hasRounds = rounds.byEntry.size > 0;
+  // A closed or superseded round keeps no draft; with no round frame loaded yet nothing is known, so nothing is dropped.
+  useEffect(() => {
+    if (sessionID !== undefined && hasRounds) pruneSession(sessionID, dockedId);
+  }, [sessionID, dockedId, hasRounds]);
+  const sendRoundChat = docked && onSendRoundChat ? (text: string) => onSendRoundChat(text, docked.id) : undefined;
 
   // Ref-stable, so memoized rows never re-render on the parent's per-render
   // onSend. A sent reply returns focus to the composer, as a send does.
@@ -121,7 +156,8 @@ export function ChatPanel({
       </div>
 
       <ChatTranscript
-        filteredLogs={filteredLogs}
+        filteredLogs={transcriptLogs}
+        roundStates={rounds.byEntry}
         working={working}
         hasMoreHistory={hasMoreHistory}
         loadingOlder={loadingOlder}
@@ -130,6 +166,20 @@ export function ChatPanel({
         onReply={sendReply}
       />
 
+      {docked && (
+        <RoundBlock
+          key={`${sessionID ?? ''}/${docked.id}`}
+          draftScope={sessionID}
+          promptId={docked.id}
+          round={docked.round}
+          mode={onSendRound && docked.status === 'open' ? 'open' : 'paused'}
+          onSendRound={onSendRound}
+          onSendChat={sendRoundChat}
+          sentChat={docked.sent.map((e) => e.content)}
+          chatDisabled={sendDisabled}
+          focusKey={focusKey}
+        />
+      )}
       {readOnlyMessage ? (
         <div
           className="px-4 py-2 text-xs font-mono italic text-center border-t border-[var(--bg3)]"
@@ -138,7 +188,7 @@ export function ChatPanel({
         >
           {readOnlyMessage}
         </div>
-      ) : (
+      ) : docked ? null : (
         <ChatComposer
           onSend={onSend}
           sendDisabled={sendDisabled}

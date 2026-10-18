@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { formatHHMM } from '../../utils/chatTimestamp';
-import { ref, viewAtDesignGate } from '../../test-utils/blueprintFixtures';
+import { ref, step, viewAtDesignGate } from '../../test-utils/blueprintFixtures';
+import type { BlueprintView } from '../../types';
 import { holdDraft } from './draft';
 import { defaultShown, resolveShown, reviewFor, reviewingPersona, sheetTabs, shownStatus, stampFor, versionOptions, writingVersion } from './sheetModel';
 
@@ -197,5 +198,36 @@ describe('reviewingPersona', () => {
     expect(reviewingPersona(run('grounding', 'reviewer'), 'solution_design', 2)).toBeNull();
     expect(reviewingPersona(run('solution_design', 'stage'), 'solution_design', 2)).toBeNull();
     expect(reviewingPersona(viewAtDesignGate(), 'solution_design', 2)).toBeNull();
+  });
+});
+
+describe('a waiting question round', () => {
+  // A round ends its stage run: nothing is current, intake waits and owes its first version.
+  const askingIntake: BlueprintView = {
+    id: 'S1',
+    mode: 'default',
+    state: 'waiting',
+    seq: 9,
+    pipeline: [step('intake', 'product_owner', 'waiting'), step('solution_design', 'system_designer', 'pending')],
+    open: { prompt_id: 'round:1', kind: 'round' },
+    cost: { spent_usd: 0, run_spent_usd: 0, cap_usd: 0, run_cap_usd: 0, priced: true },
+    artifacts: [],
+  };
+
+  it('keeps the asking stage on the sheet as the version it owes', () => {
+    expect(writingVersion(askingIntake, null, 'intake')).toBe(1);
+    expect(writingVersion(askingIntake, null, 'solution_design')).toBeNull();
+    expect(defaultShown(askingIntake, null)).toEqual({ stage: 'intake', version: 1 });
+    expect(sheetTabs(askingIntake, null).find((t) => t.stage === 'intake')?.enabled).toBe(true);
+  });
+
+  it.each([
+    [{ questions: 3, assumptions: 0 }, 'Waiting on 3 questions'],
+    [{ questions: 1, assumptions: 2 }, 'Waiting on 1 question'],
+    [{ questions: 0, assumptions: 2 }, 'Waiting on 2 assumptions'],
+    [{ questions: 0, assumptions: 0 }, 'Waiting on your answers'],
+    [null, 'Waiting on your answers'],
+  ])('says what it still waits on (%j)', (left, text) => {
+    expect(shownStatus(askingIntake, 'intake', null, true, left)).toEqual({ text, tone: 'waiting' });
   });
 });

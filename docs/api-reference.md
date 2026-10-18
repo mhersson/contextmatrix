@@ -2572,9 +2572,39 @@ session is opened automatically (so 429 `TOO_MANY_CHATS` is possible);
 { "content": "Show me the diff between v1 and v2 of the auth middleware." }
 ```
 
+On an `architect` session the body may also carry a question round's answers
+in `round`; `content` is then the readable summary the transcript keeps, and
+CM forwards both to the architect unchanged:
+
+```json
+{
+  "content": "Sent 3 of 4 answers; the rest later.\nQ1 Deploy tooling: Helm\nQ2 Logging: Loki only\nTurn into a question: One cluster per environment.",
+  "round": {
+    "prompt_id": "round:1",
+    "answers": [{ "number": 1, "option": 2 }, { "number": 2, "text": "Loki only" }],
+    "decisions": [{ "id": "A1", "accept": false }],
+    "final": false
+  }
+}
+```
+
+A message typed in an open round's chat box carries that round's prompt id in
+`round_chat` instead. CM forwards it to the architect as a plain message
+without `round` and stores the row with `kind` `"round_chat"`, so the panel
+shows it in the waiting round's thread rather than the transcript (as an
+ordinary message when no round waits any more):
+
+```json
+{ "content": "Why not Helm?", "round_chat": "round:1" }
+```
+
 **Response:** 202 with `{ "ok": true, "message_id": "<26-char id>" }`.
-400 `BAD_REQUEST` for empty or whitespace `content`; 413 `CONTENT_TOO_LARGE`
-above 8 KiB.
+400 `BAD_REQUEST` for empty or whitespace `content`, a `round_chat` beside a
+`round` or not of the form `round:<n>` (n from 1, no leading zero), or a
+`round` without `prompt_id`, with an answer `number` below 1, a negative
+`option`, an `option` of 0 without `text`, a `text` above 32 KiB or a decision
+without `id`; 400 `INVALID_CHAT_INPUT` for a `round` or `round_chat` on a chat
+session; 413 `CONTENT_TOO_LARGE` above 8 KiB.
 
 ### GET /api/chats/{id}/messages
 
@@ -2604,8 +2634,9 @@ exactly while the oldest loaded seq is `> 1`.
 `role` is `user`, `assistant_text`, `assistant_thinking`, `tool_call`,
 `tool_result`, `stderr`, or `system`. `kind` (`"divider"` for the Clear
 Context row, `"prompt"` for an architect question or gate, `"marker"` for an
-architect stage divider or sheet reference) and `rehydration_phase` appear
-only when set. `content` is the raw text, except on a `prompt` row, where it
+architect stage divider or sheet reference, `"round_chat"` for a user message
+about an open question round) and `rehydration_phase` appear only when set.
+`content` is the raw text, except on a `prompt` row, where it
 is the JSON envelope `{"text": "<message>", "prompt": {"id": "...", "kind":
 "question", "text": "...", "free_text": true, "actions": [{"label": "...",
 "reply": "...", "feedback": true, "recommended": true}]}}` (`kind`, `text` and

@@ -551,12 +551,37 @@ export interface LogEntry {
    * row appended on Clear Context, "prompt" for an architect question or gate
    * whose content is a {text, prompt} JSON envelope, "marker" for a blueprint
    * stage divider (type system) or sheet reference (type text) whose content
-   * is a {text, marker} JSON envelope. Empty / absent means a
+   * is a {text, marker} JSON envelope, "round_chat" for a user message typed
+   * in an open question round's chat box. Empty / absent means a
    * regular message. The frontend matches on this rather than content
    * strings so the rendering rule is unambiguous and survives reloads.
    */
   kind?: string;
 }
+
+/** One answer in a question round (protocol RoundAnswer): option is 1-based; without it, text is the person's own answer. */
+export interface RoundAnswer {
+  number: number;
+  option?: number;
+  text?: string;
+}
+
+/** An assumption accepted, or turned into a question when accept is false (protocol AssumptionDecision). */
+export interface AssumptionDecision {
+  id: string;
+  accept: boolean;
+}
+
+/** A question round's answers as the block sends them (protocol RoundReply); final is "Submit all". */
+export interface RoundReply {
+  prompt_id: string;
+  answers?: RoundAnswer[];
+  decisions?: AssumptionDecision[];
+  final?: boolean;
+}
+
+/** What a chat send carries beside its content: a round's answers, or the prompt id of the open round a message is about. */
+export type ChatSendExtra = { round: RoundReply } | { round_chat: string };
 
 export type AuthMode = 'multi' | 'none';
 
@@ -1202,7 +1227,7 @@ export interface BlueprintCurrentRun {
 export interface BlueprintOpenPrompt {
   /** "Q<n>", "gate:<stage>:v<n>", "gate:signoff:v<n>" or "emission:v<n>" (kind gate, an emission resume). */
   prompt_id: string;
-  kind: 'question' | 'gate';
+  kind: 'question' | 'gate' | 'round';
 }
 
 export interface BlueprintCost {

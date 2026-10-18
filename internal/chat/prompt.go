@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"unicode/utf8"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
@@ -28,10 +29,14 @@ var errEnvelopeTooLarge = errors.New("envelope exceeds the message cap")
 // never modified.
 func promptContent(text string, p *protocol.LogPrompt) (string, error) {
 	if p == nil {
-		return fitEnvelope(text, "", func(text, _ string) (string, error) { return marshalPrompt(text, nil) })
+		return fitEnvelope(maxMessageBytes, text, "", func(text, _ string) (string, error) { return marshalPrompt(text, nil) })
 	}
 
-	return fitEnvelope(text, p.Text, func(text, inner string) (string, error) {
+	if p.Round != nil {
+		return roundContent(text, p)
+	}
+
+	return fitEnvelope(maxMessageBytes, text, p.Text, func(text, inner string) (string, error) {
 		cp := *p
 		cp.Text = inner
 
@@ -39,16 +44,16 @@ func promptContent(text string, p *protocol.LogPrompt) (string, error) {
 	})
 }
 
-// fitEnvelope marshals an envelope within maxMessageBytes. It cuts the
+// fitEnvelope marshals an envelope within limit bytes. It cuts the
 // fallback text first and the inner display text only if the envelope still
 // overflows with the text at its minimum.
-func fitEnvelope(text, inner string, marshal func(text, inner string) (string, error)) (string, error) {
+func fitEnvelope(limit int, text, inner string, marshal func(text, inner string) (string, error)) (string, error) {
 	env, err := marshal(text, inner)
-	if err != nil || len(env) <= maxMessageBytes {
+	if err != nil || len(env) <= limit {
 		return env, err
 	}
 
-	content, err := fitCut(len(text), func(n int) (string, error) {
+	content, err := fitCut(limit, len(text), func(n int) (string, error) {
 		return marshal(cutText(text, n), inner)
 	})
 	if inner == "" || !errors.Is(err, errEnvelopeTooLarge) {
@@ -58,7 +63,7 @@ func fitEnvelope(text, inner string, marshal func(text, inner string) (string, e
 	// The text is already at its minimum: keep only the truncation suffix, or nothing if it was empty.
 	minimal := cutText(text, 0)
 
-	return fitCut(len(inner), func(n int) (string, error) {
+	return fitCut(limit, len(inner), func(n int) (string, error) {
 		return marshal(minimal, cutText(inner, n))
 	})
 }
@@ -66,7 +71,7 @@ func fitEnvelope(text, inner string, marshal func(text, inner string) (string, e
 // fitCut binary-searches the largest cut length below size whose envelope
 // fits. A binary search, because escaping makes the encoded size nonlinear in
 // the cut.
-func fitCut(size int, marshal func(n int) (string, error)) (string, error) {
+func fitCut(limit, size int, marshal func(n int) (string, error)) (string, error) {
 	lo, hi := 0, size-1
 	for lo < hi {
 		mid := (lo + hi + 1) / 2
@@ -76,7 +81,7 @@ func fitCut(size int, marshal func(n int) (string, error)) (string, error) {
 			return "", err
 		}
 
-		if len(probe) <= maxMessageBytes {
+		if len(probe) <= limit {
 			lo = mid
 		} else {
 			hi = mid - 1
@@ -88,7 +93,7 @@ func fitCut(size int, marshal func(n int) (string, error)) (string, error) {
 		return "", err
 	}
 
-	if len(env) > maxMessageBytes {
+	if len(env) > limit {
 		return "", errEnvelopeTooLarge
 	}
 
@@ -119,4 +124,40 @@ func runePrefix(text string, n int) string {
 	}
 
 	return text[:n]
+}
+
+// maxRoundEnvelopeBytes caps a question round's row: a round carries every
+// question with its options, the stored answers and the chat thread.
+const maxRoundEnvelopeBytes = 256 * 1024
+
+// roundContent marshals a round row within maxRoundEnvelopeBytes. The text is
+// cut as for any prompt; when that is not enough the oldest chat messages go,
+// so the questions and the stored answers always survive.
+func roundContent(text string, p *protocol.LogPrompt) (string, error) {
+	keepFrom := func(drop int) (string, error) {
+		r := *p.Round
+		r.Chat = p.Round.Chat[drop:]
+		cp := *p
+		cp.Round = &r
+
+		return fitEnvelope(maxRoundEnvelopeBytes, text, cp.Text, func(text, inner string) (string, error) {
+			c := cp
+			c.Text = inner
+
+			return marshalPrompt(text, &c)
+		})
+	}
+
+	n := len(p.Round.Chat)
+
+	drop := sort.Search(n+1, func(d int) bool {
+		_, err := keepFrom(d)
+
+		return !errors.Is(err, errEnvelopeTooLarge)
+	})
+	if drop > n {
+		return "", errEnvelopeTooLarge
+	}
+
+	return keepFrom(drop)
 }

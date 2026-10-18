@@ -21,7 +21,7 @@ type markerEnvelope struct {
 // text is cut first and Marker.Note only if the marker alone still
 // overflows. The caller's marker is never modified.
 func markerContent(text string, mk *protocol.LogMarker) (string, error) {
-	return fitEnvelope(text, mk.Note, func(text, note string) (string, error) {
+	return fitEnvelope(maxMessageBytes, text, mk.Note, func(text, note string) (string, error) {
 		cp := *mk
 		cp.Note = note
 
