@@ -70,7 +70,11 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
     returnFocusRef.current = hostRef.current?.contains(document.activeElement) ?? false;
     close();
   }, [close]);
-  const actions = useMemo(() => ({ openArtifact: (stage: string, slice: string, version?: number) => show(stage, slice, version ?? null) }), [show]);
+  const slices = view?.slices;
+  const actions = useMemo(
+    () => ({ openArtifact: (stage: string, slice: string, version?: number) => show(stage, slice, version ?? null), slices: slices ?? [] }),
+    [show, slices],
+  );
 
   const hasSheet = layout !== null && (state.status === 'ready' || state.status === 'unreachable');
   const overlayOpen = hasSheet && layout !== 'split' && sheet.open;

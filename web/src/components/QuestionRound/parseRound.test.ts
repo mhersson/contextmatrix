@@ -112,4 +112,9 @@ describe('parseRound', () => {
     expect(r!.questions).toEqual([]);
     expect(r!.assumptions).toHaveLength(1);
   });
+
+  it('reads the slice a round asks for', () => {
+    expect(parseRound(rawRound({ slice: 'SL2' }))?.slice).toBe('SL2');
+    expect(parseRound(rawRound())?.slice).toBe('');
+  });
 });

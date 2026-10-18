@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { RoundReply } from '../../types';
 import { rawRound } from '../../test-utils/roundFixtures';
+import { THREE_SLICES } from '../../test-utils/blueprintFixtures';
+import { BlueprintSheetContext } from '../Blueprint/sheetContext';
 import { parseRound } from './parseRound';
 import { RoundBlock } from './RoundBlock';
 import type { RoundMode } from './roundView';
@@ -571,5 +573,17 @@ describe('RoundBlock kept drafts', () => {
     expect(() => makeDraft()).not.toThrow();
     fireEvent.click(tab(/Deploy tooling/));
     expect(option(/Helm/)).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+describe('RoundBlock slices', () => {
+  it('names the slice the round asks for while the blueprint shows slices', () => {
+    const round = parseRound(rawRound({ slice: 'SL2' }))!;
+    render(
+      <BlueprintSheetContext.Provider value={{ openArtifact: () => {}, slices: THREE_SLICES }}>
+        <RoundBlock promptId="round:1" round={round} mode="open" />
+      </BlueprintSheetContext.Provider>,
+    );
+    expect(screen.getByRole('region', { name: /3 questions from the system designer · SL2/ })).toBeInTheDocument();
   });
 });
