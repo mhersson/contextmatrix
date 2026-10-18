@@ -16,14 +16,7 @@ export function CostCell({ chatId, cost: raw }: { chatId: string; cost: Blueprin
     ? `Cost: ${money(raw.spent_usd)} of ${money(raw.cap_usd)} cap, change cap`
     : `Cost: ${money(raw.spent_usd)}, no cap, set a cap`;
   return (
-    <div
-      ref={wrapRef}
-      className="bp-cost-wrap"
-      // Marks Escape handled so an enclosing overlay does not also close; useMenuDismiss closes the popover.
-      onKeyDown={(e) => {
-        if (open && e.key === 'Escape') e.preventDefault();
-      }}
-    >
+    <div ref={wrapRef} className="bp-cost-wrap">
       <button
         ref={triggerRef}
         type="button"

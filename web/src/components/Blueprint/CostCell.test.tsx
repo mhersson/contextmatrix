@@ -2,11 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { CostCell } from './CostCell';
 import { api } from '../../api/client';
+import { CHAT_SESSIONS_CHANGED_EVENT } from '../../hooks/useChatSessions';
+import { resetChatModelsCache } from '../../utils/chatModels';
 import type { BlueprintCost } from '../../types';
 
-vi.mock('../../api/client', () => ({ api: { setChatCostCap: vi.fn() } }));
+vi.mock('../../api/client', () => ({
+  api: { setChatCostCap: vi.fn(), listChats: vi.fn(), listChatModels: vi.fn() },
+}));
 
 const WITH_CAP: BlueprintCost = { spent_usd: 2.14, run_spent_usd: 0, cap_usd: 2, run_cap_usd: 0.5, priced: true };
+const ROOMY_CAP: BlueprintCost = { ...WITH_CAP, cap_usd: 5 };
 const NO_CAP: BlueprintCost = { ...WITH_CAP, cap_usd: 0 };
 
 function open(cost: BlueprintCost) {
@@ -22,6 +27,18 @@ const save = () => screen.getByRole('button', { name: 'Save' });
 describe('CostCell', () => {
   beforeEach(() => {
     vi.mocked(api.setChatCostCap).mockReset().mockResolvedValue({} as never);
+    vi.mocked(api.listChats).mockReset().mockResolvedValue([{ id: 'S1', model: 'arch/priced' }] as never);
+    vi.mocked(api.listChatModels).mockReset().mockResolvedValue({
+      source: 'endpoint',
+      default: '',
+      architect_default: 'arch/default',
+      models: [
+        { id: 'arch/priced', label: 'priced', max_tokens: 1 },
+        { id: 'arch/free', label: 'free', max_tokens: 1, unpriced: true },
+        { id: 'arch/default', label: 'default', max_tokens: 1, unpriced: true },
+      ],
+    } as never);
+    resetChatModelsCache();
   });
 
   it('is a button named for the spend and the cap', () => {
@@ -100,5 +117,45 @@ describe('CostCell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(api.setChatCostCap).not.toHaveBeenCalled();
+  });
+
+  it('announces the change on success and not on failure', async () => {
+    const changed = vi.fn();
+    window.addEventListener(CHAT_SESSIONS_CHANGED_EVENT, changed);
+    try {
+      vi.mocked(api.setChatCostCap).mockRejectedValueOnce(new Error('nope'));
+      open(WITH_CAP);
+      fireEvent.change(amount(), { target: { value: '4' } });
+      fireEvent.click(save());
+      await screen.findByRole('alert');
+      expect(changed).not.toHaveBeenCalled();
+      fireEvent.click(save());
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(changed).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener(CHAT_SESSIONS_CHANGED_EVENT, changed);
+    }
+  });
+
+  it('refuses a positive cap on a model with no price but allows No cap', async () => {
+    vi.mocked(api.listChats).mockResolvedValue([{ id: 'S1', model: 'arch/free' }] as never);
+    open(ROOMY_CAP);
+    await waitFor(() => expect(screen.getByText(/No price is known for this model/)).toBeInTheDocument());
+    expect(save()).toBeDisabled();
+    fireEvent.click(screen.getByLabelText('No cap'));
+    expect(save()).toBeEnabled();
+  });
+
+  it('prices a session with no model of its own by the architect default', async () => {
+    vi.mocked(api.listChats).mockResolvedValue([{ id: 'S1', model: '' }] as never);
+    open(ROOMY_CAP);
+    await waitFor(() => expect(screen.getByText(/No price is known for this model/)).toBeInTheDocument());
+    expect(save()).toBeDisabled();
+  });
+
+  it('does not offer Save for No cap when there is no cap to remove', () => {
+    open(NO_CAP);
+    fireEvent.click(screen.getByLabelText('No cap'));
+    expect(save()).toBeDisabled();
   });
 });

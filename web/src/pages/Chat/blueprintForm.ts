@@ -47,6 +47,9 @@ export function capSentence(cap: number): string {
     : "No blueprint cap; each stage run keeps the architect's own limit.";
 }
 
+export const UNPRICED_CAP_REASON =
+  "No price is known for this model, so a cost cap can't be enforced: pick No cap or another model";
+
 /**
  * Why Create is disabled, or null when it is enabled. `modelUnpriced` is true
  * when the picked blueprint model is in the list and CM cannot price it.
@@ -55,7 +58,7 @@ export function disabledReason(blueprint: boolean, form: BlueprintForm, modelUnp
   if (!blueprint) return null;
   if (form.projects.length === 0) return 'Pick at least one project to create the blueprint.';
   if (form.capUSD > 0 && modelUnpriced) {
-    return "No price is known for this model, so a cost cap can't be enforced: pick No cap or another model";
+    return UNPRICED_CAP_REASON;
   }
   return null;
 }

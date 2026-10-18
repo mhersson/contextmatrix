@@ -1,5 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { api } from '../../api/client';
+import { notifyChatSessionsChanged, useChatSessions } from '../../hooks/useChatSessions';
+import { UNPRICED_CAP_REASON } from '../../pages/Chat/blueprintForm';
+import { useChatModels } from '../../utils/chatModels';
 import type { BlueprintCost } from '../../types';
 import { money } from './stages';
 
@@ -22,6 +25,11 @@ export function CapPopover({ chatId, cost, onClose }: CapPopoverProps) {
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const hintId = useId();
+  const { sessions } = useChatSessions();
+  const { models, architectDefault } = useChatModels();
+  // The view's cost.priced is sticky once any run was unpriced, so the model list decides, as in the New blueprint dialog.
+  const model = sessions.find((s) => s.id === chatId)?.model || architectDefault;
+  const unpriced = models.some((m) => m.id === model && m.unpriced === true);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -33,8 +41,9 @@ export function CapPopover({ chatId, cost, onClose }: CapPopoverProps) {
   if (!noCap && trimmed !== '') {
     if (parsed === null || toCents(parsed) <= 0) reason = 'Enter an amount in dollars, like 4.00.';
     else if (toCents(parsed) <= toCents(cost.spent_usd)) reason = `The cap must be above the ${money(cost.spent_usd)} spent.`;
+    else if (unpriced) reason = UNPRICED_CAP_REASON;
   }
-  const valid = noCap || (trimmed !== '' && reason === null);
+  const valid = noCap ? hasCap : trimmed !== '' && reason === null;
 
   const raise = (by: number) => {
     setAmount(((hasCap ? cost.cap_usd : cost.spent_usd) + by).toFixed(2));
@@ -49,6 +58,7 @@ export function CapPopover({ chatId, cost, onClose }: CapPopoverProps) {
     setError(null);
     try {
       await api.setChatCostCap(chatId, noCap || parsed === null ? 0 : toCents(parsed) / 100);
+      notifyChatSessionsChanged();
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not change the cap.');
