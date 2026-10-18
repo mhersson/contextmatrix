@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { rawRound } from '../../test-utils/roundFixtures';
+import { BlueprintSheetContext } from '../Blueprint/sheetContext';
+import { THREE_SLICES } from '../../test-utils/blueprintFixtures';
 import { stageText } from '../Blueprint/stages';
 import { parseRound } from './parseRound';
 import { RoundSummary } from './RoundSummary';
@@ -166,5 +168,22 @@ describe('RoundSummary', () => {
     fireEvent.click(thread);
     expect(thread).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText(/Helm suits a published chart\./)).toBeInTheDocument();
+  });
+});
+
+describe('RoundSummary slices', () => {
+  it('names the slice on the closed round while the blueprint shows slices', () => {
+    const round = parseRound(rawRound({ ...answered, closed: true, slice: 'SL2' }))!;
+    render(
+      <BlueprintSheetContext.Provider value={{ openArtifact: () => {}, slices: THREE_SLICES }}>
+        <RoundSummary round={round} superseded={false} />
+      </BlueprintSheetContext.Provider>,
+    );
+    expect(screen.getByRole('button', { name: /questions · SL2/ })).toBeInTheDocument();
+  });
+
+  it('adds no suffix without slices', () => {
+    renderSummary({ slice: 'SL2' });
+    expect(screen.getByRole('button', { name: /questions/ })).not.toHaveTextContent('SL2');
   });
 });

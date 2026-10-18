@@ -1,6 +1,7 @@
 import { useId, useState } from 'react';
 import { DialogueIcon } from '../Blueprint/icons';
-import { personaName, stageText } from '../Blueprint/stages';
+import { useBlueprintSheet } from '../Blueprint/sheetContext';
+import { personaName, sliceSuffix, stageText } from '../Blueprint/stages';
 import type { Round, RoundChatMessage } from './parseRound';
 import { answerLabel, storedAnswer, storedDecision } from './roundDraft';
 import { countText, personaPhrase } from './roundView';
@@ -24,10 +25,10 @@ function SummaryChat({ chat }: { chat: readonly RoundChatMessage[] }) {
   );
 }
 
-function titleText(round: Round): string {
+function titleText(round: Round, suffix: string): string {
   const kind = round.questions.length > 0 ? 'questions' : 'assumptions';
   const stage = stageText(round.stage).name;
-  return stage ? `${stage} ${kind}` : kind[0].toUpperCase() + kind.slice(1);
+  return (stage ? `${stage} ${kind}` : kind[0].toUpperCase() + kind.slice(1)) + suffix;
 }
 
 /** What became of the round, from the answers and decisions the architect stored. */
@@ -119,6 +120,7 @@ function Assumptions({ round, labelId }: { round: Round; labelId: string }) {
 export function RoundSummary({ round, superseded }: { round: Round; superseded: boolean }) {
   const [open, setOpen] = useState(false);
   const id = useId();
+  const suffix = sliceSuffix(useBlueprintSheet()?.slices ?? [], round.slice);
   const note = [personaName(round.persona), outcomeText(round, superseded)].filter(Boolean).join(' · ');
   return (
     <div className="flex justify-start">
@@ -138,7 +140,7 @@ export function RoundSummary({ round, superseded }: { round: Round; superseded: 
         >
           <DialogueIcon />
           <span className="qb-card-text">
-            <b>{titleText(round)}</b> <span className="qb-card-count">{countText(round, ', ')}</span>
+            <b>{titleText(round, suffix)}</b> <span className="qb-card-count">{countText(round, ', ')}</span>
             <span className="qb-card-note">{note}</span>
           </span>
           <svg className="qb-card-chev" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth={1.4} aria-hidden="true">
