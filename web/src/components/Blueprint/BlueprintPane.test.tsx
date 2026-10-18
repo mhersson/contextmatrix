@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { api } from '../../api/client';
 import { BlueprintPane } from './BlueprintPane';
+import { useBlueprintArtifacts } from './sheetContext';
 import { resetArtifactCache } from './artifactCache';
 import { toggleSheet, useSheetButton } from './sheetButtonStore';
 import type { BlueprintState } from './state';
@@ -13,6 +14,10 @@ vi.mock('../../api/client', () => ({ api: { getBlueprintArtifact: vi.fn() } }));
 vi.mock('../ChatPanel/ChatMarkdown', () => ({
   ChatMarkdown: ({ source }: { source: string }) => <div data-testid="md">{source}</div>,
 }));
+function ArtifactsProbe() {
+  return <span>{useBlueprintArtifacts().length} refs</span>;
+}
+
 // Test switches: the stage whose renderer throws, and a throwing title block.
 const broken = vi.hoisted(() => ({ stage: null as string | null, titleBlock: false }));
 vi.mock('./renderers/ArtifactRenderer', async (importOriginal) => {
@@ -98,6 +103,18 @@ describe('BlueprintPane', () => {
     vi.mocked(api.getBlueprintArtifact).mockImplementation((_c, stage, slice, version) => Promise.resolve(findArtifact(stage, version, slice)));
   });
   afterEach(() => vi.unstubAllGlobals());
+
+  it("hands the view's artifact refs to transcript rows, and none while the architect is unreachable", () => {
+    const pane = (state: BlueprintState) => (
+      <BlueprintPane chatId="S1" state={state} onRetry={vi.fn()} logs={[]} promptsLive onReply={vi.fn()} phone={false}>
+        <ArtifactsProbe />
+      </BlueprintPane>
+    );
+    const view = render(pane(ready()));
+    expect(screen.getByText(`${viewAtDesignGate().artifacts.length} refs`)).toBeInTheDocument();
+    view.rerender(pane({ status: 'unreachable' }));
+    expect(screen.getByText('0 refs')).toBeInTheDocument();
+  });
 
   it('keeps the transcript and the scale bar when a sheet fails to draw', async () => {
     const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});

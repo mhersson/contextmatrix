@@ -1189,7 +1189,7 @@ export interface ChatSessionUpdate {
 }
 
 // Blueprint sessions: the architect's view of one blueprint, proxied by CM
-// unchanged (protocol v0.29.0). Go omits zero-valued omitempty fields, so
+// unchanged (protocol v0.30.0). Go omits zero-valued omitempty fields, so
 // those are optional here; normalizeView fills missing or null arrays.
 
 /** One piece of a blueprint in slicing order; the id is SL<n>, shown as is and never parsed. */
@@ -1266,6 +1266,8 @@ export interface BlueprintReviewFinding {
   status?: string;
   /** The version this round checked the finding against. */
   verified_in?: number;
+  /** The reviewer's note on a finding a later round re-checked. */
+  reviewer_note?: string;
   text: string;
   /** The revision version the finding went to. */
   sent_to?: number;
@@ -1283,6 +1285,10 @@ export interface BlueprintArtifactReview {
   passed?: boolean;
   /** The reviewer round within the stage attempt, 1-based. */
   round?: number;
+  /** The most reviewer rounds the stage's attempt runs; absent when unknown. */
+  max_rounds?: number;
+  /** The reviewer's own short account of the review in plain prose; absent when it gave none. */
+  summary?: string;
   /** Every finding this round judged; re-checked ones keep their id, and an earlier version's review is never rewritten. */
   findings: BlueprintReviewFinding[];
 }
@@ -1355,12 +1361,13 @@ export interface BlueprintLiveFrame {
   version?: number;
 }
 
-/** A blueprint transcript row's marker: a stage divider or a sheet reference. */
+/** A blueprint transcript row's marker: a stage divider, a sheet reference or a reviewer's verdict on one version. */
 export interface LogMarker {
-  kind: 'stage' | 'artifact';
+  kind: 'stage' | 'artifact' | 'review';
   stage: string;
   /** The piece the stage runs for; absent for the whole blueprint. */
   slice?: string;
+  /** Who runs the stage on a divider; the reviewer on a review. */
   persona?: string;
   version?: number;
   note?: string;

@@ -41,4 +41,12 @@ describe('parseMarkerEntry', () => {
     const r = row(JSON.stringify({ text: 't', marker: { kind: 'artifact', stage: 'solution_design', slice: 'SL2', version: 1 } }));
     expect(parseMarkerEntry(r)?.marker).toMatchObject({ stage: 'solution_design', slice: 'SL2', version: 1 });
   });
+
+  it('reads a review marker with its slice, version and reviewer', () => {
+    const r = row(JSON.stringify({
+      text: 'The tester scored acceptance (SL2) version 2 4 of 5.',
+      marker: { kind: 'review', stage: 'acceptance', slice: 'SL2', version: 2, persona: 'tester' },
+    }));
+    expect(parseMarkerEntry(r)?.marker).toMatchObject({ kind: 'review', stage: 'acceptance', slice: 'SL2', version: 2, persona: 'tester' });
+  });
 });
