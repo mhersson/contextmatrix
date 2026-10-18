@@ -7,6 +7,7 @@ import { filterLogEntries } from './decorateLogs';
 import { derivePromptStates } from './prompts';
 import type { WorkingState } from '../../hooks/useWorkingState';
 import { RoundBlock } from '../QuestionRound/RoundBlock';
+import { pruneSession } from '../QuestionRound/roundDraftStore';
 import { deriveRounds, ROUND_CHAT_KIND, type RoundStatus } from '../QuestionRound/rounds';
 
 // Older frames of a round never show; the waiting round docks below the transcript instead of in it.
@@ -54,6 +55,8 @@ export interface ChatPanelProps {
    * sends and its stream is connected. Card-bound chat passes nothing.
    */
   promptsLive?: boolean;
+  /** Keeps a waiting round's unsent picks in this browser under this session. Global chat passes it. */
+  sessionID?: string;
   /**
    * Sends a question round's answers as the readable summary plus the structured reply. Set on architect sessions;
    * without it a waiting round still docks, read-only.
@@ -75,6 +78,7 @@ export function ChatPanel({
   loadingOlder,
   onLoadOlder,
   promptsLive = false,
+  sessionID,
   onSendRound,
   onSendRoundChat,
 }: ChatPanelProps) {
@@ -101,6 +105,12 @@ export function ChatPanel({
     [filteredLogs, rounds],
   );
   const docked = rounds.pending;
+  const dockedId = docked?.id ?? null;
+  const hasRounds = rounds.byEntry.size > 0;
+  // A closed or superseded round keeps no draft; with no round frame loaded yet nothing is known, so nothing is dropped.
+  useEffect(() => {
+    if (sessionID !== undefined && hasRounds) pruneSession(sessionID, dockedId);
+  }, [sessionID, dockedId, hasRounds]);
   const sendRoundChat = docked && onSendRoundChat ? (text: string) => onSendRoundChat(text, docked.id) : undefined;
 
   // Ref-stable, so memoized rows never re-render on the parent's per-render
@@ -158,7 +168,8 @@ export function ChatPanel({
 
       {docked && (
         <RoundBlock
-          key={docked.id}
+          key={`${sessionID ?? ''}/${docked.id}`}
+          draftScope={sessionID}
           promptId={docked.id}
           round={docked.round}
           mode={onSendRound && docked.status === 'open' ? 'open' : 'paused'}

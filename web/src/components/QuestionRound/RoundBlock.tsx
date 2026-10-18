@@ -60,6 +60,8 @@ interface RoundBlockProps {
   sentChat?: readonly string[];
   /** The session takes no messages; the chat box follows this, as the composer does, not the stream like answers. */
   chatDisabled?: boolean;
+  /** The session the unsent picks are kept under in this browser; without it they live only as long as the block. */
+  draftScope?: string;
   /** Focuses the active tab whenever it changes, as ChatComposer's focusKey does. */
   focusKey?: string | number;
 }
@@ -73,9 +75,13 @@ export function RoundBlock({
   onSendChat,
   sentChat,
   chatDisabled = false,
+  draftScope,
   focusKey,
 }: RoundBlockProps) {
-  const { draft, own, pickOption, typeOwn, decide } = useRoundDraft();
+  const { draft, own, pickOption, typeOwn, decide, clearSaved } = useRoundDraft(
+    round,
+    draftScope === undefined ? undefined : { sessionID: draftScope, promptId },
+  );
   const tabs = tabKeys(round, mode);
   const [picked, setPicked] = useState<TabKey | null>(null);
   const active =
@@ -90,6 +96,7 @@ export function RoundBlock({
     setSendError(null);
     try {
       await onSendRound(replySummary(round, reply), reply);
+      clearSaved();
       // After a final reply the round closes when the architect republishes it; until then nothing more to send.
       setPhase(final ? 'submitted' : 'idle');
     } catch (err) {

@@ -59,7 +59,7 @@ export function storedCount(round: Round): number {
   return answeredCount(round, EMPTY_DRAFT);
 }
 
-function sameAnswer(a: RoundAnswer | null, b: RoundAnswer | null): boolean {
+export function sameAnswer(a: RoundAnswer | null, b: RoundAnswer | null): boolean {
   if (a === null || b === null) return a === b;
   return (a.option ?? 0) === (b.option ?? 0) && (a.text ?? '') === (b.text ?? '');
 }

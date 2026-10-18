@@ -840,3 +840,52 @@ describe('ChatPanel question rounds', () => {
     expect(within(block).queryByRole('tab', { name: /Submit/ })).not.toBeInTheDocument();
   });
 });
+
+describe('ChatPanel kept round drafts', () => {
+  const onSendRound = vi.fn(async () => {});
+  const key = 'contextmatrix-round-drafts';
+  const draftIt = () => {
+    fireEvent.click(screen.getByRole('button', { name: /Helm/ }));
+  };
+  const panel = (logs: LogEntry[], sessionID = 's1') => (
+    <ChatPanel logs={logs} sessionID={sessionID} onSend={vi.fn()} onSendRound={onSendRound} sendDisabled={false} promptsLive />
+  );
+  beforeEach(() => localStorageMock.clear());
+
+  it('restores a round draft when the panel is mounted again on the same logs', () => {
+    const logs = [roundEntry(1, 'round:1', rawRound())];
+    const first = render(panel(logs));
+    draftIt();
+    first.unmount();
+    render(panel(logs));
+    expect(screen.getByRole('button', { name: /Helm/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('keeps one session draft apart from another session with the same prompt id', () => {
+    const logs = [roundEntry(1, 'round:1', rawRound())];
+    const view = render(panel(logs, 's1'));
+    draftIt();
+    view.rerender(panel(logs, 's2'));
+    expect(screen.getByRole('button', { name: /Helm/ })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('removes the draft when the round closes and prunes other rounds of the session', () => {
+    const logs = [roundEntry(1, 'round:1', rawRound())];
+    const view = render(panel(logs));
+    draftIt();
+    localStorageMock.setItem(
+      key,
+      JSON.stringify({ ...JSON.parse(localStorageMock.getItem(key)!), 's1/round:old': { saved: 1, picks: {}, decisions: {}, own: {} }, 's2/round:old': { saved: 1, picks: {}, decisions: {}, own: {} } }),
+    );
+    view.rerender(panel([...logs, roundEntry(2, 'round:1', rawRound({ closed: true }))]));
+    expect(Object.keys(JSON.parse(localStorageMock.getItem(key) ?? '{}'))).toEqual(['s2/round:old']);
+  });
+
+  it('removes the draft of a round a newer round superseded', () => {
+    const logs = [roundEntry(1, 'round:1', rawRound())];
+    const view = render(panel(logs));
+    draftIt();
+    view.rerender(panel([...logs, roundEntry(2, 'round:2', rawRound())]));
+    expect(Object.keys(JSON.parse(localStorageMock.getItem(key) ?? '{}'))).toEqual([]);
+  });
+});

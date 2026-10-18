@@ -1,10 +1,22 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { RoundReply } from '../../types';
 import { rawRound } from '../../test-utils/roundFixtures';
 import { parseRound } from './parseRound';
 import { RoundBlock } from './RoundBlock';
 import type { RoundMode } from './roundView';
+import { DRAFT_STORAGE_KEY } from './roundDraftStore';
+
+// Node 25 ships a localStorage without .clear(); back it with a plain map.
+const store = new Map<string, string>();
+const storageMock = {
+  getItem: vi.fn((k: string) => store.get(k) ?? null),
+  setItem: vi.fn((k: string, v: string) => void store.set(k, v)),
+  removeItem: vi.fn((k: string) => void store.delete(k)),
+  clear: vi.fn(() => store.clear()),
+};
+Object.defineProperty(globalThis, 'localStorage', { value: storageMock, configurable: true });
+beforeEach(() => store.clear());
 
 function renderBlock(extra: Record<string, unknown> = {}, mode: RoundMode = 'open') {
   const round = parseRound(rawRound(extra))!;
@@ -415,5 +427,87 @@ describe('RoundBlock sending', () => {
     renderBlock({ responder: true }, 'readonly');
     expect(screen.queryByRole('tab', { name: /Submit/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Chat about these questions/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('RoundBlock kept drafts', () => {
+  const withA = { assumptions: [{ id: 'A1', text: 'One cluster per environment.' }] };
+  function mount(extra: Record<string, unknown> = {}, onSendRound = vi.fn(async () => {})) {
+    const round = parseRound(rawRound({ ...withA, ...extra }))!;
+    return {
+      onSendRound,
+      ...render(<RoundBlock key="k" promptId="round:1" round={round} mode="open" draftScope="s1" onSendRound={onSendRound} />),
+    };
+  }
+  const answered = () => screen.getByText(/of 4 answered/).textContent;
+
+  function makeDraft() {
+    fireEvent.click(tab(/Deploy tooling/));
+    fireEvent.click(option(/Helm/));
+    fireEvent.click(tab(/Logging/));
+    fireEvent.change(screen.getByRole('textbox', { name: /Your own answer to Q2/ }), { target: { value: 'Loki only' } });
+    fireEvent.click(tab(/Assumptions/));
+    fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
+  }
+
+  it('brings unsent picks, own answers and decisions back after the block is closed and reopened', () => {
+    const first = mount();
+    makeDraft();
+    first.unmount();
+    mount();
+    expect(answered()).toMatch(/^0 of 4 answered/);
+    fireEvent.click(tab(/Deploy tooling/));
+    expect(option(/Helm/)).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(tab(/Logging/));
+    expect(screen.getByRole('textbox', { name: /Your own answer to Q2/ })).toHaveValue('Loki only');
+    fireEvent.click(tab(/Assumptions/));
+    expect(screen.getByRole('button', { name: 'Accept' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(tab(/Submit/));
+    const rows = screen.getAllByRole('row').map((r) => Array.from((r as HTMLTableRowElement).cells).map((c) => c.textContent));
+    expect(rows).toContainEqual(['Q1 Deploy tooling', 'Helm']);
+    expect(rows).toContainEqual(['Q2 Logging', 'Loki only']);
+  });
+
+  it('drops a restored pick once the newest frame stores that question', () => {
+    const first = mount();
+    makeDraft();
+    first.unmount();
+    mount({ answers: [{ number: 1, option: 1 }] });
+    fireEvent.click(tab(/Deploy tooling/));
+    expect(option(/Helm/)).toHaveAttribute('aria-pressed', 'false');
+    expect(option(/Kustomize/)).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(tab(/Logging/));
+    expect(screen.getByRole('textbox', { name: /Your own answer to Q2/ })).toHaveValue('Loki only');
+  });
+
+  it('keeps a re-pick over a stored answer across a reopen', () => {
+    const first = mount({ answers: [{ number: 1, option: 1 }] });
+    fireEvent.click(tab(/Deploy tooling/));
+    fireEvent.click(option(/Helm/));
+    first.unmount();
+    mount({ answers: [{ number: 1, option: 1 }] });
+    fireEvent.click(tab(/Deploy tooling/));
+    expect(option(/Helm/)).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('removes what was sent from storage once the send succeeds', async () => {
+    const { onSendRound } = mount();
+    makeDraft();
+    expect(store.has(DRAFT_STORAGE_KEY)).toBe(true);
+    fireEvent.click(tab(/Submit/));
+    fireEvent.click(screen.getByRole('button', { name: /Send 3 now/ }));
+    await waitFor(() => expect(onSendRound).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(store.get(DRAFT_STORAGE_KEY) ?? '{}').toBe('{}'));
+  });
+
+  it('works in memory when storage throws or holds junk', () => {
+    store.set(DRAFT_STORAGE_KEY, '{junk');
+    storageMock.setItem.mockImplementationOnce(() => {
+      throw new Error('blocked');
+    });
+    mount();
+    expect(() => makeDraft()).not.toThrow();
+    fireEvent.click(tab(/Deploy tooling/));
+    expect(option(/Helm/)).toHaveAttribute('aria-pressed', 'true');
   });
 });

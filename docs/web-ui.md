@@ -189,9 +189,12 @@ board. Promote-to-autonomous lives in that tab.
   bubble: right away as your line, until the architect republishes the round
   with its own thread. A message stored when no round waits any more shows
   as an ordinary bubble. Left and right arrows switch tabs, 1-9 pick an
-  option on a question tab and Enter moves to the next tab. Picks not yet
-  sent live only in the pane and are lost when it closes or the page
-  reloads. The architect republishes a round whenever it changes, and only
+  option on a question tab and Enter moves to the next tab. Picks, assumption
+  decisions and typed answers not yet sent are kept in this browser per round,
+  so closing the pane, reloading or navigating away restores them; one is
+  dropped when the architect has since stored that question or decision, or
+  revised the option it picked, and a round's drafts are cleared when it
+  closes or a newer round replaces it. The architect republishes a round whenever it changes, and only
   the newest version shows. A closed round (every question answered and the
   stage resumed, or the pipeline went past it) collapses into a list of each
   question and its answer, with any question left unanswered marked "not

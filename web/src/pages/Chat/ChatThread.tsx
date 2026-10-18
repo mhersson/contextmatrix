@@ -248,6 +248,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
   const panel = (
     <ChatPanel
       logs={logs}
+      sessionID={sessionID}
       onSend={handleSend}
       onSendRound={view.kind === 'architect' ? handleSendRound : undefined}
       onSendRoundChat={view.kind === 'architect' ? handleSendRoundChat : undefined}
