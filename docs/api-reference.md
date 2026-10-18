@@ -63,7 +63,7 @@ POST   /api/chats/{id}/cap                             # change a blueprint sess
 GET    /api/chats/{id}/messages                        ?since_seq=|tail=1|before_seq=&limit=  # transcript pages
 GET    /api/chats/{id}/stream                          ?since_seq=           # SSE stream of new entries
 GET    /api/chats/{id}/blueprint                       # blueprint view, read from the architect (architect sessions only)
-GET    /api/chats/{id}/blueprint/artifacts/{stage}/{version}  # one artifact version, read from the architect
+GET    /api/chats/{id}/blueprint/artifacts/{stage}/{version}  # one artifact version (?slice=SL<n> for a slice's), read from the architect
 
 POST   /api/sync                                       ?repo=                # trigger git sync
 GET    /api/sync                                       # sync status per boards repo
@@ -2773,13 +2773,17 @@ problems), read from the architect's
 `GET /blueprints/{id}/artifacts/{stage}/{version}` the same way. `stage` is a
 stage id of letters, digits, `_` and `-`, at most 64 characters (for example
 `solution_design`, `signoff` or `emission`); `version` is a positive integer.
+An optional `slice` query parameter names the piece of a blueprint cut into
+slices whose version to read: `SL` and a number from 1 to 999 without a
+leading zero (`?slice=SL2`). CM forwards it in the signed request, and
+forwards none when it is absent, which reads the whole-blueprint artifact.
 
 These two routes answer:
 
 | Status | Code                    | Meaning                                                                                                                         |
 | ------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | 200    | -                       | The architect's body                                                                                                            |
-| 400    | `BAD_REQUEST`           | Malformed `stage` or `version`; nothing is sent to the architect                                                                |
+| 400    | `BAD_REQUEST`           | Malformed `stage`, `version` or `slice`, or more than one `slice`; nothing is sent to the architect                              |
 | 404    | `CHAT_NOT_FOUND`        | Unknown session, or another user's session in `multi` mode                                                                      |
 | 404    | `BLUEPRINT_NOT_FOUND`   | Not an `architect` session, or the architect answered 404 (an architect without these routes, an unknown blueprint or artifact) |
 | 409    | `CHAT_KIND_UNAVAILABLE` | No architect backend is configured                                                                                              |

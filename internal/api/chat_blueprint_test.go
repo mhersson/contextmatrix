@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -552,4 +553,70 @@ func TestRouter_WiresTheCostCapRoute(t *testing.T) {
 	var got chat.Session
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
 	assert.InDelta(t, 4.0, got.CostCapUSD, 1e-9)
+}
+
+func TestBlueprintArtifact_ForwardsTheSlice(t *testing.T) {
+	fa := newFakeArchitect(t, map[string]http.HandlerFunc{
+		"GET /blueprints/{id}/artifacts/{stage}/{version}": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"stage": r.PathValue("stage"), "slice": r.URL.Query().Get("slice")})
+		},
+	})
+	mux, mgr := newChatFixture(t, blueprintFixtureOpts(fa.URL))
+	bp := seedBlueprint(t, mgr, "human:web")
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, http.MethodGet, "/api/chats/"+bp.ID+"/blueprint/artifacts/solution_design/1?slice=SL12", ""))
+
+	// The fake architect checks the signature over the request URI, so a 200 proves the slice was signed.
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.JSONEq(t, `{"stage":"solution_design","slice":"SL12"}`, rec.Body.String())
+}
+
+func TestBlueprintArtifact_WithoutASliceForwardsNone(t *testing.T) {
+	fa := newFakeArchitect(t, map[string]http.HandlerFunc{"/": okJSON})
+	mux, mgr := newChatFixture(t, blueprintFixtureOpts(fa.URL))
+	bp := seedBlueprint(t, mgr, "human:web")
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, http.MethodGet, "/api/chats/"+bp.ID+"/blueprint/artifacts/intake/1", ""))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	seen := fa.seen()
+	require.Len(t, seen, 1)
+
+	u, err := url.Parse(seen[0])
+	require.NoError(t, err)
+	assert.False(t, u.Query().Has("slice"), seen[0])
+	assert.True(t, u.Query().Has("nonce"), seen[0])
+}
+
+func TestBlueprintArtifact_MalformedSliceNeverReachesTheArchitect(t *testing.T) {
+	fa := newFakeArchitect(t, map[string]http.HandlerFunc{"/": okJSON})
+	mux, mgr := newChatFixture(t, blueprintFixtureOpts(fa.URL))
+	bp := seedBlueprint(t, mgr, "human:web")
+
+	tests := []struct{ name, query string }{
+		{"empty", "slice="},
+		{"lower case", "slice=sl2"},
+		{"zero", "slice=SL0"},
+		{"leading zero", "slice=SL02"},
+		{"four digits", "slice=SL1000"},
+		{"no number", "slice=SL"},
+		{"smuggled parameter", "slice=SL2%26nonce%3Dx"},
+		{"two slices", "slice=SL1&slice=SL2"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, jsonReq(t, http.MethodGet,
+				"/api/chats/"+bp.ID+"/blueprint/artifacts/solution_design/1?"+tt.query, ""))
+
+			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+			assert.Equal(t, ErrCodeBadRequest, recorderErrorCode(t, rec))
+		})
+	}
+
+	assert.Empty(t, fa.seen())
 }

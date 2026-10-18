@@ -231,7 +231,7 @@ func (b *blueprintLive) stream(ctx context.Context, sessionID string, epoch uint
 	idle := time.AfterFunc(b.idleTimeout, cancel)
 	defer idle.Stop()
 
-	resp, err := b.up.get(sctx, "/blueprints/"+url.PathEscape(sessionID)+"/live", "text/event-stream")
+	resp, err := b.up.get(sctx, "/blueprints/"+url.PathEscape(sessionID)+"/live", nil, "text/event-stream")
 	if err != nil {
 		return err
 	}
