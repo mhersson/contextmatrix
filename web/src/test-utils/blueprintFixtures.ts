@@ -24,6 +24,7 @@ export function ref(
   return { stage, version, created_at: '2026-10-17T10:00:00Z', status, ...extra };
 }
 
+/** An architect before protocol v0.28.0: no ids, severity, status or verdict. */
 export const DESIGN_REVIEW: BlueprintArtifactReview = {
   reviewer: 'senior_developer',
   score: 4,
@@ -76,6 +77,100 @@ export function viewAtDesignGate(): BlueprintView {
       ref('slicing', 1, 'folded'),
       ref('solution_design', 1, 'superseded', { review: DESIGN_REVIEW }),
       ref('solution_design', 2, 'at_gate'),
+    ],
+  };
+}
+
+/** Round 1 of the design attempt: rev 1 fails; rev 2 claims two of the findings. */
+export const LEDGER_REVIEW_V1: BlueprintArtifactReview = {
+  reviewer: 'senior_developer',
+  score: 3,
+  threshold: 4,
+  passed: false,
+  round: 1,
+  findings: [
+    {
+      id: 'R1',
+      severity: 'major',
+      status: 'open',
+      text: 'MarshalIndent plus a hand-written newline duplicates what Encode already does.',
+      sent_to: 2,
+      addressed_in: 2,
+      addressed_by: 'system_designer',
+      addressed_note: 'Uses SetIndent on the existing encoder.',
+    },
+    {
+      id: 'R2',
+      severity: 'critical',
+      status: 'open',
+      text: 'Nothing says which routes keep compact output.',
+      sent_to: 2,
+      addressed_in: 2,
+      addressed_by: 'system_designer',
+      addressed_note: 'Only GET / changes.',
+    },
+    { id: 'R3', severity: 'minor', status: 'open', text: 'The test should assert key order.', sent_to: 2 },
+  ],
+};
+
+/** Round 2 re-checks rev 2: two fixed, one still open, one new; it passes, and the open two go to rev 3. */
+export const LEDGER_REVIEW_V2: BlueprintArtifactReview = {
+  reviewer: 'senior_developer',
+  score: 4,
+  threshold: 4,
+  passed: true,
+  round: 2,
+  findings: [
+    {
+      id: 'R1',
+      severity: 'major',
+      status: 'fixed',
+      verified_in: 2,
+      text: 'MarshalIndent plus a hand-written newline duplicates what Encode already does.',
+    },
+    { id: 'R2', severity: 'critical', status: 'fixed', verified_in: 2, text: 'Nothing says which routes keep compact output.' },
+    {
+      id: 'R3',
+      severity: 'minor',
+      status: 'still_open',
+      verified_in: 2,
+      text: 'The test should assert key order.',
+      sent_to: 3,
+      addressed_in: 3,
+      addressed_by: 'system_designer',
+      addressed_note: 'Asserts the key order in the handler test.',
+    },
+    { id: 'R4', severity: 'minor', status: 'open', text: 'The README update AGENTS.md requires is missing.', sent_to: 3 },
+  ],
+};
+
+/** Round 3, the attempt's last: a new critical finding fails rev 3, which still reaches the gate. */
+export const LEDGER_REVIEW_FAILED: BlueprintArtifactReview = {
+  reviewer: 'senior_developer',
+  score: 3,
+  threshold: 4,
+  passed: false,
+  round: 3,
+  findings: [
+    { id: 'R3', severity: 'minor', status: 'fixed', verified_in: 3, text: 'The test should assert key order.' },
+    { id: 'R4', severity: 'minor', status: 'still_open', verified_in: 3, text: 'The README update AGENTS.md requires is missing.' },
+    { id: 'R5', severity: 'critical', status: 'open', text: 'The encoder change also indents the error bodies other routes share.' },
+  ],
+};
+
+/** Design rev 3 waits at the gate after the attempt's three reviewer rounds, as architects from protocol v0.28.0 send it. */
+export function viewAtLedgerGate(): BlueprintView {
+  const view = viewAtDesignGate();
+  return {
+    ...view,
+    pipeline: view.pipeline.map((s) => (s.stage === 'solution_design' ? { ...s, latest_version: 3 } : s)),
+    open: { prompt_id: 'gate:solution_design:v3', kind: 'gate' },
+    artifacts: [
+      ref('intake', 1, 'current'),
+      ref('slicing', 1, 'folded'),
+      ref('solution_design', 1, 'superseded', { review: LEDGER_REVIEW_V1 }),
+      ref('solution_design', 2, 'superseded', { review: LEDGER_REVIEW_V2 }),
+      ref('solution_design', 3, 'at_gate', { review: LEDGER_REVIEW_FAILED }),
     ],
   };
 }
@@ -150,6 +245,12 @@ export const DESIGN_V2: BlueprintArtifact = {
     ],
     assumptions: [],
   },
+};
+
+export const DESIGN_V3: BlueprintArtifact = {
+  ...DESIGN_V2,
+  version: 3,
+  body: 'Indent the response through the encoder.\n\nKeep the field order.\n\nAssert the key order in the handler test.',
 };
 
 export const GROUNDING_V1: BlueprintArtifact = {
@@ -307,6 +408,7 @@ const ALL = [
   SLICES_V1,
   DESIGN_V1,
   DESIGN_V2,
+  DESIGN_V3,
   GROUNDING_V1,
   ACCEPTANCE_V1,
   CARDS_V1,

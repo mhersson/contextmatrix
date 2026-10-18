@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { BlueprintView } from '../../types';
 import { formatHHMM } from '../../utils/chatTimestamp';
-import { ref, step, viewAtDesignGate } from '../../test-utils/blueprintFixtures';
+import { LEDGER_REVIEW_V1, LEDGER_REVIEW_V2, ref, step, viewAtDesignGate } from '../../test-utils/blueprintFixtures';
 import {
   costLabel,
   currentStep,
@@ -76,6 +76,24 @@ describe('describeCurrent', () => {
       artifacts: viewAtDesignGate().artifacts.filter((a) => !(a.stage === 'solution_design' && a.version === 2)),
     });
     expect(describeCurrent(view)!.line).toBe('System designer is revising the design (3 findings)');
+  });
+
+  it('counts only the findings the reviewer has not marked fixed', () => {
+    // Rev 2 passed with two findings open, so the builder revises it for rev 3.
+    const view = at({
+      open: undefined,
+      current: run('stage', 'system_designer'),
+      pipeline: viewAtDesignGate().pipeline.map((s) =>
+        s.stage === 'solution_design' ? { ...s, status: 'revising' as const, latest_version: 2 } : s,
+      ),
+      artifacts: [
+        ref('intake', 1, 'current'),
+        ref('slicing', 1, 'folded'),
+        ref('solution_design', 1, 'superseded', { review: LEDGER_REVIEW_V1 }),
+        ref('solution_design', 2, 'current', { review: LEDGER_REVIEW_V2 }),
+      ],
+    });
+    expect(describeCurrent(view)!.line).toBe('System designer is revising the design (2 findings)');
   });
 
   it('names the readiness round', () => {
