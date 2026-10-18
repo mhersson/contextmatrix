@@ -8,7 +8,7 @@ import { derivePromptStates } from './prompts';
 import type { WorkingState } from '../../hooks/useWorkingState';
 import { RoundBlock } from '../QuestionRound/RoundBlock';
 import { pruneSession } from '../QuestionRound/roundDraftStore';
-import { deriveRounds, ROUND_CHAT_KIND, type RoundStatus } from '../QuestionRound/rounds';
+import { COMMAND_KIND, deriveRounds, ROUND_CHAT_KIND, type RoundStatus } from '../QuestionRound/rounds';
 
 // Older frames of a round never show; the waiting round docks below the transcript instead of in it.
 const OUT_OF_TRANSCRIPT: ReadonlySet<RoundStatus | undefined> = new Set<RoundStatus | undefined>(['history', 'open', 'paused']);
@@ -101,6 +101,7 @@ export function ChatPanel({
     () =>
       filteredLogs.filter(
         (e) =>
+          e.kind !== COMMAND_KIND &&
           (e.kind !== ROUND_CHAT_KIND || rounds.stray.has(e)) &&
           !rounds.answered.has(e) &&
           !OUT_OF_TRANSCRIPT.has(rounds.byEntry.get(e)),

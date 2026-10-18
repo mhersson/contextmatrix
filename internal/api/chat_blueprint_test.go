@@ -516,3 +516,40 @@ func TestBlueprintLive_NoBrowserFacingRoute(t *testing.T) {
 
 	assert.Empty(t, fa.seen(), "the architect's live stream is reached only through the chat SSE")
 }
+
+func TestRouter_WiresTheCostCapRoute(t *testing.T) {
+	_, mgr := newChatFixture(t, blueprintFixtureOpts("http://architect:9094"))
+
+	bp, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CostCapUSD: 2, CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	server := httptest.NewServer(NewRouter(RouterConfig{
+		ChatManager: mgr, ChatHub: chat.NewSSEHub(8),
+		ArchitectBackendCfg: blueprintFixtureOpts("http://architect:9094").architectBackendCfg,
+	}))
+	t.Cleanup(server.Close)
+
+	post := func(body string) *http.Response {
+		req, err := http.NewRequest(http.MethodPost, server.URL+"/api/chats/"+bp.ID+"/cap", strings.NewReader(body))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Requested-With", "contextmatrix")
+		req.Header.Set("X-Agent-ID", "human:web-x")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		t.Cleanup(func() { closeBody(t, resp.Body) })
+
+		return resp
+	}
+
+	assert.Equal(t, http.StatusBadRequest, post(`{}`).StatusCode, "the handler answers a missing field")
+
+	resp := post(`{"cost_cap_usd":4}`)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var got chat.Session
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	assert.InDelta(t, 4.0, got.CostCapUSD, 1e-9)
+}

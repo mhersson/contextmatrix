@@ -816,6 +816,36 @@ func (h *chatHandlers) patchChat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sess)
 }
 
+// setCostCap changes a blueprint's cost cap by sending the architect a `cap`
+// command; 0 removes the cap.
+func (h *chatHandlers) setCostCap(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		CostCapUSD *float64 `json:"cost_cap_usd"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+
+	if body.CostCapUSD == nil {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "cost_cap_usd is required", "")
+
+		return
+	}
+
+	if _, ok := h.ownedSession(w, r); !ok {
+		return
+	}
+
+	sess, err := h.mgr.SetCostCap(r.Context(), r.PathValue("id"), *body.CostCapUSD)
+	if err != nil {
+		handleChatError(w, r, err)
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, sess)
+}
+
 func (h *chatHandlers) streamChat(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 

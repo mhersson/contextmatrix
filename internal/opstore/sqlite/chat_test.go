@@ -900,3 +900,32 @@ func TestCountSessionsByStatus_ExcludesArchitectSessions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, n)
 }
+
+func TestUpdateSessionCostCap_WritesOnlyTheCap(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	sess := chat.Session{
+		ID: chat.NewID(), Title: "keep", Kind: chat.KindArchitect, Status: chat.StatusCold,
+		CostCapUSD: 2, CreatedAt: now, LastActive: now, CreatedBy: "human:web-abc",
+	}
+	require.NoError(t, s.CreateSession(ctx, sess))
+
+	require.NoError(t, s.UpdateSessionCostCap(ctx, sess.ID, 4.5))
+
+	got, err := s.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.InDelta(t, 4.5, got.CostCapUSD, 1e-9)
+	assert.Equal(t, "keep", got.Title)
+
+	require.NoError(t, s.UpdateSessionCostCap(ctx, sess.ID, 0))
+
+	got, err = s.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Zero(t, got.CostCapUSD)
+
+	require.ErrorIs(t, s.UpdateSessionCostCap(ctx, "missing", 1), chat.ErrSessionNotFound)
+}

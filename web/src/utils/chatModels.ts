@@ -14,11 +14,19 @@ export interface ChatModelsResult {
   // fetch failure or a missing source degrades to an empty 'endpoint' list,
   // which renders nothing - new chats fall back to the server default.
   source: ChatModelSource;
+  /** GET /api/chats/models architect_default: the model a blueprint with no model of its own runs on. */
+  architectDefault?: string;
 }
 
 // Module-scope cache so a single GET /api/chats/models response is reused by
 // every component that needs the model list (PaneHeader, etc).
 const cache: { promise?: Promise<ChatModelsResult>; result?: ChatModelsResult } = {};
+
+/** Test seam: forget the module-scope model list. */
+export function resetChatModelsCache() {
+  cache.promise = undefined;
+  cache.result = undefined;
+}
 
 function loadChatModels(): Promise<ChatModelsResult> {
   if (cache.result) return Promise.resolve(cache.result);
@@ -26,17 +34,19 @@ function loadChatModels(): Promise<ChatModelsResult> {
   cache.promise = api
     .listChatModels()
     .then((resp) => {
-      const result: ChatModelsResult = { models: resp.models, source: resp.source ?? 'endpoint' };
+      const result: ChatModelsResult = { models: resp.models, source: resp.source ?? 'endpoint',
+        architectDefault: resp.architect_default ?? '',
+      };
       cache.result = result;
       return result;
     })
-    .catch((): ChatModelsResult => ({ models: [], source: 'endpoint' }));
+    .catch((): ChatModelsResult => ({ models: [], source: 'endpoint', architectDefault: '' }));
   return cache.promise;
 }
 
 export function useChatModels(): ChatModelsResult {
   const [result, setResult] = useState<ChatModelsResult>(
-    cache.result ?? { models: [], source: 'endpoint' },
+    cache.result ?? { models: [], source: 'endpoint', architectDefault: '' },
   );
   useEffect(() => {
     if (cache.result) return;

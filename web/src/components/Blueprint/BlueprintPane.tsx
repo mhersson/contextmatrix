@@ -116,7 +116,7 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
       <div ref={rootRef} className="bp-pane">
         {view && (
           <ErrorBoundary fallback={null}>
-            <ScaleBar view={view} compact={width !== null && width < LABEL_MIN_WIDTH} onOpenStage={(stage) => show(stage, null)} />
+            <ScaleBar chatId={chatId} view={view} compact={width !== null && width < LABEL_MIN_WIDTH} onOpenStage={(stage) => show(stage, null)} />
           </ErrorBoundary>
         )}
         <div ref={bodyRef} className="bp-body-row">

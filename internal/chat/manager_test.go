@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -6256,4 +6257,179 @@ func TestManager_Consumer_RoundWhoseQuestionsAloneOverflowIsStoredAsItsText(t *t
 	assert.Empty(t, msg.Kind, "not a prompt row")
 	assert.Equal(t, chat.RoleAssistantText, msg.Role)
 	assert.Equal(t, text, msg.Content, "the frame's text is kept")
+}
+
+func TestManager_SetCostCap_SendsTheCommandAndUpdatesTheRow(t *testing.T) {
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		name    string
+		capUSD  float64
+		content string
+		stored  float64
+	}{
+		{"whole dollars", 4, "cap 4", 4},
+		{"half dollar", 4.5, "cap 4.5", 4.5},
+		{"cents", 4.25, "cap 4.25", 4.25},
+		{"rounds to cents", 4.254, "cap 4.25", 4.25},
+		{"rounds up to a whole", 3.999, "cap 4", 4},
+		{"zero removes the cap", 0, "cap off", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr, _, arch := newManagerWithArchitectStub(t)
+			bp := openArchitect(t, mgr)
+
+			sess, err := mgr.SetCostCap(ctx, bp.ID, tc.capUSD)
+			require.NoError(t, err)
+			assert.InDelta(t, tc.stored, sess.CostCapUSD, 1e-9)
+
+			arch.mu.Lock()
+			sent := append([]sendArg(nil), arch.sendArgs...)
+			arch.mu.Unlock()
+
+			require.Len(t, sent, 1)
+			assert.Equal(t, tc.content, sent[0].Content)
+
+			got, err := mgr.GetSession(ctx, bp.ID)
+			require.NoError(t, err)
+			assert.InDelta(t, tc.stored, got.CostCapUSD, 1e-9)
+
+			msgs, err := mgr.ListMessages(ctx, bp.ID, 0, 10)
+			require.NoError(t, err)
+			require.Len(t, msgs, 1)
+			assert.Equal(t, chat.EventKindCommand, msgs[0].Kind)
+			assert.Equal(t, "command", chat.EventKindCommand, "the kind is a wire contract")
+			assert.Equal(t, tc.content, msgs[0].Content)
+		})
+	}
+}
+
+func TestManager_SetCostCap_AcceptsTheCeiling(t *testing.T) {
+	mgr, _, _ := newManagerWithArchitectStub(t)
+	bp := openArchitect(t, mgr)
+
+	sess, err := mgr.SetCostCap(context.Background(), bp.ID, chat.MaxCostCapUSD)
+	require.NoError(t, err)
+	assert.InDelta(t, float64(chat.MaxCostCapUSD), sess.CostCapUSD, 1e-9)
+}
+
+func TestManager_SetCostCap_DoesNotArmTheWorkingIndicator(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+	bp := openArchitect(t, mgr)
+
+	sess, err := mgr.SetCostCap(ctx, bp.ID, 4)
+	require.NoError(t, err)
+	assert.False(t, sess.AssistantWorking)
+
+	arch.mu.Lock()
+	arch.sendErr = fmt.Errorf("chat: /message: %w", chat.ErrBackendUnreachable)
+	arch.mu.Unlock()
+
+	_, err = mgr.SetCostCap(ctx, bp.ID, 5)
+	require.Error(t, err)
+
+	got, err := mgr.GetSession(ctx, bp.ID)
+	require.NoError(t, err)
+	assert.False(t, got.AssistantWorking)
+}
+
+func TestManager_SetCostCap_FailedSendLeavesTheCapUnchanged(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha"}, CostCapUSD: 2, CreatedBy: "human:web",
+	})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err)
+
+	arch.mu.Lock()
+	arch.sendErr = fmt.Errorf("chat: /message: %w", chat.ErrBackendUnreachable)
+	arch.mu.Unlock()
+
+	_, err = mgr.SetCostCap(ctx, bp.ID, 4)
+	require.Error(t, err)
+
+	got, err := mgr.GetSession(ctx, bp.ID)
+	require.NoError(t, err)
+	assert.InDelta(t, 2.0, got.CostCapUSD, 1e-9)
+
+	msgs, err := mgr.ListMessages(ctx, bp.ID, 0, 10)
+	require.NoError(t, err)
+	assert.Empty(t, msgs)
+}
+
+func TestManager_SetCostCap_ColdSessionOpensAndApplies(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+	bp := openArchitect(t, mgr)
+
+	require.NoError(t, mgr.EndSession(ctx, bp.ID))
+
+	startsBefore := arch.startCalls.Load()
+
+	_, err := mgr.SetCostCap(ctx, bp.ID, 6)
+	require.NoError(t, err)
+	assert.Greater(t, arch.startCalls.Load(), startsBefore, "the send cold-opens the session")
+
+	got, err := mgr.GetSession(ctx, bp.ID)
+	require.NoError(t, err)
+	assert.InDelta(t, 6.0, got.CostCapUSD, 1e-9)
+}
+
+func TestManager_SetCostCap_Refusals(t *testing.T) {
+	mgr, chatStub, arch := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+	bp := openArchitect(t, mgr)
+
+	chatSess, err := mgr.CreateSession(ctx, chat.CreateInput{CreatedBy: "human:web"})
+	require.NoError(t, err)
+
+	_, err = mgr.SetCostCap(ctx, chatSess.ID, 4)
+	require.ErrorIs(t, err, chat.ErrInvalidSessionInput)
+	assert.Zero(t, chatStub.sendCalls.Load())
+
+	for name, v := range map[string]float64{
+		"negative":       -1,
+		"rounds to zero": 0.004,
+		"above ceiling":  1_000_000.01,
+		"huge":           1e307,
+		"infinite":       math.Inf(1),
+		"not a number":   math.NaN(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := mgr.SetCostCap(ctx, bp.ID, v)
+			require.ErrorIs(t, err, chat.ErrInvalidSessionInput)
+		})
+	}
+
+	_, err = mgr.SetCostCap(ctx, "no-such-session", 4)
+	require.ErrorIs(t, err, chat.ErrSessionNotFound)
+
+	arch.mu.Lock()
+	defer arch.mu.Unlock()
+
+	assert.Empty(t, arch.sendArgs)
+}
+
+func TestManager_CommandRowDoesNotTitleAnUntitledSession(t *testing.T) {
+	mgr, _, _ := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+	bp := openArchitect(t, mgr)
+
+	_, err := mgr.SetCostCap(ctx, bp.ID, 4)
+	require.NoError(t, err)
+
+	got, err := mgr.GetSession(ctx, bp.ID)
+	require.NoError(t, err)
+	require.Empty(t, got.Title)
+
+	_, err = mgr.SendUserMessage(ctx, bp.ID, "build me a thing")
+	require.NoError(t, err)
+
+	got, err = mgr.GetSession(ctx, bp.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "build me a thing", got.Title, "the first real message still titles the session")
 }

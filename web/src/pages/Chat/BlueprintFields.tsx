@@ -31,10 +31,10 @@ export function BlueprintFields({ projects, value, onChange, models }: Blueprint
           onChange={(next) => onChange({ ...value, projects: next })}
         />
       </Field>
-      <ChatModelPicker {...models} />
       <Field label="Mode">
         <ModeCards mode={value.mode} onChange={(mode) => onChange({ ...value, mode })} />
       </Field>
+      <ChatModelPicker {...models} />
       <Field label="Cost cap">
         <CapPresets cap={value.capUSD} onChange={(capUSD) => onChange({ ...value, capUSD })} />
       </Field>

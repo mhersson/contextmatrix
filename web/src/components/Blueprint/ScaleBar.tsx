@@ -1,7 +1,6 @@
-import type { CSSProperties } from 'react';
 import type { BlueprintPipelineStep, BlueprintView } from '../../types';
+import { CostCell } from './CostCell';
 import {
-  costLabel,
   currentStep,
   describeCurrent,
   money,
@@ -13,6 +12,7 @@ import {
 } from './stages';
 
 interface ScaleBarProps {
+  chatId: string;
   view: BlueprintView;
   /** Under 560px pane width: the current-stage label moves into the bar's tooltip. */
   compact: boolean;
@@ -28,10 +28,9 @@ function segmentTone(step: BlueprintPipelineStep, isCurrent: boolean, tone: Tone
   return 'pending';
 }
 
-export function ScaleBar({ view, compact, onOpenStage }: ScaleBarProps) {
+export function ScaleBar({ chatId, view, compact, onOpenStage }: ScaleBarProps) {
   const current = currentStep(view);
   const text = describeCurrent(view);
-  const cost = costLabel(view.cost);
   const steps = visibleSteps(view);
   const lineClass = text?.tone === 'waiting' ? 'bp-ask' : text?.tone === 'failed' ? 'bp-failed' : undefined;
   return (
@@ -58,12 +57,7 @@ export function ScaleBar({ view, compact, onOpenStage }: ScaleBarProps) {
           <span className={lineClass}>{text.line}</span>
         </div>
       )}
-      <div className={`bp-cost bp-cost--${cost.tone}`}>
-        <span>{cost.text}</span>
-        {cost.percent !== null && (
-          <i aria-hidden="true" style={{ '--bp-cost-pct': `${cost.percent}%` } as CSSProperties} />
-        )}
-      </div>
+      <CostCell chatId={chatId} cost={view.cost} />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import type { LogEntry } from '../../types';
 import { parseRound, type Round } from '../QuestionRound/parseRound';
+import { COMMAND_KIND } from '../QuestionRound/rounds';
 
 /** One reply button on an architect prompt. A click sends `reply`; a
  *  feedback action asks for text first and sends `reply` + space + text. */
@@ -134,7 +135,7 @@ export function derivePromptStates(logs: readonly LogEntry[], live: boolean): Ma
       pending = { entry: e, prompt: env.prompt };
       continue;
     }
-    if (pending && e.type === 'user') {
+    if (pending && e.type === 'user' && e.kind !== COMMAND_KIND) {
       const action = matchReply(pending.prompt, e.content);
       if (action || pending.prompt.freeText) {
         states.set(pending.entry, { status: 'answered', label: action ? action.label : null });

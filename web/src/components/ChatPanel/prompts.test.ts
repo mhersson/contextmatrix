@@ -248,3 +248,17 @@ describe('round prompts', () => {
     expect(states.has(r)).toBe(false);
   });
 });
+
+describe('derivePromptStates command rows', () => {
+  it('leaves an open free-text prompt open across a command row', () => {
+    const cmd: LogEntry = { ...user(2, 'cap 4.00'), kind: 'command' };
+    const p = prompt(1, GATE, { free_text: true });
+    expect(derivePromptStates([p, cmd], true).get(p)).toEqual({ status: 'open' });
+  });
+
+  it('leaves a matching-reply prompt open when the command row echoes its reply', () => {
+    const cmd: LogEntry = { ...user(2, 'approve'), kind: 'command' };
+    const p = prompt(1, GATE);
+    expect(derivePromptStates([p, cmd], true).get(p)).toEqual({ status: 'open' });
+  });
+});

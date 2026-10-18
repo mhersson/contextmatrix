@@ -143,10 +143,10 @@ board. Promote-to-autonomous lives in that tab.
   without one it creates chats only. Both kinds take an optional title. A
   chat picks one project from a list (or Across projects, with no checkout)
   and a model. A blueprint picks one or more target projects, one of four
-  described modes (default, auto, auto + emit, yolo) and a cost cap preset
-  ($1, $2, $5, $10 or no cap), and runs on the architect backend instead of
-  a chat worker. A blueprint also picks a model, defaulting to the
-  architect's default and kept separate from the chat pick. The footer says
+  described modes (default, auto, auto + emit, yolo), a model (defaulting to
+  the architect's default, kept separate from the chat pick) and a cost cap
+  preset ($1, $2, $5, $10 or no cap), in that order, and runs on the
+  architect backend instead of a chat worker. The footer says
   why Create is disabled, including a cost cap on a model CM cannot price;
   Ctrl+Enter anywhere, or Enter in the title, creates. The button names the outcome
   (Create chat, Create blueprint, or Create and run for yolo). A blueprint
@@ -219,7 +219,15 @@ board. Promote-to-autonomous lives in that tab.
     is doing what. Hover a segment for its persona, status and cost; click a
     finished one to open its artifact. The right end shows the architect's
     spend against the blueprint cap; the meter turns orange at 80% and red at
-    the cap.
+    the cap. Click it (it is a button, also with no cap set) for a popover
+    with the spend, the cap, +$2 / +$5 / +$10 raises (added to the cap, or to
+    the spend with no cap), an amount field and a "No cap" choice. An amount
+    at or below the spend is refused, as is any amount on a model CM cannot
+    price (only "No cap" is offered, and only when a cap is set). Raising the cap continues a blueprint
+    that stopped on its cap. The change goes to the architect as a `cap`
+    command that the transcript does not show; the architect's confirmation
+    line is the visible record, and the cell follows the cap the architect
+    republishes; the pane header's cap follows after a successful save.
   - The sheet renders each artifact (need, slices, design, grounding,
     acceptance, cards, readiness, sign-off, board) as a document. Tabs follow
     the current stage until you pick one; a pick holds until the stage changes.

@@ -253,6 +253,24 @@ func (s *Store) UpdateSessionTitle(ctx context.Context, sessionID, title string)
 	return nil
 }
 
+// UpdateSessionCostCap writes only the cost_cap_usd column, so a concurrent
+// status flip is not overwritten by a stale row snapshot.
+func (s *Store) UpdateSessionCostCap(ctx context.Context, sessionID string, capUSD float64) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE chat_sessions SET cost_cap_usd = ? WHERE id = ?`,
+		capUSD, sessionID)
+	if err != nil {
+		return fmt.Errorf("chat: update session cost cap: %w", err)
+	}
+
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return chat.ErrSessionNotFound
+	}
+
+	return nil
+}
+
 // UpdateContextTokens stamps the latest Claude usage block onto the session
 // row. Called from the worker-log consumer when a "usage" event arrives.
 func (s *Store) UpdateContextTokens(ctx context.Context, sessionID string, tokens int64, updatedAt time.Time) error {

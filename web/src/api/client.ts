@@ -595,6 +595,14 @@ class APIClient {
     });
   }
 
+  /** Sets a blueprint session's cost cap in USD (0 removes it); the architect's republished view carries the new cap. */
+  async setChatCostCap(id: string, costCapUSD: number): Promise<ChatSession> {
+    return this.request<ChatSession>(`/chats/${encodeURIComponent(id)}/cap`, {
+      method: 'POST',
+      body: JSON.stringify({ cost_cap_usd: costCapUSD }),
+    });
+  }
+
   async listChatMessages(
     id: string,
     sinceSeq: number,
