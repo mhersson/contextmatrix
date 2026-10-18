@@ -6,6 +6,7 @@ import type {
   BlueprintView,
 } from '../../types';
 import { formatHHMM } from '../../utils/chatTimestamp';
+import { unresolvedCount } from './ledger';
 
 export interface StageText {
   /** Sheet tab and sheet-reference label. */
@@ -172,7 +173,8 @@ export function describeCurrent(view: BlueprintView): CurrentText | null {
   }
   if (step.status === 'failed') return say('This stage failed; the transcript says why', 'failed');
   if (step.status === 'revising') {
-    const n = latestArtifact(view, step.stage)?.review?.findings.length ?? 0;
+    const review = latestArtifact(view, step.stage)?.review;
+    const n = review ? unresolvedCount(review) : 0;
     const why = n > 0 ? ` (${n} ${n === 1 ? 'finding' : 'findings'})` : '';
     return say(`${persona} is revising the ${st.noun}${why}`, 'running');
   }
@@ -191,8 +193,8 @@ export function decidedByText(ref: BlueprintArtifactRef): string {
       const time = ref.decided_at ? formatHHMM(ref.decided_at) : null;
       return time ? `by you, ${time}` : 'by you';
     }
+    // Older architects sent "responder" for an auto stage gate; the reviewer's verdict decides those.
     case 'responder':
-      return 'by the responder';
     case 'automatic':
       return 'automatically';
     default:

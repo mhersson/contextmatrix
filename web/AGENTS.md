@@ -91,6 +91,9 @@ keeps the hamburger and a way back to the board.
   subtask = `--aqua`.
 - Priority: critical = `--red`, high = `--orange`, medium = `--yellow`,
   low = `--grey1`.
+- Review finding severity (blueprint review popover and gate bar):
+  critical = `--red`, major = `--orange`, minor = `--grey1`; a critical
+  finding not yet fixed sits on `--bg-red` with a `--red` left edge.
 - Card state borders: agent-active = `--aqua`, stalled = `--red`,
   unassigned = `--bg3`.
 - Primary action = `--green`; secondary = `--aqua`; destructive = `--red`.

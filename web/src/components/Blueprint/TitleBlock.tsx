@@ -1,5 +1,6 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { useMenuDismiss } from '../../hooks/useMenuDismiss';
+import { verdictOf } from './ledger';
 import { ReviewPopover } from './ReviewPopover';
 import type { ShownReview, ShownStatus, VersionOption } from './sheetModel';
 import { personaName, stageText } from './stages';
@@ -27,6 +28,8 @@ export function TitleBlock({ stage, persona, options, version, onPickVersion, re
   const triggerRef = useRef<HTMLButtonElement>(null);
   const blockRef = useRef<HTMLDivElement>(null);
   const [maxHeight, setMaxHeight] = useState<number | undefined>(undefined);
+  // An earlier version's review stands in while a later one is written; its failure is not this version's.
+  const failed = review !== null && review.version === version && verdictOf(review.review) === 'failed';
   useMenuDismiss(checkedRef, reviewOpen, () => setReviewOpen(false), triggerRef);
   // The popover opens upwards: cap it to the room between the sheet top and the title block.
   useLayoutEffect(() => {
@@ -86,11 +89,11 @@ export function TitleBlock({ stage, persona, options, version, onPickVersion, re
             <button
               ref={triggerRef}
               type="button"
-              className="bp-tb-link"
+              className={`bp-tb-link${failed ? ' bp-tb-link--bad' : ''}`}
               aria-expanded={reviewOpen}
               onClick={() => setReviewOpen((o) => !o)}
             >
-              {personaName(review.review.reviewer)}, {review.review.score} of 5
+              {personaName(review.review.reviewer)}, {review.review.score} of 5{failed ? ', failed' : ''}
             </button>
             {reviewOpen && <ReviewPopover review={review} maxHeight={maxHeight} />}
           </>

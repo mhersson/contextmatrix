@@ -7373,7 +7373,8 @@ button.bp-seg-hit {
   color: var(--grey2);
   cursor: pointer;
 }
-.bp-tb-link {
+.bp-tb-link,
+.bp-gate-toggle {
   padding: 0;
   border: 0;
   background: transparent;
@@ -7416,7 +7417,7 @@ button.bp-seg-hit {
   box-shadow: 0 10px 30px color-mix(in oklab, var(--bg-dim) 70%, transparent);
   white-space: normal;
 }
-.bp-review b {
+.bp-review > b {
   font-size: 12.5px;
 }
 .bp-review ol {
@@ -7424,18 +7425,63 @@ button.bp-seg-hit {
   padding-left: 18px;
   font-size: 12px;
 }
-.bp-review li {
-  margin: 3px 0;
-}
-.bp-fix {
-  margin-left: 4px;
-  font-size: 11px;
-  color: var(--green);
-}
 .bp-sent {
   margin-left: 4px;
   font-size: 11px;
   color: var(--grey1);
+}
+.bp-tb-link--bad {
+  color: var(--red);
+  text-decoration-color: var(--red);
+}
+.bp-ledger {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+.bp-finding {
+  margin: 3px 0;
+  padding: 2px 6px;
+  border-left: 3px solid transparent;
+  border-radius: 3px;
+}
+.bp-finding--blocking {
+  border-left-color: var(--red);
+  background: var(--bg-red);
+}
+.bp-finding-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.bp-finding-id {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.bp-sev {
+  padding: 0 5px;
+  border: 1px solid var(--grey1);
+  border-radius: 999px;
+  color: var(--grey1);
+  font-size: 10.5px;
+  line-height: 15px;
+}
+.bp-sev--critical {
+  border-color: var(--red);
+  color: var(--red);
+}
+.bp-sev--major {
+  border-color: var(--orange);
+  color: var(--orange);
+}
+.bp-claim {
+  display: block;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--grey2);
 }
 .bp-gatebar {
   display: flex;
@@ -7452,11 +7498,35 @@ button.bp-seg-hit {
   flex: 1 1 200px;
   font-size: 12px;
 }
-.bp-gatebar b {
+.bp-gatebar > span > b {
   color: var(--prompt-question-accent);
 }
 .bp-gatebar > div {
   margin-top: 0;
+}
+.bp-gate-ledger {
+  flex: 1 1 100%;
+  min-width: 0;
+  font-size: 12px;
+}
+.bp-gate-block {
+  margin: 0 0 4px;
+  padding: 3px 6px;
+  border-left: 3px solid var(--red);
+  border-radius: 3px;
+  background: var(--bg-red);
+}
+.bp-gate-block > b {
+  color: var(--red);
+}
+.bp-gate-ledger > div {
+  max-height: 12rem;
+  margin-top: 4px;
+  overflow-y: auto;
+}
+.bp-gate-ledger ol {
+  margin: 0;
+  padding-left: 18px;
 }
 
 /* Blueprint sheet frame and tabs. */

@@ -1188,7 +1188,7 @@ export interface ChatSessionUpdate {
 }
 
 // Blueprint sessions: the architect's view of one blueprint, proxied by CM
-// unchanged (protocol v0.26.0). Go omits zero-valued omitempty fields, so
+// unchanged (protocol v0.28.0). Go omits zero-valued omitempty fields, so
 // those are optional here; normalizeView fills missing or null arrays.
 
 export type BlueprintStepStatus =
@@ -1247,10 +1247,18 @@ export interface BlueprintCost {
 }
 
 export interface BlueprintReviewFinding {
+  /** Stable within the stage attempt (R1, R2, ...); absent, like severity and status, before protocol v0.28.0. */
+  id?: string;
+  /** "critical", "major" or "minor". */
+  severity?: string;
+  /** The reviewer's verdict: "open" when raised in this review, "fixed" or "still_open" when this round re-checked it. */
+  status?: string;
+  /** The version this round checked the finding against. */
+  verified_in?: number;
   text: string;
   /** The revision version the finding went to. */
   sent_to?: number;
-  /** Set only when that revision run listed the finding as addressed. */
+  /** The builder's claim, set only when that revision listed the finding as addressed; never the verdict. */
   addressed_in?: number;
   addressed_by?: string;
   addressed_note?: string;
@@ -1260,6 +1268,11 @@ export interface BlueprintArtifactReview {
   reviewer: string;
   score: number;
   threshold: number;
+  /** Score at or above threshold and no open critical finding; absent before protocol v0.28.0. */
+  passed?: boolean;
+  /** The reviewer round within the stage attempt, 1-based. */
+  round?: number;
+  /** Every finding this round judged; re-checked ones keep their id, and an earlier version's review is never rewritten. */
   findings: BlueprintReviewFinding[];
 }
 
@@ -1278,7 +1291,8 @@ export interface BlueprintArtifactRef {
   created_at: string;
   status: BlueprintArtifactStatus;
   decided_at?: string;
-  decided_by?: 'you' | 'responder' | 'automatic';
+  /** "responder" comes only from architects before protocol v0.28.0, for an auto stage gate. */
+  decided_by?: 'you' | 'automatic' | 'responder';
   review?: BlueprintArtifactReview;
 }
 

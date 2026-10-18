@@ -53,6 +53,9 @@ export function Sheet({ chatId, view, draft, shown, onShow, gatePrompt, onReply,
   const refs = shown ? artifactsFor(view, shown.stage) : [];
   const stored = shown ? (refs.find((r) => r.version === shown.version) ?? null) : null;
   const canCompare = stored !== null && refs.some((r) => r.version < stored.version);
+  const review = shown ? reviewFor(view, shown.stage, shown.version) : null;
+  // The gate takes only the version's own review: an earlier one judged a version this gate is not deciding.
+  const gateReview = shown && review?.version === shown.version ? review : null;
 
   return (
     <section className="bp-sheet" aria-label="Blueprint sheet">
@@ -110,10 +113,12 @@ export function Sheet({ chatId, view, draft, shown, onShow, gatePrompt, onReply,
       </div>
       {shown && gatePrompt && stored?.status === 'at_gate' && (
         <GateBar
+          key={`gate/${shownKey}`}
           stage={shown.stage}
           version={shown.version}
           prompt={gatePrompt.prompt}
           status={gatePrompt.status}
+          review={gateReview}
           onReply={onReply}
         />
       )}
@@ -125,7 +130,7 @@ export function Sheet({ chatId, view, draft, shown, onShow, gatePrompt, onReply,
           options={versionOptions(view, shown.stage, writing)}
           version={shown.version}
           onPickVersion={(v) => onShow(shown.stage, v)}
-          review={reviewFor(view, shown.stage, shown.version)}
+          review={review}
           reviewing={reviewingPersona(view, shown.stage, shown.version)}
           status={shownStatus(view, shown.stage, stored, isWriting, roundLeft ?? null)}
           compare={{ available: canCompare, on: compare, onToggle: () => setCompare((c) => !c) }}

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { BlueprintView } from '../../types';
 import { formatHHMM } from '../../utils/chatTimestamp';
-import { ref, step, viewAtDesignGate } from '../../test-utils/blueprintFixtures';
+import { LEDGER_REVIEW_V1, LEDGER_REVIEW_V2, ref, step, viewAtDesignGate } from '../../test-utils/blueprintFixtures';
 import {
   costLabel,
   currentStep,
@@ -78,6 +78,24 @@ describe('describeCurrent', () => {
     expect(describeCurrent(view)!.line).toBe('System designer is revising the design (3 findings)');
   });
 
+  it('counts only the findings the reviewer has not marked fixed', () => {
+    // Rev 2 passed with two findings open, so the builder revises it for rev 3.
+    const view = at({
+      open: undefined,
+      current: run('stage', 'system_designer'),
+      pipeline: viewAtDesignGate().pipeline.map((s) =>
+        s.stage === 'solution_design' ? { ...s, status: 'revising' as const, latest_version: 2 } : s,
+      ),
+      artifacts: [
+        ref('intake', 1, 'current'),
+        ref('slicing', 1, 'folded'),
+        ref('solution_design', 1, 'superseded', { review: LEDGER_REVIEW_V1 }),
+        ref('solution_design', 2, 'current', { review: LEDGER_REVIEW_V2 }),
+      ],
+    });
+    expect(describeCurrent(view)!.line).toBe('System designer is revising the design (2 findings)');
+  });
+
   it('names the readiness round', () => {
     const pipeline = viewAtDesignGate().pipeline.map((s) =>
       s.stage === 'readiness' ? { ...s, status: 'running' as const, round: 2, max_rounds: 3 } : s.status === 'pending' || s.status === 'waiting' ? { ...s, status: 'done' as const } : s,
@@ -114,7 +132,9 @@ describe('stepStatusText', () => {
     });
     const s = step('solution_design', 'system_designer', 'done', { gate: true });
     expect(stepStatusText(s, view)).toBe(`Approved by you, ${formatHHMM('2026-10-17T10:17:00Z')}`);
-    expect(decidedByText(ref('x', 1, 'approved', { decided_by: 'responder' }))).toBe('by the responder');
+    expect(decidedByText(ref('x', 1, 'approved', { decided_by: 'automatic' }))).toBe('automatically');
+    // Architects before protocol v0.28.0 named the responder for an auto stage gate the reviewer's verdict decides.
+    expect(decidedByText(ref('x', 1, 'approved', { decided_by: 'responder' }))).toBe('automatically');
   });
 
   it('names what a folded stage folded into', () => {
