@@ -7409,12 +7409,18 @@ button.bp-seg-hit {
   border-radius: 4px;
   outline: 1px solid currentColor;
   outline-offset: 2px;
+  color: var(--bp-stamp-tone);
   font-family: var(--font-display);
   font-size: 14px;
   font-style: italic;
   line-height: 1.2;
   text-align: center;
   opacity: 0.85;
+}
+/* At 0.85 the hued tones fall to about 2:1 on the paper in three light palettes; full ink with 30% --fg lifts every tone to 3:1. */
+[data-theme="light"] .bp-stamp {
+  color: color-mix(in oklab, var(--bp-stamp-tone) 70%, var(--fg));
+  opacity: 1;
 }
 .bp-stamp small {
   display: block;
@@ -7423,16 +7429,16 @@ button.bp-seg-hit {
   font-style: normal;
 }
 .bp-stamp--approved {
-  color: var(--green);
+  --bp-stamp-tone: var(--green);
 }
 .bp-stamp--rejected {
-  color: var(--red);
+  --bp-stamp-tone: var(--red);
 }
 .bp-stamp--superseded {
-  color: var(--orange);
+  --bp-stamp-tone: var(--orange);
 }
 .bp-stamp--folded {
-  color: var(--blueprint-quiet);
+  --bp-stamp-tone: var(--blueprint-quiet);
 }
 .bp-progress {
   display: flex;
