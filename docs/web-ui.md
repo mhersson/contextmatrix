@@ -206,8 +206,9 @@ board. Promote-to-autonomous lives in that tab.
   round a newer one replaced, collapses into a card in the style of a sheet
   reference, titled after the asking stage's questions (or assumptions, for a
   round of only assumptions), with how many of each, the persona and what
-  became of the round: answered by you, how many were answered, accepted or turned into questions, or
-  no longer open for a replaced round. Clicking the card, or Enter or Space on
+  became of the round: answered or all accepted by you or the responder, how
+  many were answered, accepted, turned into questions or not decided, or no
+  longer open for a replaced round. Clicking the card, or Enter or Space on
   it, opens it in place: each question with its number, title and text and the
   stored answer beneath it, any question left unanswered marked "not answered",
   then each assumption with its decision (accepted, turned into a question or

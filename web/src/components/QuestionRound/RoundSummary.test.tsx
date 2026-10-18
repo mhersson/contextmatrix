@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { rawRound } from '../../test-utils/roundFixtures';
+import { stageText } from '../Blueprint/stages';
 import { parseRound } from './parseRound';
 import { RoundSummary } from './RoundSummary';
 
@@ -41,7 +42,7 @@ describe('RoundSummary', () => {
     expect(within(card()).queryAllByRole('listitem')).toHaveLength(0);
   });
 
-  it('toggles from a native button, so it takes focus and Enter or Space', () => {
+  it('toggles from a native, focusable button', () => {
     renderSummary();
     const toggle = header();
     expect(toggle.tagName).toBe('BUTTON');
@@ -62,7 +63,7 @@ describe('RoundSummary', () => {
 
   it('names the asking stage in the header', () => {
     renderSummary();
-    expect(header()).toHaveAccessibleName(/Solution design/);
+    expect(header()).toHaveAccessibleName(new RegExp(stageText('solution_design').name));
   });
 
   it('puts each stored answer under its own question and leaves an unanswered one without an answer', () => {
@@ -110,6 +111,35 @@ describe('RoundSummary', () => {
     renderSummary({ questions: [], answers: [] });
     fireEvent.click(header());
     expect(within(card()).getAllByRole('listitem')).toHaveLength(3);
+  });
+
+  it('gives every count of stored answers its own header', () => {
+    const headers = [0, 1, 2, 3].map((n) => {
+      const { unmount } = renderSummary({ answers: [1, 2, 3].slice(0, n).map((number) => ({ number, option: 1 })) });
+      const text = header().textContent;
+      unmount();
+      return text;
+    });
+    expect(new Set(headers).size).toBe(4);
+  });
+
+  it('gives every mix of assumption decisions its own header', () => {
+    const mixes = [
+      [true, true, true],
+      [true, true, false],
+      [true, false, false],
+      [true, true, null],
+      [null, null, null],
+      [false, null, null],
+    ];
+    const headers = mixes.map((mix) => {
+      const decisions = mix.flatMap((accept, i) => (accept === null ? [] : [{ id: assumptions.assumptions[i].id, accept }]));
+      const { unmount } = renderSummary({ decisions });
+      const text = header().textContent;
+      unmount();
+      return text;
+    });
+    expect(new Set(headers).size).toBe(mixes.length);
   });
 
   it('tells a superseded round apart from a closed one in the header', () => {

@@ -33,19 +33,19 @@ function titleText(round: Round): string {
 /** What became of the round, from the answers and decisions the architect stored. */
 function outcomeText(round: Round, superseded: boolean): string {
   if (superseded) return 'no longer open';
-  if (round.responder) return 'answered by the responder';
+  const who = round.responder ? 'the responder' : 'you';
   const decisions = round.assumptions.map((a) => storedDecision(round, a.id));
   const accepted = decisions.filter((d) => d === true).length;
-  if (round.questions.length === 0 && decisions.length > 0 && accepted === decisions.length) return 'all accepted by you';
+  if (round.questions.length === 0 && decisions.length > 0 && accepted === decisions.length) return `all accepted by ${who}`;
   const parts: string[] = [];
   if (round.questions.length > 0) {
     const n = round.questions.filter((q) => storedAnswer(round, q) !== null).length;
-    parts.push(n === round.questions.length ? 'answered by you' : `${n} of ${round.questions.length} answered`);
+    parts.push(n === round.questions.length ? `answered by ${who}` : `${n} of ${round.questions.length} answered`);
   }
   if (decisions.length > 0) {
     const asked = decisions.filter((d) => d === false).length;
     const open = decisions.length - accepted - asked;
-    parts.push([`${accepted} accepted`, asked > 0 && `${asked} asked`, open > 0 && `${open} not decided`].filter(Boolean).join(', '));
+    parts.push([accepted > 0 && `${accepted} accepted`, asked > 0 && `${asked} asked`, open > 0 && `${open} not decided`].filter(Boolean).join(', '));
   }
   return parts.join(' · ');
 }
@@ -122,7 +122,13 @@ export function RoundSummary({ round, superseded }: { round: Round; superseded: 
   const note = [personaName(round.persona), outcomeText(round, superseded)].filter(Boolean).join(' · ');
   return (
     <div className="flex justify-start">
-      <div className={`qb-card${open ? ' open' : ''}`} role="group" aria-label={`Answered questions from ${personaPhrase(round.persona)}`}>
+      {/* The transcript is a polite live region; opening the card must not read every answer aloud. */}
+      <div
+        className={`qb-card${open ? ' open' : ''}`}
+        role="group"
+        aria-label={`Answered questions from ${personaPhrase(round.persona)}`}
+        aria-live="off"
+      >
         <button
           type="button"
           className="qb-card-head"
@@ -132,7 +138,7 @@ export function RoundSummary({ round, superseded }: { round: Round; superseded: 
         >
           <DialogueIcon />
           <span className="qb-card-text">
-            <b>{titleText(round)}</b> <span>{countText(round, ', ')}</span>
+            <b>{titleText(round)}</b> <span className="qb-card-count">{countText(round, ', ')}</span>
             <span className="qb-card-note">{note}</span>
           </span>
           <svg className="qb-card-chev" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth={1.4} aria-hidden="true">

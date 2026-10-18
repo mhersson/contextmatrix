@@ -8247,8 +8247,12 @@ button.bp-seg-hit {
   font-size: 13px;
 }
 
-/* A closed or superseded question round in the transcript: a sibling of the sheet reference card that opens in place. */
+/*
+ * A closed or superseded question round in the transcript: a sibling of the sheet reference card that opens in place.
+ * Bare --grey1 drops to about 3:1 in ayu light; mixing in 60% --fg lifts the quiet statuses past 4.5:1 in every palette.
+ */
 .qb-card {
+  --qb-card-quiet: color-mix(in oklab, var(--grey1) 40%, var(--fg));
   width: fit-content;
   max-width: 88%;
   border: 1px solid var(--bg3);
@@ -8297,6 +8301,9 @@ button.bp-seg-hit {
 .qb-card-text span {
   font-size: 11.5px;
   color: var(--grey1);
+}
+.qb-card-count {
+  white-space: nowrap;
 }
 .qb-card-note {
   display: block;
@@ -8356,8 +8363,13 @@ button.bp-seg-hit {
   flex: 1;
   min-width: 0;
 }
+/* A narrow pane drops the chip under the text instead of squeezing the text to a few characters a line. */
 .qb-card-asms .qb-card-row {
+  flex-wrap: wrap;
   font-size: 12.5px;
+}
+.qb-card-asms .qb-card-main {
+  flex: 1 1 12ch;
 }
 .qb-card-qtitle {
   font-family: var(--font-display);
@@ -8378,7 +8390,7 @@ button.bp-seg-hit {
   border-left-color: var(--bg3);
   font-weight: 400;
   font-style: italic;
-  color: var(--grey1);
+  color: var(--qb-card-quiet);
 }
 .qb-card-who {
   margin-right: 6px;
@@ -8391,6 +8403,7 @@ button.bp-seg-hit {
 /* --fg text: the accent-tinted text the chips' washes suggest falls below 4.5:1 in the light palettes. */
 .qb-card-chip {
   flex: none;
+  margin-left: auto;
   padding: 3px 6px;
   border-radius: 999px;
   font-size: 10.5px;
@@ -8404,11 +8417,10 @@ button.bp-seg-hit {
 .qb-card-chip.asked {
   background: var(--bg-yellow);
 }
-/* Bare --grey1 drops to about 3:1 in ayu light; mixing in 60% --fg lifts it past 4.5:1 in every palette. */
 .qb-card-chip.undecided {
   padding: 2px 5px;
   border: 1px solid var(--bg3);
-  color: color-mix(in oklab, var(--grey1) 40%, var(--fg));
+  color: var(--qb-card-quiet);
 }
 .qb-card-chat > button {
   padding: 0;
