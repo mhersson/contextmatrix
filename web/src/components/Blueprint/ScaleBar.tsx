@@ -1,10 +1,12 @@
 import type { BlueprintPipelineStep, BlueprintView } from '../../types';
 import { CostCell } from './CostCell';
 import {
+  artifactsFor,
   currentStep,
   describeCurrent,
   money,
   personaName,
+  sliceOf,
   stageText,
   stepStatusText,
   visibleSteps,
@@ -16,7 +18,7 @@ interface ScaleBarProps {
   view: BlueprintView;
   /** Under 560px pane width: the current-stage label moves into the bar's tooltip. */
   compact: boolean;
-  onOpenStage: (stage: string) => void;
+  onOpenStage: (stage: string, slice: string) => void;
 }
 
 type SegmentTone = 'done' | 'running' | 'waiting' | 'failed' | 'pending';
@@ -43,7 +45,7 @@ export function ScaleBar({ chatId, view, compact, onOpenStage }: ScaleBarProps) 
       >
         {steps.map((s) => (
           <Segment
-            key={s.stage}
+            key={`${s.stage}/${sliceOf(s)}`}
             step={s}
             view={view}
             tone={segmentTone(s, s === current, text?.tone)}
@@ -66,7 +68,7 @@ interface SegmentProps {
   step: BlueprintPipelineStep;
   view: BlueprintView;
   tone: SegmentTone;
-  onOpen: (stage: string) => void;
+  onOpen: (stage: string, slice: string) => void;
 }
 
 function Segment({ step, view, tone, onOpen }: SegmentProps) {
@@ -86,11 +88,11 @@ function Segment({ step, view, tone, onOpen }: SegmentProps) {
       </span>
     </>
   );
-  const openable = tone === 'done' && view.artifacts.some((a) => a.stage === step.stage);
+  const openable = tone === 'done' && artifactsFor(view, step.stage, sliceOf(step)).length > 0;
   return (
     <div role="listitem" data-tone={tone} className={`bp-seg bp-seg--${tone}${step.status === 'folded' ? ' bp-seg--folded' : ''}`}>
       {openable ? (
-        <button type="button" className="bp-seg-hit" aria-label={`Open ${st.tab}: ${label}`} onClick={() => onOpen(step.stage)}>
+        <button type="button" className="bp-seg-hit" aria-label={`Open ${st.tab}: ${label}`} onClick={() => onOpen(step.stage, sliceOf(step))}>
           {body}
         </button>
       ) : (

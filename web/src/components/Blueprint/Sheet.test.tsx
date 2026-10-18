@@ -1,17 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { api } from '../../api/client';
 import { Sheet } from './Sheet';
 import { resetArtifactCache } from './artifactCache';
 import { holdDraft } from './draft';
 import type { GatePrompt } from './sheetModel';
-import { findArtifact, viewAtDesignGate, viewAtLedgerGate } from '../../test-utils/blueprintFixtures';
+import { findArtifact, viewAtDesignGate, viewAtLedgerGate, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
 import type { BlueprintView } from '../../types';
 
 vi.mock('../../api/client', () => ({ api: { getBlueprintArtifact: vi.fn() } }));
 vi.mock('../ChatPanel/ChatMarkdown', () => ({
   ChatMarkdown: ({ source }: { source: string }) => <div data-testid="md">{source}</div>,
 }));
+
+const get = vi.mocked(api.getBlueprintArtifact);
 
 const gatePrompt: GatePrompt = {
   prompt: {
@@ -37,7 +39,7 @@ function props(over: Partial<Props> = {}): Props {
     chatId: 'S1',
     view: viewAtDesignGate(),
     draft: null,
-    shown: { stage: 'solution_design', version: 2 },
+    shown: { stage: 'solution_design', slice: '', version: 2 },
     onShow: vi.fn(),
     gatePrompt: null,
     onReply: vi.fn().mockResolvedValue(undefined),
@@ -48,7 +50,7 @@ function props(over: Partial<Props> = {}): Props {
 describe('Sheet', () => {
   beforeEach(() => {
     resetArtifactCache();
-    vi.mocked(api.getBlueprintArtifact).mockImplementation((_c, stage, version) => Promise.resolve(findArtifact(stage, version)));
+    get.mockImplementation((_c, stage, slice, version) => Promise.resolve(findArtifact(stage, version, slice)));
   });
 
   it('dims tabs without an artifact and marks the current stage', () => {
@@ -62,21 +64,21 @@ describe('Sheet', () => {
     const p = props();
     render(<Sheet {...p} />);
     fireEvent.click(screen.getByRole('tab', { name: 'Need' }));
-    expect(p.onShow).toHaveBeenCalledWith('intake', null);
+    expect(p.onShow).toHaveBeenCalledWith('intake', '', null);
   });
 
   it('picks a revision from the title block', () => {
     const p = props();
     render(<Sheet {...p} />);
     fireEvent.change(screen.getByRole('combobox', { name: 'Rev' }), { target: { value: '1' } });
-    expect(p.onShow).toHaveBeenCalledWith('solution_design', 1);
+    expect(p.onShow).toHaveBeenCalledWith('solution_design', '', 1);
   });
 
   it('repeats the open gate only under the version it decides', () => {
     const { rerender } = render(<Sheet {...props({ gatePrompt })} />);
     expect(screen.getByRole('region', { name: 'Gate decision' })).toBeInTheDocument();
     expect(screen.getByText('At your gate')).toBeInTheDocument();
-    rerender(<Sheet {...props({ gatePrompt, shown: { stage: 'solution_design', version: 1 } })} />);
+    rerender(<Sheet {...props({ gatePrompt, shown: { stage: 'solution_design', slice: '', version: 1 } })} />);
     expect(screen.queryByRole('region', { name: 'Gate decision' })).not.toBeInTheDocument();
   });
 
@@ -86,14 +88,14 @@ describe('Sheet', () => {
     await waitFor(() => expect(container.querySelector('.bp-dec del')).not.toBeNull());
     rerender(<Sheet {...props({ view: viewAtDesignGate() })} />);
     expect(screen.getByRole('checkbox', { name: 'Compare' })).toBeChecked();
-    rerender(<Sheet {...props({ shown: { stage: 'intake', version: 1 } })} />);
+    rerender(<Sheet {...props({ shown: { stage: 'intake', slice: '', version: 1 } })} />);
     rerender(<Sheet {...props()} />);
     expect(screen.getByRole('checkbox', { name: 'Compare' })).not.toBeChecked();
   });
 
   it('follows the draft to its end unless the reader scrolled up', () => {
     const draft = (text: string) => holdDraft({ stage: 'solution_design', version: 3, offset: 0, text });
-    const p = props({ view: writingView(), shown: { stage: 'solution_design', version: 3 }, draft: draft('One.') });
+    const p = props({ view: writingView(), shown: { stage: 'solution_design', slice: '', version: 3 }, draft: draft('One.') });
     const { container, rerender } = render(<Sheet {...p} />);
     const wrap = container.querySelector<HTMLElement>('.bp-paperwrap')!;
     Object.defineProperty(wrap, 'scrollHeight', { configurable: true, value: 500 });
@@ -115,7 +117,7 @@ describe('Sheet', () => {
 
   it('hands the gate the review of the version it decides, never an earlier one', () => {
     const { rerender } = render(
-      <Sheet {...props({ gatePrompt, view: viewAtLedgerGate(), shown: { stage: 'solution_design', version: 3 } })} />,
+      <Sheet {...props({ gatePrompt, view: viewAtLedgerGate(), shown: { stage: 'solution_design', slice: '', version: 3 } })} />,
     );
     expect(screen.getByRole('region', { name: 'Gate decision' })).toHaveTextContent('R5 critical, open');
     expect(screen.getByRole('button', { name: 'Findings (3)' })).toBeInTheDocument();
@@ -125,5 +127,18 @@ describe('Sheet', () => {
     expect(screen.getByRole('region', { name: 'Gate decision' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Findings/ })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Senior developer, 4 of 5' })).toBeInTheDocument();
+  });
+
+  it("reads the shown slice's version", async () => {
+    render(<Sheet {...props({ chatId: 'S2', view: viewSliced(), shown: { stage: 'solution_design', slice: 'SL1', version: 1 } })} />);
+    expect(await screen.findByText('CloudNativePG cluster with one replica.')).toBeInTheDocument();
+    expect(get).toHaveBeenCalledWith('S2', 'solution_design', 'SL1', 1);
+    expect(within(screen.getByRole('group', { name: 'Title block' })).getByText('Approved')).toBeInTheDocument();
+  });
+
+  it("reads a one-slice blueprint's design with its slice", async () => {
+    render(<Sheet {...props({ chatId: 'S2', view: viewOneSlice(), shown: { stage: 'solution_design', slice: 'SL1', version: 1 } })} />);
+    expect(await screen.findByText('CloudNativePG cluster with one replica.')).toBeInTheDocument();
+    expect(get).toHaveBeenCalledWith('S2', 'solution_design', 'SL1', 1);
   });
 });

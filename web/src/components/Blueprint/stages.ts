@@ -74,9 +74,20 @@ export function personaName(persona: string | undefined): string {
   return persona ? humanize(persona) : 'The architect';
 }
 
+/** The piece a step, artifact, run or draft belongs to; "" for the whole blueprint. */
+export function sliceOf(x: { slice?: string } | null | undefined): string {
+  return x?.slice ?? '';
+}
+
+/** The pipeline step behind a stage's sheet in one slice. */
+export function stepFor(view: BlueprintView, stage: string, slice: string): BlueprintPipelineStep | undefined {
+  return view.pipeline.find((s) => s.stage === stage && sliceOf(s) === slice);
+}
+
 export function normalizeView(view: BlueprintView): BlueprintView {
   return {
     ...view,
+    slices: view.slices ?? [],
     pipeline: view.pipeline ?? [],
     artifacts: (view.artifacts ?? []).map((a) =>
       a.review ? { ...a, review: { ...a.review, findings: a.review.findings ?? [] } } : a,
@@ -84,12 +95,12 @@ export function normalizeView(view: BlueprintView): BlueprintView {
   };
 }
 
-export function artifactsFor(view: BlueprintView, stage: string): BlueprintArtifactRef[] {
-  return view.artifacts.filter((a) => a.stage === stage).sort((a, b) => a.version - b.version);
+export function artifactsFor(view: BlueprintView, stage: string, slice: string): BlueprintArtifactRef[] {
+  return view.artifacts.filter((a) => a.stage === stage && sliceOf(a) === slice).sort((a, b) => a.version - b.version);
 }
 
-export function latestArtifact(view: BlueprintView, stage: string): BlueprintArtifactRef | undefined {
-  const list = artifactsFor(view, stage);
+export function latestArtifact(view: BlueprintView, stage: string, slice: string): BlueprintArtifactRef | undefined {
+  const list = artifactsFor(view, stage, slice);
   return list[list.length - 1];
 }
 
@@ -119,8 +130,8 @@ const ACTIVE = new Set<BlueprintStepStatus>(['running', 'reviewing', 'revising',
 
 export function currentStep(view: BlueprintView): BlueprintPipelineStep | null {
   const steps = visibleSteps(view);
-  const named = gateArtifact(view)?.stage ?? view.current?.stage;
-  const byName = named ? steps.find((s) => s.stage === named) : undefined;
+  const named = gateArtifact(view) ?? view.current;
+  const byName = named ? steps.find((s) => s.stage === named.stage && sliceOf(s) === sliceOf(named)) : undefined;
   return (
     byName ??
     steps.find((s) => ACTIVE.has(s.status)) ??
@@ -173,7 +184,7 @@ export function describeCurrent(view: BlueprintView): CurrentText | null {
   }
   if (step.status === 'failed') return say('This stage failed; the transcript says why', 'failed');
   if (step.status === 'revising') {
-    const review = latestArtifact(view, step.stage)?.review;
+    const review = latestArtifact(view, step.stage, sliceOf(step))?.review;
     const n = review ? unresolvedCount(review) : 0;
     const why = n > 0 ? ` (${n} ${n === 1 ? 'finding' : 'findings'})` : '';
     return say(`${persona} is revising the ${st.noun}${why}`, 'running');
@@ -205,7 +216,7 @@ export function decidedByText(ref: BlueprintArtifactRef): string {
 export function stepStatusText(step: BlueprintPipelineStep, view: BlueprintView): string {
   switch (step.status) {
     case 'done': {
-      const latest = latestArtifact(view, step.stage);
+      const latest = latestArtifact(view, step.stage, sliceOf(step));
       return step.gate && latest?.status === 'approved' ? `Approved ${decidedByText(latest)}`.trim() : 'Done';
     }
     case 'folded':

@@ -97,7 +97,7 @@ export function useBlueprintView(
       frames((text) => {
         const frame = parseFrame(text);
         if (frame?.type === 'artifact_stored') {
-          if (frame.stage && frame.version) refreshArtifact(chatId, frame.stage, frame.version);
+          if (frame.stage && frame.version) refreshArtifact(chatId, frame.stage, frame.slice ?? '', frame.version);
         } else if (frame) {
           setState((s) => reduceFrame(s, frame));
         }
@@ -107,7 +107,7 @@ export function useBlueprintView(
 
   // A reopened stream replays no artifact_stored hints; a no-op unless the board is cached.
   useEffect(() => {
-    if (signals.reconnects > 0) refreshArtifact(chatId, 'emission', 1);
+    if (signals.reconnects > 0) refreshArtifact(chatId, 'emission', '', 1);
   }, [chatId, signals.reconnects]);
 
   useEffect(() => {

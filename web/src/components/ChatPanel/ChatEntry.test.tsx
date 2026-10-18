@@ -241,8 +241,19 @@ describe('ChatEntry blueprint markers', () => {
       </BlueprintSheetContext.Provider>,
     );
     fireEvent.click(screen.getByRole('button', { name: /Design rev 2/ }));
-    expect(openArtifact).toHaveBeenCalledWith('solution_design', 2);
+    expect(openArtifact).toHaveBeenCalledWith('solution_design', '', 2);
     expect(screen.getByText('Revised for the 3 findings')).toBeInTheDocument();
+  });
+
+  it("opens a slice reference on that slice's version", () => {
+    const openArtifact = vi.fn();
+    render(
+      <BlueprintSheetContext.Provider value={{ openArtifact }}>
+        <ChatEntry entry={marker('text', { text: 't', marker: { kind: 'artifact', stage: 'solution_design', slice: 'SL2', version: 1 } })} />
+      </BlueprintSheetContext.Provider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Design rev 1/ }));
+    expect(openArtifact).toHaveBeenCalledWith('solution_design', 'SL2', 1);
   });
 
   it('shows a reference without a pane as plain text', () => {

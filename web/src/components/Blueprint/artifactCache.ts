@@ -16,8 +16,8 @@ const stale = new Set<string>();
 const listeners = new Set<() => void>();
 const LOADING: ArtifactEntry = { status: 'loading' };
 
-function keyOf(chatId: string, stage: string, version: number): string {
-  return `${chatId}/${stage}/${version}`;
+function keyOf(chatId: string, stage: string, slice: string, version: number): string {
+  return `${chatId}/${stage}/${slice}/${version}`;
 }
 
 function notify(): void {
@@ -25,15 +25,15 @@ function notify(): void {
 }
 
 /** Fetches an artifact into the cache; a ready entry stays shown until the new copy lands. */
-export function loadArtifact(chatId: string, stage: string, version: number): void {
-  const key = keyOf(chatId, stage, version);
+export function loadArtifact(chatId: string, stage: string, slice: string, version: number): void {
+  const key = keyOf(chatId, stage, slice, version);
   if (inflight.has(key)) return;
   inflight.add(key);
   if (entries.get(key)?.status !== 'ready') {
     entries.set(key, LOADING);
     notify();
   }
-  api.getBlueprintArtifact(chatId, stage, version).then(
+  api.getBlueprintArtifact(chatId, stage, slice, version).then(
     (artifact) => {
       entries.set(key, { status: 'ready', artifact });
     },
@@ -43,19 +43,19 @@ export function loadArtifact(chatId: string, stage: string, version: number): vo
   ).finally(() => {
     inflight.delete(key);
     notify();
-    if (stale.delete(key)) loadArtifact(chatId, stage, version);
+    if (stale.delete(key)) loadArtifact(chatId, stage, slice, version);
   });
 }
 
 /** Refetches an artifact someone has read; one stored again mid-fetch is fetched once more after. */
-export function refreshArtifact(chatId: string, stage: string, version: number): void {
-  const key = keyOf(chatId, stage, version);
+export function refreshArtifact(chatId: string, stage: string, slice: string, version: number): void {
+  const key = keyOf(chatId, stage, slice, version);
   if (!entries.has(key)) return;
   if (inflight.has(key)) {
     stale.add(key);
     return;
   }
-  loadArtifact(chatId, stage, version);
+  loadArtifact(chatId, stage, slice, version);
 }
 
 /** Empties the cache; tests start from it. */
@@ -73,14 +73,19 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
-export function useBlueprintArtifact(chatId: string, stage: string, version: number | null): ArtifactEntry | null {
-  const key = version === null ? null : keyOf(chatId, stage, version);
+export function useBlueprintArtifact(
+  chatId: string,
+  stage: string,
+  slice: string,
+  version: number | null,
+): ArtifactEntry | null {
+  const key = version === null ? null : keyOf(chatId, stage, slice, version);
   const entry = useSyncExternalStore(subscribe, () => (key ? entries.get(key) : undefined));
   useEffect(() => {
     if (key !== null && version !== null && (!entries.has(key) || stage === 'emission')) {
-      loadArtifact(chatId, stage, version);
+      loadArtifact(chatId, stage, slice, version);
     }
-  }, [key, chatId, stage, version]);
+  }, [key, chatId, stage, slice, version]);
   if (key === null) return null;
   return entry ?? LOADING;
 }

@@ -41,6 +41,7 @@ function parseEnvelope(content: string): MarkerRow {
     marker: {
       kind: m.kind,
       stage: m.stage,
+      slice: typeof m.slice === 'string' && m.slice !== '' ? m.slice : undefined,
       persona: typeof m.persona === 'string' && m.persona !== '' ? m.persona : undefined,
       version: typeof m.version === 'number' && m.version > 0 ? m.version : undefined,
       note: typeof m.note === 'string' && m.note !== '' ? m.note : undefined,

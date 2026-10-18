@@ -2,7 +2,17 @@ import type { BlueprintArtifactRef, BlueprintArtifactReview, BlueprintView, LogE
 import { derivePromptStates, parsePromptEntry, type ChatPrompt } from '../ChatPanel/prompts';
 import type { RoundLeft } from '../QuestionRound/rounds';
 import type { HeldDraft } from './draft';
-import { artifactsFor, currentStep, decidedByText, finished, latestArtifact, stageText, visibleSteps } from './stages';
+import {
+  artifactsFor,
+  currentStep,
+  decidedByText,
+  finished,
+  latestArtifact,
+  sliceOf,
+  stageText,
+  stepFor,
+  visibleSteps,
+} from './stages';
 
 export interface StampText {
   tone: 'approved' | 'rejected' | 'superseded' | 'folded';
@@ -18,11 +28,11 @@ export function stampFor(view: BlueprintView, ref: BlueprintArtifactRef): StampT
     case 'rejected':
       return { tone: 'rejected', title: 'Rejected', detail: decidedByText(ref) };
     case 'superseded': {
-      const next = artifactsFor(view, ref.stage).find((r) => r.version > ref.version);
+      const next = artifactsFor(view, ref.stage, sliceOf(ref)).find((r) => r.version > ref.version);
       return { tone: 'superseded', title: 'Superseded', detail: next ? `by rev ${next.version}` : '' };
     }
     case 'folded': {
-      const into = view.pipeline.find((s) => s.stage === ref.stage)?.folds_into;
+      const into = stepFor(view, ref.stage, sliceOf(ref))?.folds_into;
       return { tone: 'folded', title: 'Folded', detail: into ? `into ${stageText(into).noun}` : '' };
     }
     default:
@@ -35,8 +45,13 @@ export interface VersionOption {
   label: string;
 }
 
-export function versionOptions(view: BlueprintView, stage: string, writingVersion: number | null): VersionOption[] {
-  const refs = artifactsFor(view, stage);
+export function versionOptions(
+  view: BlueprintView,
+  stage: string,
+  slice: string,
+  writingVersion: number | null,
+): VersionOption[] {
+  const refs = artifactsFor(view, stage, slice);
   const options = refs.map((r) => ({
     version: r.version,
     label:
@@ -60,8 +75,9 @@ export interface ShownStatus {
 /** What the stage waits on: the open question, or the open round and what it still lacks (null when not loaded). */
 export type Waiting = { kind: 'question'; id: string } | { kind: 'round'; left: RoundLeft | null };
 
-export function waitingOn(view: BlueprintView, stage: string, roundLeft: RoundLeft | null): Waiting | null {
-  if (currentStep(view)?.stage !== stage) return null;
+export function waitingOn(view: BlueprintView, stage: string, slice: string, roundLeft: RoundLeft | null): Waiting | null {
+  const cur = currentStep(view);
+  if (cur?.stage !== stage || sliceOf(cur) !== slice) return null;
   if (view.open?.kind === 'question') return { kind: 'question', id: view.open.prompt_id };
   if (view.open?.kind === 'round') return { kind: 'round', left: roundLeft };
   return null;
@@ -85,21 +101,22 @@ export function waitingLine(w: Waiting): string {
 export function shownStatus(
   view: BlueprintView,
   stage: string,
+  slice: string,
   stored: BlueprintArtifactRef | null,
   writing: boolean,
   roundLeft: RoundLeft | null = null,
 ): ShownStatus {
   // The asking stage stays current while its question or round waits, so the wait outranks Writing.
-  const waiting = waitingOn(view, stage, roundLeft);
-  if (waiting && (writing || (stored !== null && stored.version === latestArtifact(view, stage)?.version))) {
+  const waiting = waitingOn(view, stage, slice, roundLeft);
+  if (waiting && (writing || (stored !== null && stored.version === latestArtifact(view, stage, slice)?.version))) {
     return { text: `Waiting on ${waitingLabel(waiting)}`, tone: 'waiting' };
   }
   if (writing) return { text: 'Writing', tone: 'running' };
   if (!stored) return { text: '', tone: 'muted' };
   // A failed step leaves its newest version current (or reviewing on older architects); that must not read as done.
   if (
-    view.pipeline.find((s) => s.stage === stage)?.status === 'failed' &&
-    stored.version === latestArtifact(view, stage)?.version &&
+    stepFor(view, stage, slice)?.status === 'failed' &&
+    stored.version === latestArtifact(view, stage, slice)?.version &&
     (stored.status === 'current' || stored.status === 'reviewing')
   ) {
     return { text: stored.review ? 'Failed' : 'Review failed', tone: 'bad' };
@@ -129,51 +146,64 @@ export interface ShownReview {
 }
 
 /** The review behind a version: its own, else the one of the version it revised. */
-export function reviewFor(view: BlueprintView, stage: string, version: number): ShownReview | null {
-  const reviewed = artifactsFor(view, stage)
+export function reviewFor(view: BlueprintView, stage: string, slice: string, version: number): ShownReview | null {
+  const reviewed = artifactsFor(view, stage, slice)
     .filter((r) => r.version <= version && r.review)
     .pop();
   return reviewed?.review ? { review: reviewed.review, version: reviewed.version } : null;
 }
 
 /** The reviewer at work on this sheet; it always reviews the newest stored version. */
-export function reviewingPersona(view: BlueprintView, stage: string, shownVersion: number): string | null {
+export function reviewingPersona(view: BlueprintView, stage: string, slice: string, shownVersion: number): string | null {
   const cur = view.current;
-  if (cur?.kind !== 'reviewer' || cur.stage !== stage) return null;
-  return latestArtifact(view, stage)?.version === shownVersion ? cur.persona : null;
+  if (cur?.kind !== 'reviewer' || cur.stage !== stage || sliceOf(cur) !== slice) return null;
+  return latestArtifact(view, stage, slice)?.version === shownVersion ? cur.persona : null;
 }
 
 export interface Shown {
   stage: string;
+  slice: string;
   version: number;
 }
 
 /** The version a run is writing for a stage; null when nothing is being written there. */
-export function writingVersion(view: BlueprintView, draft: HeldDraft | null, stage: string): number | null {
-  const stored = artifactsFor(view, stage);
-  if (draft && draft.stage === stage && !stored.some((r) => r.version === draft.version)) return draft.version;
+export function writingVersion(
+  view: BlueprintView,
+  draft: HeldDraft | null,
+  stage: string,
+  slice: string,
+): number | null {
+  const stored = artifactsFor(view, stage, slice);
+  const next = (stored[stored.length - 1]?.version ?? 0) + 1;
+  if (draft && draft.stage === stage && draft.slice === slice && !stored.some((r) => r.version === draft.version)) {
+    return draft.version;
+  }
   // A round ends its stage run, yet the stage still owes its next version while the round waits.
-  if (view.open?.kind === 'round' && currentStep(view)?.stage === stage) return (stored[stored.length - 1]?.version ?? 0) + 1;
+  const cur = currentStep(view);
+  if (view.open?.kind === 'round' && cur?.stage === stage && sliceOf(cur) === slice) return next;
   const run = view.current;
   // A responder run answers the asking stage's question mid-run, so that stage is still writing.
-  if (run && run.kind !== 'reviewer' && run.stage === stage) return (stored[stored.length - 1]?.version ?? 0) + 1;
+  if (run && run.kind !== 'reviewer' && run.stage === stage && sliceOf(run) === slice) return next;
   return null;
 }
 
 export interface SheetTab {
   stage: string;
+  slice: string;
   label: string;
   enabled: boolean;
   current: boolean;
 }
 
 export function sheetTabs(view: BlueprintView, draft: HeldDraft | null): SheetTab[] {
-  const current = finished(view) ? null : currentStep(view)?.stage;
+  const current = finished(view) ? null : currentStep(view);
   return visibleSteps(view).map((s) => ({
     stage: s.stage,
+    slice: sliceOf(s),
     label: stageText(s.stage).tab,
-    enabled: view.artifacts.some((a) => a.stage === s.stage) || writingVersion(view, draft, s.stage) !== null,
-    current: s.stage === current,
+    enabled:
+      artifactsFor(view, s.stage, sliceOf(s)).length > 0 || writingVersion(view, draft, s.stage, sliceOf(s)) !== null,
+    current: s === current,
   }));
 }
 
@@ -181,14 +211,15 @@ export function sheetTabs(view: BlueprintView, draft: HeldDraft | null): SheetTa
 export function defaultShown(view: BlueprintView, draft: HeldDraft | null): Shown | null {
   const step = currentStep(view);
   if (step) {
-    const writing = writingVersion(view, draft, step.stage);
-    if (writing !== null) return { stage: step.stage, version: writing };
-    const latest = latestArtifact(view, step.stage);
-    if (latest) return { stage: step.stage, version: latest.version };
+    const slice = sliceOf(step);
+    const writing = writingVersion(view, draft, step.stage, slice);
+    if (writing !== null) return { stage: step.stage, slice, version: writing };
+    const latest = latestArtifact(view, step.stage, slice);
+    if (latest) return { stage: step.stage, slice, version: latest.version };
   }
   for (const s of [...view.pipeline].reverse()) {
-    const latest = latestArtifact(view, s.stage);
-    if (latest) return { stage: s.stage, version: latest.version };
+    const latest = latestArtifact(view, s.stage, sliceOf(s));
+    if (latest) return { stage: s.stage, slice: sliceOf(s), version: latest.version };
   }
   return null;
 }
@@ -196,16 +227,16 @@ export function defaultShown(view: BlueprintView, draft: HeldDraft | null): Show
 export function resolveShown(
   view: BlueprintView,
   draft: HeldDraft | null,
-  pin: { stage: string; version: number | null } | null,
+  pin: { stage: string; slice: string; version: number | null } | null,
 ): Shown | null {
   if (pin) {
-    const versions = artifactsFor(view, pin.stage).map((r) => r.version);
-    const writing = writingVersion(view, draft, pin.stage);
+    const versions = artifactsFor(view, pin.stage, pin.slice).map((r) => r.version);
+    const writing = writingVersion(view, draft, pin.stage, pin.slice);
     if (pin.version !== null && (versions.includes(pin.version) || pin.version === writing)) {
-      return { stage: pin.stage, version: pin.version };
+      return { stage: pin.stage, slice: pin.slice, version: pin.version };
     }
-    if (writing !== null) return { stage: pin.stage, version: writing };
-    if (versions.length > 0) return { stage: pin.stage, version: versions[versions.length - 1] };
+    if (writing !== null) return { stage: pin.stage, slice: pin.slice, version: writing };
+    if (versions.length > 0) return { stage: pin.stage, slice: pin.slice, version: versions[versions.length - 1] };
   }
   return defaultShown(view, draft);
 }

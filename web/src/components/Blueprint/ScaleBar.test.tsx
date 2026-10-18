@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { ScaleBar } from './ScaleBar';
-import { viewAtDesignGate } from '../../test-utils/blueprintFixtures';
+import { viewAtDesignGate, viewSliced } from '../../test-utils/blueprintFixtures';
 
 function tones() {
   return screen.getAllByRole('listitem').map((li) => li.getAttribute('data-tone'));
@@ -45,7 +45,7 @@ describe('ScaleBar', () => {
     const onOpenStage = vi.fn();
     render(<ScaleBar chatId="S1" view={viewAtDesignGate()} compact={false} onOpenStage={onOpenStage} />);
     fireEvent.click(screen.getByRole('button', { name: /Open Need/ }));
-    expect(onOpenStage).toHaveBeenCalledWith('intake');
+    expect(onOpenStage).toHaveBeenCalledWith('intake', '');
     const grounding = screen.getAllByRole('listitem')[3];
     expect(within(grounding).getByRole('img')).toHaveAccessibleName('Grounding. Senior developer. Not started');
     expect(within(grounding).queryByRole('button')).not.toBeInTheDocument();
@@ -56,5 +56,12 @@ describe('ScaleBar', () => {
     view.cost = { ...view.cost, spent_usd: 1.8 };
     const { container } = render(<ScaleBar chatId="S1" view={view} compact={false} onOpenStage={() => {}} />);
     expect(container.querySelector('.bp-cost')).toHaveClass('bp-cost--warn');
+  });
+
+  it('opens a finished slice step on its own sheet', () => {
+    const onOpen = vi.fn();
+    render(<ScaleBar chatId="S2" view={viewSliced()} compact={false} onOpenStage={onOpen} />);
+    fireEvent.click(screen.getByRole('button', { name: /^Open Grounding/ }));
+    expect(onOpen).toHaveBeenCalledWith('grounding', 'SL1');
   });
 });

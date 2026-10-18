@@ -1,8 +1,8 @@
 import { createContext, useContext } from 'react';
 
 export interface BlueprintSheetActions {
-  /** Opens the sheet on a stage, at a version when given. */
-  openArtifact: (stage: string, version?: number) => void;
+  /** Opens the sheet on a stage's slice ("" for the whole blueprint), at a version when given. */
+  openArtifact: (stage: string, slice: string, version?: number) => void;
 }
 
 export const BlueprintSheetContext = createContext<BlueprintSheetActions | null>(null);

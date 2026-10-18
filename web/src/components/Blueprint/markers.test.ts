@@ -20,7 +20,7 @@ describe('parseMarkerEntry', () => {
 
   it('reads a stage divider without the omitted fields', () => {
     const r = row(JSON.stringify({ text: 'Grounding started.', marker: { kind: 'stage', stage: 'grounding' } }), 'marker', 'system');
-    expect(parseMarkerEntry(r)?.marker).toEqual({ kind: 'stage', stage: 'grounding', persona: undefined, version: undefined, note: undefined });
+    expect(parseMarkerEntry(r)?.marker).toEqual({ kind: 'stage', stage: 'grounding', slice: undefined, persona: undefined, version: undefined, note: undefined });
   });
 
   it('falls back to the text line for a marker it cannot read', () => {
@@ -35,5 +35,10 @@ describe('parseMarkerEntry', () => {
     expect(parseMarkerEntry(row('{}', 'prompt'))).toBeNull();
     const r = row(JSON.stringify({ text: 't', marker: { kind: 'stage', stage: 'intake' } }));
     expect(parseMarkerEntry(r)).toBe(parseMarkerEntry(r));
+  });
+
+  it('reads the slice a marker belongs to', () => {
+    const r = row(JSON.stringify({ text: 't', marker: { kind: 'artifact', stage: 'solution_design', slice: 'SL2', version: 1 } }));
+    expect(parseMarkerEntry(r)?.marker).toMatchObject({ stage: 'solution_design', slice: 'SL2', version: 1 });
   });
 });

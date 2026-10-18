@@ -70,7 +70,7 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
     returnFocusRef.current = hostRef.current?.contains(document.activeElement) ?? false;
     close();
   }, [close]);
-  const actions = useMemo(() => ({ openArtifact: (stage: string, version?: number) => show(stage, version ?? null) }), [show]);
+  const actions = useMemo(() => ({ openArtifact: (stage: string, slice: string, version?: number) => show(stage, slice, version ?? null) }), [show]);
 
   const hasSheet = layout !== null && (state.status === 'ready' || state.status === 'unreachable');
   const overlayOpen = hasSheet && layout !== 'split' && sheet.open;
@@ -116,7 +116,7 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
       <div ref={rootRef} className="bp-pane">
         {view && (
           <ErrorBoundary fallback={null}>
-            <ScaleBar chatId={chatId} view={view} compact={width !== null && width < LABEL_MIN_WIDTH} onOpenStage={(stage) => show(stage, null)} />
+            <ScaleBar chatId={chatId} view={view} compact={width !== null && width < LABEL_MIN_WIDTH} onOpenStage={(stage, slice) => show(stage, slice, null)} />
           </ErrorBoundary>
         )}
         <div ref={bodyRef} className="bp-body-row">

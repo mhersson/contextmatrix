@@ -28,7 +28,7 @@ export function SheetReference({ marker }: { marker: LogMarker }) {
       type="button"
       className="bp-ref bp-ref--link"
       data-testid="sheet-reference"
-      onClick={() => sheet.openArtifact(marker.stage, marker.version)}
+      onClick={() => sheet.openArtifact(marker.stage, marker.slice ?? '', marker.version)}
     >
       {content}
     </button>
