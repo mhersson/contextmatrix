@@ -1145,8 +1145,8 @@ repo and `images.db`; the same file holds `model_blacklist` and
 A column added to an existing table is grown by `addColumnIfMissing`, and an
 `ops.db` newer than the binary is refused. `chat_messages` carries `kind TEXT NOT NULL DEFAULT ''` (`divider` for
 the clear-context row, `prompt` for an architect question or gate whose content
-is a `{text, prompt}` JSON envelope, `marker` for an architect stage divider or
-sheet reference whose content is a `{text, marker}` JSON envelope, `round_chat`
+is a `{text, prompt}` JSON envelope, `marker` for an architect stage divider,
+sheet reference or reviewer verdict whose content is a `{text, marker}` JSON envelope, `round_chat`
 for a user message about an open question round whose content is plain text,
 `round_reply` for a user message that answers a round whose content is its
 readable summary, `command` for a session command such as `cap 4` that the

@@ -68,6 +68,7 @@ describe('ReviewCard', () => {
     expect(fold).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(fold);
     expect(fold).toHaveAttribute('aria-expanded', 'true');
+    expect(document.getElementById(fold.getAttribute('aria-controls') ?? '')).toContainElement(screen.getByText('R1'));
     expect(screen.getByText('R1')).toBeInTheDocument();
     expect(screen.getByText('R2')).toBeInTheDocument();
   });
@@ -79,8 +80,11 @@ describe('ReviewCard', () => {
     expect(within(finding('R5')).queryByRole('button', { name: /read more/ })).not.toBeInTheDocument();
     const more = within(finding('R4')).getByRole('button', { name: /read more/ });
     expect(more).toHaveAttribute('aria-expanded', 'false');
+    const text = more.previousElementSibling;
+    expect(text).toHaveClass('bp-rv-clamp2');
     fireEvent.click(more);
     expect(more).toHaveAttribute('aria-expanded', 'true');
+    expect(text).not.toHaveClass('bp-rv-clamp2');
   });
 
   it('clamps a long summary behind read more', () => {
@@ -89,8 +93,12 @@ describe('ReviewCard', () => {
     render(card(MARKER, reviewed(shortOnly)));
     openCard();
     const more = screen.getByRole('button', { name: /read more/ });
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    const text = more.previousElementSibling;
+    expect(text).toHaveClass('bp-rv-clamp3');
     fireEvent.click(more);
     expect(more).toHaveAttribute('aria-expanded', 'true');
+    expect(text).not.toHaveClass('bp-rv-clamp3');
   });
 
   it("shows the reviewer's note and the builder's claim behind details, only where there are some", () => {
@@ -147,5 +155,6 @@ describe('ReviewCard', () => {
     render(card(MARKER, reviewed({ ...CARD_REVIEW, summary: undefined, findings: [] })));
     expect(group()).toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(group()).toHaveAccessibleDescription();
   });
 });

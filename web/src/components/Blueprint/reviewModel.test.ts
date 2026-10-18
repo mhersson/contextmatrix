@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BlueprintArtifactReview, LogMarker } from '../../types';
 import { CARD_REVIEW, SENT_BACK_REVIEW, ref } from '../../test-utils/blueprintFixtures';
-import { findingGroups, reviewFor, statusCounts } from './reviewModel';
+import { cardStatus, countsLine, findingGroups, reviewFor, statusCounts } from './reviewModel';
 
 const marker = (extra: Partial<LogMarker> = {}): LogMarker => ({ kind: 'review', stage: 'acceptance', version: 2, ...extra });
 
@@ -57,5 +57,40 @@ describe('findingGroups', () => {
 describe('statusCounts', () => {
   it('counts each group', () => {
     expect(statusCounts(CARD_REVIEW)).toEqual({ still_open: 1, new: 2, fixed: 2 });
+  });
+});
+
+describe('cardStatus', () => {
+  it('tones fixed ok, still open old, and every other status quiet', () => {
+    expect(cardStatus({ id: 'a', status: 'fixed', text: 't' }).tone).toBe('ok');
+    expect(cardStatus({ id: 'a', status: 'still_open', text: 't' }).tone).toBe('old');
+    expect(cardStatus({ id: 'a', status: 'open', text: 't' }).tone).toBe('muted');
+    expect(cardStatus({ id: 'a', status: 'something_new', text: 't' }).tone).toBe('muted');
+  });
+
+  it('names the verifying rev on a fixed finding only when there is one', () => {
+    const set = cardStatus({ id: 'a', status: 'fixed', verified_in: 7, text: 't' }).text;
+    const unset = cardStatus({ id: 'a', status: 'fixed', text: 't' }).text;
+    expect(set).toContain('7');
+    expect(unset).not.toContain('7');
+    expect(unset).not.toBe(set);
+  });
+});
+
+describe('countsLine', () => {
+  const base: BlueprintArtifactReview = { ...CARD_REVIEW, round: undefined, max_rounds: undefined };
+
+  it('drops zero counts and says something when there are no findings', () => {
+    const noneFixed = { ...base, findings: base.findings.filter((f) => f.status !== 'fixed') };
+    expect(countsLine(noneFixed)).not.toMatch(/\b0\b/);
+    expect(countsLine({ ...base, findings: [] })).not.toBe('');
+    expect(countsLine({ ...base, findings: [] })).not.toMatch(/\b0\b/);
+  });
+
+  it('names the round limit only when both the round and the limit are set', () => {
+    const r = { ...base, round: 2, max_rounds: 9 };
+    expect(countsLine(r)).toContain('9');
+    expect(countsLine({ ...r, max_rounds: 0 })).not.toContain('9');
+    expect(countsLine({ ...r, round: 0 })).not.toContain('9');
   });
 });

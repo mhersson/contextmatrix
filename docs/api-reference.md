@@ -2682,7 +2682,7 @@ exactly while the oldest loaded seq is `> 1`.
 `role` is `user`, `assistant_text`, `assistant_thinking`, `tool_call`,
 `tool_result`, `stderr`, or `system`. `kind` (`"divider"` for the Clear
 Context row, `"prompt"` for an architect question or gate, `"marker"` for an
-architect stage divider or sheet reference, `"round_chat"` for a user message
+architect stage divider, sheet reference or reviewer verdict on one version, `"round_chat"` for a user message
 about an open question round, `"round_reply"` for a user message that answers a
 round, `"command"` for a session command such as `cap 4`, which the panel never
 renders) and `rehydration_phase` appear only when set.

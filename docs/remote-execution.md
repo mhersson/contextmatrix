@@ -596,17 +596,17 @@ ignored.
 `{"kind": "artifact", "stage": "solution_design", "persona": "System
 designer", "version": 2, "note": "Revised for the 3 findings"}`. `kind` is
 `stage` for a stage divider (sent on a `system` frame), `artifact` for a sheet
-reference, or `review` for a reviewer's verdict on the version `stage`, `slice`
-and `version` name, with the reviewer in `persona` (both sent on a `text`
-frame); `persona`, `version` and `note` are optional, and `content` stays a
-plain fallback line. Only the architect sets
-`marker`. CM stores such a frame on an architect session as a `kind:
-"marker"` row with the frame's role, whose content is a `{"text", "marker"}`
-JSON envelope, cutting `content` first and `marker.note` only if the marker
-alone overflows the 32 KiB row cap (a marker whose kind, stage and persona
-alone overflow it is stored as the plain message); a frame that carries both
-`marker` and `prompt` is stored as a marker. On any other session, and in
-task session logs, the field is ignored.
+reference, or `review` for a reviewer's verdict on the version `stage`,
+`slice` and `version` name, with the reviewer in `persona` (both sent on a
+`text` frame); `slice`, `persona`, `version` and `note` are optional, and
+`content` stays a plain fallback line. Only the architect sets `marker`. CM
+stores such a frame on an architect session as a `kind: "marker"` row with the
+frame's role, whose content is a `{"text", "marker"}` JSON envelope, cutting
+`content` first and `marker.note` only if the marker alone overflows the 32
+KiB row cap (a marker whose kind, stage and persona alone overflow it is
+stored as the plain message); a frame that carries both `marker` and `prompt`
+is stored as a marker. On any other session, and in task session logs, the
+field is ignored.
 
 A prompt of kind `round` is a question round: instead of actions it carries
 `round`, with the asking `persona` and `stage`, the `questions` (each with

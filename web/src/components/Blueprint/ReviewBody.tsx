@@ -72,7 +72,7 @@ function Group({ group }: { group: FindingGroup }) {
     <>
       <p className="bp-rv-sec" id={id}>
         {folds ? (
-          <button type="button" aria-expanded={unfolded} onClick={() => setUnfolded((u) => !u)}>
+          <button type="button" aria-expanded={unfolded} aria-controls={unfolded ? `${id}-list` : undefined} onClick={() => setUnfolded((u) => !u)}>
             <span aria-hidden="true">{unfolded ? '▾' : '▸'}</span> {label}
           </button>
         ) : (
@@ -80,7 +80,7 @@ function Group({ group }: { group: FindingGroup }) {
         )}
       </p>
       {(!folds || unfolded) && (
-        <ul className="bp-rv-list" aria-labelledby={id}>
+        <ul className="bp-rv-list" id={`${id}-list`} aria-labelledby={id}>
           {group.findings.map((f, i) => (
             <FindingRow key={f.id || i} finding={f} />
           ))}

@@ -38,6 +38,7 @@ export function ReviewCard({ marker, fallback }: { marker: LogMarker; fallback: 
         role="group"
         aria-label={title}
         aria-live="off"
+        aria-describedby={openable ? undefined : `${id}-explain`}
       >
         {openable ? (
           <button
