@@ -6802,6 +6802,10 @@ button.bp-seg-hit {
   border-color: var(--prompt-question-accent);
   color: var(--prompt-question-accent);
 }
+.bp-seg-group--failed .bp-seg-group-label {
+  border-color: var(--red);
+  color: var(--red);
+}
 .bp-seg-group--running .bp-seg-group-label {
   border-color: var(--aqua);
   color: var(--aqua);
@@ -7389,7 +7393,7 @@ button.bp-seg-hit {
 .bp-sub {
   margin: -8px 0 14px;
   font-size: 12px;
-  color: var(--grey1);
+  color: var(--blueprint-quiet);
 }
 .bp-stamp {
   position: absolute;

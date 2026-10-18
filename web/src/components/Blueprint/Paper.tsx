@@ -39,7 +39,7 @@ export function Paper({ chatId, view, stage, slice, version, writing, draft, com
   const stamp = stored ? stampFor(view, stored) : null;
   const mode: RevisionMode = !previous ? 'plain' : compare ? 'compare' : isNewest ? 'clouds' : 'plain';
   const title = stageText(stage).title;
-  const subtitle = sliceSubtitle(view, slice);
+  const subtitle = sliceSubtitle(view, slice) || stageText(stage).sub;
   const waiting = waitingOn(view, stage, slice, roundLeft ?? null);
 
   let content: ReactNode;

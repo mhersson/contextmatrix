@@ -20,6 +20,8 @@ export interface StageText {
   noun: string;
   /** What the persona does while the stage runs. */
   doing: string;
+  /** A fixed subtitle under the sheet title, where the stage has one. */
+  sub?: string;
 }
 
 const STAGES: Record<string, StageText> = {
@@ -31,6 +33,7 @@ const STAGES: Record<string, StageText> = {
     title: 'Shared decisions',
     noun: 'shared decisions',
     doing: 'settling the shared decisions',
+    sub: 'Decisions every slice builds on',
   },
   solution_design: {
     tab: 'Design',

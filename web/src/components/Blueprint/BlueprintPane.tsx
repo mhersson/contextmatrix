@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
-import type { LogEntry } from '../../types';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import type { BlueprintSlice, LogEntry } from '../../types';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { EdgeStrip } from './EdgeStrip';
 import { ScaleBar } from './ScaleBar';
@@ -70,9 +70,12 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
     returnFocusRef.current = hostRef.current?.contains(document.activeElement) ?? false;
     close();
   }, [close]);
-  const slices = view?.slices;
+  // Keep the previous array while ids and titles match, so the context changes only when the slices do.
+  const [slices, setSlices] = useState<BlueprintSlice[]>([]);
+  const next = view?.slices ?? [];
+  if (next.length !== slices.length || next.some((s, i) => s.id !== slices[i].id || s.title !== slices[i].title)) setSlices(next);
   const actions = useMemo(
-    () => ({ openArtifact: (stage: string, slice: string, version?: number) => show(stage, slice, version ?? null), slices: slices ?? [] }),
+    () => ({ openArtifact: (stage: string, slice: string, version?: number) => show(stage, slice, version ?? null), slices }),
     [show, slices],
   );
 
