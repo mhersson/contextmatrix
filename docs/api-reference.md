@@ -59,6 +59,7 @@ POST   /api/chats/{id}/open                            # start (or reattach to) 
 POST   /api/chats/{id}/end                             # stop the container; flip to cold
 POST   /api/chats/{id}/clear                           # clear worker context + mark transcript
 POST   /api/chats/{id}/messages                        # send a user message into the active container
+POST   /api/chats/{id}/cap                             # change a blueprint session's cost cap
 GET    /api/chats/{id}/messages                        ?since_seq=|tail=1|before_seq=&limit=  # transcript pages
 GET    /api/chats/{id}/stream                          ?since_seq=           # SSE stream of new entries
 GET    /api/chats/{id}/blueprint                       # blueprint view, read from the architect (architect sessions only)
@@ -2424,7 +2425,7 @@ management lives under `/api/admin/chats`.
 | `id`, `title`, `status`, `created_at`, `last_active`, `created_by`                 | always    | `id` is a 26-character base32 ULID; `status` is `cold`, `active`, `warm-idle`, or `ending` |
 | `kind`                                                                             | always    | `chat` or `architect`; rows written before kinds existed read as `chat`                    |
 | `project`, `container_id`, `workspace`, `model`                                    | omitempty | `workspace` is a string list; `model` is set at creation and reused on every `/open`       |
-| `mode`, `cost_cap_usd`                                                             | omitempty | Architect sessions only; fixed at creation. `workspace` holds the target projects          |
+| `mode`, `cost_cap_usd`                                                             | omitempty | Architect sessions only; `cost_cap_usd` is set at creation and changed by `/cap`. `workspace` holds the target projects |
 | `context_tokens`                                                                   | omitempty | Last `input + cache_read + cache_create` reported by the model                             |
 | `context_tokens_updated_at`                                                        | always    | Zero time (`0001-01-01T00:00:00Z`) until the first usage entry                             |
 | `rehydration_active`, `rehydration_started_at`                                     | omitempty | `true` between a cold reopen and the agent's `chat_rehydration_complete` call              |
@@ -2620,6 +2621,40 @@ ordinary message when no round waits any more):
 without `id`; 400 `INVALID_CHAT_INPUT` for a `round` or `round_chat` on a chat
 session; 413 `CONTENT_TOO_LARGE` above 8 KiB.
 
+### POST /api/chats/{id}/cap
+
+Changes a blueprint (`architect`) session's cost cap. CM sends the architect
+the session command `cap <usd>` (or `cap off`) through the same path as a
+message, so a `cold` session is opened first (429 `TOO_MANY_CHATS` is
+possible). Only when the send succeeds does CM record the new `cost_cap_usd`
+on the session row; a failed send leaves the row unchanged. The row is CM's own
+record of the cap: the architect takes the cap from its start request only when
+the blueprint is created.
+
+```json
+{ "cost_cap_usd": 4.5 }
+```
+
+`cost_cap_usd` is required; `0` removes the cap. The amount is rounded to
+cents, and the command carries it without trailing zeros (`cap 4`, `cap 4.5`,
+`cap 4.25`). The row is stored with `kind` `"command"`, which the panel never
+renders, and never titles an untitled session.
+
+CM does not compare the cap with the spend. The architect refuses a cap at or
+below its spend with a system line, and the change then does not take effect
+there. Raising the cap continues a stage that stopped on the blueprint's cap; a
+stop on the architect's own per-run limit still needs `continue`.
+
+Response 200 is the updated session object.
+
+| Status | Code                    | When                                                  |
+| ------ | ----------------------- | ----------------------------------------------------- |
+| 400    | `BAD_REQUEST`           | `cost_cap_usd` absent                                 |
+| 400    | `INVALID_CHAT_INPUT`    | Negative, positive but rounds to `0.00`, or not an `architect` session |
+| 404    | `CHAT_NOT_FOUND`        | Unknown or foreign session id                         |
+| 429    | `TOO_MANY_CHATS`        | Cold session could not be opened                      |
+| 409    | `CHAT_KIND_UNAVAILABLE` | No backend configured for the kind                    |
+
 ### GET /api/chats/{id}/messages
 
 Transcript pages over the persisted rows, always in ascending `seq` order.
@@ -2650,7 +2685,8 @@ exactly while the oldest loaded seq is `> 1`.
 Context row, `"prompt"` for an architect question or gate, `"marker"` for an
 architect stage divider or sheet reference, `"round_chat"` for a user message
 about an open question round, `"round_reply"` for a user message that answers a
-round) and `rehydration_phase` appear only when set.
+round, `"command"` for a session command such as `cap 4`, which the panel never
+renders) and `rehydration_phase` appear only when set.
 `content` is the raw text, except on a `prompt` row, where it
 is the JSON envelope `{"text": "<message>", "prompt": {"id": "...", "kind":
 "question", "text": "...", "free_text": true, "actions": [{"label": "...",

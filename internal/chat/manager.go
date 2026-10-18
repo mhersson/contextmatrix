@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -69,6 +72,11 @@ const EventKindRoundChat = "round_chat"
 // the panel hides it when its round is loaded (the block is its record) and
 // shows an orphan as a plain message.
 const EventKindRoundReply = "round_reply"
+
+// EventKindCommand is the persisted Message.Kind / SSE DataKind of a user
+// message that is a session command (currently only `cap`). The panel never
+// renders it; the architect answers with a system line of its own.
+const EventKindCommand = "command"
 
 // Backend is the chat-execution surface chat.Manager drives (the roadmap's
 // ChatBackend): container start/end, message delivery, and the /logs SSE
@@ -1931,7 +1939,7 @@ func (m *Manager) appendMessageWithKind(ctx context.Context, sessionID string, r
 	// OpenSession/MarkActive between the read and a wholesale UPDATE would
 	// otherwise see its just-flipped ContainerID/Status/Workspace
 	// overwritten by the stale pre-flip snapshot loaded here.
-	if role == RoleUser {
+	if role == RoleUser && kind != EventKindCommand {
 		m.mu.Lock()
 		alreadyTitled := m.titled[sessionID]
 		m.mu.Unlock()
@@ -2444,11 +2452,48 @@ func (m *Manager) SendRoundChat(ctx context.Context, sessionID, content, promptI
 	return m.sendMessage(ctx, sessionID, content, userSend{roundChat: promptID})
 }
 
+// SetCostCap sends the architect a `cap` command and, once it is accepted,
+// records the new cap on the session row; 0 removes the cap. The amount is
+// rounded to cents. The architect refuses a cap at or below its spend, which
+// CM does not compare against.
+func (m *Manager) SetCostCap(ctx context.Context, sessionID string, capUSD float64) (Session, error) {
+	if capUSD < 0 {
+		return Session{}, fmt.Errorf("%w: cost cap must not be negative", ErrInvalidSessionInput)
+	}
+
+	cents := math.Round(capUSD * 100)
+	if capUSD > 0 && cents == 0 {
+		return Session{}, fmt.Errorf("%w: cost cap rounds to $0.00; use 0 to remove the cap", ErrInvalidSessionInput)
+	}
+
+	capUSD = cents / 100
+
+	content := "cap off"
+	if cents > 0 {
+		content = "cap " + strconv.FormatFloat(capUSD, 'f', 2, 64)
+		content = strings.TrimSuffix(strings.TrimSuffix(content, "0"), "0")
+		content = strings.TrimSuffix(content, ".")
+	}
+
+	if _, err := m.sendMessage(ctx, sessionID, content, userSend{command: true}); err != nil {
+		return Session{}, err
+	}
+
+	// Keeps CM's record of the cap in step with the architect's.
+	if err := m.store.UpdateSessionCostCap(ctx, sessionID, capUSD); err != nil {
+		return Session{}, fmt.Errorf("chat: record cost cap: %w", err)
+	}
+
+	return m.store.GetSession(ctx, sessionID)
+}
+
 // userSend is what a send carries beside its content: a round reply's
-// answers, or the prompt id of the round a chat message is about.
+// answers, the prompt id of the round a chat message is about, or a session
+// command.
 type userSend struct {
 	round     *protocol.RoundReply
 	roundChat string
+	command   bool
 }
 
 func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us userSend) (string, error) {
@@ -2463,12 +2508,16 @@ func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us
 			return "", fmt.Errorf("%w: round replies go to blueprint sessions only", ErrInvalidSessionInput)
 		case us.roundChat != "":
 			return "", fmt.Errorf("%w: round chat goes to blueprint sessions only", ErrInvalidSessionInput)
+		case us.command:
+			return "", fmt.Errorf("%w: session commands go to blueprint sessions only", ErrInvalidSessionInput)
 		}
 	}
 
 	kind := ""
 
 	switch {
+	case us.command:
+		kind = EventKindCommand
 	case us.roundChat != "":
 		kind = EventKindRoundChat
 	case us.round != nil:

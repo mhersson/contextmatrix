@@ -56,6 +56,7 @@ func TestChatOwnership_ForeignIndistinguishableFromMissing(t *testing.T) {
 		{"clear", http.MethodPost, func(id string) string { return "/api/chats/" + id + "/clear" }, ""},
 		{"send message", http.MethodPost, func(id string) string { return "/api/chats/" + id + "/messages" }, `{"content":"hi"}`},
 		{"list messages", http.MethodGet, func(id string) string { return "/api/chats/" + id + "/messages" }, ""},
+		{"set cost cap", http.MethodPost, func(id string) string { return "/api/chats/" + id + "/cap" }, `{"cost_cap_usd":4}`},
 		{"stream", http.MethodGet, func(id string) string { return "/api/chats/" + id + "/stream" }, ""},
 	}
 

@@ -113,7 +113,9 @@ type Session struct {
 // architect stage divider or sheet reference whose Content is a {text, marker}
 // JSON envelope, and "round_chat" marks a user message about an open question
 // round whose Content is plain text, as on any user row, and "round_reply"
-// marks a user message that answers a round, Content its readable summary.
+// marks a user message that answers a round, Content its readable summary,
+// and "command" marks a session command such as `cap 4`, which the panel
+// never renders.
 // Kind rides the live SSE wire and the REST bootstrap alike, so the browser
 // renders both the same.
 type Message struct {

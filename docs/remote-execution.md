@@ -478,6 +478,12 @@ a plain message without `round`; CM stores its row with kind `round_chat` so
 the panel shows it in the waiting round's thread instead of the transcript (as
 an ordinary message when no round waits any more).
 
+A blueprint's cost cap changes through a session command sent to `/message` as
+plain content: `cap <usd>` (for example `cap 4`, `cap 4.5`) or `cap off`. CM
+stores its row with kind `command`, which the panel never renders. The
+architect refuses a cap at or below its spend, and a raised cap continues a
+stage that stopped on the blueprint's cap.
+
 Recovery: when a `/message` is answered with 404 and the protocol's `not_found`
 code (the architect restarted and no longer holds the session), CM re-sends
 `/chat/start` with the same payload as a cold open, never a resume, then waits

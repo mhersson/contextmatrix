@@ -222,6 +222,7 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 	mux.HandleFunc("POST /api/chats/{id}/end", chh.endChat)
 	mux.HandleFunc("POST /api/chats/{id}/clear", chh.clearChat)
 	mux.HandleFunc("POST /api/chats/{id}/messages", chh.sendMessage)
+	mux.HandleFunc("POST /api/chats/{id}/cap", chh.setCostCap)
 	mux.HandleFunc("GET /api/chats/{id}/messages", chh.listMessages)
 	mux.HandleFunc("GET /api/chats/{id}/stream", chh.streamChat)
 	mux.HandleFunc("GET /api/chats/{id}/blueprint", chh.getBlueprint)
@@ -1411,6 +1412,111 @@ func TestSendMessage_RoundChatOnAChatSessionIsRefused(t *testing.T) {
 		`{"content":"x","round_chat":"round:1"}`))
 	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 	assert.Empty(t, backend.sentPayloads())
+}
+
+func TestSetCostCap_SendsTheCommandAndReturnsTheSession(t *testing.T) {
+	var arch *chatStubBackend
+
+	opts := architectFixtureOpts()
+	opts.onArchitect = func(s *chatStubBackend) { arch = s }
+	mux, mgr := newChatFixture(t, opts)
+
+	bp, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CostCapUSD: 2, CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		body    string
+		content string
+		want    float64
+	}{
+		{`{"cost_cap_usd":4.5}`, "cap 4.5", 4.5},
+		{`{"cost_cap_usd":0}`, "cap off", 0},
+	} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats/"+bp.ID+"/cap", tc.body))
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+		var got chat.Session
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		assert.InDelta(t, tc.want, got.CostCapUSD, 1e-9)
+
+		sent := arch.sentPayloads()
+		assert.Equal(t, tc.content, sent[len(sent)-1].Content)
+	}
+
+	msgs, err := mgr.ListMessages(context.Background(), bp.ID, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, msgs, 2)
+	assert.Equal(t, chat.EventKindCommand, msgs[0].Kind)
+}
+
+func TestSetCostCap_Refusals(t *testing.T) {
+	var arch *chatStubBackend
+
+	opts := architectFixtureOpts()
+	opts.onArchitect = func(s *chatStubBackend) { arch = s }
+	mux, mgr, backend := newChatFixtureWithBackend(t, opts)
+
+	bp, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CostCapUSD: 2, CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	plain, err := mgr.CreateSession(context.Background(), chat.CreateInput{CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	for name, tc := range map[string]struct {
+		id, body string
+		status   int
+		code     string
+	}{
+		"field absent":   {bp.ID, `{}`, http.StatusBadRequest, ErrCodeBadRequest},
+		"negative":       {bp.ID, `{"cost_cap_usd":-1}`, http.StatusBadRequest, ErrCodeInvalidChatInput},
+		"rounds to zero": {bp.ID, `{"cost_cap_usd":0.004}`, http.StatusBadRequest, ErrCodeInvalidChatInput},
+		"chat session":   {plain.ID, `{"cost_cap_usd":4}`, http.StatusBadRequest, ErrCodeInvalidChatInput},
+		"unknown id":     {"nope", `{"cost_cap_usd":4}`, http.StatusNotFound, ErrCodeChatNotFound},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats/"+tc.id+"/cap", tc.body))
+			assert.Equal(t, tc.status, rec.Code, rec.Body.String())
+			assert.Contains(t, rec.Body.String(), tc.code)
+		})
+	}
+
+	assert.Empty(t, backend.sentPayloads())
+
+	if arch != nil {
+		assert.Empty(t, arch.sentPayloads())
+	}
+
+	got, err := mgr.GetSession(context.Background(), bp.ID)
+	require.NoError(t, err)
+	assert.InDelta(t, 2.0, got.CostCapUSD, 1e-9)
+}
+
+func TestSetCostCap_FailedSendReturnsTheSendErrorAndKeepsTheCap(t *testing.T) {
+	var arch *chatStubBackend
+
+	opts := architectFixtureOpts()
+	opts.onArchitect = func(s *chatStubBackend) { arch = s }
+	mux, mgr := newChatFixture(t, opts)
+
+	bp, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CostCapUSD: 2, CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	arch.mu.Lock()
+	arch.sendErr = errors.New("architect unreachable")
+	arch.mu.Unlock()
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats/"+bp.ID+"/cap", `{"cost_cap_usd":4}`))
+	assert.Equal(t, http.StatusInternalServerError, rec.Code, rec.Body.String())
+
+	got, err := mgr.GetSession(context.Background(), bp.ID)
+	require.NoError(t, err)
+	assert.InDelta(t, 2.0, got.CostCapUSD, 1e-9)
 }
 
 type modelsBody struct {

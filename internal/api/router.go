@@ -722,6 +722,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("POST /api/chats/{id}/end", chh.endChat)
 		mux.HandleFunc("POST /api/chats/{id}/clear", chh.clearChat)
 		mux.HandleFunc("POST /api/chats/{id}/messages", chh.sendMessage)
+		mux.HandleFunc("POST /api/chats/{id}/cap", chh.setCostCap)
 		mux.HandleFunc("GET /api/chats/{id}/messages", chh.listMessages)
 		mux.HandleFunc("GET /api/chats/{id}/stream", chh.streamChat)
 		mux.HandleFunc("GET /api/chats/{id}/blueprint", chh.getBlueprint)

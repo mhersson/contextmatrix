@@ -1149,7 +1149,8 @@ is a `{text, prompt}` JSON envelope, `marker` for an architect stage divider or
 sheet reference whose content is a `{text, marker}` JSON envelope, `round_chat`
 for a user message about an open question round whose content is plain text,
 `round_reply` for a user message that answers a round whose content is its
-readable summary)
+readable summary, `command` for a session command such as `cap 4` that the
+panel never renders)
 and a unique index on `(session_id, seq)`.
 
 **`chat_sessions`:**

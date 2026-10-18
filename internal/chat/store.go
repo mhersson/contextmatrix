@@ -54,6 +54,10 @@ type Store interface {
 	// by a stale snapshot. Returns ErrSessionNotFound if no row matches.
 	UpdateSessionTitle(ctx context.Context, sessionID, title string) error
 
+	// UpdateSessionCostCap writes only the cost_cap_usd column. Returns
+	// ErrSessionNotFound if no row matches.
+	UpdateSessionCostCap(ctx context.Context, sessionID string, capUSD float64) error
+
 	AppendMessage(ctx context.Context, m Message) (int64, error)
 	ListMessages(ctx context.Context, sessionID string, sinceSeq int64, limit int) ([]Message, error)
 
