@@ -95,7 +95,7 @@ describe('BlueprintPane', () => {
     broken.titleBlock = false;
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     resetArtifactCache();
-    vi.mocked(api.getBlueprintArtifact).mockImplementation((_c, stage, version) => Promise.resolve(findArtifact(stage, version)));
+    vi.mocked(api.getBlueprintArtifact).mockImplementation((_c, stage, slice, version) => Promise.resolve(findArtifact(stage, version, slice)));
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -264,7 +264,7 @@ describe('BlueprintPane on a phone', () => {
   beforeEach(() => {
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     resetArtifactCache();
-    vi.mocked(api.getBlueprintArtifact).mockImplementation((_c, stage, version) => Promise.resolve(findArtifact(stage, version)));
+    vi.mocked(api.getBlueprintArtifact).mockImplementation((_c, stage, slice, version) => Promise.resolve(findArtifact(stage, version, slice)));
   });
   afterEach(() => vi.unstubAllGlobals());
 

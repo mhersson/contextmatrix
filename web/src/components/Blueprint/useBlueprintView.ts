@@ -3,7 +3,7 @@ import { api, isAPIError } from '../../api/client';
 import type { BlueprintLiveFrame, BlueprintView, LogEntry } from '../../types';
 import { refreshArtifact } from './artifactCache';
 import { applyDraft, holdDraft } from './draft';
-import { normalizeView } from './stages';
+import { normalizeView, sliceOf } from './stages';
 import type { BlueprintState } from './state';
 
 /** Subscribes to the architect's live frames, each as its JSON text; returns the unsubscribe. */
@@ -97,7 +97,7 @@ export function useBlueprintView(
       frames((text) => {
         const frame = parseFrame(text);
         if (frame?.type === 'artifact_stored') {
-          if (frame.stage && frame.version) refreshArtifact(chatId, frame.stage, frame.version);
+          if (frame.stage && frame.version) refreshArtifact(chatId, frame.stage, sliceOf(frame), frame.version);
         } else if (frame) {
           setState((s) => reduceFrame(s, frame));
         }
@@ -107,7 +107,7 @@ export function useBlueprintView(
 
   // A reopened stream replays no artifact_stored hints; a no-op unless the board is cached.
   useEffect(() => {
-    if (signals.reconnects > 0) refreshArtifact(chatId, 'emission', 1);
+    if (signals.reconnects > 0) refreshArtifact(chatId, 'emission', '', 1);
   }, [chatId, signals.reconnects]);
 
   useEffect(() => {

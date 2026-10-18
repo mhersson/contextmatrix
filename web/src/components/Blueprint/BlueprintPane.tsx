@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
-import type { LogEntry } from '../../types';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import type { BlueprintSlice, LogEntry } from '../../types';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { EdgeStrip } from './EdgeStrip';
 import { ScaleBar } from './ScaleBar';
@@ -70,7 +70,14 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
     returnFocusRef.current = hostRef.current?.contains(document.activeElement) ?? false;
     close();
   }, [close]);
-  const actions = useMemo(() => ({ openArtifact: (stage: string, version?: number) => show(stage, version ?? null) }), [show]);
+  // Keep the previous array while ids and titles match, so the context changes only when the slices do.
+  const [slices, setSlices] = useState<BlueprintSlice[]>([]);
+  const next = view?.slices ?? [];
+  if (next.length !== slices.length || next.some((s, i) => s.id !== slices[i].id || s.title !== slices[i].title)) setSlices(next);
+  const actions = useMemo(
+    () => ({ openArtifact: (stage: string, slice: string, version?: number) => show(stage, slice, version ?? null), slices }),
+    [show, slices],
+  );
 
   const hasSheet = layout !== null && (state.status === 'ready' || state.status === 'unreachable');
   const overlayOpen = hasSheet && layout !== 'split' && sheet.open;
@@ -96,6 +103,7 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
           draft={draft}
           shown={shown}
           onShow={show}
+          picked={sheet.picked}
           gatePrompt={gatePrompt}
           onReply={onReply}
           onClose={closeSheet}
@@ -116,7 +124,7 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
       <div ref={rootRef} className="bp-pane">
         {view && (
           <ErrorBoundary fallback={null}>
-            <ScaleBar chatId={chatId} view={view} compact={width !== null && width < LABEL_MIN_WIDTH} onOpenStage={(stage) => show(stage, null)} />
+            <ScaleBar chatId={chatId} view={view} compact={width !== null && width < LABEL_MIN_WIDTH} onOpenStage={(stage, slice) => show(stage, slice, null)} />
           </ErrorBoundary>
         )}
         <div ref={bodyRef} className="bp-body-row">

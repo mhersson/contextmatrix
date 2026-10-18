@@ -139,20 +139,40 @@ export interface DesignSlice {
   contracts: string[];
 }
 
+function parseDecision(d: Record<string, unknown>): Decision {
+  return {
+    id: str(d.id),
+    text: str(d.text),
+    chosen: str(d.chosen),
+    basis: str(d.basis),
+    rejected: records(d.rejected).map((r) => ({ option: str(r.option), why: str(r.why) })),
+  };
+}
+
 export function parseDesign(data: unknown): DesignSlice[] | null {
   if (!isRecord(data)) return null;
   return records(data.slices).map((s) => ({
     id: str(s.id),
     projects: strs(s.projects),
     contracts: strs(s.contracts),
-    decisions: records(s.decisions).map((d) => ({
-      id: str(d.id),
-      text: str(d.text),
-      chosen: str(d.chosen),
-      basis: str(d.basis),
-      rejected: records(d.rejected).map((r) => ({ option: str(r.option), why: str(r.why) })),
-    })),
+    decisions: records(s.decisions).map(parseDecision),
   }));
+}
+
+export interface SharedDecisionsData {
+  decisions: Decision[];
+  contracts: string[];
+  assumptions: Assumption[];
+}
+
+/** The decisions every slice builds on: the design's decision object, as one list. */
+export function parseSharedDecisions(data: unknown): SharedDecisionsData | null {
+  if (!isRecord(data)) return null;
+  return {
+    decisions: records(data.decisions).map(parseDecision),
+    contracts: strs(data.contracts),
+    assumptions: parseAssumptions(data.assumptions),
+  };
 }
 
 export interface GroundingProject {

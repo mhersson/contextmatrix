@@ -7,13 +7,15 @@ import { Stamp } from './Stamp';
 import { loadArtifact, useBlueprintArtifact } from './artifactCache';
 import type { HeldDraft } from './draft';
 import { ArtifactRenderer } from './renderers/ArtifactRenderer';
-import { stampFor, waitingLine, waitingOn } from './sheetModel';
+import { sliceSubtitle, stampFor, waitingLine, waitingOn } from './sheetModel';
 import { artifactsFor, stageText } from './stages';
 
 interface PaperProps {
   chatId: string;
   view: BlueprintView;
   stage: string;
+  /** The slice the sheet shows; "" for the whole blueprint. */
+  slice: string;
   /** A stored version, or the version a run is writing. */
   version: number;
   /** The run writing the shown version; null when the version is stored. */
@@ -25,19 +27,20 @@ interface PaperProps {
   roundLeft?: RoundLeft | null;
 }
 
-export function Paper({ chatId, view, stage, version, writing, draft, compare, roundLeft }: PaperProps) {
-  const refs = artifactsFor(view, stage);
+export function Paper({ chatId, view, stage, slice, version, writing, draft, compare, roundLeft }: PaperProps) {
+  const refs = artifactsFor(view, stage, slice);
   const stored = refs.find((r) => r.version === version) ?? null;
   const previousRef = refs.filter((r) => r.version < version).pop() ?? null;
   const isNewest = stored !== null && stored.version === refs[refs.length - 1]?.version;
   const wantPrevious = previousRef !== null && (stored === null || compare || isNewest);
-  const entry = useBlueprintArtifact(chatId, stage, stored ? version : null);
-  const previousEntry = useBlueprintArtifact(chatId, stage, wantPrevious && previousRef ? previousRef.version : null);
+  const entry = useBlueprintArtifact(chatId, stage, slice, stored ? version : null);
+  const previousEntry = useBlueprintArtifact(chatId, stage, slice, wantPrevious && previousRef ? previousRef.version : null);
   const previous = previousEntry?.status === 'ready' ? previousEntry.artifact : null;
   const stamp = stored ? stampFor(view, stored) : null;
   const mode: RevisionMode = !previous ? 'plain' : compare ? 'compare' : isNewest ? 'clouds' : 'plain';
   const title = stageText(stage).title;
-  const waiting = waitingOn(view, stage, roundLeft ?? null);
+  const subtitle = sliceSubtitle(view, slice) || stageText(stage).sub;
+  const waiting = waitingOn(view, stage, slice, roundLeft ?? null);
 
   let content: ReactNode;
   if (stored === null) {
@@ -76,7 +79,7 @@ export function Paper({ chatId, view, stage, version, writing, draft, compare, r
     content = (
       <p className="bp-load-error" role="alert">
         Couldn&apos;t load this sheet.{' '}
-        <button type="button" className="bf-btn-ghost bf-btn-sm" onClick={() => loadArtifact(chatId, stage, version)}>
+        <button type="button" className="bf-btn-ghost bf-btn-sm" onClick={() => loadArtifact(chatId, stage, slice, version)}>
           Retry
         </button>
       </p>
@@ -89,6 +92,7 @@ export function Paper({ chatId, view, stage, version, writing, draft, compare, r
     <article className="bp-paper" aria-label={`${title} rev ${version}`}>
       {stamp && <Stamp stamp={stamp} />}
       <h1>{title}</h1>
+      {subtitle && <p className="bp-sub">{subtitle}</p>}
       {content}
     </article>
   );

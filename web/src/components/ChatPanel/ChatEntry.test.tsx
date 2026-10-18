@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { ChatEntry } from './ChatEntry';
 import type { LogEntry } from '../../types';
 import { BlueprintSheetContext } from '../Blueprint/sheetContext';
+import { THREE_SLICES } from '../../test-utils/blueprintFixtures';
 
 // Counting stub: every render of a markdown body bumps the counter, letting
 // the memo tests assert exactly how many rows re-rendered.
@@ -234,15 +235,26 @@ describe('ChatEntry blueprint markers', () => {
   it('opens the referenced version on the sheet', () => {
     const openArtifact = vi.fn();
     render(
-      <BlueprintSheetContext.Provider value={{ openArtifact }}>
+      <BlueprintSheetContext.Provider value={{ openArtifact, slices: [] }}>
         <ChatEntry
           entry={marker('text', { text: 't', marker: { kind: 'artifact', stage: 'solution_design', version: 2, note: 'Revised for the 3 findings' } })}
         />
       </BlueprintSheetContext.Provider>,
     );
     fireEvent.click(screen.getByRole('button', { name: /Design rev 2/ }));
-    expect(openArtifact).toHaveBeenCalledWith('solution_design', 2);
+    expect(openArtifact).toHaveBeenCalledWith('solution_design', '', 2);
     expect(screen.getByText('Revised for the 3 findings')).toBeInTheDocument();
+  });
+
+  it("opens a slice reference on that slice's version", () => {
+    const openArtifact = vi.fn();
+    render(
+      <BlueprintSheetContext.Provider value={{ openArtifact, slices: [] }}>
+        <ChatEntry entry={marker('text', { text: 't', marker: { kind: 'artifact', stage: 'solution_design', slice: 'SL2', version: 1 } })} />
+      </BlueprintSheetContext.Provider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Design rev 1/ }));
+    expect(openArtifact).toHaveBeenCalledWith('solution_design', 'SL2', 1);
   });
 
   it('shows a reference without a pane as plain text', () => {
@@ -254,5 +266,27 @@ describe('ChatEntry blueprint markers', () => {
   it('shows the fallback line for a marker it cannot read', () => {
     render(<ChatEntry entry={marker('system', { text: 'Fallback line.', marker: { kind: 'odd' } })} />);
     expect(screen.getByText('Fallback line.')).toBeInTheDocument();
+  });
+
+  it('names the slice on a divider and a reference while the blueprint shows slices', () => {
+    const openArtifact = vi.fn();
+    render(
+      <BlueprintSheetContext.Provider value={{ openArtifact, slices: THREE_SLICES }}>
+        <ChatEntry entry={marker('system', { text: 't', marker: { kind: 'stage', stage: 'grounding', slice: 'SL2', persona: 'senior_developer' } })} />
+        <ChatEntry entry={marker('text', { text: 't', marker: { kind: 'artifact', stage: 'solution_design', slice: 'SL2', version: 1 } })} />
+      </BlueprintSheetContext.Provider>,
+    );
+    expect(screen.getByRole('separator', { name: 'Grounding · SL2, Senior developer' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Design · SL2 rev 1/ }));
+    expect(openArtifact).toHaveBeenCalledWith('solution_design', 'SL2', 1);
+  });
+
+  it('leaves the slice out with one slice', () => {
+    render(
+      <BlueprintSheetContext.Provider value={{ openArtifact: vi.fn(), slices: [THREE_SLICES[0]] }}>
+        <ChatEntry entry={marker('system', { text: 't', marker: { kind: 'stage', stage: 'grounding', slice: 'SL1', persona: 'senior_developer' } })} />
+      </BlueprintSheetContext.Provider>,
+    );
+    expect(screen.getByRole('separator', { name: 'Grounding, Senior developer' })).toBeInTheDocument();
   });
 });

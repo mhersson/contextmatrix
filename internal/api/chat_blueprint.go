@@ -29,6 +29,10 @@ const architectReadTimeout = 30 * time.Second
 // decoded slash or dot segment never reaches the architect's URL.
 var blueprintStagePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
+// blueprintSlicePattern is a slice id's shape (SL<n>, n from 1); only a
+// well-formed id is forwarded in the architect's query.
+var blueprintSlicePattern = regexp.MustCompile(`^SL[1-9][0-9]{0,2}$`)
+
 // architectUpstream performs the signed GETs behind the blueprint proxies.
 type architectUpstream struct {
 	baseURL string
@@ -48,11 +52,16 @@ func newArchitectUpstream(baseURL, key string) *architectUpstream {
 	}
 }
 
-// get signs and sends a GET for path. The random nonce keeps two same-second
-// requests for one path from signing alike, which the architect's replay
-// cache would refuse.
-func (u *architectUpstream) get(ctx context.Context, path, accept string) (*http.Response, error) {
-	fullURL := u.baseURL + path + "?nonce=" + rand.Text()
+// get signs and sends a GET for path with query. The random nonce keeps two
+// same-second requests for one path from signing alike, which the
+// architect's replay cache would refuse.
+func (u *architectUpstream) get(ctx context.Context, path string, query url.Values, accept string) (*http.Response, error) {
+	q := url.Values{"nonce": {rand.Text()}}
+	for k, v := range query {
+		q[k] = v
+	}
+
+	fullURL := u.baseURL + path + "?" + q.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
 	if err != nil {
@@ -101,10 +110,10 @@ func (h *chatHandlers) blueprintSession(w http.ResponseWriter, r *http.Request) 
 // 200. Otherwise it answers the caller itself: 404 BLUEPRINT_NOT_FOUND for an
 // upstream 404, 502 BACKEND_UNAVAILABLE for any other failure, nothing when
 // the caller already left. ok=false means the caller must not write.
-func (h *chatHandlers) architectGet(ctx context.Context, w http.ResponseWriter, r *http.Request, path, accept string) (*http.Response, bool) {
+func (h *chatHandlers) architectGet(ctx context.Context, w http.ResponseWriter, r *http.Request, path string, query url.Values, accept string) (*http.Response, bool) {
 	logger := ctxlog.Logger(r.Context()).With("upstream_path", path)
 
-	resp, err := h.architect.get(ctx, path, accept)
+	resp, err := h.architect.get(ctx, path, query, accept)
 	if err != nil {
 		if r.Context().Err() != nil {
 			return nil, false
@@ -138,11 +147,11 @@ func (h *chatHandlers) architectGet(ctx context.Context, w http.ResponseWriter, 
 
 // proxyBlueprintRead relays one architect JSON read byte for byte, always as
 // application/json so CM's origin never serves another content type.
-func (h *chatHandlers) proxyBlueprintRead(w http.ResponseWriter, r *http.Request, path string) {
+func (h *chatHandlers) proxyBlueprintRead(w http.ResponseWriter, r *http.Request, path string, query url.Values) {
 	ctx, cancel := context.WithTimeout(r.Context(), h.architect.readTimeout)
 	defer cancel()
 
-	resp, ok := h.architectGet(ctx, w, r, path, "application/json")
+	resp, ok := h.architectGet(ctx, w, r, path, query, "application/json")
 	if !ok {
 		return
 	}
@@ -163,7 +172,7 @@ func (h *chatHandlers) getBlueprint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.proxyBlueprintRead(w, r, "/blueprints/"+url.PathEscape(sess.ID))
+	h.proxyBlueprintRead(w, r, "/blueprints/"+url.PathEscape(sess.ID), nil)
 }
 
 // getBlueprintArtifact handles
@@ -183,10 +192,41 @@ func (h *chatHandlers) getBlueprintArtifact(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	query, sliceOK := blueprintSliceQuery(w, r)
+	if !sliceOK {
+		return
+	}
+
 	sess, ok := h.blueprintSession(w, r)
 	if !ok {
 		return
 	}
 
-	h.proxyBlueprintRead(w, r, "/blueprints/"+url.PathEscape(sess.ID)+"/artifacts/"+stage+"/"+strconv.Itoa(version))
+	h.proxyBlueprintRead(w, r, "/blueprints/"+url.PathEscape(sess.ID)+"/artifacts/"+stage+"/"+strconv.Itoa(version), query)
+}
+
+// blueprintSliceQuery reads the optional slice parameter: absent forwards
+// nothing, one well-formed id forwards it, anything else (including an
+// undecodable query) answers 400. ok=false means a response was written.
+func blueprintSliceQuery(w http.ResponseWriter, r *http.Request) (url.Values, bool) {
+	// r.URL.Query() silently drops pairs it cannot decode, which would read as absent.
+	q, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid query", "")
+
+		return nil, false
+	}
+
+	vals, present := q["slice"]
+	if !present {
+		return nil, true
+	}
+
+	if len(vals) != 1 || !blueprintSlicePattern.MatchString(vals[0]) {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid slice", strings.Join(vals, ","))
+
+		return nil, false
+	}
+
+	return url.Values{"slice": vals}, true
 }

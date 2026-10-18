@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { ScaleBar } from './ScaleBar';
-import { viewAtDesignGate } from '../../test-utils/blueprintFixtures';
+import { viewAtDesignGate, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
 
 function tones() {
   return screen.getAllByRole('listitem').map((li) => li.getAttribute('data-tone'));
@@ -45,7 +45,7 @@ describe('ScaleBar', () => {
     const onOpenStage = vi.fn();
     render(<ScaleBar chatId="S1" view={viewAtDesignGate()} compact={false} onOpenStage={onOpenStage} />);
     fireEvent.click(screen.getByRole('button', { name: /Open Need/ }));
-    expect(onOpenStage).toHaveBeenCalledWith('intake');
+    expect(onOpenStage).toHaveBeenCalledWith('intake', '');
     const grounding = screen.getAllByRole('listitem')[3];
     expect(within(grounding).getByRole('img')).toHaveAccessibleName('Grounding. Senior developer. Not started');
     expect(within(grounding).queryByRole('button')).not.toBeInTheDocument();
@@ -56,5 +56,51 @@ describe('ScaleBar', () => {
     view.cost = { ...view.cost, spent_usd: 1.8 };
     const { container } = render(<ScaleBar chatId="S1" view={view} compact={false} onOpenStage={() => {}} />);
     expect(container.querySelector('.bp-cost')).toHaveClass('bp-cost--warn');
+  });
+
+  it('opens a finished slice step only when its own slice has the sheet', () => {
+    const view = viewSliced();
+    view.pipeline = view.pipeline.map((s) => (s.stage === 'grounding' && s.slice === 'SL2' ? { ...s, status: 'done' as const } : s));
+    render(<ScaleBar chatId="S2" view={view} compact={false} onOpenStage={() => {}} />);
+    expect(screen.getAllByRole('button', { name: /^Open Grounding/ })).toHaveLength(1);
+  });
+
+  it('opens a finished slice step on its own sheet', () => {
+    const onOpen = vi.fn();
+    render(<ScaleBar chatId="S2" view={viewSliced()} compact={false} onOpenStage={onOpen} />);
+    fireEvent.click(screen.getByRole('button', { name: /^Open Grounding/ }));
+    expect(onOpen).toHaveBeenCalledWith('grounding', 'SL1');
+  });
+});
+
+describe('ScaleBar slices', () => {
+  it("brackets each slice's steps under its id, the current one with its title", () => {
+    render(<ScaleBar chatId="S2" view={viewSliced()} compact={false} onOpenStage={() => {}} />);
+    expect(screen.getAllByRole('listitem')).toHaveLength(18);
+    const sl1 = screen.getByText('SL1');
+    expect(within(sl1.parentElement!).getAllByRole('listitem')).toHaveLength(4);
+    expect(screen.getByText('SL2 · Logs searchable in the cluster').parentElement).toHaveClass('bp-seg-group--waiting');
+    expect(screen.getByText('SL3')).toBeInTheDocument();
+  });
+
+  it('names the slice beside the bar and in the segment labels', () => {
+    render(<ScaleBar chatId="S2" view={viewSliced()} compact={false} onOpenStage={() => {}} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Solution design · SL2');
+    expect(screen.getByRole('img', { name: /^Solution design · SL2, gate\. / })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Open Grounding: Grounding · SL1\. / })).toBeInTheDocument();
+  });
+
+  it('draws one slice like a blueprint without slices', () => {
+    const { container } = render(<ScaleBar chatId="S2" view={viewOneSlice()} compact={false} onOpenStage={() => {}} />);
+    expect(screen.getAllByRole('listitem')).toHaveLength(9);
+    expect(container.querySelector('.bp-seg-group')).toBeNull();
+    expect(screen.getByRole('status')).not.toHaveTextContent('SL1');
+  });
+
+  it('marks only the first segment and the last three for edge and tooltip placement', () => {
+    render(<ScaleBar chatId="S2" view={viewSliced()} compact={false} onOpenStage={() => {}} />);
+    const items = screen.getAllByRole('listitem');
+    expect(items.filter((li) => li.classList.contains('bp-seg--first'))).toEqual([items[0]]);
+    expect(items.filter((li) => li.classList.contains('bp-seg--end'))).toEqual(items.slice(-3));
   });
 });

@@ -3,6 +3,7 @@ import type {
   BlueprintArtifactRef,
   BlueprintArtifactReview,
   BlueprintPipelineStep,
+  BlueprintSlice,
   BlueprintView,
 } from '../types';
 
@@ -49,6 +50,7 @@ export function viewAtDesignGate(): BlueprintView {
     mode: 'default',
     state: 'waiting',
     seq: 42,
+    slices: [],
     pipeline: [
       step('intake', 'product_owner', 'done', { latest_version: 1, cost_usd: 0.03 }),
       step('slicing', 'product_owner', 'folded', {
@@ -80,6 +82,88 @@ export function viewAtDesignGate(): BlueprintView {
     ],
   };
 }
+
+export const THREE_SLICES: BlueprintSlice[] = [
+  { id: 'SL1', title: 'Service running with its database' },
+  { id: 'SL2', title: 'Logs searchable in the cluster' },
+  { id: 'SL3', title: 'Nightly backups and restore' },
+];
+
+function sliceSteps(slice: string, statuses: BlueprintPipelineStep['status'][]): BlueprintPipelineStep[] {
+  return [
+    step('solution_design', 'system_designer', statuses[0], { slice, gate: true, policy: 'human' }),
+    step('grounding', 'senior_developer', statuses[1], { slice }),
+    step('acceptance', 'senior_developer', statuses[2], { slice, gate: true, policy: 'auto' }),
+    step('decomposition', 'senior_developer', statuses[3], { slice }),
+  ];
+}
+
+/** Three slices: shared decisions and SL1 done, SL2's design rev 1 at your gate, SL3 not started. */
+export function viewSliced(): BlueprintView {
+  return {
+    id: 'S2',
+    mode: 'default',
+    state: 'waiting',
+    seq: 7,
+    slices: THREE_SLICES,
+    pipeline: [
+      step('intake', 'product_owner', 'done', { latest_version: 1 }),
+      step('slicing', 'product_owner', 'done', { gate: true, latest_version: 1 }),
+      step('shared_decisions', 'system_designer', 'done', { gate: true, policy: 'human', latest_version: 1 }),
+      ...sliceSteps('SL1', ['done', 'done', 'done', 'done']),
+      ...sliceSteps('SL2', ['waiting', 'pending', 'pending', 'pending']),
+      ...sliceSteps('SL3', ['pending', 'pending', 'pending', 'pending']),
+      step('readiness', 'reviewer', 'pending', { max_rounds: 3 }),
+      step('signoff', 'you', 'pending', { gate: true }),
+      step('emission', 'architect', 'pending'),
+    ],
+    open: { prompt_id: 'gate:solution_design:SL2:v1', kind: 'gate' },
+    cost: { spent_usd: 0.84, run_spent_usd: 0, cap_usd: 10, run_cap_usd: 1, priced: true },
+    artifacts: [
+      ref('intake', 1, 'current'),
+      ref('slicing', 1, 'approved', { decided_by: 'you' }),
+      ref('shared_decisions', 1, 'approved', { decided_by: 'you' }),
+      ref('solution_design', 1, 'approved', { slice: 'SL1', decided_by: 'you' }),
+      ref('grounding', 1, 'current', { slice: 'SL1' }),
+      ref('acceptance', 1, 'approved', { slice: 'SL1', decided_by: 'automatic' }),
+      ref('decomposition', 1, 'current', { slice: 'SL1' }),
+      ref('solution_design', 1, 'at_gate', { slice: 'SL2' }),
+    ],
+  };
+}
+
+/** One slice: shared decisions collapse (skipped), slicing folds, the per-slice steps carry SL1 and its design waits at your gate. */
+export function viewOneSlice(): BlueprintView {
+  return {
+    ...viewSliced(),
+    slices: [THREE_SLICES[0]],
+    pipeline: [
+      step('intake', 'product_owner', 'done', { latest_version: 1 }),
+      step('slicing', 'product_owner', 'folded', { gate: true, folds_into: 'solution_design', latest_version: 1 }),
+      step('shared_decisions', 'system_designer', 'skipped', { gate: true }),
+      ...sliceSteps('SL1', ['waiting', 'pending', 'pending', 'pending']),
+      step('readiness', 'reviewer', 'pending', { max_rounds: 3 }),
+      step('signoff', 'you', 'pending', { gate: true }),
+      step('emission', 'architect', 'pending'),
+    ],
+    open: { prompt_id: 'gate:solution_design:SL1:v1', kind: 'gate' },
+    artifacts: [ref('intake', 1, 'current'), ref('slicing', 1, 'folded'), ref('solution_design', 1, 'at_gate', { slice: 'SL1' })],
+  };
+}
+
+export const DESIGN_SL1_V1: BlueprintArtifact = {
+  stage: 'solution_design',
+  slice: 'SL1',
+  version: 1,
+  body: 'CloudNativePG cluster with one replica.',
+};
+
+export const DESIGN_SL2_V1: BlueprintArtifact = {
+  stage: 'solution_design',
+  slice: 'SL2',
+  version: 1,
+  body: 'Fluent Bit DaemonSet ships pod logs to Loki.',
+};
 
 /** Round 1 of the design attempt: rev 1 fails; rev 2 claims two of the findings. */
 export const LEDGER_REVIEW_V1: BlueprintArtifactReview = {
@@ -403,6 +487,47 @@ export const BOARD_V1: BlueprintArtifact = {
   },
 };
 
+/** Rev 1 of the decisions every slice shares; the contract's shape: one list, never `slices`. */
+export const SHARED_V1: BlueprintArtifact = {
+  stage: 'shared_decisions',
+  version: 1,
+  body: 'Every slice deploys with Kustomize and logs to Loki.',
+  data: {
+    decisions: [
+      {
+        id: 'DEC1',
+        text: 'Deploy tooling',
+        chosen: 'Kustomize overlays per environment',
+        rejected: [{ option: 'Helm chart', why: 'templates are hard to review' }],
+        basis: 'Q1',
+      },
+      { id: 'DEC2', text: 'Observability stack', chosen: 'Grafana, Loki and Fluent Bit in the cluster', rejected: [], basis: 'S1' },
+    ],
+    contracts: ['Every service logs JSON to stdout.'],
+    assumptions: ['The cluster has a default storage class.', { text: 'One namespace per environment.', basis: 'Q2' }],
+  },
+};
+
+/** Rev 2: DEC1 changes its choice, DEC2 goes, DEC3 is new; no contracts. */
+export const SHARED_V2: BlueprintArtifact = {
+  stage: 'shared_decisions',
+  version: 2,
+  body: 'Every slice deploys with Kustomize and ships metrics.',
+  data: {
+    decisions: [
+      {
+        id: 'DEC1',
+        text: 'Deploy tooling',
+        chosen: 'Kustomize overlays per cluster',
+        rejected: [{ option: 'Helm chart', why: 'templates are hard to review' }],
+        basis: 'Q1',
+      },
+      { id: 'DEC3', text: 'Metrics', chosen: 'Prometheus Operator', rejected: [], basis: 'S2' },
+    ],
+    assumptions: [],
+  },
+};
+
 const ALL = [
   NEED_V1,
   SLICES_V1,
@@ -415,10 +540,14 @@ const ALL = [
   READINESS_V2,
   SIGNOFF_V1,
   BOARD_V1,
+  DESIGN_SL1_V1,
+  DESIGN_SL2_V1,
+  SHARED_V1,
+  SHARED_V2,
 ];
 
-export function findArtifact(stage: string, version: number): BlueprintArtifact {
-  const found = ALL.find((a) => a.stage === stage && a.version === version);
-  if (!found) throw new Error(`no fixture for ${stage} v${version}`);
+export function findArtifact(stage: string, version: number, slice = ''): BlueprintArtifact {
+  const found = ALL.find((a) => a.stage === stage && a.version === version && (a.slice ?? '') === slice);
+  if (!found) throw new Error(`no fixture for ${stage}${slice ? ` ${slice}` : ''} v${version}`);
   return found;
 }

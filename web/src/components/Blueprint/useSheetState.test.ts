@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import { useSheetState, type SheetLayout } from './useSheetState';
 import { holdDraft, type HeldDraft } from './draft';
-import { ref, viewAtDesignGate } from '../../test-utils/blueprintFixtures';
+import { ref, viewAtDesignGate, viewSliced } from '../../test-utils/blueprintFixtures';
 import type { BlueprintView } from '../../types';
 
 interface Props {
@@ -80,9 +80,9 @@ describe('useSheetState', () => {
 
   it('holds a pin across snapshots until the current stage changes', () => {
     const { result, rerender } = setup({ view: viewAtDesignGate(), draft: null, layout: 'split' });
-    act(() => result.current.show('intake', 1));
+    act(() => result.current.show('intake', '', 1));
     rerender({ view: viewAtDesignGate(), draft: null, layout: 'split' });
-    expect(result.current.pin).toEqual({ stage: 'intake', version: 1 });
+    expect(result.current.pin).toEqual({ stage: 'intake', slice: '', version: 1 });
     const grounding = {
       ...idle(),
       current: { stage: 'grounding', kind: 'stage' as const, persona: 'senior_developer', model: 'm', started_at: '', turns: 1, tool_calls: 0, tokens: 0 },
@@ -96,5 +96,43 @@ describe('useSheetState', () => {
     rerender({ view: withNewVersion(asking), draft: null, layout: 'phone' });
     expect(result.current.open).toBe(false);
     expect(result.current.hasNew).toBe(true);
+  });
+
+  it('opens a closed sheet for a new version in another slice of the same stage', () => {
+    const view = { ...viewSliced(), open: undefined };
+    const { result, rerender } = setup({ view, draft: null, layout: 'overlay' });
+    rerender({ view: { ...view, artifacts: [...view.artifacts, ref('solution_design', 1, 'current', { slice: 'SL3' })] }, draft: null, layout: 'overlay' });
+    expect(result.current.open).toBe(true);
+  });
+
+  it('drops a pin when the current step moves to another slice of the same stage', () => {
+    const { result, rerender } = setup({ view: viewSliced(), draft: null, layout: 'split' });
+    act(() => result.current.show('grounding', 'SL1', null));
+    expect(result.current.pin).toEqual({ stage: 'grounding', slice: 'SL1', version: null });
+    const next = viewSliced();
+    next.open = undefined;
+    next.artifacts = next.artifacts.map((a) => (a.status === 'at_gate' ? { ...a, status: 'approved' as const } : a));
+    next.current = { stage: 'solution_design', slice: 'SL3', kind: 'stage', persona: 'system_designer', model: 'm', started_at: '', turns: 0, tool_calls: 0, tokens: 0 };
+    rerender({ view: next, draft: null, layout: 'split' });
+    expect(result.current.pin).toBeNull();
+  });
+
+  it('remembers the last slice picked across a whole-blueprint sheet', () => {
+    const { result } = setup({ view: viewSliced(), draft: null, layout: 'split' });
+    act(() => result.current.show('solution_design', 'SL1', null));
+    act(() => result.current.show('intake', '', null));
+    expect(result.current.picked).toBe('SL1');
+  });
+
+  it('forgets the picked slice when the current step moves', () => {
+    const { result, rerender } = setup({ view: viewSliced(), draft: null, layout: 'split' });
+    act(() => result.current.show('solution_design', 'SL1', null));
+    expect(result.current.picked).toBe('SL1');
+    const next = viewSliced();
+    next.open = undefined;
+    next.artifacts = next.artifacts.map((a) => (a.status === 'at_gate' ? { ...a, status: 'approved' as const } : a));
+    next.current = { stage: 'solution_design', slice: 'SL3', kind: 'stage', persona: 'system_designer', model: 'm', started_at: '', turns: 0, tool_calls: 0, tokens: 0 };
+    rerender({ view: next, draft: null, layout: 'split' });
+    expect(result.current.picked).toBe('');
   });
 });

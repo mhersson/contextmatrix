@@ -3,6 +3,8 @@ import { render, screen, within } from '@testing-library/react';
 import { NeedSheet } from './NeedSheet';
 import { SlicesSheet } from './SlicesSheet';
 import { DesignSheet } from './DesignSheet';
+import { SharedDecisionsSheet } from './SharedDecisionsSheet';
+import { ArtifactRenderer } from './ArtifactRenderer';
 import { GroundingSheet } from './GroundingSheet';
 import { AcceptanceSheet } from './AcceptanceSheet';
 import {
@@ -11,6 +13,8 @@ import {
   DESIGN_V2,
   GROUNDING_V1,
   NEED_V1,
+  SHARED_V1,
+  SHARED_V2,
   SLICES_V1,
   viewAtDesignGate,
 } from '../../../test-utils/blueprintFixtures';
@@ -233,3 +237,33 @@ describe('AcceptanceSheet revision clouds', () => {
   });
 });
 
+describe('SharedDecisionsSheet', () => {
+  it('renders the shared decisions, contracts and assumptions as one unsliced section', () => {
+    render(<SharedDecisionsSheet artifact={SHARED_V1} previous={null} mode="plain" view={view} />);
+    expect(screen.getByText('Deploy tooling')).toBeInTheDocument();
+    expect(screen.getByText(/Kustomize overlays per environment/)).toBeInTheDocument();
+    expect(screen.getByText('Rejected: Helm chart (templates are hard to review)')).toBeInTheDocument();
+    expect(screen.getByText('Every service logs JSON to stdout.')).toBeInTheDocument();
+    expect(screen.getByText('One namespace per environment.').closest('table')).not.toBeNull();
+    expect(screen.queryByRole('heading', { name: /^SL\d/ })).not.toBeInTheDocument();
+  });
+
+  it('clouds the changed and new decisions only', () => {
+    const { container } = render(<SharedDecisionsSheet artifact={SHARED_V2} previous={SHARED_V1} mode="clouds" view={view} />);
+    const clouded = [...container.querySelectorAll('.bp-cloud')].filter((c) => c.querySelector('.bp-dec'));
+    expect(clouded.map((c) => c.querySelector('.bp-id')?.textContent)).toEqual(['DEC1', 'DEC3']);
+  });
+
+  it('diffs a changed choice and strikes a removed decision in compare mode', () => {
+    const { container } = render(<SharedDecisionsSheet artifact={SHARED_V2} previous={SHARED_V1} mode="compare" view={view} />);
+    const dec1 = [...container.querySelectorAll('.bp-dec')].find((d) => d.textContent?.includes('DEC1'))!;
+    expect(dec1.querySelector('del')).toHaveTextContent(/environment/);
+    expect(dec1.querySelector('ins')).toHaveTextContent(/cluster/);
+    expect(container.querySelector('.bp-dec--removed')).toHaveTextContent('DEC2 Observability stack');
+  });
+
+  it('is what the sheet draws for the shared decisions stage', () => {
+    render(<ArtifactRenderer artifact={SHARED_V1} previous={null} mode="plain" view={view} />);
+    expect(screen.getByText('Deploy tooling')).toBeInTheDocument();
+  });
+});

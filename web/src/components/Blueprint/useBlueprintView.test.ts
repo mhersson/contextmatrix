@@ -140,7 +140,14 @@ describe('useBlueprintView', () => {
     getView.mockResolvedValue(withSeq(42));
     await renderPane();
     send({ type: 'artifact_stored', stage: 'emission', version: 1 });
-    expect(refreshArtifact).toHaveBeenCalledWith('S1', 'emission', 1);
+    expect(refreshArtifact).toHaveBeenCalledWith('S1', 'emission', '', 1);
+  });
+
+  it('refetches a stored slice artifact with its slice', async () => {
+    getView.mockResolvedValue(withSeq(42));
+    await renderPane();
+    send({ type: 'artifact_stored', stage: 'solution_design', slice: 'SL2', version: 1 });
+    expect(refreshArtifact).toHaveBeenCalledWith('S1', 'solution_design', 'SL2', 1);
   });
 
   // A slow reader can lose a snapshot, and a reconnect may bring no blueprint frame at all.
@@ -159,7 +166,7 @@ describe('useBlueprintView', () => {
     await waitFor(() => expect(result.current.blueprint.state).toMatchObject({ view: { seq: 45 } }));
     expect(getView).toHaveBeenCalledTimes(2);
     expect(refreshArtifact).toHaveBeenCalledTimes(1);
-    expect(refreshArtifact).toHaveBeenCalledWith('S1', 'emission', 1);
+    expect(refreshArtifact).toHaveBeenCalledWith('S1', 'emission', '', 1);
   });
 
   it.each(['marker', 'prompt'])('refetches the view when a %s row arrives', async (kind) => {

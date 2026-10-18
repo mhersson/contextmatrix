@@ -6705,7 +6705,7 @@ button.bp-seg-hit {
   border: 1px solid var(--grey1);
   border-left-width: 0;
 }
-.bp-seg:first-child .bp-seg-rule {
+.bp-seg--first .bp-seg-rule {
   border-left-width: 1px;
 }
 .bp-seg--done .bp-seg-rule {
@@ -6766,7 +6766,7 @@ button.bp-seg-hit {
   text-align: left;
   white-space: nowrap;
 }
-.bp-seg:nth-last-child(-n + 3) .bp-seg-tip {
+.bp-seg--end .bp-seg-tip {
   right: 0;
   left: auto;
 }
@@ -6774,6 +6774,41 @@ button.bp-seg-hit {
   display: block;
   font-size: 11px;
   color: var(--grey1);
+}
+.bp-scale-bar--grouped {
+  padding-bottom: 14px;
+}
+.bp-seg-group {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+.bp-seg-group-label {
+  position: absolute;
+  top: 13px;
+  right: 0;
+  left: 0;
+  margin: 0 2px;
+  padding-top: 2px;
+  overflow: hidden;
+  border-top: 1px solid var(--blueprint-quiet);
+  color: var(--blueprint-quiet);
+  font: 10px/1 var(--font-mono);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bp-seg-group--waiting .bp-seg-group-label {
+  border-color: var(--prompt-question-accent);
+  color: var(--prompt-question-accent);
+}
+.bp-seg-group--failed .bp-seg-group-label {
+  border-color: var(--red);
+  color: var(--red);
+}
+.bp-seg-group--running .bp-seg-group-label {
+  border-color: var(--aqua);
+  color: var(--aqua);
 }
 .bp-seg-hit:hover .bp-seg-tip,
 .bp-seg-hit:focus-visible .bp-seg-tip {
@@ -7358,7 +7393,7 @@ button.bp-seg-hit {
 .bp-sub {
   margin: -8px 0 14px;
   font-size: 12px;
-  color: var(--grey1);
+  color: var(--blueprint-quiet);
 }
 .bp-stamp {
   position: absolute;
@@ -7812,6 +7847,58 @@ button.bp-seg-hit {
 }
 .bp-tabs-close:hover {
   color: var(--fg);
+}
+.bp-tabs--sub {
+  border-bottom: none;
+}
+.bp-tab--joined {
+  border-radius: 6px 6px 0 0;
+  border-bottom-color: transparent;
+  background: var(--bg2);
+}
+.bp-tabs-sep {
+  flex: none;
+  align-self: stretch;
+  width: 1px;
+  margin: 6px 4px;
+  background: var(--bg3);
+}
+.bp-slices {
+  display: flex;
+  flex: none;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 6px 10px 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--bg2);
+  background: var(--bg2);
+  scrollbar-width: none;
+}
+.bp-slice {
+  padding: 4px 9px;
+  border: 1px solid var(--bg4);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: color-mix(in oklab, var(--bg0) 45%, transparent);
+  color: var(--blueprint-quiet);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.bp-slice small {
+  color: var(--blueprint-quiet);
+  font-size: 11px;
+}
+.bp-slice--on {
+  background: var(--bg0);
+  color: var(--fg);
+}
+.bp-slice--wait {
+  color: var(--prompt-question-accent);
+}
+.bp-slice:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .bp-paperwrap {
   flex: 1;

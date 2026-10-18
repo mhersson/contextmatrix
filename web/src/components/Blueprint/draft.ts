@@ -1,8 +1,10 @@
 import type { ArtifactDraft } from '../../types';
+import { sliceOf } from './stages';
 
 /** The draft the pane holds; length counts code points, as the architect's offsets do. */
 export interface HeldDraft {
   stage: string;
+  slice: string;
   version: number;
   text: string;
   length: number;
@@ -17,6 +19,7 @@ export function codePoints(text: string): number {
 export function holdDraft(d: ArtifactDraft): HeldDraft {
   return {
     stage: d.stage,
+    slice: sliceOf(d),
     version: d.version,
     text: d.text,
     length: codePoints(d.text),
@@ -32,7 +35,9 @@ export function holdDraft(d: ArtifactDraft): HeldDraft {
  */
 export function applyDraft(held: HeldDraft | null, d: ArtifactDraft): HeldDraft | null {
   if (d.offset === 0) return holdDraft(d);
-  if (!held || held.stage !== d.stage || held.version !== d.version || held.length !== d.offset) return held;
+  if (!held || held.stage !== d.stage || held.slice !== sliceOf(d) || held.version !== d.version || held.length !== d.offset) {
+    return held;
+  }
   return {
     ...held,
     text: held.text + d.text,

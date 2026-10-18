@@ -7,12 +7,13 @@ import {
   parseBoard,
   parseCards,
   parseGrounding,
+  parseSharedDecisions,
   parseSlices,
   refTone,
   stageAssumptions,
   withoutTags,
 } from './artifactData';
-import { BOARD_V1, CARDS_V1, GROUNDING_V1 } from '../../test-utils/blueprintFixtures';
+import { BOARD_V1, CARDS_V1, GROUNDING_V1, SHARED_V1, SHARED_V2 } from '../../test-utils/blueprintFixtures';
 
 describe('artifact data', () => {
   it('reads assumptions as sentences or objects and skips junk', () => {
@@ -88,5 +89,20 @@ describe('artifact data', () => {
   it('returns null for data that is not an object', () => {
     expect(parseCards('nope')).toBeNull();
     expect(parseBoard(undefined)).toBeNull();
+  });
+});
+
+describe('parseSharedDecisions', () => {
+  it('reads one decision list with contracts and assumptions', () => {
+    const data = parseSharedDecisions(SHARED_V1.data)!;
+    expect(data.decisions.map((d) => d.id)).toEqual(['DEC1', 'DEC2']);
+    expect(data.decisions[0].rejected).toEqual([{ option: 'Helm chart', why: 'templates are hard to review' }]);
+    expect(data.contracts).toEqual(['Every service logs JSON to stdout.']);
+    expect(data.assumptions.map((a) => a.basis)).toEqual(['', 'Q2']);
+  });
+
+  it('treats missing contracts as none and junk as no data', () => {
+    expect(parseSharedDecisions(SHARED_V2.data)?.contracts).toEqual([]);
+    expect(parseSharedDecisions('nope')).toBeNull();
   });
 });

@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { RoundReply } from '../../types';
 import type { Round } from './parseRound';
+import { useBlueprintSheet } from '../Blueprint/sheetContext';
+import { sliceSuffix } from '../Blueprint/stages';
 import { AssumptionsPane } from './AssumptionsPane';
 import { QuestionPane } from './QuestionPane';
 import { RoundChat } from './RoundChat';
@@ -91,6 +93,7 @@ export function RoundBlock({
     round,
     draftScope === undefined ? undefined : { sessionID: draftScope, promptId },
   );
+  const suffix = sliceSuffix(useBlueprintSheet()?.slices ?? [], round.slice);
   const tabs = tabKeys(round, mode);
   const [picked, setPicked] = useState<TabKey | null>(null);
   // Chosen once on mount so a pick on this tab does not move the block on.
@@ -181,13 +184,13 @@ export function RoundBlock({
   return (
     <section
       className={`qb${inline ? ' qb--inline' : ''}`}
-      aria-label={`${countText(round)} from ${personaPhrase(round.persona)}`}
+      aria-label={`${countText(round)} from ${personaPhrase(round.persona)}${suffix}`}
       data-mode={mode}
       onKeyDown={onKeyDown}
     >
       <div className="qb-head">
         <div>
-          <b>{countText(round)}</b> from {personaPhrase(round.persona)}
+          <b>{countText(round)}</b> from {personaPhrase(round.persona)}{suffix}
         </div>
         <span>
           {answeredCount(round, draft)} of {itemCount(round)} answered

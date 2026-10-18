@@ -1,12 +1,13 @@
 import { useCallback, useState } from 'react';
 import type { BlueprintView } from '../../types';
 import type { HeldDraft } from './draft';
-import { currentStep } from './stages';
+import { currentStep, sliceOf } from './stages';
 
 export type SheetLayout = 'split' | 'overlay' | 'phone';
 
 export interface SheetPin {
   stage: string;
+  slice: string;
   version: number | null;
 }
 
@@ -17,8 +18,8 @@ interface Signal {
 
 function signalOf(view: BlueprintView, draft: HeldDraft | null): Signal {
   return {
-    artifacts: view.artifacts.map((a) => `${a.stage}/${a.version}`).sort().join(','),
-    draft: draft ? `${draft.stage}/${draft.version}` : '',
+    artifacts: view.artifacts.map((a) => `${a.stage}/${sliceOf(a)}/${a.version}`).sort().join(','),
+    draft: draft ? `${draft.stage}/${draft.slice}/${draft.version}` : '',
   };
 }
 
@@ -31,12 +32,12 @@ function grew(before: string, after: string): boolean {
  * Whether the sheet is open, what it is pinned to, and the something-new dot.
  * A new artifact version or the start of a draft opens a closed sheet, except
  * over the transcript while a question or round waits; then only the dot shows. A pin
- * holds until the current stage changes.
+ * holds until the current step (stage and slice) changes.
  */
 export function useSheetState(view: BlueprintView | null, draft: HeldDraft | null, layout: SheetLayout) {
   const [open, setOpen] = useState(layout === 'split');
   const [hasNew, setHasNew] = useState(false);
-  const [pin, setPin] = useState<(SheetPin & { at: string }) | null>(null);
+  const [pin, setPin] = useState<(SheetPin & { at: string; picked: string }) | null>(null);
   const [prevLayout, setPrevLayout] = useState(layout);
   const [seen, setSeen] = useState<Signal | null>(null);
 
@@ -45,7 +46,8 @@ export function useSheetState(view: BlueprintView | null, draft: HeldDraft | nul
     setOpen(layout === 'split');
   }
 
-  const at = view ? (currentStep(view)?.stage ?? '') : '';
+  const step = view ? currentStep(view) : null;
+  const at = step ? `${step.stage}/${sliceOf(step)}` : '';
   if (pin && pin.at !== at) setPin(null);
 
   if (view) {
@@ -75,8 +77,9 @@ export function useSheetState(view: BlueprintView | null, draft: HeldDraft | nul
     setHasNew(false);
   }, []);
   const show = useCallback(
-    (stage: string, version: number | null) => {
-      setPin({ stage, version, at });
+    (stage: string, slice: string, version: number | null, remember: string = slice) => {
+      // picked is the slice the person chose: a whole-blueprint pick keeps it, a stage tab's fallback never sets it.
+      setPin((p) => ({ stage, slice, version, at, picked: remember || (p && p.at === at ? p.picked : '') }));
       setOpen(true);
       setHasNew(false);
     },
@@ -86,10 +89,11 @@ export function useSheetState(view: BlueprintView | null, draft: HeldDraft | nul
   return {
     open,
     hasNew,
-    pin: pin ? { stage: pin.stage, version: pin.version } : null,
+    pin: pin ? { stage: pin.stage, slice: pin.slice, version: pin.version } : null,
     openSheet,
     close,
     toggle,
     show,
+    picked: pin?.picked ?? '',
   };
 }

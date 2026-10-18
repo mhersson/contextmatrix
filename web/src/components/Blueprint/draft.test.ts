@@ -29,4 +29,11 @@ describe('drafts', () => {
     expect(refused).toMatchObject({ text: 'Draft', refused: true, reason: 'no decisions' });
     expect(applyDraft(refused, frame(0, 'Again'))).toMatchObject({ text: 'Again', refused: false });
   });
+
+  it('keeps a slice draft apart from another slice at the same stage and version', () => {
+    const held = holdDraft(frame(0, 'SL1 text', { slice: 'SL1' }));
+    expect(held.slice).toBe('SL1');
+    expect(applyDraft(held, frame(8, ' more', { slice: 'SL2' }))).toBe(held);
+    expect(applyDraft(held, frame(8, ' more', { slice: 'SL1' }))).toMatchObject({ text: 'SL1 text more' });
+  });
 });

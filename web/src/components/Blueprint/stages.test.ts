@@ -1,15 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import type { BlueprintView } from '../../types';
 import { formatHHMM } from '../../utils/chatTimestamp';
-import { LEDGER_REVIEW_V1, LEDGER_REVIEW_V2, ref, step, viewAtDesignGate } from '../../test-utils/blueprintFixtures';
+import { LEDGER_REVIEW_V1, LEDGER_REVIEW_V2, THREE_SLICES, ref, step, viewAtDesignGate, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
 import {
+  artifactsFor,
+  barGroups,
+  sliceSuffix,
   costLabel,
   currentStep,
   decidedByText,
   describeCurrent,
+  latestArtifact,
   normalizeView,
   personaName,
   stageText,
+  stepFor,
   stepStatusText,
 } from './stages';
 
@@ -158,5 +163,55 @@ describe('costLabel', () => {
   it('draws a meter only against a cap', () => {
     expect(costLabel({ ...cost, cap_usd: 0 }).percent).toBeNull();
     expect(costLabel(cost).percent).toBeCloseTo(17.5);
+  });
+});
+
+describe('slices', () => {
+  it('fills a missing slice list', () => {
+    const raw = { ...viewAtDesignGate(), slices: undefined } as unknown as BlueprintView;
+    expect(normalizeView(raw).slices).toEqual([]);
+  });
+
+  it("keeps each slice's versions of a stage apart", () => {
+    const view = viewSliced();
+    expect(artifactsFor(view, 'solution_design', 'SL1').map((a) => a.status)).toEqual(['approved']);
+    expect(latestArtifact(view, 'solution_design', 'SL2')?.status).toBe('at_gate');
+    expect(artifactsFor(view, 'solution_design', '')).toEqual([]);
+  });
+
+  it('finds the current step in the slice the gate or run belongs to', () => {
+    const view = viewSliced();
+    expect(currentStep(view)).toMatchObject({ stage: 'solution_design', slice: 'SL2' });
+    view.open = undefined;
+    view.artifacts = view.artifacts.filter((a) => a.status !== 'at_gate');
+    view.current = { stage: 'solution_design', slice: 'SL3', kind: 'stage', persona: 'system_designer', model: 'm', started_at: '', turns: 1, tool_calls: 0, tokens: 0 };
+    expect(currentStep(view)).toMatchObject({ stage: 'solution_design', slice: 'SL3' });
+  });
+
+  it("reads each slice step's status from its own versions", () => {
+    const view = viewSliced();
+    expect(stepStatusText(stepFor(view, 'solution_design', 'SL1')!, view)).toBe('Approved by you');
+    expect(stepStatusText(stepFor(view, 'solution_design', 'SL2')!, view)).toBe('Waiting for you');
+  });
+});
+
+describe('slice names', () => {
+  it('suffixes a slice only while the blueprint shows slices', () => {
+    expect(sliceSuffix(THREE_SLICES, 'SL2')).toBe(' · SL2');
+    expect(sliceSuffix(THREE_SLICES, '')).toBe('');
+    expect(sliceSuffix([THREE_SLICES[0]], 'SL1')).toBe('');
+  });
+
+  it('names the slice in the current stage', () => {
+    expect(describeCurrent(viewSliced())?.name).toBe('Solution design · SL2');
+    expect(describeCurrent(viewOneSlice())?.name).toBe('Solution design');
+  });
+
+  it("groups each slice's steps and leaves the rest alone", () => {
+    const groups = barGroups(viewSliced());
+    expect(groups.map((g) => [g.slice, g.steps.length])).toEqual([
+      ['', 1], ['', 1], ['', 1], ['SL1', 4], ['SL2', 4], ['SL3', 4], ['', 1], ['', 1], ['', 1],
+    ]);
+    expect(barGroups(viewOneSlice()).every((g) => g.slice === '' && g.steps.length === 1)).toBe(true);
   });
 });

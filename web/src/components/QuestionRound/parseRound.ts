@@ -42,6 +42,8 @@ export interface RoundChatMessage {
 export interface Round {
   persona: string;
   stage: string;
+  /** The piece the asking stage runs for; "" for the whole blueprint. */
+  slice: string;
   questions: RoundQuestion[];
   assumptions: RoundAssumption[];
   /** What the architect has stored so far. */
@@ -118,6 +120,7 @@ export function parseRound(raw: unknown): Round | null {
   return {
     persona: str(raw.persona),
     stage: str(raw.stage),
+    slice: str(raw.slice),
     questions,
     assumptions,
     answers: list(raw.answers).flatMap(parseAnswer),

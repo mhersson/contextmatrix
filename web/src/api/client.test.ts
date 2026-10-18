@@ -430,9 +430,15 @@ describe('api blueprint reads', () => {
   });
 
   it('reads an artifact through the chat proxy', async () => {
-    await api.getBlueprintArtifact('S 1', 'solution_design', 2);
+    await api.getBlueprintArtifact('S 1', 'solution_design', '', 2);
     const [url] = fetchSpy.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('/api/chats/S%201/blueprint/artifacts/solution_design/2');
+  });
+
+  it('reads a slice artifact with the slice as a query parameter', async () => {
+    await api.getBlueprintArtifact('S1', 'solution_design', 'SL2', 1);
+    const [url] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/chats/S1/blueprint/artifacts/solution_design/1?slice=SL2');
   });
 
   it('surfaces the proxy error code', async () => {

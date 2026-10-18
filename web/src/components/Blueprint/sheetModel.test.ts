@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { formatHHMM } from '../../utils/chatTimestamp';
-import { ref, step, viewAtDesignGate } from '../../test-utils/blueprintFixtures';
+import { DESIGN_REVIEW, ref, step, viewAtDesignGate, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
 import type { BlueprintView } from '../../types';
 import { holdDraft } from './draft';
-import { defaultShown, resolveShown, reviewFor, reviewingPersona, sheetTabs, shownStatus, stampFor, versionOptions, writingVersion } from './sheetModel';
+import { defaultShown, resolveShown, reviewFor, reviewingPersona, sheetTabs, sliceForTab, sliceSubtitle, sliceTabs, shownStatus, stampFor, versionOptions, waitingOn, writingVersion } from './sheetModel';
 
 describe('stampFor', () => {
   const view = viewAtDesignGate();
@@ -38,11 +38,11 @@ describe('stampFor', () => {
 describe('versionOptions', () => {
   it('labels older versions and a version being written', () => {
     const view = viewAtDesignGate();
-    expect(versionOptions(view, 'solution_design', null)).toEqual([
+    expect(versionOptions(view, 'solution_design', '', null)).toEqual([
       { version: 1, label: '1, superseded' },
       { version: 2, label: '2' },
     ]);
-    expect(versionOptions(view, 'solution_design', 3).at(-1)).toEqual({ version: 3, label: '3, writing' });
+    expect(versionOptions(view, 'solution_design', '', 3).at(-1)).toEqual({ version: 3, label: '3, writing' });
   });
 });
 
@@ -56,17 +56,17 @@ describe('shownStatus', () => {
     ['a finished stage', need, false, 'Done', 'ok'],
     ['a version being written', null, true, 'Writing', 'running'],
   ])('%s', (_name, stored, writing, text, tone) => {
-    expect(shownStatus(view, stored?.stage ?? 'solution_design', stored, writing)).toEqual({ text, tone });
+    expect(shownStatus(view, stored?.stage ?? 'solution_design', '', stored, writing)).toEqual({ text, tone });
   });
 
   it('waits on the open question on the current stage', () => {
     const asking = { ...view, open: { prompt_id: 'Q4', kind: 'question' as const } };
-    expect(shownStatus(asking, 'solution_design', designV2, false)).toEqual({ text: 'Waiting on Q4', tone: 'waiting' });
+    expect(shownStatus(asking, 'solution_design', '', designV2, false)).toEqual({ text: 'Waiting on Q4', tone: 'waiting' });
   });
 
   it('waits on the open question while the asking stage run is current', () => {
     const asking = { ...view, open: { prompt_id: 'Q4', kind: 'question' as const }, current: running('solution_design') };
-    expect(shownStatus(asking, 'solution_design', null, true)).toEqual({ text: 'Waiting on Q4', tone: 'waiting' });
+    expect(shownStatus(asking, 'solution_design', '', null, true)).toEqual({ text: 'Waiting on Q4', tone: 'waiting' });
   });
 
   describe('a failed step', () => {
@@ -79,32 +79,32 @@ describe('shownStatus', () => {
 
     it('never reads Done for a current version nobody reviewed', () => {
       const v = failedWith([ref('solution_design', 1, 'current')]);
-      expect(shownStatus(v, 'solution_design', v.artifacts[0], false)).toEqual({ text: 'Review failed', tone: 'bad' });
+      expect(shownStatus(v, 'solution_design', '', v.artifacts[0], false)).toEqual({ text: 'Review failed', tone: 'bad' });
     });
 
     it('reads Review failed for a version left reviewing', () => {
       const v = failedWith([ref('solution_design', 1, 'reviewing')]);
-      expect(shownStatus(v, 'solution_design', v.artifacts[0], false)).toEqual({ text: 'Review failed', tone: 'bad' });
+      expect(shownStatus(v, 'solution_design', '', v.artifacts[0], false)).toEqual({ text: 'Review failed', tone: 'bad' });
     });
 
     it('reads Failed when a later run failed after a review', () => {
       const v = failedWith([ref('solution_design', 1, 'current', { review })]);
-      expect(shownStatus(v, 'solution_design', v.artifacts[0], false)).toEqual({ text: 'Failed', tone: 'bad' });
+      expect(shownStatus(v, 'solution_design', '', v.artifacts[0], false)).toEqual({ text: 'Failed', tone: 'bad' });
     });
 
     it('leaves an older superseded version alone', () => {
       const v = failedWith([ref('solution_design', 1, 'superseded'), ref('solution_design', 2, 'current')]);
-      expect(shownStatus(v, 'solution_design', v.artifacts[0], false)).toEqual({ text: 'Superseded', tone: 'old' });
+      expect(shownStatus(v, 'solution_design', '', v.artifacts[0], false)).toEqual({ text: 'Superseded', tone: 'old' });
     });
 
     it('still reads Done on a done step', () => {
       const v = { ...failedWith([ref('solution_design', 1, 'current')]), pipeline: view.pipeline.map((s) => (s.stage === 'solution_design' ? { ...s, status: 'done' as const } : s)) };
-      expect(shownStatus(v, 'solution_design', v.artifacts[0], false)).toEqual({ text: 'Done', tone: 'ok' });
+      expect(shownStatus(v, 'solution_design', '', v.artifacts[0], false)).toEqual({ text: 'Done', tone: 'ok' });
     });
   });
 
   it('says approved for a decided gate', () => {
-    expect(shownStatus(view, 'solution_design', ref('solution_design', 2, 'approved'), false).text).toBe('Approved');
+    expect(shownStatus(view, 'solution_design', '', ref('solution_design', 2, 'approved'), false).text).toBe('Approved');
   });
 });
 
@@ -112,9 +112,9 @@ describe('reviewFor', () => {
   const view = viewAtDesignGate();
 
   it('shows a revision the review of the version it revised', () => {
-    expect(reviewFor(view, 'solution_design', 2)).toMatchObject({ version: 1, review: { score: 4 } });
-    expect(reviewFor(view, 'solution_design', 1)?.version).toBe(1);
-    expect(reviewFor(view, 'intake', 1)).toBeNull();
+    expect(reviewFor(view, 'solution_design', '', 2)).toMatchObject({ version: 1, review: { score: 4 } });
+    expect(reviewFor(view, 'solution_design', '', 1)?.version).toBe(1);
+    expect(reviewFor(view, 'intake', '', 1)).toBeNull();
   });
 });
 
@@ -131,15 +131,15 @@ const running = (stage: string) => ({
 
 describe('which sheet shows', () => {
   it('follows the current stage and its newest version', () => {
-    expect(defaultShown(viewAtDesignGate(), null)).toEqual({ stage: 'solution_design', version: 2 });
+    expect(defaultShown(viewAtDesignGate(), null)).toEqual({ stage: 'solution_design', slice: '', version: 2 });
   });
 
   it('shows the version a run is writing', () => {
     const view = { ...viewAtDesignGate(), open: undefined, current: running('solution_design') };
-    expect(writingVersion(view, null, 'solution_design')).toBe(3);
+    expect(writingVersion(view, null, 'solution_design', '')).toBe(3);
     const draft = holdDraft({ stage: 'solution_design', version: 3, offset: 0, text: 'x' });
-    expect(writingVersion(viewAtDesignGate(), draft, 'solution_design')).toBe(3);
-    expect(defaultShown(view, null)).toEqual({ stage: 'solution_design', version: 3 });
+    expect(writingVersion(viewAtDesignGate(), draft, 'solution_design', '')).toBe(3);
+    expect(defaultShown(view, null)).toEqual({ stage: 'solution_design', slice: '', version: 3 });
   });
 
   it('keeps the asking stage on the sheet while the responder answers its question', () => {
@@ -152,22 +152,22 @@ describe('which sheet shows', () => {
       pipeline: base.pipeline.map((s) => (s.stage === 'solution_design' ? { ...s, status: 'running' as const, latest_version: 0 } : s)),
       artifacts: base.artifacts.filter((a) => a.stage !== 'solution_design'),
     };
-    expect(writingVersion(view, null, 'solution_design')).toBe(1);
-    expect(defaultShown(view, null)).toEqual({ stage: 'solution_design', version: 1 });
+    expect(writingVersion(view, null, 'solution_design', '')).toBe(1);
+    expect(defaultShown(view, null)).toEqual({ stage: 'solution_design', slice: '', version: 1 });
     expect(sheetTabs(view, null).find((t) => t.stage === 'solution_design')).toMatchObject({ enabled: true, current: true });
   });
 
   it('falls back to the last stage with an artifact', () => {
     const view = { ...viewAtDesignGate(), open: undefined };
     view.pipeline = view.pipeline.map((s) => (s.stage === 'solution_design' ? { ...s, status: 'done' as const } : s));
-    expect(defaultShown(view, null)).toEqual({ stage: 'solution_design', version: 2 });
+    expect(defaultShown(view, null)).toEqual({ stage: 'solution_design', slice: '', version: 2 });
   });
 
   it('keeps a pinned version and drops a pin that no longer exists', () => {
     const view = viewAtDesignGate();
-    expect(resolveShown(view, null, { stage: 'solution_design', version: 1 })).toEqual({ stage: 'solution_design', version: 1 });
-    expect(resolveShown(view, null, { stage: 'intake', version: null })).toEqual({ stage: 'intake', version: 1 });
-    expect(resolveShown(view, null, { stage: 'solution_design', version: 9 })).toEqual({ stage: 'solution_design', version: 2 });
+    expect(resolveShown(view, null, { stage: 'solution_design', slice: '', version: 1 })).toEqual({ stage: 'solution_design', slice: '', version: 1 });
+    expect(resolveShown(view, null, { stage: 'intake', slice: '', version: null })).toEqual({ stage: 'intake', slice: '', version: 1 });
+    expect(resolveShown(view, null, { stage: 'solution_design', slice: '', version: 9 })).toEqual({ stage: 'solution_design', slice: '', version: 2 });
   });
 });
 
@@ -190,14 +190,14 @@ describe('reviewingPersona', () => {
 
   it('names the reviewer on the stage newest stored version only', () => {
     const view = run('solution_design', 'reviewer');
-    expect(reviewingPersona(view, 'solution_design', 2)).toBe('senior_developer');
-    expect(reviewingPersona(view, 'solution_design', 1)).toBeNull();
+    expect(reviewingPersona(view, 'solution_design', '', 2)).toBe('senior_developer');
+    expect(reviewingPersona(view, 'solution_design', '', 1)).toBeNull();
   });
 
   it('is null for another stage or a non-reviewer run', () => {
-    expect(reviewingPersona(run('grounding', 'reviewer'), 'solution_design', 2)).toBeNull();
-    expect(reviewingPersona(run('solution_design', 'stage'), 'solution_design', 2)).toBeNull();
-    expect(reviewingPersona(viewAtDesignGate(), 'solution_design', 2)).toBeNull();
+    expect(reviewingPersona(run('grounding', 'reviewer'), 'solution_design', '', 2)).toBeNull();
+    expect(reviewingPersona(run('solution_design', 'stage'), 'solution_design', '', 2)).toBeNull();
+    expect(reviewingPersona(viewAtDesignGate(), 'solution_design', '', 2)).toBeNull();
   });
 });
 
@@ -208,6 +208,7 @@ describe('a waiting question round', () => {
     mode: 'default',
     state: 'waiting',
     seq: 9,
+    slices: [],
     pipeline: [step('intake', 'product_owner', 'waiting'), step('solution_design', 'system_designer', 'pending')],
     open: { prompt_id: 'round:1', kind: 'round' },
     cost: { spent_usd: 0, run_spent_usd: 0, cap_usd: 0, run_cap_usd: 0, priced: true },
@@ -215,9 +216,9 @@ describe('a waiting question round', () => {
   };
 
   it('keeps the asking stage on the sheet as the version it owes', () => {
-    expect(writingVersion(askingIntake, null, 'intake')).toBe(1);
-    expect(writingVersion(askingIntake, null, 'solution_design')).toBeNull();
-    expect(defaultShown(askingIntake, null)).toEqual({ stage: 'intake', version: 1 });
+    expect(writingVersion(askingIntake, null, 'intake', '')).toBe(1);
+    expect(writingVersion(askingIntake, null, 'solution_design', '')).toBeNull();
+    expect(defaultShown(askingIntake, null)).toEqual({ stage: 'intake', slice: '', version: 1 });
     expect(sheetTabs(askingIntake, null).find((t) => t.stage === 'intake')?.enabled).toBe(true);
   });
 
@@ -228,6 +229,96 @@ describe('a waiting question round', () => {
     [{ questions: 0, assumptions: 0 }, 'Waiting on your answers'],
     [null, 'Waiting on your answers'],
   ])('says what it still waits on (%j)', (left, text) => {
-    expect(shownStatus(askingIntake, 'intake', null, true, left)).toEqual({ text, tone: 'waiting' });
+    expect(shownStatus(askingIntake, 'intake', '', null, true, left)).toEqual({ text, tone: 'waiting' });
+  });
+});
+
+describe('slices', () => {
+  const sl3Run = { stage: 'solution_design', slice: 'SL3', kind: 'stage' as const, persona: 'system_designer', model: 'm', started_at: '', turns: 1, tool_calls: 0, tokens: 0 };
+
+  it('opens on the slice whose design waits at the gate', () => {
+    expect(defaultShown(viewSliced(), null)).toEqual({ stage: 'solution_design', slice: 'SL2', version: 1 });
+    expect(defaultShown(viewOneSlice(), null)).toEqual({ stage: 'solution_design', slice: 'SL1', version: 1 });
+  });
+
+  it('holds a pin on another slice of the same stage', () => {
+    expect(resolveShown(viewSliced(), null, { stage: 'solution_design', slice: 'SL1', version: null })).toEqual({
+      stage: 'solution_design',
+      slice: 'SL1',
+      version: 1,
+    });
+  });
+
+  it('writes only in the slice the run or draft works on', () => {
+    const view = viewSliced();
+    view.open = undefined;
+    view.current = sl3Run;
+    expect(writingVersion(view, null, 'solution_design', 'SL3')).toBe(1);
+    expect(writingVersion(view, null, 'solution_design', 'SL1')).toBeNull();
+    view.current = undefined;
+    const draft = holdDraft({ stage: 'solution_design', slice: 'SL3', version: 1, offset: 0, text: 'x' });
+    expect(writingVersion(view, draft, 'solution_design', 'SL3')).toBe(1);
+    expect(writingVersion(view, draft, 'solution_design', 'SL1')).toBeNull();
+  });
+
+  it('reads status, options, waits and reviews within the shown slice', () => {
+    const view = viewSliced();
+    const sl1 = view.artifacts.find((a) => a.stage === 'solution_design' && a.slice === 'SL1')!;
+    expect(shownStatus(view, 'solution_design', 'SL1', sl1, false)).toEqual({ text: 'Approved', tone: 'ok' });
+    expect(versionOptions(view, 'solution_design', 'SL1', null)).toEqual([{ version: 1, label: '1' }]);
+
+    const asking = { ...view, open: { prompt_id: 'round:3', kind: 'round' as const }, artifacts: view.artifacts.filter((a) => a.status !== 'at_gate') };
+    asking.current = undefined;
+    expect(waitingOn(asking, 'solution_design', 'SL2', null)).toEqual({ kind: 'round', left: null });
+    expect(waitingOn(asking, 'solution_design', 'SL1', null)).toBeNull();
+
+    view.artifacts = view.artifacts.map((a) => (a.stage === 'solution_design' && a.slice === 'SL1' ? { ...a, review: DESIGN_REVIEW } : a));
+    expect(reviewFor(view, 'solution_design', 'SL2', 1)).toBeNull();
+    expect(reviewFor(view, 'solution_design', 'SL1', 1)?.review).toBe(DESIGN_REVIEW);
+  });
+
+  it('names a replacing revision only from the same slice', () => {
+    const view = viewSliced();
+    const old = ref('grounding', 1, 'superseded', { slice: 'SL1' });
+    view.artifacts = [old, ref('grounding', 2, 'current', { slice: 'SL2' })];
+    expect(stampFor(view, old)?.detail).toBe('');
+  });
+});
+
+describe('slice tabs', () => {
+  it('gives each stage one tab, Shared among them, and marks the per-slice ones', () => {
+    const tabs = sheetTabs(viewSliced(), null);
+    expect(tabs.map((t) => t.label)).toEqual(['Need', 'Slices', 'Shared', 'Design', 'Grounding', 'Acceptance', 'Cards', 'Readiness', 'Sign-off', 'Board']);
+    expect(tabs.filter((t) => t.perSlice).map((t) => t.stage)).toEqual(['solution_design', 'grounding', 'acceptance', 'decomposition']);
+    expect(tabs.find((t) => t.stage === 'grounding')?.enabled).toBe(true);
+    expect(tabs.find((t) => t.stage === 'readiness')?.enabled).toBe(false);
+  });
+
+  it('lists slices only on a per-slice sheet of two or more slices', () => {
+    const view = viewSliced();
+    expect(sliceTabs(view, null, { stage: 'solution_design', slice: 'SL2', version: 1 })).toEqual([
+      { id: 'SL1', title: 'Service running with its database', selected: false, enabled: true, waiting: false },
+      { id: 'SL2', title: 'Logs searchable in the cluster', selected: true, enabled: true, waiting: true },
+      { id: 'SL3', title: 'Nightly backups and restore', selected: false, enabled: false, waiting: false },
+    ]);
+    expect(sliceTabs(view, null, { stage: 'intake', slice: '', version: 1 })).toEqual([]);
+    expect(sliceTabs(viewOneSlice(), null, { stage: 'solution_design', slice: 'SL1', version: 1 })).toEqual([]);
+    expect(sliceTabs(viewAtDesignGate(), null, { stage: 'solution_design', slice: '', version: 2 })).toEqual([]);
+  });
+
+  it('opens a stage tab on the preferred slice that has the sheet', () => {
+    const view = viewSliced();
+    expect(sliceForTab(view, null, 'grounding', ['SL1', ''])).toBe('SL1');
+    expect(sliceForTab(view, null, 'solution_design', ['', 'SL1'])).toBe('SL1');
+    expect(sliceForTab(view, null, 'solution_design', ['', ''])).toBe('SL2');
+    expect(sliceForTab(view, null, 'grounding', ['SL2', ''])).toBe('SL1');
+    expect(sliceForTab(view, null, 'intake', ['SL1', ''])).toBe('');
+    expect(sliceForTab(viewOneSlice(), null, 'solution_design', ['', ''])).toBe('SL1');
+  });
+
+  it('subtitles a per-slice sheet only while the blueprint shows slices', () => {
+    expect(sliceSubtitle(viewSliced(), 'SL2')).toBe('SL2 · Logs searchable in the cluster');
+    expect(sliceSubtitle(viewSliced(), '')).toBe('');
+    expect(sliceSubtitle(viewOneSlice(), 'SL1')).toBe('');
   });
 });

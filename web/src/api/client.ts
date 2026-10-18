@@ -557,9 +557,10 @@ class APIClient {
     return this.request<BlueprintView>(`/chats/${encodeURIComponent(chatId)}/blueprint`);
   }
 
-  async getBlueprintArtifact(chatId: string, stage: string, version: number): Promise<BlueprintArtifact> {
+  async getBlueprintArtifact(chatId: string, stage: string, slice: string, version: number): Promise<BlueprintArtifact> {
+    const query = slice ? `?slice=${encodeURIComponent(slice)}` : '';
     return this.request<BlueprintArtifact>(
-      `/chats/${encodeURIComponent(chatId)}/blueprint/artifacts/${encodeURIComponent(stage)}/${version}`,
+      `/chats/${encodeURIComponent(chatId)}/blueprint/artifacts/${encodeURIComponent(stage)}/${version}${query}`,
     );
   }
 

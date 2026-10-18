@@ -220,25 +220,29 @@ board. Promote-to-autonomous lives in that tab.
   disabled; its chat box sends whenever the message box would.
 - A blueprint pane adds a scale bar, a sheet and marker rows to the chat pane:
   - The scale bar under the pane header draws one segment per pipeline step:
-    done steps filled green, the current step hatched (aqua while a run
-    works, the question accent while the blueprint waits for you), pending
-    steps outlined, a failed step outlined red and folded slicing as a narrow
-    segment; gates carry a notch. Beside the bar the current stage says who
-    is doing what. Hover a segment for its persona, status and cost; click a
-    finished one to open its artifact. The right end shows the architect's
-    spend against the blueprint cap; the meter turns orange at 80% and red at
-    the cap. Click it (it is a button, also with no cap set) for a popover
-    with the spend, the cap, +$2 / +$5 / +$10 raises (added to the cap, or to
-    the spend with no cap), an amount field and a "No cap" choice. An amount
-    at or below the spend is refused, as is any amount on a model CM cannot
-    price (only "No cap" is offered, and only when a cap is set). Raising the cap continues a blueprint
+    done steps filled green, the current step hatched (aqua while a run works,
+    the question accent while the blueprint waits for you), pending steps
+    outlined, a failed step outlined red and folded slicing as a narrow
+    segment; gates carry a notch. A blueprint cut into two or more slices draws
+    each slice's steps together, bracketed under the bar with the slice's id;
+    the slice in progress also shows its title, in the colour of its current
+    segment. Beside the bar the current stage, with its slice when there are
+    several (Solution design · SL2), says who is doing what. Hover a segment
+    for its persona, status and cost; click a finished one to open its
+    artifact. The right end shows the architect's spend against the blueprint
+    cap; the meter turns orange at 80% and red at the cap. Click it (it is a
+    button, also with no cap set) for a popover with the spend, the cap, +$2 /
+    +$5 / +$10 raises (added to the cap, or to the spend with no cap), an
+    amount field and a "No cap" choice. An amount at or below the spend is
+    refused, as is any amount on a model CM cannot price (only "No cap" is
+    offered, and only when a cap is set). Raising the cap continues a blueprint
     that stopped on its cap. The change goes to the architect as a `cap`
     command that the transcript does not show; the architect's confirmation
     line is the visible record, and the cell follows the cap the architect
     republishes; the pane header's cap follows after a successful save.
-  - The sheet renders each artifact (need, slices, design, grounding,
-    acceptance, cards, readiness, sign-off, board) as a document. Long lists
-    are tables with the row count beside each heading: the need's
+  - The sheet renders each artifact (need, slices, shared decisions, design,
+    grounding, acceptance, cards, readiness, sign-off, board) as a document.
+    Long lists are tables with the row count beside each heading: the need's
     assumptions and the design's (when it states any) with their basis, the
     slices with what each delivers, its projects and the slices it comes after,
     and their assumptions with a status; each slice's acceptance criteria with
@@ -249,10 +253,22 @@ board. Promote-to-autonomous lives in that tab.
     the run. Below 520px of sheet width each table row stacks into a block;
     the sign-off's assumptions, with more columns, stack below 720px.
     Tabs follow the current stage until you pick one; a pick holds until the
-    stage changes.
+    current stage, or the slice it runs for, changes.
     Stages without an artifact are dimmed and stages the pack does not run are
-    hidden. The title block names the sheet, its revision (a picker when there
-    are several), who drew it, who checked it and its status. Checked by gives
+    hidden. The shared decisions sheet shows the decisions every slice builds
+    on as the design sheet shows a slice's, with their contracts and
+    assumptions.
+    A blueprint cut into two or more slices runs design, grounding,
+    acceptance and cards once per slice: those four tabs sit between
+    separators, and while one is open a row of slice tabs (each slice's id
+    and title) opens under it, joined to the open tab by a shared shade. The
+    chosen slice sits on the paper colour, a slice waiting for you shows in
+    the question accent, and slices without that sheet yet are dimmed.
+    Switching stage tabs keeps the chosen slice, and the sheet names the
+    slice under its title. A blueprint with one slice shows none of this and
+    no Shared tab. The title block names the sheet, its revision (a picker
+    when there are several), who drew it, who checked it and its status.
+    Checked by gives
     the reviewer and score, in red and ending "failed" when the shown version's
     own review failed (a score under the pass mark or a critical finding not
     fixed). Click it for the findings ledger: the round, the pass mark and the
@@ -283,7 +299,9 @@ board. Promote-to-autonomous lives in that tab.
     current-stage label moves into the bar's tooltip. Sheet width and open
     state are not stored.
   - The transcript shows a divider at each stage start and a sheet reference
-    for each stored artifact; clicking a reference opens that version.
+    for each stored artifact; clicking a reference opens that version. While
+    a blueprint has two or more slices, dividers, references and question
+    round headers name the slice (Design · SL2).
   - The pane loads the architect's view, then follows it live on the
     session's chat stream, with no connection of its own. It loads the view
     again after the stream reconnects and whenever a stage divider, sheet

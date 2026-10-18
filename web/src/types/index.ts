@@ -1189,8 +1189,14 @@ export interface ChatSessionUpdate {
 }
 
 // Blueprint sessions: the architect's view of one blueprint, proxied by CM
-// unchanged (protocol v0.28.0). Go omits zero-valued omitempty fields, so
+// unchanged (protocol v0.29.0). Go omits zero-valued omitempty fields, so
 // those are optional here; normalizeView fills missing or null arrays.
+
+/** One piece of a blueprint in slicing order; the id is SL<n>, shown as is and never parsed. */
+export interface BlueprintSlice {
+  id: string;
+  title: string;
+}
 
 export type BlueprintStepStatus =
   | 'pending'
@@ -1206,6 +1212,8 @@ export type BlueprintStepStatus =
 export interface BlueprintPipelineStep {
   /** Pack stage id, "signoff" or "emission". */
   stage: string;
+  /** The piece this belongs to (SL<n>); absent for the whole blueprint. */
+  slice?: string;
   persona: string;
   gate: boolean;
   /** "human" or "auto". */
@@ -1221,6 +1229,8 @@ export interface BlueprintPipelineStep {
 
 export interface BlueprintCurrentRun {
   stage: string;
+  /** The piece this belongs to (SL<n>); absent for the whole blueprint. */
+  slice?: string;
   kind: 'stage' | 'reviewer' | 'responder';
   persona: string;
   model: string;
@@ -1231,7 +1241,7 @@ export interface BlueprintCurrentRun {
 }
 
 export interface BlueprintOpenPrompt {
-  /** "Q<n>", "gate:<stage>:v<n>", "gate:signoff:v<n>" or "emission:v<n>" (kind gate, an emission resume). */
+  /** "Q<n>", "gate:<stage>:v<n>", a slice's "gate:<stage>:<slice>:v<n>", "gate:signoff:v<n>" or "emission:v<n>" (kind gate, an emission resume); matched by equality only. */
   prompt_id: string;
   kind: 'question' | 'gate' | 'round';
 }
@@ -1288,6 +1298,8 @@ export type BlueprintArtifactStatus =
 
 export interface BlueprintArtifactRef {
   stage: string;
+  /** The piece this belongs to (SL<n>); absent for the whole blueprint. */
+  slice?: string;
   version: number;
   created_at: string;
   status: BlueprintArtifactStatus;
@@ -1302,6 +1314,8 @@ export interface BlueprintView {
   mode: string;
   state: string;
   seq: number;
+  /** The newest slicing version's pieces in order; [] before slicing stores one. */
+  slices: BlueprintSlice[];
   pipeline: BlueprintPipelineStep[];
   current?: BlueprintCurrentRun;
   open?: BlueprintOpenPrompt;
@@ -1311,6 +1325,8 @@ export interface BlueprintView {
 
 export interface BlueprintArtifact {
   stage: string;
+  /** The piece this belongs to (SL<n>); absent for the whole blueprint. */
+  slice?: string;
   version: number;
   body: string;
   data?: unknown;
@@ -1320,6 +1336,8 @@ export interface BlueprintArtifact {
 /** An artifact body a run is writing; offset counts code points sent before text. */
 export interface ArtifactDraft {
   stage: string;
+  /** The piece this belongs to (SL<n>); absent for the whole blueprint. */
+  slice?: string;
   version: number;
   offset: number;
   text: string;
@@ -1332,6 +1350,8 @@ export interface BlueprintLiveFrame {
   view?: BlueprintView;
   draft?: ArtifactDraft;
   stage?: string;
+  /** With stage and version on an artifact_stored frame. */
+  slice?: string;
   version?: number;
 }
 
@@ -1339,6 +1359,8 @@ export interface BlueprintLiveFrame {
 export interface LogMarker {
   kind: 'stage' | 'artifact';
   stage: string;
+  /** The piece the stage runs for; absent for the whole blueprint. */
+  slice?: string;
   persona?: string;
   version?: number;
   note?: string;
