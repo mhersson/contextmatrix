@@ -222,19 +222,27 @@ board. Promote-to-autonomous lives in that tab.
     the cap.
   - The sheet renders each artifact (need, slices, design, grounding,
     acceptance, cards, readiness, sign-off, board) as a document. Tabs follow
-    the current stage until you pick one; a pick holds until the stage
-    changes. Stages without an artifact are dimmed and stages the pack does
-    not run are hidden. The title block names the sheet, its revision (a
-    picker when there are several), who drew it, who checked it (click a
-    reviewer's score for the findings, each marked addressed in a later
-    revision or sent to one) and its status. Stamps mark approved, rejected,
-    superseded and folded versions. On the newest version a dashed cloud
-    marks what changed, and Compare strikes removed words and highlights
-    added ones. At a gate a bar above the title block repeats the gate's
-    buttons. While a question round waits, the asking stage's sheet shows the
-    version it owes with the status Waiting on N questions (or the assumptions
-    still undecided). While a run works the sheet shows its turns, tool calls and
-    tokens, and fills in as the model writes when the model streams its draft.
+    the current stage until you pick one; a pick holds until the stage changes.
+    Stages without an artifact are dimmed and stages the pack does not run are
+    hidden. The title block names the sheet, its revision (a picker when there
+    are several), who drew it, who checked it and its status. Checked by gives
+    the reviewer and score, in red and ending "failed" when the shown version's
+    own review failed (a score under the pass mark or a critical finding not
+    fixed). Click it for the findings ledger: the round, the pass mark and the
+    verdict, then each finding's id, a severity badge (critical, major or minor)
+    and the reviewer's status (open, fixed in rev N or still open in rev N); a
+    critical finding not yet fixed sits on a red wash. Beside it the builder's
+    note shows as a claim, "rev N says: ...", or else the revision the finding
+    was sent to; only the reviewer's status says a finding is fixed. An older
+    architect's findings show as a numbered list without id, severity or status.
+    Stamps mark approved, rejected, superseded and folded versions. On the
+    newest version a dashed cloud marks what changed, and Compare strikes
+    removed words and highlights added ones. At a gate a bar above the title
+    block repeats the gate's buttons. While a question round waits, the asking
+    stage's sheet shows the version it owes with the status Waiting on N
+    questions (or the assumptions still undecided). While a run works the sheet
+    shows its turns, tool calls and tokens, and fills in as the model writes
+    when the model streams its draft.
   - From 760px pane width the sheet sits beside the transcript at 46% with a
     draggable divider (320px minimum each side). Narrower panes show an edge
     strip that opens the sheet over the transcript; on a phone a Sheet
