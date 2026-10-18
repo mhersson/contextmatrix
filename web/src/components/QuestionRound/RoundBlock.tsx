@@ -96,7 +96,7 @@ export function RoundBlock({
   // Chosen once on mount so a pick on this tab does not move the block on.
   const [opening] = useState(() => tabs.find((k) => tabInfo(round, draft, k).state === 'open') ?? tabs[0]);
   const active = picked !== null && tabs.includes(picked) ? picked : tabs.includes(opening) ? opening : tabs[0];
-  const [expanded, setExpanded] = useState<Readonly<Record<number, number | null>>>({});
+  const [expanded, setExpanded] = useState<Readonly<Record<number, readonly number[]>>>({});
   const [phase, setPhase] = useState<SendPhase>('idle');
   const [sendError, setSendError] = useState<string | null>(null);
   const send = async (final: boolean) => {
@@ -141,9 +141,13 @@ export function RoundBlock({
     const q = round.questions.find((x) => x.number === number);
     const o = q?.options[option - 1];
     if (!o) return;
-    setExpanded((e) => ({ ...e, [number]: e[number] === option ? null : option }));
     if (mode === 'open') pickOption(number, option, o.title);
   };
+  const toggleOption = (number: number, option: number) =>
+    setExpanded((e) => {
+      const open = e[number] ?? [];
+      return { ...e, [number]: open.includes(option) ? open.filter((x) => x !== option) : [...open, option] };
+    });
 
   // Shortcuts never act on typed text: inside an input or textarea only Enter in the own answer is taken.
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
@@ -224,8 +228,9 @@ export function RoundBlock({
             draft={draft}
             own={own[question.number] ?? storedAnswer(round, question)?.text ?? ''}
             mode={mode}
-            expanded={expanded[question.number] ?? null}
+            expanded={expanded[question.number] ?? []}
             onOption={(option) => chooseOption(question.number, option)}
+            onToggle={(option) => toggleOption(question.number, option)}
             onOwn={(text) => typeOwn(question.number, text)}
             ownRef={ownRef}
           />

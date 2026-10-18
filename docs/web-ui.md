@@ -175,9 +175,10 @@ board. Promote-to-autonomous lives in that tab.
   the architect or picked here) and dotted while open, an Assumptions tab when the stage states
   assumptions, and a Submit tab. A question tab shows the question, why it
   matters and numbered options; the suggested one carries a Recommended chip,
-  and clicking an option selects it and shows its pros, cons and sources (links
-  and code paths; with the architect's research off, its code paths and "model
-  knowledge" instead of links). The last option on every question is "Type your
+  and clicking an option selects it. An option's "pros · cons · N sources" link
+  shows them (links and code paths; with the architect's research off, its code
+  paths and "model knowledge" instead of links) and "hide" folds them; each
+  option opens on its own. The last option on every question is "Type your
   own answer". The Assumptions tab accepts each assumption or turns it into a
   question. The Submit tab reviews every answer: "Submit all N" sends them as
   final, and "Send N now, answer the rest later" stores the ones picked so far

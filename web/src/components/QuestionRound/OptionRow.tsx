@@ -9,10 +9,11 @@ interface OptionRowProps {
   expanded: boolean;
   researchOff: boolean;
   onClick: () => void;
+  onToggle: () => void;
 }
 
-/** One numbered option; the detail with pros, cons and sources sits outside the button so its links stay focusable. */
-export function OptionRow({ n, option, recommended, selected, expanded, researchOff, onClick }: OptionRowProps) {
+/** One numbered option; the details toggle is a sibling of the row button (no nested buttons) and the detail sits outside both so its links stay focusable. */
+export function OptionRow({ n, option, recommended, selected, expanded, researchOff, onClick, onToggle }: OptionRowProps) {
   const detailId = useId();
   // With research off a web source comes from model knowledge; a code source (no URL) was read with the code tools.
   const sources = researchOff ? option.sources.filter((s) => !s.url) : option.sources;
@@ -29,24 +30,28 @@ export function OptionRow({ n, option, recommended, selected, expanded, research
   const hasDetail = hasPros || hasCons || showSources;
   return (
     <div className={`qb-opt${selected ? ' sel' : ''}${expanded ? ' expanded' : ''}`}>
-      <button
-        type="button"
-        className="qb-opt-top"
-        aria-pressed={selected}
-        aria-expanded={expanded}
-        aria-controls={expanded ? detailId : undefined}
-        onClick={onClick}
-      >
-        <span className="qb-n">{n}</span>
-        <span>
-          <span className="qb-title">{option.title}</span>
-          {recommended && <span className="qb-rec">Recommended</span>}
-        </span>
-        <span className="qb-sum">{option.summary}</span>
-        <span className="qb-more" aria-hidden="true">
-          {more}
-        </span>
-      </button>
+      <div className="qb-opt-top">
+        <button type="button" className="qb-opt-pick" aria-pressed={selected} onClick={onClick}>
+          <span className="qb-n">{n}</span>
+          <span>
+            <span className="qb-title">{option.title}</span>
+            {recommended && <span className="qb-rec">Recommended</span>}
+          </span>
+          <span className="qb-sum">{option.summary}</span>
+        </button>
+        {hasDetail && (
+          <button
+            type="button"
+            className="qb-more"
+            aria-label={`Show pros, cons and sources for ${option.title}`}
+            aria-expanded={expanded}
+            aria-controls={expanded ? detailId : undefined}
+            onClick={onToggle}
+          >
+            {more}
+          </button>
+        )}
+      </div>
       {expanded && hasDetail && (
         <div className="qb-detail" id={detailId}>
           {(hasPros || hasCons) && (

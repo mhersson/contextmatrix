@@ -845,7 +845,7 @@ describe('ChatPanel kept round drafts', () => {
   const onSendRound = vi.fn(async () => {});
   const key = 'contextmatrix-round-drafts';
   const draftIt = () => {
-    fireEvent.click(screen.getByRole('button', { name: /Helm/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^\d\s*Helm/ }));
   };
   const panel = (logs: LogEntry[], sessionID = 's1') => (
     <ChatPanel logs={logs} sessionID={sessionID} onSend={vi.fn()} onSendRound={onSendRound} sendDisabled={false} promptsLive />
@@ -859,7 +859,7 @@ describe('ChatPanel kept round drafts', () => {
     first.unmount();
     render(panel(logs));
     fireEvent.click(screen.getByRole('tab', { name: /Deploy tooling/ }));
-    expect(screen.getByRole('button', { name: /Helm/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /^\d\s*Helm/ })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('keeps one session draft apart from another session with the same prompt id', () => {
@@ -867,7 +867,7 @@ describe('ChatPanel kept round drafts', () => {
     const view = render(panel(logs, 's1'));
     draftIt();
     view.rerender(panel(logs, 's2'));
-    expect(screen.getByRole('button', { name: /Helm/ })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: /^\d\s*Helm/ })).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('removes the draft when the round closes and prunes other rounds of the session', () => {
