@@ -246,7 +246,8 @@ board. Promote-to-autonomous lives in that tab.
     manual checks outside the playbook order with the checks they cover; and on
     the sign-off the run order, the assumptions (your answer, status, basis and
     source chips, and the stage that stated each) and the manual checks after
-    the run. Below 520px of sheet width each table row stacks into a block.
+    the run. Below 520px of sheet width each table row stacks into a block;
+    the sign-off's assumptions, with more columns, stack below 720px.
     Tabs follow the current stage until you pick one; a pick holds until the
     stage changes.
     Stages without an artifact are dimmed and stages the pack does not run are

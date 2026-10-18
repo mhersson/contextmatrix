@@ -97,6 +97,7 @@ export function SignoffSheet({ artifact }: RendererProps) {
           columns={assumptionColumns(data.assumptions.some((a) => yourAnswer(a)))}
           rows={numbered(data.assumptions)}
           rowKey={assumptionKey}
+          wide
         />
       ) : (
         <section>

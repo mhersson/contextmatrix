@@ -7080,7 +7080,28 @@ button.bp-seg-hit {
   margin-top: 1px;
   font-size: 11.5px;
 }
-/* Below 520px of sheet each row stacks: ids and status inline on top, the long text, then "Label: value" lines. */
+/*
+ * Below 520px of sheet each row stacks: ids and status inline on top, the long text, then "Label: value" lines.
+ * A wide table stacks below 720px. The flex settings here are inert until a stacked row turns into a flex box.
+ */
+.bp-table--rows tr {
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+  padding: 6px 0;
+}
+.bp-table--rows td {
+  flex: 1 0 100%;
+  order: 1;
+}
+.bp-table--rows td.bp-col--id,
+.bp-table--rows td.bp-col--status {
+  flex: none;
+  order: -1;
+}
+.bp-table--rows td.bp-col--long {
+  order: 0;
+}
 @container bp-sheet (width < 520px) {
   .bp-table--rows,
   .bp-table--rows tbody {
@@ -7096,38 +7117,62 @@ button.bp-seg-hit {
   }
   .bp-table--rows tr {
     display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 2px 6px;
-    padding: 6px 0;
   }
   .bp-table--rows tbody tr + tr {
     border-top: 1px solid var(--bg2);
   }
   .bp-table--rows tbody tr > td,
   .bp-table--rows tbody tr + tr > td {
-    flex: 1 0 100%;
-    order: 1;
     padding: 0;
     border-top: 0;
   }
-  .bp-table--rows tbody tr > td.bp-col--id,
-  .bp-table--rows tbody tr > td.bp-col--status {
-    flex: none;
-    order: -1;
+  .bp-table--rows td.bp-col--id,
+  .bp-table--rows td.bp-col--status {
     width: auto;
   }
-  .bp-table--rows tbody tr > td.bp-col--long {
-    order: 0;
-  }
-  .bp-table--rows td.bp-col--short::before,
-  .bp-table--rows td.bp-col--list::before,
-  .bp-table--rows td.bp-col--note::before {
+  .bp-table--rows :is(td.bp-col--short, td.bp-col--list, td.bp-col--note)::before {
     content: attr(data-label) ': ';
     font-size: 11.5px;
     color: var(--blueprint-quiet);
   }
   .bp-table--rows td:empty {
+    display: none;
+  }
+}
+@container bp-sheet (width < 720px) {
+  .bp-table--wide,
+  .bp-table--wide tbody {
+    display: block;
+  }
+  .bp-table--wide thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .bp-table--wide tr {
+    display: flex;
+  }
+  .bp-table--wide tbody tr + tr {
+    border-top: 1px solid var(--bg2);
+  }
+  .bp-table--wide tbody tr > td,
+  .bp-table--wide tbody tr + tr > td {
+    padding: 0;
+    border-top: 0;
+  }
+  .bp-table--wide td.bp-col--id,
+  .bp-table--wide td.bp-col--status {
+    width: auto;
+  }
+  .bp-table--wide :is(td.bp-col--short, td.bp-col--list, td.bp-col--note)::before {
+    content: attr(data-label) ': ';
+    font-size: 11.5px;
+    color: var(--blueprint-quiet);
+  }
+  .bp-table--wide td:empty {
     display: none;
   }
 }

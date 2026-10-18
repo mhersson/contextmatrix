@@ -24,6 +24,8 @@ interface TableSectionProps<T> {
   /** Row keys to mark with a revision cloud of `version`. */
   changed?: ReadonlySet<string>;
   version?: number;
+  /** A table of many columns stacks below 720px of sheet instead of 520px. */
+  wide?: boolean;
 }
 
 // Adjacent chips and pills leave no break opportunity, so a list's values wrap in a flex row instead.
@@ -32,7 +34,7 @@ function Cell({ kind, children }: { kind: ColumnKind; children: ReactNode }) {
   return <span className="bp-tags">{children}</span>;
 }
 
-export function TableSection<T>({ title, sub, columns, rows, rowKey, changed, version }: TableSectionProps<T>) {
+export function TableSection<T>({ title, sub, columns, rows, rowKey, changed, version, wide }: TableSectionProps<T>) {
   if (rows.length === 0) return null;
   return (
     <section>
@@ -41,7 +43,7 @@ export function TableSection<T>({ title, sub, columns, rows, rowKey, changed, ve
         {sub && <span className="bp-h-sub"> {sub}</span>}
       </h3>
       {/* Explicit roles keep the table semantics WebKit drops when a narrow sheet restyles the rows. */}
-      <table role="table" className="bp-table bp-table--rows">
+      <table role="table" className={`bp-table bp-table--rows${wide ? ' bp-table--wide' : ''}`}>
         <thead role="rowgroup">
           <tr role="row">
             {columns.map((c) => (
