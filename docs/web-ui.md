@@ -237,8 +237,18 @@ board. Promote-to-autonomous lives in that tab.
     line is the visible record, and the cell follows the cap the architect
     republishes; the pane header's cap follows after a successful save.
   - The sheet renders each artifact (need, slices, design, grounding,
-    acceptance, cards, readiness, sign-off, board) as a document. Tabs follow
-    the current stage until you pick one; a pick holds until the stage changes.
+    acceptance, cards, readiness, sign-off, board) as a document. Long lists
+    are tables with the row count beside each heading: the need's
+    assumptions and the design's (when it states any) with their basis, the
+    slices with what each delivers, its projects and the slices it comes after,
+    and their assumptions with a status; each slice's acceptance criteria with
+    their project and the manual checks with their slice; the cards sheet's
+    manual checks outside the playbook order with the checks they cover; and on
+    the sign-off the run order, the assumptions (your answer, status, basis and
+    source chips, and the stage that stated each) and the manual checks after
+    the run. Below 520px of sheet width each table row stacks into a block.
+    Tabs follow the current stage until you pick one; a pick holds until the
+    stage changes.
     Stages without an artifact are dimmed and stages the pack does not run are
     hidden. The title block names the sheet, its revision (a picker when there
     are several), who drew it, who checked it and its status. Checked by gives

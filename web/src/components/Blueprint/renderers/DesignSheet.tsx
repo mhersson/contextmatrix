@@ -2,8 +2,9 @@ import { BodyMarkdown } from '../BodyMarkdown';
 import { BasisChips } from '../Chips';
 import { DiffText } from '../DiffText';
 import { RevisionCloud } from '../RevisionCloud';
-import { parseDesign, type Decision, type DesignSlice } from '../artifactData';
+import { parseDesign, stageAssumptions, type Decision, type DesignSlice } from '../artifactData';
 import { changedById } from '../revisions';
+import { AssumptionsTable } from './parts';
 import type { RendererProps } from './types';
 
 // Design changes are found per decision id; the written text below per paragraph.
@@ -55,6 +56,11 @@ export function DesignSheet({ artifact, previous, mode }: RendererProps) {
           )}
         </section>
       ))}
+      <AssumptionsTable
+        items={stageAssumptions(artifact.data)}
+        previous={mode === 'clouds' && previous ? stageAssumptions(previous.data) : null}
+        version={artifact.version}
+      />
       <details className="bp-fulltext" open={mode === 'compare'}>
         <summary>Written design</summary>
         {fullText}

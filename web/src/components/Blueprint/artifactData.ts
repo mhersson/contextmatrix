@@ -11,18 +11,37 @@ export interface Assumption {
   text: string;
   /** "Q<n>" when the assumption rests on an answered question. */
   basis: string;
-  /** unverified, contradicted, assumed, confirmed or verified; empty when the data carries none. */
+  /** unverified, contradicted, assumed, confirmed or verified, or a stage's own wording; empty when the data carries none. */
   status: string;
   evidence: string;
+  /** The answer to the question the basis names, on the sign-off. */
+  answer: string;
+  /** The stage that stated the assumption, on the sign-off. */
+  stage: string;
 }
 
 export function parseAssumptions(v: unknown): Assumption[] {
   if (!Array.isArray(v)) return [];
   return v.flatMap((a): Assumption[] => {
-    if (typeof a === 'string') return a.trim() ? [{ id: '', text: a, basis: '', status: '', evidence: '' }] : [];
+    if (typeof a === 'string') return a.trim() ? [{ id: '', text: a, basis: '', status: '', evidence: '', answer: '', stage: '' }] : [];
     if (!isRecord(a) || !str(a.text)) return [];
-    return [{ id: str(a.id), text: str(a.text), basis: str(a.basis), status: str(a.status), evidence: str(a.evidence) }];
+    return [
+      {
+        id: str(a.id),
+        text: str(a.text),
+        basis: str(a.basis),
+        status: str(a.status),
+        evidence: str(a.evidence),
+        answer: str(a.answer),
+        stage: str(a.stage),
+      },
+    ];
   });
+}
+
+/** The assumptions a stage's data states beside its other fields. */
+export function stageAssumptions(data: unknown): Assumption[] {
+  return isRecord(data) ? parseAssumptions(data.assumptions) : [];
 }
 
 export type ChipTone = 'yellow' | 'red' | 'purple' | 'blue' | 'green' | 'grey';
@@ -37,33 +56,43 @@ export function withoutTags(text: string): string {
   return text.replace(/^\s*(?:\[S\d+(?:,\s*S\d+)*\]\s*)+/, '').trim();
 }
 
+/** The status alone: the basis shows apart. A spelled-out status shows its first clause. */
 export function assumptionChip(a: Assumption): { tone: ChipTone; label: string } | null {
-  switch (a.status) {
+  const status = a.status.split(',')[0].trim();
+  switch (status) {
+    case '':
+      return null;
     case 'unverified':
-      return { tone: 'yellow', label: 'unverified' };
+    case 'unconfirmed':
+      return { tone: 'yellow', label: status };
     case 'contradicted':
-      return { tone: 'red', label: 'contradicted' };
+      return { tone: 'red', label: status };
     case 'assumed':
-      return { tone: 'purple', label: a.basis ? `assumed by responder (${a.basis})` : 'assumed by responder' };
+      return { tone: 'purple', label: 'assumed by responder' };
     case 'confirmed':
-      return { tone: 'blue', label: a.basis ? `confirmed by you (${a.basis})` : 'confirmed by you' };
-    case 'verified': {
-      const tags = sourceTags(a.evidence);
-      return { tone: 'green', label: tags.length > 0 ? `verified ${tags.join(', ')}` : 'verified' };
-    }
+      return { tone: 'blue', label: 'confirmed by you' };
+    case 'verified':
+      return { tone: 'green', label: status };
     default:
-      return a.basis ? { tone: 'grey', label: a.basis } : null;
+      return { tone: 'grey', label: status };
   }
 }
 
-/** Q and S references in a basis, and whatever else it says. */
+const BASIS_REF = /\b(?:[QS]\d+|round\d+\.A\d+)\b/g;
+
+/** Question (Q1), round answer (round2.A1) and source (S1) references in a basis, and whatever else it says. */
 export function basisRefs(basis: string): { refs: string[]; rest: string } {
-  const refs = [...new Set(basis.match(/\b[QS]\d+\b/g) ?? [])];
+  const refs = [...new Set(basis.match(BASIS_REF) ?? [])];
   const rest = basis
-    .replace(/\b[QS]\d+\b/g, '')
+    .replace(BASIS_REF, '')
     .replace(/[\s,;]+/g, ' ')
     .trim();
   return { refs, rest };
+}
+
+/** A source reads green; a question or round answer blue. */
+export function refTone(ref: string): ChipTone {
+  return ref.startsWith('S') ? 'green' : 'blue';
 }
 
 export interface NeedData {
@@ -81,6 +110,7 @@ export interface Slice {
   title: string;
   value: string;
   projects: string[];
+  dependsOn: string[];
 }
 
 export function parseSlices(data: unknown): Slice[] | null {
@@ -90,6 +120,7 @@ export function parseSlices(data: unknown): Slice[] | null {
     title: str(s.title),
     value: str(s.value),
     projects: strs(s.projects),
+    dependsOn: strs(s.depends_on),
   }));
 }
 
@@ -175,6 +206,8 @@ export interface Criterion {
 export interface ManualCheck {
   id: string;
   text: string;
+  /** The acceptance manual checks a playbook step covers. */
+  criteria: string[];
 }
 
 /** Display text per id, cards first and manual checks after. */
@@ -192,7 +225,7 @@ export interface AcceptanceSlice {
 }
 
 function parseManual(v: unknown): ManualCheck[] {
-  return records(v).map((m) => ({ id: str(m.id), text: str(m.text) }));
+  return records(v).map((m) => ({ id: str(m.id), text: str(m.text), criteria: strs(m.criteria) }));
 }
 
 export function parseAcceptance(data: unknown): AcceptanceSlice[] | null {

@@ -123,7 +123,7 @@ describe('Paper', () => {
     get.mockRejectedValueOnce({ error: 'down', code: 'BACKEND_UNAVAILABLE' });
     render(<Paper chatId="S1" view={viewAtDesignGate()} stage="intake" version={1} writing={null} draft={null} compare={false} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
-    expect(await screen.findByRole('heading', { name: 'Assumptions' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /^Assumptions/ })).toBeInTheDocument();
   });
 
   it('shows the problems an accepted artifact still has', async () => {

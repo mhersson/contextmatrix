@@ -1,35 +1,41 @@
-import type { ManualCheck } from '../artifactData';
-import { RevisionCloud } from '../RevisionCloud';
+import { BasisChips } from '../Chips';
+import type { Assumption } from '../artifactData';
+import { assumptionKey, changedAssumptions, numbered, type NumberedAssumption } from './rows';
+import { TableSection, type Column } from './TableSection';
 
-interface ManualChecksProps {
-  title: string;
-  items: ManualCheck[];
-  /** Ids to mark with a revision cloud of `version`. */
-  changed?: Set<string>;
-  version?: number;
+export function IdPill({ id }: { id: string }) {
+  return <span className="bp-id">{id}</span>;
 }
 
-export function ManualChecks({ title, items, changed, version }: ManualChecksProps) {
-  if (items.length === 0) return null;
-  return (
-    <section>
-      <h3>{title}</h3>
-      <ul className="bp-criteria">
-        {items.map((m) => (
-          <li key={m.id}>
-            {changed?.has(m.id) && version !== undefined ? <RevisionCloud version={version}>{row(m)}</RevisionCloud> : row(m)}
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
+/** An assumption's id, or its place on the sheet when the stage gave it none. */
+export function AssumptionNumber({ row }: { row: NumberedAssumption }) {
+  return row.a.id ? <IdPill id={row.a.id} /> : <span className="bp-n">{row.n}</span>;
 }
 
-function row(m: ManualCheck) {
+const ASSUMPTION_COLUMNS: Column<NumberedAssumption>[] = [
+  { label: '#', kind: 'id', cell: (row) => <AssumptionNumber row={row} /> },
+  { label: 'Assumption', kind: 'long', cell: (row) => row.a.text },
+  { label: 'Basis', kind: 'short', cell: (row) => <BasisChips basis={row.a.basis} /> },
+];
+
+interface AssumptionsTableProps {
+  items: Assumption[];
+  /** The previous version's assumptions, when its changes are clouded. */
+  previous: Assumption[] | null;
+  version: number;
+}
+
+/** A stage's stated assumptions with their basis. */
+export function AssumptionsTable({ items, previous, version }: AssumptionsTableProps) {
   return (
-    <>
-      <span className="bp-id">{m.id}</span> {m.text}
-    </>
+    <TableSection
+      title="Assumptions"
+      columns={ASSUMPTION_COLUMNS}
+      rows={numbered(items)}
+      rowKey={assumptionKey}
+      changed={changedAssumptions(previous, items)}
+      version={version}
+    />
   );
 }
 
