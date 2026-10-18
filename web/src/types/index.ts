@@ -554,7 +554,8 @@ export interface LogEntry {
    * is a {text, marker} JSON envelope, "round_chat" for a user message typed
    * in an open question round's chat box, "round_reply" for a user message
    * answering a round (hidden when its round is loaded, a plain message
-   * otherwise). Empty / absent means a regular message. The frontend matches on this rather than content
+   * otherwise), "command" for a user message that carries a command to the architect (e.g. a cost cap
+   * change; never shown, answers no prompt). Empty / absent means a regular message. The frontend matches on this rather than content
    * strings so the rendering rule is unambiguous and survives reloads.
    */
   kind?: string;

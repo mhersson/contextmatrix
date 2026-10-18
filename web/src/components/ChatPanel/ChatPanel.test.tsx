@@ -584,6 +584,14 @@ describe('ChatPanel architect prompts', () => {
     expect(screen.getByTestId('prompt-summary')).toHaveTextContent('Approve');
   });
 
+  it('shows no bubble for a command row and keeps the prompt open', () => {
+    const cmd: LogEntry = { ts: '2026-05-13T10:00:01Z', card_id: '', type: 'user', content: 'cap 4.00', seq: 2, kind: 'command' };
+    render(<ChatPanel logs={[promptRow(1), cmd]} onSend={vi.fn()} sendDisabled={false} promptsLive />);
+
+    expect(screen.queryByText('cap 4.00')).not.toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Reply options' })).toBeInTheDocument();
+  });
+
   it('leaves only the newest unanswered prompt actionable', () => {
     render(<ChatPanel logs={[promptRow(1), promptRow(2)]} onSend={vi.fn()} sendDisabled={false} promptsLive />);
 

@@ -459,3 +459,18 @@ describe('api.sendChatMessage', () => {
     ]);
   });
 });
+
+describe('api.setChatCostCap', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('posts the cap in USD to the session cap endpoint', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => makeResponse({ id: 'S1' }));
+    await api.setChatCostCap('S1', 4.5);
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(String(url)).toContain('/chats/S1/cap');
+    expect((init as RequestInit).method).toBe('POST');
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ cost_cap_usd: 4.5 });
+  });
+});

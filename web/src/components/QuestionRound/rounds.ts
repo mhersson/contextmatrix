@@ -23,6 +23,9 @@ export const ROUND_CHAT_KIND = 'round_chat';
 /** The kind of a user row that answers a round (final or partial); the round's block and summary are its record. */
 export const ROUND_REPLY_KIND = 'round_reply';
 
+/** The kind of a user row that carries a command to the architect (e.g. a cost cap change); it never shows and answers nothing. */
+export const COMMAND_KIND = 'command';
+
 export interface RoundStates {
   byEntry: Map<LogEntry, RoundStatus>;
   /**

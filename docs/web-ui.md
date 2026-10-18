@@ -219,7 +219,14 @@ board. Promote-to-autonomous lives in that tab.
     is doing what. Hover a segment for its persona, status and cost; click a
     finished one to open its artifact. The right end shows the architect's
     spend against the blueprint cap; the meter turns orange at 80% and red at
-    the cap.
+    the cap. Click it (it is a button, also with no cap set) for a popover
+    with the spend, the cap, +$2 / +$5 / +$10 raises (added to the cap, or to
+    the spend with no cap), an amount field and a "No cap" choice. An amount
+    at or below the spend is refused. Raising the cap continues a blueprint
+    that stopped on its cap. The change goes to the architect as a `cap`
+    command that the transcript does not show; the architect's confirmation
+    line is the visible record, and the cell follows the cap the architect
+    republishes.
   - The sheet renders each artifact (need, slices, design, grounding,
     acceptance, cards, readiness, sign-off, board) as a document. Tabs follow
     the current stage until you pick one; a pick holds until the stage changes.
