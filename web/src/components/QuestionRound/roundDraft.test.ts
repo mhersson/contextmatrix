@@ -10,7 +10,6 @@ import {
   hasUnsent,
   replySummary,
   storedAnswer,
-  storedCount,
   type RoundDraft,
 } from './roundDraft';
 
@@ -50,7 +49,7 @@ describe('round answers', () => {
   it('ignores a stored answer whose option is out of range', () => {
     const bad = parseRound(rawRound({ answers: [{ number: 2, option: 5 }] }))!;
     expect(storedAnswer(bad, q(bad, 2))).toBeNull();
-    expect(storedCount(bad)).toBe(0);
+    expect(answeredCount(bad, EMPTY_DRAFT)).toBe(0);
   });
 
   it('reports unsent changes only when a pick differs from what is stored', () => {
