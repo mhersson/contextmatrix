@@ -3,7 +3,7 @@ import { formatHHMM } from '../../utils/chatTimestamp';
 import { DESIGN_REVIEW, ref, step, viewAtDesignGate, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
 import type { BlueprintView } from '../../types';
 import { holdDraft } from './draft';
-import { defaultShown, resolveShown, reviewFor, reviewingPersona, sheetTabs, shownStatus, stampFor, versionOptions, waitingOn, writingVersion } from './sheetModel';
+import { defaultShown, resolveShown, reviewFor, reviewingPersona, sheetTabs, sliceForTab, sliceSubtitle, sliceTabs, shownStatus, stampFor, versionOptions, waitingOn, writingVersion } from './sheetModel';
 
 describe('stampFor', () => {
   const view = viewAtDesignGate();
@@ -282,5 +282,42 @@ describe('slices', () => {
     const old = ref('grounding', 1, 'superseded', { slice: 'SL1' });
     view.artifacts = [old, ref('grounding', 2, 'current', { slice: 'SL2' })];
     expect(stampFor(view, old)?.detail).toBe('');
+  });
+});
+
+describe('slice tabs', () => {
+  it('gives each stage one tab, Shared among them, and marks the per-slice ones', () => {
+    const tabs = sheetTabs(viewSliced(), null);
+    expect(tabs.map((t) => t.label)).toEqual(['Need', 'Slices', 'Shared', 'Design', 'Grounding', 'Acceptance', 'Cards', 'Readiness', 'Sign-off', 'Board']);
+    expect(tabs.filter((t) => t.perSlice).map((t) => t.stage)).toEqual(['solution_design', 'grounding', 'acceptance', 'decomposition']);
+    expect(tabs.find((t) => t.stage === 'grounding')?.enabled).toBe(true);
+    expect(tabs.find((t) => t.stage === 'readiness')?.enabled).toBe(false);
+  });
+
+  it('lists slices only on a per-slice sheet of two or more slices', () => {
+    const view = viewSliced();
+    expect(sliceTabs(view, null, { stage: 'solution_design', slice: 'SL2', version: 1 })).toEqual([
+      { id: 'SL1', title: 'Service running with its database', selected: false, enabled: true, waiting: false },
+      { id: 'SL2', title: 'Logs searchable in the cluster', selected: true, enabled: true, waiting: true },
+      { id: 'SL3', title: 'Nightly backups and restore', selected: false, enabled: false, waiting: false },
+    ]);
+    expect(sliceTabs(view, null, { stage: 'intake', slice: '', version: 1 })).toEqual([]);
+    expect(sliceTabs(viewOneSlice(), null, { stage: 'solution_design', slice: 'SL1', version: 1 })).toEqual([]);
+    expect(sliceTabs(viewAtDesignGate(), null, { stage: 'solution_design', slice: '', version: 2 })).toEqual([]);
+  });
+
+  it('opens a stage tab on the preferred slice that has the sheet', () => {
+    const view = viewSliced();
+    expect(sliceForTab(view, null, 'grounding', ['SL1', ''])).toBe('SL1');
+    expect(sliceForTab(view, null, 'solution_design', ['', 'SL1'])).toBe('SL1');
+    expect(sliceForTab(view, null, 'solution_design', ['', ''])).toBe('SL2');
+    expect(sliceForTab(view, null, 'grounding', ['SL2', ''])).toBe('SL1');
+    expect(sliceForTab(view, null, 'intake', ['SL1', ''])).toBe('');
+  });
+
+  it('subtitles a per-slice sheet only while the blueprint shows slices', () => {
+    expect(sliceSubtitle(viewSliced(), 'SL2')).toBe('SL2 · Logs searchable in the cluster');
+    expect(sliceSubtitle(viewSliced(), '')).toBe('');
+    expect(sliceSubtitle(viewOneSlice(), 'SL1')).toBe('');
   });
 });

@@ -6,8 +6,11 @@ import {
   artifactsFor,
   currentStep,
   decidedByText,
+  describeCurrent,
   finished,
+  isPerSlice,
   latestArtifact,
+  showSlices,
   sliceOf,
   stageText,
   stepFor,
@@ -189,22 +192,75 @@ export function writingVersion(
 
 export interface SheetTab {
   stage: string;
-  slice: string;
   label: string;
   enabled: boolean;
   current: boolean;
+  /** The stage repeats per slice; its tab opens a slice. */
+  perSlice: boolean;
 }
 
+/** Something is on the sheet: a stored version or one being written. */
+export function hasSheet(view: BlueprintView, draft: HeldDraft | null, stage: string, slice: string): boolean {
+  return artifactsFor(view, stage, slice).length > 0 || writingVersion(view, draft, stage, slice) !== null;
+}
+
+/** One tab per stage in pipeline order; a per-slice stage's tab is enabled when any slice has its sheet. */
 export function sheetTabs(view: BlueprintView, draft: HeldDraft | null): SheetTab[] {
-  const current = finished(view) ? null : currentStep(view);
-  return visibleSteps(view).map((s) => ({
-    stage: s.stage,
-    slice: sliceOf(s),
-    label: stageText(s.stage).tab,
-    enabled:
-      artifactsFor(view, s.stage, sliceOf(s)).length > 0 || writingVersion(view, draft, s.stage, sliceOf(s)) !== null,
-    current: s === current,
+  const current = finished(view) ? null : currentStep(view)?.stage;
+  const tabs = new Map<string, SheetTab>();
+  for (const s of visibleSteps(view)) {
+    const tab = tabs.get(s.stage) ?? {
+      stage: s.stage,
+      label: stageText(s.stage).tab,
+      enabled: false,
+      current: s.stage === current,
+      perSlice: false,
+    };
+    tab.enabled ||= hasSheet(view, draft, s.stage, sliceOf(s));
+    tab.perSlice ||= sliceOf(s) !== '';
+    tabs.set(s.stage, tab);
+  }
+  return [...tabs.values()];
+}
+
+export interface SliceTab {
+  id: string;
+  title: string;
+  selected: boolean;
+  enabled: boolean;
+  /** The blueprint waits for the person in this slice. */
+  waiting: boolean;
+}
+
+/** The slice row: only under a per-slice sheet of a blueprint with two or more slices. */
+export function sliceTabs(view: BlueprintView, draft: HeldDraft | null, shown: Shown | null): SliceTab[] {
+  if (!shown || !showSlices(view.slices) || !isPerSlice(view, shown.stage)) return [];
+  const waitingIn = describeCurrent(view)?.tone === 'waiting' ? sliceOf(currentStep(view)) : '';
+  return view.slices.map((s) => ({
+    id: s.id,
+    title: s.title,
+    selected: s.id === shown.slice,
+    enabled: hasSheet(view, draft, shown.stage, s.id),
+    waiting: s.id === waitingIn,
   }));
+}
+
+/**
+ * The slice a stage tab opens: the first preferred slice with that sheet, then the current step's slice,
+ * then the first slice that has it; "" for a whole-blueprint stage.
+ */
+export function sliceForTab(view: BlueprintView, draft: HeldDraft | null, stage: string, preferred: readonly string[]): string {
+  const slices = view.pipeline.filter((s) => s.stage === stage && sliceOf(s) !== '').map(sliceOf);
+  if (slices.length === 0) return '';
+  const candidates = [...preferred, sliceOf(currentStep(view)), ...slices];
+  return candidates.find((c) => slices.includes(c) && hasSheet(view, draft, stage, c)) ?? slices[0];
+}
+
+/** "SL2 · <title>" under a per-slice sheet's title; "" while the blueprint shows no slices. */
+export function sliceSubtitle(view: BlueprintView, slice: string): string {
+  if (!showSlices(view.slices) || slice === '') return '';
+  const title = view.slices.find((s) => s.id === slice)?.title;
+  return title ? `${slice} · ${title}` : slice;
 }
 
 /** The current stage's version being written or its newest, else the last stage with an artifact. */

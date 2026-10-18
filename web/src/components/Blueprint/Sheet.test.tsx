@@ -43,6 +43,7 @@ function props(over: Partial<Props> = {}): Props {
     onShow: vi.fn(),
     gatePrompt: null,
     onReply: vi.fn().mockResolvedValue(undefined),
+    picked: '',
     ...over,
   };
 }
@@ -140,5 +141,67 @@ describe('Sheet', () => {
     render(<Sheet {...props({ chatId: 'S2', view: viewOneSlice(), shown: { stage: 'solution_design', slice: 'SL1', version: 1 } })} />);
     expect(await screen.findByText('CloudNativePG cluster with one replica.')).toBeInTheDocument();
     expect(get).toHaveBeenCalledWith('S2', 'solution_design', 'SL1', 1);
+  });
+});
+
+describe('Sheet slices', () => {
+  beforeEach(() => {
+    resetArtifactCache();
+    get.mockImplementation((_c, stage, slice, version) => Promise.resolve(findArtifact(stage, version, slice)));
+  });
+
+  const sliced = (over: Partial<Props> = {}) =>
+    props({ chatId: 'S2', view: viewSliced(), shown: { stage: 'solution_design', slice: 'SL2', version: 1 }, ...over });
+
+  it('opens the slice row under a per-slice stage tab only', () => {
+    const { rerender } = render(<Sheet {...sliced()} />);
+    const row = screen.getByRole('tablist', { name: 'Slices' });
+    expect(within(row).getByRole('tab', { name: /^SL2/ })).toHaveAttribute('aria-selected', 'true');
+    expect(within(row).getByRole('tab', { name: /^SL2/ })).toHaveClass('bp-slice--wait');
+    expect(within(row).getByRole('tab', { name: /^SL3/ })).toBeDisabled();
+    expect(screen.getByRole('tab', { name: /^Design/ })).toHaveClass('bp-tab--joined');
+    rerender(<Sheet {...sliced({ shown: { stage: 'intake', slice: '', version: 1 } })} />);
+    expect(screen.queryByRole('tablist', { name: 'Slices' })).not.toBeInTheDocument();
+  });
+
+  it('picks a slice from the row', () => {
+    const onShow = vi.fn();
+    render(<Sheet {...sliced({ onShow })} />);
+    fireEvent.click(within(screen.getByRole('tablist', { name: 'Slices' })).getByRole('tab', { name: /^SL1/ }));
+    expect(onShow).toHaveBeenLastCalledWith('solution_design', 'SL1', null);
+  });
+
+  it('keeps the chosen slice when switching stage tabs', () => {
+    const onShow = vi.fn();
+    render(<Sheet {...sliced({ shown: { stage: 'solution_design', slice: 'SL1', version: 1 }, onShow })} />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Grounding' }));
+    expect(onShow).toHaveBeenLastCalledWith('grounding', 'SL1', null);
+  });
+
+  it('returns to the picked slice from a whole-blueprint sheet', () => {
+    const onShow = vi.fn();
+    render(<Sheet {...sliced({ shown: { stage: 'intake', slice: '', version: 1 }, picked: 'SL1', onShow })} />);
+    fireEvent.click(screen.getByRole('tab', { name: /^Design/ }));
+    expect(onShow).toHaveBeenLastCalledWith('solution_design', 'SL1', null);
+  });
+
+  it('names the slice under the sheet title', async () => {
+    render(<Sheet {...sliced({ shown: { stage: 'solution_design', slice: 'SL1', version: 1 } })} />);
+    expect(await screen.findByText('SL1 · Service running with its database')).toBeInTheDocument();
+  });
+
+  it('shows nothing slice-related for one slice', async () => {
+    render(<Sheet {...props({ chatId: 'S2', view: viewOneSlice(), shown: { stage: 'solution_design', slice: 'SL1', version: 1 } })} />);
+    await screen.findByText('CloudNativePG cluster with one replica.');
+    expect(screen.queryByRole('tablist', { name: 'Slices' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Shared' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/^SL1 · /)).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /^Design/ })).not.toHaveClass('bp-tab--joined');
+  });
+
+  it('shows no slice row or separators for a blueprint without slices', () => {
+    const { container } = render(<Sheet {...props()} />);
+    expect(screen.queryByRole('tablist', { name: 'Slices' })).not.toBeInTheDocument();
+    expect(container.querySelector('.bp-tabs-sep')).toBeNull();
   });
 });

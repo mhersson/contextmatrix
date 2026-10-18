@@ -236,9 +236,9 @@ board. Promote-to-autonomous lives in that tab.
     command that the transcript does not show; the architect's confirmation
     line is the visible record, and the cell follows the cap the architect
     republishes; the pane header's cap follows after a successful save.
-  - The sheet renders each artifact (need, slices, design, grounding,
-    acceptance, cards, readiness, sign-off, board) as a document. Long lists
-    are tables with the row count beside each heading: the need's
+  - The sheet renders each artifact (need, slices, shared decisions, design,
+    grounding, acceptance, cards, readiness, sign-off, board) as a document.
+    Long lists are tables with the row count beside each heading: the need's
     assumptions and the design's (when it states any) with their basis, the
     slices with what each delivers, its projects and the slices it comes after,
     and their assumptions with a status; each slice's acceptance criteria with
@@ -251,7 +251,18 @@ board. Promote-to-autonomous lives in that tab.
     Tabs follow the current stage until you pick one; a pick holds until the
     stage changes.
     Stages without an artifact are dimmed and stages the pack does not run are
-    hidden. The title block names the sheet, its revision (a picker when there
+    hidden. The shared decisions sheet shows the decisions every slice builds
+    on as the design sheet shows a slice's, with their contracts and
+    assumptions.
+    A blueprint cut into two or more slices runs design, grounding,
+    acceptance and cards once per slice: those four tabs sit between
+    separators, and while one is open a row of slice tabs (each slice's id
+    and title) opens under it, joined to the open tab by a shared shade. The
+    chosen slice sits on the paper colour, a slice waiting for you shows in
+    the question accent, and slices without that sheet yet are dimmed.
+    Switching stage tabs keeps the chosen slice, and the sheet names the
+    slice under its title. A blueprint with one slice shows none of this and
+    no Shared tab. The title block names the sheet, its revision (a picker when there
     are several), who drew it, who checked it and its status. Checked by gives
     the reviewer and score, in red and ending "failed" when the shown version's
     own review failed (a score under the pass mark or a critical finding not

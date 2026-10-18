@@ -4,6 +4,7 @@ import { ErrorBoundary } from '../ErrorBoundary';
 import { GateBar } from './GateBar';
 import type { RoundLeft } from '../QuestionRound/rounds';
 import { Paper } from './Paper';
+import { SheetTabs } from './SheetTabs';
 import { TitleBlock } from './TitleBlock';
 import type { HeldDraft } from './draft';
 import {
@@ -11,12 +12,14 @@ import {
   reviewingPersona,
   sheetTabs,
   shownStatus,
+  sliceForTab,
+  sliceTabs,
   versionOptions,
   writingVersion,
   type GatePrompt,
   type Shown,
 } from './sheetModel';
-import { artifactsFor, stepFor } from './stages';
+import { artifactsFor, showSlices, stepFor } from './stages';
 import { useFollowEnd } from './useFollowEnd';
 
 interface SheetProps {
@@ -32,10 +35,11 @@ interface SheetProps {
   onClose?: () => void;
   /** What the open round still waits on, when the stage waits on one. */
   roundLeft?: RoundLeft | null;
+  /** The last slice picked; a stage tab returns to it. */
+  picked: string;
 }
 
-export function Sheet({ chatId, view, draft, shown, onShow, gatePrompt, onReply, onClose, roundLeft }: SheetProps) {
-  const tabs = sheetTabs(view, draft);
+export function Sheet({ chatId, view, draft, shown, onShow, gatePrompt, onReply, onClose, roundLeft, picked }: SheetProps) {
   const shownKey = shown ? `${shown.stage}/${shown.slice}/${shown.version}` : '';
   const [compare, setCompare] = useState(false);
   const [compareFor, setCompareFor] = useState(shownKey);
@@ -66,35 +70,15 @@ export function Sheet({ chatId, view, draft, shown, onShow, gatePrompt, onReply,
 
   return (
     <section className="bp-sheet" aria-label="Blueprint sheet">
-      <div className="bp-tabs" role="tablist" aria-label="Artifacts">
-        {tabs.map((t) => {
-          const on = shown?.stage === t.stage && shown.slice === t.slice;
-          return (
-            <button
-              key={`${t.stage}/${t.slice}`}
-              type="button"
-              role="tab"
-              aria-selected={on}
-              disabled={!t.enabled}
-              className={`bp-tab${on ? ' bp-tab--on' : ''}`}
-              onClick={() => onShow(t.stage, t.slice, null)}
-            >
-              {t.label}
-              {t.current && (
-                <span className="bp-tab-dot">
-                  <span className="sr-only">, current stage</span>
-                </span>
-              )}
-            </button>
-          );
-        })}
-        <span className="bp-tabs-fill" />
-        {onClose && (
-          <button type="button" className="bp-tabs-close" onClick={onClose}>
-            Close
-          </button>
-        )}
-      </div>
+      <SheetTabs
+        tabs={sheetTabs(view, draft)}
+        slices={sliceTabs(view, draft, shown)}
+        stage={shown?.stage ?? null}
+        grouped={showSlices(view.slices)}
+        onStage={(stage) => onShow(stage, sliceForTab(view, draft, stage, [shown?.slice ?? '', picked]), null)}
+        onSlice={(slice) => shown && onShow(shown.stage, slice, null)}
+        onClose={onClose}
+      />
       <div className="bp-paperwrap" ref={scrollRef}>
         {shown ? (
           // Keyed on the shown sheet, so another sheet draws afresh; the tabs stay outside and keep their focus.

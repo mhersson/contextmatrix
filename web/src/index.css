@@ -7813,6 +7813,58 @@ button.bp-seg-hit {
 .bp-tabs-close:hover {
   color: var(--fg);
 }
+.bp-tabs--sub {
+  border-bottom: none;
+}
+.bp-tab--joined {
+  border-radius: 6px 6px 0 0;
+  border-bottom-color: transparent;
+  background: var(--bg2);
+}
+.bp-tabs-sep {
+  flex: none;
+  align-self: stretch;
+  width: 1px;
+  margin: 6px 4px;
+  background: var(--bg3);
+}
+.bp-slices {
+  display: flex;
+  flex: none;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 6px 10px 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--bg2);
+  background: var(--bg2);
+  scrollbar-width: none;
+}
+.bp-slice {
+  padding: 4px 9px;
+  border: 1px solid var(--bg4);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: color-mix(in oklab, var(--bg0) 45%, transparent);
+  color: var(--blueprint-quiet);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.bp-slice small {
+  color: var(--blueprint-quiet);
+  font-size: 11px;
+}
+.bp-slice--on {
+  background: var(--bg0);
+  color: var(--fg);
+}
+.bp-slice--wait {
+  color: var(--prompt-question-accent);
+}
+.bp-slice:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .bp-paperwrap {
   flex: 1;
   min-height: 0;

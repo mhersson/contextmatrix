@@ -1,9 +1,7 @@
 import { BodyMarkdown } from '../BodyMarkdown';
-import { BasisChips } from '../Chips';
-import { DiffText } from '../DiffText';
-import { RevisionCloud } from '../RevisionCloud';
 import { parseDesign, stageAssumptions, type Decision, type DesignSlice } from '../artifactData';
 import { changedById } from '../revisions';
+import { ContractList, DecisionList } from './decisions';
 import { AssumptionsTable } from './parts';
 import type { RendererProps } from './types';
 
@@ -24,36 +22,15 @@ export function DesignSheet({ artifact, previous, mode }: RendererProps) {
             {s.id}
             {s.projects.length > 0 && <span className="bp-h-sub"> {s.projects.join(', ')}</span>}
           </h3>
-          {s.decisions.map((d) => {
-            const block = (
-              <DecisionBlock decision={d} before={mode === 'compare' ? (beforeById.get(d.id) ?? null) : null} compare={mode === 'compare'} />
-            );
-            return changed.has(d.id) ? (
-              <RevisionCloud key={d.id} version={artifact.version}>
-                {block}
-              </RevisionCloud>
-            ) : (
-              <div key={d.id}>{block}</div>
-            );
-          })}
-          {mode === 'compare' &&
-            removedDecisions(before, s).map((d) => (
-              <div key={d.id} className="bp-dec bp-dec--removed">
-                <del>
-                  {d.id} {d.text}
-                </del>
-              </div>
-            ))}
-          {s.contracts.length > 0 && (
-            <>
-              <h4>Contracts</h4>
-              <ul className="bp-list">
-                {s.contracts.map((c, i) => (
-                  <li key={i}>{c}</li>
-                ))}
-              </ul>
-            </>
-          )}
+          <DecisionList
+            decisions={s.decisions}
+            beforeById={beforeById}
+            changed={changed}
+            removed={removedDecisions(before, s)}
+            mode={mode}
+            version={artifact.version}
+          />
+          <ContractList contracts={s.contracts} />
         </section>
       ))}
       <AssumptionsTable
@@ -66,34 +43,6 @@ export function DesignSheet({ artifact, previous, mode }: RendererProps) {
         {fullText}
       </details>
     </>
-  );
-}
-
-function DecisionBlock({ decision: d, before, compare }: { decision: Decision; before: Decision | null; compare: boolean }) {
-  return (
-    <div className={`bp-dec${compare && before === null ? ' bp-dec--added' : ''}`}>
-      <div className="bp-dec-head">
-        <span className="bp-id">{d.id}</span> {before ? <DiffText before={before.text} after={d.text} /> : d.text}
-      </div>
-      <p>
-        <span className="bp-dec-label">Chosen:</span> {before ? <DiffText before={before.chosen} after={d.chosen} /> : d.chosen}
-      </p>
-      {d.rejected.length > 0 && (
-        <ul className="bp-rejected">
-          {d.rejected.map((r, i) => (
-            <li key={i}>
-              Rejected: {r.option}
-              {r.why && ` (${r.why})`}
-            </li>
-          ))}
-        </ul>
-      )}
-      {d.basis && (
-        <div className="bp-meta">
-          <span className="bp-dec-label">Basis</span> <BasisChips basis={d.basis} />
-        </div>
-      )}
-    </div>
   );
 }
 

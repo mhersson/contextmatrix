@@ -116,4 +116,11 @@ describe('useSheetState', () => {
     rerender({ view: next, draft: null, layout: 'split' });
     expect(result.current.pin).toBeNull();
   });
+
+  it('remembers the last slice picked across a whole-blueprint sheet', () => {
+    const { result } = setup({ view: viewSliced(), draft: null, layout: 'split' });
+    act(() => result.current.show('solution_design', 'SL1', null));
+    act(() => result.current.show('intake', '', null));
+    expect(result.current.picked).toBe('SL1');
+  });
 });

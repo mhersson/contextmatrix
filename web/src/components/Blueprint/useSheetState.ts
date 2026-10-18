@@ -37,7 +37,7 @@ function grew(before: string, after: string): boolean {
 export function useSheetState(view: BlueprintView | null, draft: HeldDraft | null, layout: SheetLayout) {
   const [open, setOpen] = useState(layout === 'split');
   const [hasNew, setHasNew] = useState(false);
-  const [pin, setPin] = useState<(SheetPin & { at: string }) | null>(null);
+  const [pin, setPin] = useState<(SheetPin & { at: string; picked: string }) | null>(null);
   const [prevLayout, setPrevLayout] = useState(layout);
   const [seen, setSeen] = useState<Signal | null>(null);
 
@@ -78,7 +78,8 @@ export function useSheetState(view: BlueprintView | null, draft: HeldDraft | nul
   }, []);
   const show = useCallback(
     (stage: string, slice: string, version: number | null) => {
-      setPin({ stage, slice, version, at });
+      // The last slice picked outlives a whole-blueprint pick, so a stage tab can return to it.
+      setPin((p) => ({ stage, slice, version, at, picked: slice || (p && p.at === at ? p.picked : '') }));
       setOpen(true);
       setHasNew(false);
     },
@@ -93,5 +94,6 @@ export function useSheetState(view: BlueprintView | null, draft: HeldDraft | nul
     close,
     toggle,
     show,
+    picked: pin?.picked ?? '',
   };
 }

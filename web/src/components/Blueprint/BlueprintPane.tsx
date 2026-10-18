@@ -96,6 +96,7 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
           draft={draft}
           shown={shown}
           onShow={show}
+          picked={sheet.picked}
           gatePrompt={gatePrompt}
           onReply={onReply}
           onClose={closeSheet}

@@ -1,5 +1,6 @@
 import type {
   BlueprintArtifactRef,
+  BlueprintSlice,
   BlueprintCost,
   BlueprintPipelineStep,
   BlueprintStepStatus,
@@ -24,6 +25,13 @@ export interface StageText {
 const STAGES: Record<string, StageText> = {
   intake: { tab: 'Need', name: 'Intake', title: 'Need', noun: 'need', doing: 'working on the need' },
   slicing: { tab: 'Slices', name: 'Slicing', title: 'Slices', noun: 'slices', doing: 'working on the slices' },
+  shared_decisions: {
+    tab: 'Shared',
+    name: 'Shared decisions',
+    title: 'Shared decisions',
+    noun: 'shared decisions',
+    doing: 'settling the shared decisions',
+  },
   solution_design: {
     tab: 'Design',
     name: 'Solution design',
@@ -82,6 +90,16 @@ export function sliceOf(x: { slice?: string } | null | undefined): string {
 /** The pipeline step behind a stage's sheet in one slice. */
 export function stepFor(view: BlueprintView, stage: string, slice: string): BlueprintPipelineStep | undefined {
   return view.pipeline.find((s) => s.stage === stage && sliceOf(s) === slice);
+}
+
+/** Slice tabs, brackets and slice names show only for a blueprint cut into two or more slices. */
+export function showSlices(slices: readonly BlueprintSlice[]): boolean {
+  return slices.length >= 2;
+}
+
+/** A stage whose steps repeat once per slice. */
+export function isPerSlice(view: BlueprintView, stage: string): boolean {
+  return view.pipeline.some((s) => s.stage === stage && sliceOf(s) !== '');
 }
 
 export function normalizeView(view: BlueprintView): BlueprintView {

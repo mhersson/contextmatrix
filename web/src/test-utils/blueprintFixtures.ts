@@ -487,6 +487,47 @@ export const BOARD_V1: BlueprintArtifact = {
   },
 };
 
+/** Rev 1 of the decisions every slice shares; the contract's shape: one list, never `slices`. */
+export const SHARED_V1: BlueprintArtifact = {
+  stage: 'shared_decisions',
+  version: 1,
+  body: 'Every slice deploys with Kustomize and logs to Loki.',
+  data: {
+    decisions: [
+      {
+        id: 'DEC1',
+        text: 'Deploy tooling',
+        chosen: 'Kustomize overlays per environment',
+        rejected: [{ option: 'Helm chart', why: 'templates are hard to review' }],
+        basis: 'Q1',
+      },
+      { id: 'DEC2', text: 'Observability stack', chosen: 'Grafana, Loki and Fluent Bit in the cluster', rejected: [], basis: 'S1' },
+    ],
+    contracts: ['Every service logs JSON to stdout.'],
+    assumptions: ['The cluster has a default storage class.', { text: 'One namespace per environment.', basis: 'Q2' }],
+  },
+};
+
+/** Rev 2: DEC1 changes its choice, DEC2 goes, DEC3 is new; no contracts. */
+export const SHARED_V2: BlueprintArtifact = {
+  stage: 'shared_decisions',
+  version: 2,
+  body: 'Every slice deploys with Kustomize and ships metrics.',
+  data: {
+    decisions: [
+      {
+        id: 'DEC1',
+        text: 'Deploy tooling',
+        chosen: 'Kustomize overlays per cluster',
+        rejected: [{ option: 'Helm chart', why: 'templates are hard to review' }],
+        basis: 'Q1',
+      },
+      { id: 'DEC3', text: 'Metrics', chosen: 'Prometheus Operator', rejected: [], basis: 'S2' },
+    ],
+    assumptions: [],
+  },
+};
+
 const ALL = [
   NEED_V1,
   SLICES_V1,
@@ -501,6 +542,8 @@ const ALL = [
   BOARD_V1,
   DESIGN_SL1_V1,
   DESIGN_SL2_V1,
+  SHARED_V1,
+  SHARED_V2,
 ];
 
 export function findArtifact(stage: string, version: number, slice = ''): BlueprintArtifact {

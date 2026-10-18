@@ -7,7 +7,7 @@ import { Stamp } from './Stamp';
 import { loadArtifact, useBlueprintArtifact } from './artifactCache';
 import type { HeldDraft } from './draft';
 import { ArtifactRenderer } from './renderers/ArtifactRenderer';
-import { stampFor, waitingLine, waitingOn } from './sheetModel';
+import { sliceSubtitle, stampFor, waitingLine, waitingOn } from './sheetModel';
 import { artifactsFor, stageText } from './stages';
 
 interface PaperProps {
@@ -39,6 +39,7 @@ export function Paper({ chatId, view, stage, slice, version, writing, draft, com
   const stamp = stored ? stampFor(view, stored) : null;
   const mode: RevisionMode = !previous ? 'plain' : compare ? 'compare' : isNewest ? 'clouds' : 'plain';
   const title = stageText(stage).title;
+  const subtitle = sliceSubtitle(view, slice);
   const waiting = waitingOn(view, stage, slice, roundLeft ?? null);
 
   let content: ReactNode;
@@ -91,6 +92,7 @@ export function Paper({ chatId, view, stage, slice, version, writing, draft, com
     <article className="bp-paper" aria-label={`${title} rev ${version}`}>
       {stamp && <Stamp stamp={stamp} />}
       <h1>{title}</h1>
+      {subtitle && <p className="bp-sub">{subtitle}</p>}
       {content}
     </article>
   );
