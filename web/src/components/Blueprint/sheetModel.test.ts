@@ -17,7 +17,7 @@ describe('stampFor', () => {
       title: 'Approved',
       detail: `by you, ${formatHHMM(at)}`,
     });
-    expect(stampFor(view, ref('solution_design', 2, 'rejected', { decided_by: 'responder' }))?.detail).toBe('by the responder');
+    expect(stampFor(view, ref('solution_design', 2, 'rejected', { decided_by: 'responder' }))?.detail).toBe('automatically');
   });
 
   it('names the revision that replaced a superseded version', () => {

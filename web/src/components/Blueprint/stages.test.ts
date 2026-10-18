@@ -132,7 +132,9 @@ describe('stepStatusText', () => {
     });
     const s = step('solution_design', 'system_designer', 'done', { gate: true });
     expect(stepStatusText(s, view)).toBe(`Approved by you, ${formatHHMM('2026-10-17T10:17:00Z')}`);
-    expect(decidedByText(ref('x', 1, 'approved', { decided_by: 'responder' }))).toBe('by the responder');
+    expect(decidedByText(ref('x', 1, 'approved', { decided_by: 'automatic' }))).toBe('automatically');
+    // Architects before protocol v0.28.0 named the responder for an auto stage gate the reviewer's verdict decides.
+    expect(decidedByText(ref('x', 1, 'approved', { decided_by: 'responder' }))).toBe('automatically');
   });
 
   it('names what a folded stage folded into', () => {

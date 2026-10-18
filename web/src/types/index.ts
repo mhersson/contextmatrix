@@ -1291,7 +1291,8 @@ export interface BlueprintArtifactRef {
   created_at: string;
   status: BlueprintArtifactStatus;
   decided_at?: string;
-  decided_by?: 'you' | 'responder' | 'automatic';
+  /** "responder" comes only from architects before protocol v0.28.0, for an auto stage gate. */
+  decided_by?: 'you' | 'automatic' | 'responder';
   review?: BlueprintArtifactReview;
 }
 

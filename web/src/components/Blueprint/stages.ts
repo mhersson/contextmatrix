@@ -193,8 +193,8 @@ export function decidedByText(ref: BlueprintArtifactRef): string {
       const time = ref.decided_at ? formatHHMM(ref.decided_at) : null;
       return time ? `by you, ${time}` : 'by you';
     }
+    // Older architects sent "responder" for an auto stage gate; the reviewer's verdict decides those.
     case 'responder':
-      return 'by the responder';
     case 'automatic':
       return 'automatically';
     default:
