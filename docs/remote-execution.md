@@ -595,9 +595,11 @@ ignored.
 `marker` turns an architect frame into a transcript marker, for example
 `{"kind": "artifact", "stage": "solution_design", "persona": "System
 designer", "version": 2, "note": "Revised for the 3 findings"}`. `kind` is
-`stage` for a stage divider (sent on a `system` frame) or `artifact` for a
-sheet reference (sent on a `text` frame); `persona`, `version` and `note` are
-optional, and `content` stays a plain fallback line. Only the architect sets
+`stage` for a stage divider (sent on a `system` frame), `artifact` for a sheet
+reference, or `review` for a reviewer's verdict on the version `stage`, `slice`
+and `version` name, with the reviewer in `persona` (both sent on a `text`
+frame); `persona`, `version` and `note` are optional, and `content` stays a
+plain fallback line. Only the architect sets
 `marker`. CM stores such a frame on an architect session as a `kind:
 "marker"` row with the frame's role, whose content is a `{"text", "marker"}`
 JSON envelope, cutting `content` first and `marker.note` only if the marker

@@ -300,12 +300,22 @@ board. Promote-to-autonomous lives in that tab.
     state are not stored.
   - The transcript shows a divider at each stage start and a sheet reference
     for each stored artifact; clicking a reference opens that version. While
-    a blueprint has two or more slices, dividers, references and question
-    round headers name the slice (Design · SL2).
+    a blueprint has two or more slices, dividers, references, review cards
+    and question round headers name the slice (Design · SL2).
+  - Each reviewer verdict shows as a closed review card: the reviewer, the
+    stage and version, passed or sent back with a (?) that explains the pass
+    mark, the findings counted by status, and the round out of the stage's
+    limit. Opened, it shows the reviewer's summary, then the findings under
+    Still open, New this round and Fixed (folded until clicked), critical
+    first, each with its severity and status. Long text clamps behind read
+    more, and a finding's details link shows the reviewer's note and the
+    builder's claim. A verdict whose review the view does not hold yet shows
+    as its plain line.
   - The pane loads the architect's view, then follows it live on the
     session's chat stream, with no connection of its own. It loads the view
     again after the stream reconnects and whenever a stage divider, sheet
-    reference or prompt reaches the transcript, so a lost live update heals.
+    reference, review or prompt reaches the transcript, so a lost live update
+    heals.
   - When the view cannot be loaded and the stream has brought none, the sheet
     says the architect cannot be reached, with a Retry, and the scale bar
     hides; the transcript keeps working. An architect without the blueprint

@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import { DialogueIcon } from '../Blueprint/icons';
+import { ChevronIcon, DialogueIcon } from '../Blueprint/icons';
 import { useBlueprintSheet } from '../Blueprint/sheetContext';
 import { personaName, sliceSuffix, stageText } from '../Blueprint/stages';
 import type { Round, RoundChatMessage } from './parseRound';
@@ -143,9 +143,7 @@ export function RoundSummary({ round, superseded }: { round: Round; superseded: 
             <b>{titleText(round, suffix)}</b> <span className="qb-card-count">{countText(round, ', ')}</span>
             <span className="qb-card-note">{note}</span>
           </span>
-          <svg className="qb-card-chev" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth={1.4} aria-hidden="true">
-            <path d="M3.5 1.5 7 5 3.5 8.5" />
-          </svg>
+          <ChevronIcon className="qb-card-chev" />
         </button>
         {open && (
           <div className="qb-card-body" id={`${id}-body`}>

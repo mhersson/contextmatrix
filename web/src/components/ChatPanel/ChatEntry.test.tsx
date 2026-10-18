@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { ChatEntry } from './ChatEntry';
 import type { LogEntry } from '../../types';
-import { BlueprintSheetContext } from '../Blueprint/sheetContext';
-import { THREE_SLICES } from '../../test-utils/blueprintFixtures';
+import { BlueprintArtifactsContext, BlueprintSheetContext } from '../Blueprint/sheetContext';
+import { LEDGER_REVIEW_V2, THREE_SLICES, ref } from '../../test-utils/blueprintFixtures';
 
 // Counting stub: every render of a markdown body bumps the counter, letting
 // the memo tests assert exactly how many rows re-rendered.
@@ -225,6 +225,25 @@ describe('ChatEntry blueprint markers', () => {
     kind: 'marker',
     content: JSON.stringify(content),
     seq: 1,
+  });
+
+  it("draws a review marker as its version's review card, and its line without the review", () => {
+    const entry = marker('text', {
+      text: 'The reviewer scored the design rev 2.',
+      marker: { kind: 'review', stage: 'solution_design', version: 2, persona: 'senior_developer' },
+    });
+    const { rerender } = render(<ChatEntry entry={entry} />);
+    expect(screen.getByText('The reviewer scored the design rev 2.')).toBeInTheDocument();
+
+    rerender(
+      <BlueprintSheetContext.Provider value={{ openArtifact: vi.fn(), slices: [] }}>
+        <BlueprintArtifactsContext.Provider value={[ref('solution_design', 2, 'superseded', { review: LEDGER_REVIEW_V2 })]}>
+          <ChatEntry entry={entry} />
+        </BlueprintArtifactsContext.Provider>
+      </BlueprintSheetContext.Provider>,
+    );
+    expect(screen.queryByText('The reviewer scored the design rev 2.')).not.toBeInTheDocument();
+    expect(screen.getByRole('group')).toHaveAttribute('aria-live', 'off');
   });
 
   it('draws a stage divider with the stage and persona', () => {

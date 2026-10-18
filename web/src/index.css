@@ -8133,6 +8133,227 @@ button.bp-seg-hit {
   display: block;
 }
 
+/* A reviewer's verdict in the transcript: the round card's shape on the blueprint tokens, so every text clears 4.5:1 on --bg0. */
+.bp-rv {
+  width: fit-content;
+  max-width: 88%;
+  border: 1px solid var(--bg3);
+  border-radius: 8px;
+  background: var(--bg0);
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.bp-rv.open {
+  width: 88%;
+}
+.bp-rv:has(> button.bp-rv-head:hover) {
+  border-color: color-mix(in oklab, var(--blue) 60%, var(--bg3));
+}
+.bp-rv button:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+.bp-rv-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 11px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+button.bp-rv-head {
+  cursor: pointer;
+}
+.bp-rv-head > svg:first-child {
+  flex: none;
+  color: var(--blueprint-ink-orange);
+}
+.bp-rv--pass .bp-rv-head > svg:first-child {
+  color: var(--blueprint-ink-green);
+}
+.bp-rv-text {
+  flex: 1;
+  min-width: 0;
+}
+.bp-rv-text b {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 500;
+}
+.bp-rv-verdict {
+  margin-left: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--blueprint-ink-orange);
+}
+.bp-rv--pass .bp-rv-verdict {
+  color: var(--blueprint-ink-green);
+}
+.bp-rv-help {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  margin-left: 4px;
+  border: 1px solid var(--bg3);
+  border-radius: 50%;
+  font-size: 9.5px;
+  color: var(--blueprint-quiet);
+  vertical-align: 1px;
+  cursor: help;
+}
+.bp-rv-note {
+  display: block;
+  font-size: 11.5px;
+  color: var(--blueprint-quiet);
+}
+.bp-rv-chev {
+  flex: none;
+  color: var(--blueprint-quiet);
+  transition: transform 0.15s ease;
+}
+.bp-rv.open .bp-rv-chev {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .bp-rv-chev {
+    transition: none;
+  }
+}
+.bp-rv-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--bg3);
+}
+.bp-rv-sec {
+  margin: 6px 0 -2px;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--blueprint-quiet);
+}
+.bp-rv-sec button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.bp-rv-summary {
+  display: block;
+  font-size: 12.5px;
+  white-space: pre-line;
+}
+.bp-rv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bp-rv-f {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  row-gap: 3px;
+  font-size: 12.5px;
+}
+.bp-rv-id {
+  padding-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--blueprint-quiet);
+}
+.bp-rv-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+.bp-rv-sev {
+  padding: 0 6px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--bg3);
+  font-size: 10.5px;
+  color: var(--blueprint-quiet);
+}
+.bp-rv-sev--critical {
+  background: var(--bg-red);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--red) 60%, var(--bg-red));
+  color: var(--fg);
+}
+.bp-rv-sev--major {
+  background: var(--bg-orange);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--orange) 60%, var(--bg-orange));
+  color: var(--fg);
+}
+.bp-rv-st {
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.bp-rv-ftext,
+.bp-rv-f .bp-rv-more,
+.bp-rv-detail {
+  grid-column: 2;
+}
+.bp-rv-clamp2,
+.bp-rv-clamp3 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.bp-rv-clamp2 {
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.bp-rv-clamp3 {
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+.bp-rv-more {
+  align-self: flex-start;
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--blueprint-ink-blue);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.bp-rv-more:hover {
+  text-decoration: underline;
+}
+.bp-rv-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 2px 0 2px 9px;
+  border-left: 2px solid var(--bg3);
+  font-size: 12px;
+}
+.bp-rv-detail p {
+  margin: 0;
+}
+.bp-rv-lbl {
+  margin-right: 5px;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--blueprint-quiet);
+}
+
 /* Architect question round (docked in place of the composer); mirrors the approved mockup's qb-* classes. */
 .qb {
   display: flex;
