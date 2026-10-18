@@ -83,7 +83,7 @@ keeps the hamburger and a way back to the board.
 | Accents      | `--red --orange --yellow --green --aqua --blue --purple` | Priority / state / type accents (mapping below)                  |
 | Chat         | `--chat-assistant-bg/-ring`, `--chat-user-ring`        | Chat bubble fill and rings, shared by every palette                |
 | Prompt       | `--prompt-question-accent`, `--prompt-question-bg`, `--prompt-question-hover-bg`, `--prompt-question-ring`, `--chat-option-hover-bg` | Architect question accent (pink dark, rose to maroon light) and the light wash of the red/purple hue over the bubble for the bubble and option hover; neutral option hover mixes `--fg` into the bubble |
-| Blueprint    | `--blueprint-done`, `--blueprint-cloud`                | Done segments and their gate notches on the blueprint scale bar; the dashed revision cloud on the sheet. Both derive from palette tokens in `:root` |
+| Blueprint    | `--blueprint-done`, `--blueprint-cloud`, `--blueprint-quiet` | Done segments and their gate notches on the blueprint scale bar; the dashed revision cloud on the sheet; muted sheet labels (table headers, row counts, heading subtitles, stacked labels, basis notes) at 4.5:1. All derive from palette tokens in `:root` |
 
 **UI semantic mapping:**
 
@@ -91,6 +91,9 @@ keeps the hamburger and a way back to the board.
   subtask = `--aqua`.
 - Priority: critical = `--red`, high = `--orange`, medium = `--yellow`,
   low = `--grey1`.
+- Blueprint sheet chips (`.bp-chip`): `--fg` text on the tone's `--bg-<tone>`
+  tint with a ring in the tone (grey: `--bg2`, no ring); tone-coloured text
+  misses 4.5:1 on the tints in the light palettes and Everforest dark.
 - Review finding severity (blueprint review popover and gate bar):
   critical = `--red`, major = `--orange`, minor = `--grey1`; a critical
   finding not yet fixed sits on `--bg-red` with a `--red` left edge.

@@ -6656,6 +6656,8 @@ textarea {
 :root {
   --blueprint-done: color-mix(in oklab, var(--green) 75%, var(--bg0));
   --blueprint-cloud: color-mix(in oklab, var(--orange) 70%, transparent);
+  /* Muted sheet labels: bare --grey1 falls to about 3:1 in ayu light; 60% --fg clears 4.5:1 in every palette. */
+  --blueprint-quiet: color-mix(in oklab, var(--grey1) 40%, var(--fg));
 }
 
 /* Blueprint scale bar. */
@@ -6905,39 +6907,44 @@ button.bp-seg-hit {
 }
 
 /* Blueprint sheet: chips, rows, decisions, tables. */
+/*
+ * Chip text is --fg: a tone's own colour misses 4.5:1 on its tint in the light palettes and everforest dark,
+ * where even --fg gets only 4.55:1 on the red one. The tints barely tell red from purple, so a tone ring carries the hue.
+ */
 .bp-chip {
   display: inline-block;
   padding: 0 6px;
   border-radius: 4px;
   font-size: 11px;
   white-space: nowrap;
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--bp-chip-tone, transparent) 60%, transparent);
 }
 .bp-chip + .bp-chip {
   margin-left: 4px;
 }
 .bp-chip--yellow {
+  --bp-chip-tone: var(--yellow);
   background: var(--bg-yellow);
-  color: var(--yellow);
 }
 .bp-chip--red {
+  --bp-chip-tone: var(--red);
   background: var(--bg-red);
-  color: var(--red);
 }
 .bp-chip--purple {
+  --bp-chip-tone: var(--purple);
   background: var(--bg-purple);
-  color: var(--purple);
 }
 .bp-chip--blue {
+  --bp-chip-tone: var(--blue);
   background: var(--bg-blue);
-  color: var(--blue);
 }
 .bp-chip--green {
+  --bp-chip-tone: var(--green);
   background: var(--bg-green);
-  color: var(--green);
 }
 .bp-chip--grey {
   background: var(--bg2);
-  color: var(--grey2);
 }
 .bp-id {
   padding: 0 5px;
@@ -6989,15 +6996,15 @@ button.bp-seg-hit {
 }
 .bp-basis-rest {
   font-size: 11.5px;
-  color: var(--grey1);
+  color: var(--blueprint-quiet);
 }
 .bp-h-sub {
   font-weight: 400;
-  color: var(--grey1);
+  color: var(--blueprint-quiet);
 }
 .bp-count {
   font-weight: 400;
-  color: var(--grey1);
+  color: var(--blueprint-quiet);
 }
 .bp-table {
   display: block;
@@ -7030,7 +7037,7 @@ button.bp-seg-hit {
   font-weight: 500;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-  color: var(--grey1);
+  color: var(--blueprint-quiet);
   white-space: nowrap;
 }
 .bp-table tbody tr + tr > td {
@@ -7118,7 +7125,7 @@ button.bp-seg-hit {
   .bp-table--rows td.bp-col--note::before {
     content: attr(data-label) ': ';
     font-size: 11.5px;
-    color: var(--grey1);
+    color: var(--blueprint-quiet);
   }
   .bp-table--rows td:empty {
     display: none;
