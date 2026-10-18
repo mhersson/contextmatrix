@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import type { BlueprintView } from '../../types';
 import { formatHHMM } from '../../utils/chatTimestamp';
-import { LEDGER_REVIEW_V1, LEDGER_REVIEW_V2, ref, step, viewAtDesignGate, viewSliced } from '../../test-utils/blueprintFixtures';
+import { LEDGER_REVIEW_V1, LEDGER_REVIEW_V2, THREE_SLICES, ref, step, viewAtDesignGate, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
 import {
   artifactsFor,
+  barGroups,
+  sliceSuffix,
   costLabel,
   currentStep,
   decidedByText,
@@ -190,5 +192,26 @@ describe('slices', () => {
     const view = viewSliced();
     expect(stepStatusText(stepFor(view, 'solution_design', 'SL1')!, view)).toBe('Approved by you');
     expect(stepStatusText(stepFor(view, 'solution_design', 'SL2')!, view)).toBe('Waiting for you');
+  });
+});
+
+describe('slice names', () => {
+  it('suffixes a slice only while the blueprint shows slices', () => {
+    expect(sliceSuffix(THREE_SLICES, 'SL2')).toBe(' · SL2');
+    expect(sliceSuffix(THREE_SLICES, '')).toBe('');
+    expect(sliceSuffix([THREE_SLICES[0]], 'SL1')).toBe('');
+  });
+
+  it('names the slice in the current stage', () => {
+    expect(describeCurrent(viewSliced())?.name).toBe('Solution design · SL2');
+    expect(describeCurrent(viewOneSlice())?.name).toBe('Solution design');
+  });
+
+  it("groups each slice's steps and leaves the rest alone", () => {
+    const groups = barGroups(viewSliced());
+    expect(groups.map((g) => [g.slice, g.steps.length])).toEqual([
+      ['', 1], ['', 1], ['', 1], ['SL1', 4], ['SL2', 4], ['SL3', 4], ['', 1], ['', 1], ['', 1],
+    ]);
+    expect(barGroups(viewOneSlice()).every((g) => g.slice === '' && g.steps.length === 1)).toBe(true);
   });
 });

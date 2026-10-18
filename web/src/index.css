@@ -6705,7 +6705,7 @@ button.bp-seg-hit {
   border: 1px solid var(--grey1);
   border-left-width: 0;
 }
-.bp-seg:first-child .bp-seg-rule {
+.bp-seg--first .bp-seg-rule {
   border-left-width: 1px;
 }
 .bp-seg--done .bp-seg-rule {
@@ -6766,7 +6766,7 @@ button.bp-seg-hit {
   text-align: left;
   white-space: nowrap;
 }
-.bp-seg:nth-last-child(-n + 3) .bp-seg-tip {
+.bp-seg--end .bp-seg-tip {
   right: 0;
   left: auto;
 }
@@ -6774,6 +6774,37 @@ button.bp-seg-hit {
   display: block;
   font-size: 11px;
   color: var(--grey1);
+}
+.bp-scale-bar--grouped {
+  padding-bottom: 14px;
+}
+.bp-seg-group {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+.bp-seg-group-label {
+  position: absolute;
+  top: 13px;
+  right: 0;
+  left: 0;
+  margin: 0 2px;
+  padding-top: 2px;
+  overflow: hidden;
+  border-top: 1px solid var(--blueprint-quiet);
+  color: var(--blueprint-quiet);
+  font: 10px/1 var(--font-mono);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bp-seg-group--waiting .bp-seg-group-label {
+  border-color: var(--prompt-question-accent);
+  color: var(--prompt-question-accent);
+}
+.bp-seg-group--running .bp-seg-group-label {
+  border-color: var(--aqua);
+  color: var(--aqua);
 }
 .bp-seg-hit:hover .bp-seg-tip,
 .bp-seg-hit:focus-visible .bp-seg-tip {

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { ScaleBar } from './ScaleBar';
-import { viewAtDesignGate, viewSliced } from '../../test-utils/blueprintFixtures';
+import { viewAtDesignGate, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
 
 function tones() {
   return screen.getAllByRole('listitem').map((li) => li.getAttribute('data-tone'));
@@ -70,5 +70,37 @@ describe('ScaleBar', () => {
     render(<ScaleBar chatId="S2" view={viewSliced()} compact={false} onOpenStage={onOpen} />);
     fireEvent.click(screen.getByRole('button', { name: /^Open Grounding/ }));
     expect(onOpen).toHaveBeenCalledWith('grounding', 'SL1');
+  });
+});
+
+describe('ScaleBar slices', () => {
+  it("brackets each slice's steps under its id, the current one with its title", () => {
+    render(<ScaleBar chatId="S2" view={viewSliced()} compact={false} onOpenStage={() => {}} />);
+    expect(screen.getAllByRole('listitem')).toHaveLength(18);
+    const sl1 = screen.getByText('SL1');
+    expect(within(sl1.parentElement!).getAllByRole('listitem')).toHaveLength(4);
+    expect(screen.getByText('SL2 · Logs searchable in the cluster').parentElement).toHaveClass('bp-seg-group--waiting');
+    expect(screen.getByText('SL3')).toBeInTheDocument();
+  });
+
+  it('names the slice beside the bar and in the segment labels', () => {
+    render(<ScaleBar chatId="S2" view={viewSliced()} compact={false} onOpenStage={() => {}} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Solution design · SL2');
+    expect(screen.getByRole('img', { name: /^Solution design · SL2, gate\. / })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Open Grounding: Grounding · SL1\. / })).toBeInTheDocument();
+  });
+
+  it('draws one slice like a blueprint without slices', () => {
+    const { container } = render(<ScaleBar chatId="S2" view={viewOneSlice()} compact={false} onOpenStage={() => {}} />);
+    expect(screen.getAllByRole('listitem')).toHaveLength(9);
+    expect(container.querySelector('.bp-seg-group')).toBeNull();
+    expect(screen.getByRole('status')).not.toHaveTextContent('SL1');
+  });
+
+  it('marks only the first segment and the last three for edge and tooltip placement', () => {
+    render(<ScaleBar chatId="S2" view={viewSliced()} compact={false} onOpenStage={() => {}} />);
+    const items = screen.getAllByRole('listitem');
+    expect(items.filter((li) => li.classList.contains('bp-seg--first'))).toEqual([items[0]]);
+    expect(items.filter((li) => li.classList.contains('bp-seg--end'))).toEqual(items.slice(-3));
   });
 });

@@ -169,11 +169,36 @@ export interface CurrentText {
   tone: Tone;
 }
 
+/** " · SL2" after a stage name while the blueprint shows slices; "" otherwise. */
+export function sliceSuffix(slices: readonly BlueprintSlice[], slice: string): string {
+  return showSlices(slices) && slice !== '' ? ` · ${slice}` : '';
+}
+
+export interface BarGroup {
+  /** "" for a whole-blueprint step, which stands alone. */
+  slice: string;
+  steps: BlueprintPipelineStep[];
+}
+
+/** The bar's steps in runs: one slice's consecutive steps bracket together while the blueprint shows slices. */
+export function barGroups(view: BlueprintView): BarGroup[] {
+  const grouped = showSlices(view.slices);
+  const groups: BarGroup[] = [];
+  for (const s of visibleSteps(view)) {
+    const slice = grouped ? sliceOf(s) : '';
+    const last = groups[groups.length - 1];
+    if (slice !== '' && last?.slice === slice) last.steps.push(s);
+    else groups.push({ slice, steps: [s] });
+  }
+  return groups;
+}
+
 export function describeCurrent(view: BlueprintView): CurrentText | null {
   const step = currentStep(view);
   if (!step) return null;
   const st = stageText(step.stage);
-  const say = (line: string, tone: Tone): CurrentText => ({ name: st.name, line, tone });
+  const name = st.name + sliceSuffix(view.slices, sliceOf(step));
+  const say = (line: string, tone: Tone): CurrentText => ({ name, line, tone });
   const run = view.current;
   const open = view.open;
   const persona = personaName(run?.persona ?? step.persona);
