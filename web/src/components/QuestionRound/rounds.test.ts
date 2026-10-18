@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LogEntry } from '../../types';
-import { rawRound, roundChatEntry, roundEntry } from '../../test-utils/roundFixtures';
+import { rawRound, roundChatEntry, roundEntry, roundReplyEntry } from '../../test-utils/roundFixtures';
 import { deriveRounds, newestRound, roundLeft } from './rounds';
 
 const text = (seq: number, content: string): LogEntry => ({ ts: '2026-10-17T10:00:00Z', card_id: '', type: 'text', content, seq });
@@ -83,6 +83,16 @@ describe('deriveRounds', () => {
     const s = deriveRounds([early, roundEntry(2, 'round:1', rawRound({ chat: [{ from: 'user', text: 'about an older round' }] }))], true);
     expect(s.stray.size).toBe(0);
     expect(s.pending?.sent).toEqual([]);
+  });
+
+  it('marks a round reply row as answered once any round frame precedes it, and not before the first one', () => {
+    const early = roundReplyEntry(1, 'for an older round');
+    const open = roundEntry(2, 'round:1', rawRound());
+    const partial = roundReplyEntry(3, 'Sent 1 of 3 answers; the rest later.');
+    const closed = roundEntry(4, 'round:1', rawRound({ closed: true }));
+    const final = roundReplyEntry(5, 'Submitted all 3 answers.');
+    const s = deriveRounds([early, open, partial, closed, final], true);
+    expect([...s.answered]).toEqual([partial, final]);
   });
 
   it('keeps the waiting round its chat rows across a late frame of an older round', () => {

@@ -20,6 +20,9 @@ export interface RoundFrame {
 /** The kind of a user row typed in a round's chat box; it shows in the waiting round's thread, not the transcript. */
 export const ROUND_CHAT_KIND = 'round_chat';
 
+/** The kind of a user row that answers a round (final or partial); the round's block and summary are its record. */
+export const ROUND_REPLY_KIND = 'round_reply';
+
 export interface RoundStates {
   byEntry: Map<LogEntry, RoundStatus>;
   /**
@@ -32,6 +35,11 @@ export interface RoundStates {
    * transcript as ordinary messages. A row before the first loaded frame stays out: its round may be in older history.
    */
   stray: Set<LogEntry>;
+  /**
+   * Round reply rows that follow a round frame: the reply answered a round loaded here, so the transcript omits it.
+   * A reply before the first loaded frame answered a round in older history and stays a plain message.
+   */
+  answered: Set<LogEntry>;
 }
 
 export function roundFrame(entry: LogEntry): RoundFrame | null {
@@ -49,9 +57,14 @@ export function deriveRounds(logs: readonly LogEntry[], live: boolean): RoundSta
   const byEntry = new Map<LogEntry, RoundStatus>();
   const newest = new Map<string, RoundFrame>();
   const stray = new Set<LogEntry>();
+  const answered = new Set<LogEntry>();
   let current: string | null = null;
   let sent: LogEntry[] = [];
   for (const e of logs) {
+    if (e.kind === ROUND_REPLY_KIND) {
+      if (newest.size > 0) answered.add(e);
+      continue;
+    }
     if (e.kind === ROUND_CHAT_KIND) {
       const round = current === null ? undefined : newest.get(current)?.round;
       if (round && !round.closed && !round.responder) sent.push(e);
@@ -76,7 +89,7 @@ export function deriveRounds(logs: readonly LogEntry[], live: boolean): RoundSta
     byEntry.set(f.entry, status);
     if (status === 'open' || status === 'paused') pending = { ...f, status, sent };
   }
-  return { byEntry, pending, stray };
+  return { byEntry, pending, stray, answered };
 }
 
 export interface RoundLeft {

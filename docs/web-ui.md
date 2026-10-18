@@ -183,7 +183,9 @@ board. Promote-to-autonomous lives in that tab.
   question. The Submit tab reviews every answer: "Submit all N" sends them as
   final, and "Send N now, answer the rest later" stores the ones picked so far
   on the architect, so they show on any device and survive leaving, and the
-  round stays open. Under a dotted line on every tab, "Chat about these
+  round stays open. A sent reply shows no transcript bubble: the docked block
+  and, once closed, the round's summary are its record; a reply whose round is
+  not loaded shows as a plain message. Under a dotted line on every tab, "Chat about these
   questions" holds the thread about the round and is the pane's only text box
   while the round is open; the thread scrolls on its own, so the box and the
   foot stay in view. What you type there reaches the architect as a plain

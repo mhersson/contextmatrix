@@ -64,6 +64,11 @@ const EventKindDivider = "divider"
 // any user row; the panel shows it in the round's thread, not the transcript.
 const EventKindRoundChat = "round_chat"
 
+// EventKindRoundReply is the persisted Message.Kind / SSE DataKind of a user
+// message that answers a question round. Its Content is the readable summary;
+// the panel keeps it out of the transcript, as the round's block is its record.
+const EventKindRoundReply = "round_reply"
+
 // Backend is the chat-execution surface chat.Manager drives (the roadmap's
 // ChatBackend): container start/end, message delivery, and the /logs SSE
 // bridge. The webhook-backed implementation lives in
@@ -2426,7 +2431,7 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 }
 
 // SendRoundReply forwards a question round's answers to a blueprint
-// session's architect; content is the readable summary the transcript keeps.
+// session's architect; content is the readable summary stored with the row.
 func (m *Manager) SendRoundReply(ctx context.Context, sessionID, content string, round protocol.RoundReply) (string, error) {
 	return m.sendMessage(ctx, sessionID, content, userSend{round: &round})
 }
@@ -2461,8 +2466,12 @@ func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us
 	}
 
 	kind := ""
-	if us.roundChat != "" {
+
+	switch {
+	case us.roundChat != "":
 		kind = EventKindRoundChat
+	case us.round != nil:
+		kind = EventKindRoundReply
 	}
 
 	if err := m.ensureRunningForSend(ctx, sess); err != nil {

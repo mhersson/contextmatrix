@@ -103,7 +103,7 @@ function clipBytes(s: string, max: number): string {
   return `${out}…`;
 }
 
-/** The readable message the transcript keeps for a reply; the architect reads the structured reply. */
+/** The readable summary stored with a reply; the architect reads the structured reply. */
 export function replySummary(round: Round, reply: RoundReply): string {
   const total = itemCount(round);
   const sent = (reply.answers?.length ?? 0) + (reply.decisions?.length ?? 0);

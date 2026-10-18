@@ -2581,8 +2581,8 @@ session is opened automatically (so 429 `TOO_MANY_CHATS` is possible);
 ```
 
 On an `architect` session the body may also carry a question round's answers
-in `round`; `content` is then the readable summary the transcript keeps, and
-CM forwards both to the architect unchanged:
+in `round`; `content` is then the readable summary, and CM forwards both to the
+architect unchanged and stores the row with `kind` `"round_reply"`:
 
 ```json
 {
@@ -2643,7 +2643,8 @@ exactly while the oldest loaded seq is `> 1`.
 `tool_result`, `stderr`, or `system`. `kind` (`"divider"` for the Clear
 Context row, `"prompt"` for an architect question or gate, `"marker"` for an
 architect stage divider or sheet reference, `"round_chat"` for a user message
-about an open question round) and `rehydration_phase` appear only when set.
+about an open question round, `"round_reply"` for a user message that answers a
+round) and `rehydration_phase` appear only when set.
 `content` is the raw text, except on a `prompt` row, where it
 is the JSON envelope `{"text": "<message>", "prompt": {"id": "...", "kind":
 "question", "text": "...", "free_text": true, "actions": [{"label": "...",

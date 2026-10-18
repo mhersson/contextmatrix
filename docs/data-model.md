@@ -1147,7 +1147,9 @@ A column added to an existing table is grown by `addColumnIfMissing`, and an
 the clear-context row, `prompt` for an architect question or gate whose content
 is a `{text, prompt}` JSON envelope, `marker` for an architect stage divider or
 sheet reference whose content is a `{text, marker}` JSON envelope, `round_chat`
-for a user message about an open question round whose content is plain text)
+for a user message about an open question round whose content is plain text,
+`round_reply` for a user message that answers a round whose content is its
+readable summary)
 and a unique index on `(session_id, seq)`.
 
 **`chat_sessions`:**

@@ -6077,7 +6077,9 @@ func TestManager_SendRoundReply_ForwardsTheRoundUnchanged(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)
 	assert.Equal(t, chat.RoleUser, msgs[0].Role)
-	assert.Equal(t, "Submitted all 3 answers.", msgs[0].Content, "the transcript keeps the readable summary")
+	assert.Equal(t, "Submitted all 3 answers.", msgs[0].Content)
+	assert.Equal(t, chat.EventKindRoundReply, msgs[0].Kind)
+	assert.Equal(t, "round_reply", chat.EventKindRoundReply, "the kind is a wire contract")
 }
 
 func TestManager_SendRoundReply_RefusesAChatSession(t *testing.T) {
