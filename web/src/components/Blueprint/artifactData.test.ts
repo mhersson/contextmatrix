@@ -1,28 +1,69 @@
 import { describe, it, expect } from 'vitest';
-import { assumptionChip, basisRefs, httpUrl, parseAssumptions, parseBoard, parseCards, parseGrounding, withoutTags } from './artifactData';
+import {
+  assumptionChip,
+  basisRefs,
+  httpUrl,
+  parseAssumptions,
+  parseBoard,
+  parseCards,
+  parseGrounding,
+  parseSlices,
+  refTone,
+  stageAssumptions,
+  withoutTags,
+} from './artifactData';
 import { BOARD_V1, CARDS_V1, GROUNDING_V1 } from '../../test-utils/blueprintFixtures';
 
 describe('artifact data', () => {
   it('reads assumptions as sentences or objects and skips junk', () => {
+    const none = { id: '', basis: '', status: '', evidence: '', answer: '', stage: '' };
     expect(parseAssumptions(['A.', { text: 'B.', basis: 'Q1' }, 7, { basis: 'Q2' }, ''])).toEqual([
-      { id: '', text: 'A.', basis: '', status: '', evidence: '' },
-      { id: '', text: 'B.', basis: 'Q1', status: '', evidence: '' },
+      { ...none, text: 'A.' },
+      { ...none, text: 'B.', basis: 'Q1' },
     ]);
     expect(parseAssumptions(null)).toEqual([]);
   });
 
-  it('labels each assumption status and claims none it does not have', () => {
-    const a = { id: 'A1', text: 't', basis: 'Q3', status: '', evidence: '[S2] x' };
-    expect(assumptionChip({ ...a, status: 'assumed' })).toEqual({ tone: 'purple', label: 'assumed by responder (Q3)' });
-    expect(assumptionChip({ ...a, status: 'confirmed' })).toEqual({ tone: 'blue', label: 'confirmed by you (Q3)' });
-    expect(assumptionChip({ ...a, status: 'verified' })).toEqual({ tone: 'green', label: 'verified S2' });
-    expect(assumptionChip({ ...a, status: '' })).toEqual({ tone: 'grey', label: 'Q3' });
-    expect(assumptionChip({ ...a, status: '', basis: '' })).toBeNull();
+  it('keeps the answer an assumption rests on and the stage that stated it', () => {
+    const [a] = parseAssumptions([{ id: 'A2', text: 'T.', basis: 'Q14', answer: 'Configurable', stage: 'intake', status: 'confirmed' }]);
+    expect(a).toMatchObject({ answer: 'Configurable', stage: 'intake' });
   });
 
-  it('splits a basis into Q and S references', () => {
+  it('reads the assumptions a stage stated beside its other data', () => {
+    expect(stageAssumptions({ slices: [], assumptions: [{ id: 'A11', text: 'T.', status: 'unconfirmed' }] })).toMatchObject([
+      { id: 'A11', text: 'T.', status: 'unconfirmed' },
+    ]);
+    expect(stageAssumptions(['T.'])).toEqual([]);
+  });
+
+  it('chips each assumption status in its tone, apart from its basis and sources, and claims none it does not have', () => {
+    const a = { id: 'A1', text: 't', basis: 'Q3', status: '', evidence: '[S2] x', answer: '', stage: '' };
+    const chip = (status: string) => assumptionChip({ ...a, status });
+    const statuses = ['unverified', 'unconfirmed', 'contradicted', 'assumed', 'confirmed', 'verified', 'pending review'];
+    expect(statuses.map((s) => chip(s)!.tone)).toEqual(['yellow', 'yellow', 'red', 'purple', 'blue', 'green', 'grey']);
+    for (const s of statuses) expect(chip(s)!.label).not.toMatch(/Q3|S2/);
+    expect(chip('unconfirmed, awaiting user confirmation')).toEqual(chip('unconfirmed'));
+    expect(chip('pending review')!.label).toBe('pending review');
+    expect(chip('')).toBeNull();
+  });
+
+  it('splits a basis into question, round answer and source references', () => {
     expect(basisRefs('Q1, S2 and the assumption')).toEqual({ refs: ['Q1', 'S2'], rest: 'and the assumption' });
+    expect(basisRefs('round2.A1; S3')).toEqual({ refs: ['round2.A1', 'S3'], rest: '' });
     expect(withoutTags('[S1] Encode ends with a newline.')).toBe('Encode ends with a newline.');
+  });
+
+  it('tones answers apart from sources', () => {
+    expect(['Q1', 'round2.A1', 'S3'].map(refTone)).toEqual(['blue', 'blue', 'green']);
+  });
+
+  it('keeps the slices each slice is built after', () => {
+    const slices = parseSlices({ slices: [{ id: 'SL1', title: 'T', depends_on: ['SL2', 3] }, { id: 'SL2', title: 'U' }] })!;
+    expect(slices.map((s) => s.dependsOn)).toEqual([['SL2'], []]);
+  });
+
+  it('keeps the criteria a manual check covers', () => {
+    expect(parseCards(CARDS_V1.data)!.manual).toEqual([{ id: 'M1', text: 'Run curl against the server.', criteria: ['MC1'] }]);
   });
 
   it('reads grounding projects sorted by name', () => {

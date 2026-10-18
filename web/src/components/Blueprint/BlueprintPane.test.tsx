@@ -117,7 +117,7 @@ describe('BlueprintPane', () => {
     const need = screen.getByRole('tab', { name: 'Need' });
     need.focus();
     fireEvent.click(need);
-    expect(await screen.findByRole('heading', { name: 'Assumptions' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /^Assumptions/ })).toBeInTheDocument();
     expect(screen.queryByText('This sheet could not be drawn.')).not.toBeInTheDocument();
     expect(need).toHaveFocus();
     fireEvent.click(screen.getByRole('tab', { name: 'Design, current stage' }));

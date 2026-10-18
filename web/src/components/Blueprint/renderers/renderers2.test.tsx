@@ -3,6 +3,8 @@ import { render, screen, within } from '@testing-library/react';
 import { ArtifactRenderer } from './ArtifactRenderer';
 import { BOARD_V1, CARDS_V1, READINESS_V2, SIGNOFF_V1, ref, viewAtDesignGate } from '../../../test-utils/blueprintFixtures';
 import type { BlueprintArtifact } from '../../../types';
+import { assumptionChip } from '../artifactData';
+import { stageText } from '../stages';
 
 vi.mock('../../ChatPanel/ChatMarkdown', () => ({
   ChatMarkdown: ({ source }: { source: string }) => <div data-testid="md">{source}</div>,
@@ -11,6 +13,11 @@ vi.mock('../../ChatPanel/ChatMarkdown', () => ({
 const view = viewAtDesignGate();
 const show = (artifact: BlueprintArtifact) =>
   render(<ArtifactRenderer artifact={artifact} previous={null} mode="plain" view={view} />);
+const sectionOf = (heading: RegExp) => screen.getByRole('heading', { name: heading }).closest('section')!;
+const cellsIn = (section: HTMLElement, text: string) =>
+  within(within(section).getByText(text).closest('tr')!)
+    .getAllByRole('cell')
+    .map((c) => c.textContent);
 
 describe('CardsSheet', () => {
   it('previews each card with its project, type, priority, places, criteria and dependencies', () => {
@@ -49,27 +56,26 @@ describe('CardsSheet', () => {
   it('shows each manual check once when the playbook order already lists it', () => {
     show(CARDS_V1);
     expect(screen.getAllByText('M1', { selector: '.bp-id' })).toHaveLength(1);
-    expect(screen.queryByRole('heading', { name: 'Manual checks' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /^Manual checks/ })).not.toBeInTheDocument();
   });
 
   it('keeps a manual check missing from the order under Manual checks without repeating the ordered ones', () => {
     const data = CARDS_V1.data as { manual: { id: string; text: string; criteria: string[] }[] };
     show({
       ...CARDS_V1,
-      data: { ...data, manual: [...data.manual, { id: 'M2', text: 'Open the health page.', criteria: [] }] },
+      data: { ...data, manual: [...data.manual, { id: 'M2', text: 'Open the health page.', criteria: ['MC2', 'MC3'] }] },
     });
-    const checks = screen.getByRole('heading', { name: 'Manual checks' }).closest('section')!;
-    expect(within(checks).getByText('M2')).toBeInTheDocument();
+    const checks = sectionOf(/^Manual checks/);
+    expect(cellsIn(checks, 'Open the health page.')).toEqual(['M2', 'Open the health page.', 'MC2, MC3']);
     expect(within(checks).queryByText('M1')).not.toBeInTheDocument();
     expect(screen.getAllByText('M1', { selector: '.bp-id' })).toHaveLength(1);
   });
 
-  it('shows the manual checks under Manual checks for a single card', () => {
+  it('gives each manual check of a single card a row with the checks it covers', () => {
     const data = CARDS_V1.data as { cards: unknown[]; manual: { id: string; text: string }[] };
     show({ ...CARDS_V1, data: { ...data, cards: data.cards.slice(0, 1), order: ['D1', 'M1'] } });
     expect(screen.queryByRole('heading', { name: /Playbook order/ })).not.toBeInTheDocument();
-    const checks = screen.getByRole('heading', { name: 'Manual checks' }).closest('section')!;
-    expect(within(checks).getByText('Run curl against the server.')).toBeInTheDocument();
+    expect(cellsIn(sectionOf(/^Manual checks/), 'Run curl against the server.')).toEqual(['M1', 'Run curl against the server.', 'MC1']);
   });
 });
 
@@ -112,15 +118,71 @@ describe('ReadinessSheet', () => {
 });
 
 describe('SignoffSheet', () => {
-  it('shows the card order, assumption chips, warnings, manual checks and setup steps', () => {
+  const signoffWith = (over: object) => ({ ...SIGNOFF_V1, data: { ...(SIGNOFF_V1.data as object), ...over } });
+  const status = (s: string) => assumptionChip({ id: '', text: '', basis: '', evidence: '', answer: '', stage: '', status: s })!.label;
+  const stage = (s: string) => stageText(s).name;
+
+  it('gives each run step a row with its place, what it does and its kind', () => {
     show(SIGNOFF_V1);
-    expect(screen.getByText('Pretty-print the GET / response')).toBeInTheDocument();
-    for (const chip of ['unverified', 'confirmed by you (Q1)', 'assumed by responder (Q3)', 'verified S1', 'contradicted']) {
-      expect(screen.getByText(chip)).toBeInTheDocument();
-    }
+    const order = sectionOf(/^Run order/);
+    expect(cellsIn(order, 'Pretty-print the GET / response')).toEqual(['1', 'D1', 'Pretty-print the GET / response', 'feature']);
+    const manual = cellsIn(order, 'curl prints one key per line.');
+    expect(manual.slice(0, 3)).toEqual(['2', 'M1', 'curl prints one key per line.']);
+    expect(manual[3]).not.toBe('');
+    expect(manual[3]).not.toBe('feature');
+  });
+
+  it('gives each assumption a row with your answer, its status, its basis and sources, and its stage', () => {
+    show(SIGNOFF_V1);
+    const assumptions = sectionOf(/^Assumptions/);
+    expect(cellsIn(assumptions, 'Two-space indentation.')).toEqual(['A2', 'Two-space indentation.', 'Two spaces', status('confirmed'), 'Q1', stage('intake')]);
+    expect(cellsIn(assumptions, 'No README example.')).toEqual(['A3', 'No README example.', '', status('assumed'), 'Q3', stage('solution_design')]);
+    expect(cellsIn(assumptions, 'Clients ignore whitespace.')).toEqual(['A1', 'Clients ignore whitespace.', '', status('unverified'), '', stage('intake')]);
+    expect(cellsIn(assumptions, 'The README has an example.')).toEqual(['A5', 'The README has an example.', '', status('contradicted'), 'S2', stage('grounding')]);
+  });
+
+  it('puts the evidence under a verified assumption', () => {
+    show(SIGNOFF_V1);
+    expect(cellsIn(sectionOf(/^Assumptions/), 'Encode ends with a newline.')).toEqual([
+      'A4',
+      'Encode ends with a newline.main.go',
+      '',
+      status('verified'),
+      'S1',
+      stage('grounding'),
+    ]);
+  });
+
+  it('chips an answer accepted on a round as a basis', () => {
+    show(signoffWith({ assumptions: [{ id: 'A1', stage: 'intake', text: 'T.', basis: 'round2.A1', status: 'confirmed' }] }));
+    expect(within(sectionOf(/^Assumptions/)).getByText('round2.A1')).toBeInTheDocument();
+  });
+
+  it('shows an answer only on an assumption you confirmed, never the responder\'s', () => {
+    show(
+      signoffWith({
+        assumptions: [
+          { id: 'A1', stage: 'intake', text: 'T1.', basis: 'Q1', answer: 'Two spaces', status: 'confirmed' },
+          { id: 'A2', stage: 'intake', text: 'T2.', basis: 'Q2', answer: 'Tabs', status: 'assumed' },
+        ],
+      }),
+    );
+    const assumptions = sectionOf(/^Assumptions/);
+    expect(cellsIn(assumptions, 'T1.')[2]).toBe('Two spaces');
+    expect(cellsIn(assumptions, 'T2.')[2]).toBe('');
+  });
+
+  it('leaves out the answer column when no assumption carries an answer', () => {
+    show(signoffWith({ assumptions: [{ id: 'A1', stage: 'intake', text: 'T.', basis: 'Q1', status: 'confirmed' }] }));
+    const assumptions = sectionOf(/^Assumptions/);
+    expect(within(assumptions).getAllByRole('columnheader')).toHaveLength(5);
+    expect(cellsIn(assumptions, 'T.')).toEqual(['A1', 'T.', status('confirmed'), 'Q1', stage('intake')]);
+  });
+
+  it('gives each manual check after the run a row and keeps the warnings and setup steps', () => {
+    show(SIGNOFF_V1);
+    expect(cellsIn(sectionOf(/^Manual checks after the run/), 'curl prints one key per line.')).toEqual(['M1', 'curl prints one key per line.']);
     expect(screen.getByText('One assumption is unverified.')).toBeInTheDocument();
-    const manual = screen.getByRole('heading', { name: 'Manual checks after the run' }).closest('section')!;
-    expect(within(manual).getByText('curl prints one key per line.')).toBeInTheDocument();
     expect(screen.getByText(/set verify command/)).toBeInTheDocument();
   });
 
@@ -148,7 +210,7 @@ describe('BoardSheet', () => {
     expect(screen.getByText(/\$0\.41/)).toBeInTheDocument();
     const unseen = screen.getByRole('article', { name: 'HOMELAND-014 Document both endpoints' });
     expect(within(unseen).getByText('not seen yet')).toBeInTheDocument();
-    const manual = screen.getByRole('heading', { name: 'Manual checks after the run' }).closest('section')!;
+    const manual = sectionOf(/^Manual checks after the run/);
     expect(within(manual).getByText('curl prints one key per line.')).toBeInTheDocument();
   });
 

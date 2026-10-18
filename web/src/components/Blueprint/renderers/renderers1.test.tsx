@@ -22,23 +22,73 @@ vi.mock('../../ChatPanel/ChatMarkdown', () => ({
 const view = viewAtDesignGate();
 
 const clouded = (text: string | RegExp) => screen.getByText(text).closest('.bp-cloud') !== null;
+const rowOf = (text: string | RegExp) => screen.getByText(text).closest('tr')!;
+const cellsOf = (text: string | RegExp) => within(rowOf(text)).getAllByRole('cell').map((c) => c.textContent);
+const revised = (text: string | RegExp, version: number) => within(rowOf(text)).queryByText(new RegExp(`rev ${version}`)) !== null;
 
 describe('NeedSheet', () => {
-  it('renders the body and the assumptions with their basis', () => {
+  it('renders the body and a row per assumption, numbered in order, with its basis', () => {
     render(<NeedSheet artifact={NEED_V1} previous={null} mode="plain" view={view} />);
     expect(screen.getAllByTestId('md')[0]).toHaveTextContent('Problem');
-    const item = screen.getByText('Two-space indentation.').closest('li')!;
-    expect(within(item).getByText('Q1')).toBeInTheDocument();
-    expect(screen.getByText('Clients ignore whitespace.')).toBeInTheDocument();
+    expect(cellsOf('Clients ignore whitespace.')).toEqual(['1', 'Clients ignore whitespace.', '']);
+    expect(cellsOf('Two-space indentation.')).toEqual(['2', 'Two-space indentation.', 'Q1']);
+  });
+
+  it('clouds the assumption that changed and no other', () => {
+    const data = NEED_V1.data as { assumptions: unknown[] };
+    const previous = { ...NEED_V1, data: { ...data, assumptions: [data.assumptions[0], { text: 'Two-space indentation.', basis: 'Q2' }] } };
+    render(<NeedSheet artifact={{ ...NEED_V1, version: 2 }} previous={previous} mode="clouds" view={view} />);
+    expect(revised('Two-space indentation.', 2)).toBe(true);
+    expect(revised('Clients ignore whitespace.', 2)).toBe(false);
   });
 });
 
 describe('SlicesSheet', () => {
-  it('lists each slice with its value and projects', () => {
+  const slices = [
+    { id: 'SL2', title: 'Subcommand dispatch', value: 'Serve stays the default.', projects: ['homelander'], depends_on: [] },
+    { id: 'SL1', title: 'Metrics store', value: 'Samples land on disk.', projects: ['homelander', 'docs'], depends_on: ['SL2'] },
+  ];
+  const assumptions = [
+    { id: 'A11', text: 'An unknown subcommand exits 2.', basis: 'decided by the product owner', status: 'unconfirmed, awaiting user confirmation' },
+  ];
+  const sliced = (over: object = {}) => ({ ...SLICES_V1, data: { slices, assumptions, ...over } });
+
+  it('gives each slice a row with what it delivers, its projects and the slices it comes after', () => {
+    render(<SlicesSheet artifact={sliced()} previous={null} mode="plain" view={view} />);
+    expect(cellsOf('Metrics store')).toEqual(['SL1', 'Metrics storeSamples land on disk.', 'homelanderdocs', 'SL2']);
+    expect(cellsOf('Subcommand dispatch')[3]).toBe('');
+  });
+
+  it('gives each assumption a row with its basis under the text and its status', () => {
+    render(<SlicesSheet artifact={sliced()} previous={null} mode="plain" view={view} />);
+    const row = rowOf('An unknown subcommand exits 2.');
+    expect(within(row).getAllByRole('cell')[0]).toHaveTextContent('A11');
+    expect(within(row).getByText('decided by the product owner')).toBeInTheDocument();
+    expect(within(row).getByText('unconfirmed')).toBeInTheDocument();
+  });
+
+  it('clouds the slice and the assumption that changed and no other', () => {
+    const previous = sliced({
+      slices: [slices[0], { ...slices[1], depends_on: [] }],
+      assumptions: [{ ...assumptions[0], status: 'unverified' }],
+    });
+    render(<SlicesSheet artifact={{ ...sliced(), version: 2 }} previous={previous} mode="clouds" view={view} />);
+    expect(revised('Metrics store', 2)).toBe(true);
+    expect(revised('Subcommand dispatch', 2)).toBe(false);
+    expect(revised('An unknown subcommand exits 2.', 2)).toBe(true);
+  });
+
+  it('clouds nothing when an unchanged version repeats an assumption id', () => {
+    const repeated = sliced({ assumptions: [assumptions[0], { ...assumptions[0], text: 'A second sentence under the same id.' }] });
+    render(<SlicesSheet artifact={{ ...repeated, version: 2 }} previous={repeated} mode="clouds" view={view} />);
+    expect(revised('An unknown subcommand exits 2.', 2)).toBe(false);
+    expect(revised('A second sentence under the same id.', 2)).toBe(false);
+  });
+
+  it('keeps the slices of an older blueprint without assumptions', () => {
     render(<SlicesSheet artifact={SLICES_V1} previous={null} mode="plain" view={view} />);
-    expect(screen.getByText('Pretty-print GET /')).toBeInTheDocument();
-    expect(screen.getByText('Readable with plain curl.')).toBeInTheDocument();
-    expect(screen.getByText('homelander')).toBeInTheDocument();
+    expect(cellsOf('Pretty-print GET /')).toEqual(['SL1', 'Pretty-print GET /Readable with plain curl.', 'homelander', '']);
+    expect(screen.queryByRole('heading', { name: /Assumptions/ })).not.toBeInTheDocument();
   });
 });
 
@@ -58,6 +108,16 @@ describe('DesignSheet', () => {
     const decisionClouds = [...container.querySelectorAll('.bp-cloud')].filter((c) => c.querySelector('.bp-dec'));
     expect(decisionClouds).toHaveLength(1);
     expect(decisionClouds[0]).toHaveTextContent('DEC1');
+  });
+
+  it('adds the design assumptions as rows with their basis only when there are any', () => {
+    const { unmount } = render(<DesignSheet artifact={DESIGN_V2} previous={null} mode="plain" view={view} />);
+    expect(screen.queryByRole('heading', { name: /Assumptions/ })).not.toBeInTheDocument();
+    unmount();
+    const assumptions = [{ text: 'A bad store line names its number.', basis: 'Q16' }];
+    render(<DesignSheet artifact={{ ...DESIGN_V2, data: { ...(DESIGN_V2.data as object), assumptions } }} previous={null} mode="plain" view={view} />);
+    expect(screen.getByRole('heading', { name: /Assumptions/ })).toBeInTheDocument();
+    expect(cellsOf('A bad store line names its number.')).toEqual(['1', 'A bad store line names its number.', 'Q16']);
   });
 
   it('diffs the chosen option word by word in compare mode', () => {
@@ -130,13 +190,18 @@ describe('GroundingSheet', () => {
 });
 
 describe('AcceptanceSheet', () => {
-  it('groups criteria by slice and project and lists manual checks', () => {
+  it('gives each slice a table of its criteria with their project', () => {
     render(<AcceptanceSheet artifact={ACCEPTANCE_V1} previous={null} mode="plain" view={view} />);
-    expect(screen.getByRole('heading', { name: 'SL1' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'homelander' })).toBeInTheDocument();
-    expect(screen.getByText('The body has several lines.')).toBeInTheDocument();
-    const manual = screen.getByRole('heading', { name: 'Manual checks' }).closest('section')!;
+    const slice = screen.getByRole('heading', { name: /^SL1/ }).closest('section')!;
+    expect(within(slice).getAllByRole('row')).toHaveLength(3);
+    expect(cellsOf('The body has several lines.')).toEqual(['AC1', 'The body has several lines.', 'homelander']);
+  });
+
+  it('gives each manual check a row naming its slice', () => {
+    render(<AcceptanceSheet artifact={ACCEPTANCE_V1} previous={null} mode="plain" view={view} />);
+    const manual = screen.getByRole('heading', { name: /^Manual checks/ }).closest('section')!;
     expect(within(manual).getByText('curl prints one key per line.')).toBeInTheDocument();
+    expect(cellsOf('curl prints one key per line.')).toEqual(['MC1', 'SL1', 'curl prints one key per line.']);
   });
 });
 

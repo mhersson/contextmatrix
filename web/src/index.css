@@ -6656,6 +6656,8 @@ textarea {
 :root {
   --blueprint-done: color-mix(in oklab, var(--green) 75%, var(--bg0));
   --blueprint-cloud: color-mix(in oklab, var(--orange) 70%, transparent);
+  /* Muted sheet labels: bare --grey1 falls to about 3:1 in ayu light; 60% --fg clears 4.5:1 in every palette. */
+  --blueprint-quiet: color-mix(in oklab, var(--grey1) 40%, var(--fg));
 }
 
 /* Blueprint scale bar. */
@@ -6905,54 +6907,44 @@ button.bp-seg-hit {
 }
 
 /* Blueprint sheet: chips, rows, decisions, tables. */
+/*
+ * Chip text is --fg: a tone's own colour misses 4.5:1 on its tint in the light palettes and everforest dark,
+ * where even --fg gets only 4.55:1 on the red one. The tints barely tell red from purple, so a tone ring carries the hue.
+ */
 .bp-chip {
   display: inline-block;
   padding: 0 6px;
   border-radius: 4px;
   font-size: 11px;
   white-space: nowrap;
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--bp-chip-tone, transparent) 60%, transparent);
 }
 .bp-chip + .bp-chip {
   margin-left: 4px;
 }
 .bp-chip--yellow {
+  --bp-chip-tone: var(--yellow);
   background: var(--bg-yellow);
-  color: var(--yellow);
 }
 .bp-chip--red {
+  --bp-chip-tone: var(--red);
   background: var(--bg-red);
-  color: var(--red);
 }
 .bp-chip--purple {
+  --bp-chip-tone: var(--purple);
   background: var(--bg-purple);
-  color: var(--purple);
 }
 .bp-chip--blue {
+  --bp-chip-tone: var(--blue);
   background: var(--bg-blue);
-  color: var(--blue);
 }
 .bp-chip--green {
+  --bp-chip-tone: var(--green);
   background: var(--bg-green);
-  color: var(--green);
 }
 .bp-chip--grey {
   background: var(--bg2);
-  color: var(--grey2);
-}
-.bp-assumptions {
-  margin: 8px 0;
-  padding: 0;
-  list-style: none;
-  font-size: 12.5px;
-}
-.bp-assumptions li {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin: 5px 0;
-}
-.bp-assumption-chip {
-  flex: none;
 }
 .bp-id {
   padding: 0 5px;
@@ -6975,20 +6967,6 @@ button.bp-seg-hit {
   padding: 0 7px;
   border-radius: 999px;
   background: var(--bg2);
-}
-.bp-rows {
-  margin: 8px 0;
-  padding: 0;
-  list-style: none;
-}
-.bp-row {
-  display: flex;
-  gap: 10px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--bg2);
-}
-.bp-row p {
-  margin: 2px 0;
 }
 .bp-dec {
   position: relative;
@@ -7018,38 +6996,192 @@ button.bp-seg-hit {
 }
 .bp-basis-rest {
   font-size: 11.5px;
-  color: var(--grey1);
+  color: var(--blueprint-quiet);
 }
 .bp-h-sub {
   font-weight: 400;
-  color: var(--grey1);
+  color: var(--blueprint-quiet);
+}
+.bp-count {
+  font-weight: 400;
+  color: var(--blueprint-quiet);
 }
 .bp-table {
   display: block;
   max-width: 100%;
+  margin: 6px 0 4px;
   overflow-x: auto;
   border-collapse: collapse;
   font-size: 12.5px;
+  line-height: 1.5;
+}
+/* A list table fills the sheet and never scrolls, so a row's cloud and its triangle stay visible. */
+.bp-table--rows {
+  display: table;
+  width: 100%;
+  overflow: visible;
 }
 .bp-table th,
 .bp-table td {
   padding: 4px 12px 4px 0;
-  border-bottom: 1px solid var(--bg2);
   text-align: left;
   vertical-align: top;
 }
+.bp-table th:last-child,
+.bp-table td:last-child {
+  padding-right: 0;
+}
 .bp-table th {
-  font-weight: 550;
-  color: var(--grey1);
+  border-bottom: 1px solid var(--bg3);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--blueprint-quiet);
+  white-space: nowrap;
+}
+.bp-table tbody tr + tr > td {
+  border-top: 1px solid var(--bg2);
+}
+.bp-table .bp-col--id,
+.bp-table .bp-col--status,
+.bp-table .bp-col--short {
+  width: 1%;
+  white-space: nowrap;
+}
+.bp-table td.bp-col--long,
+.bp-table td.bp-col--note {
+  overflow-wrap: anywhere;
+}
+.bp-table .bp-pill {
+  white-space: nowrap;
+}
+.bp-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 3px 4px;
+  vertical-align: top;
+}
+.bp-tags .bp-chip + .bp-chip {
+  margin-left: 0;
+}
+.bp-table tr.bp-cloud {
+  outline-offset: 2px;
+}
+.bp-table tr.bp-cloud .bp-cloud-tri {
+  top: 5px;
+}
+.bp-n {
+  font-variant-numeric: tabular-nums;
+}
+/* Body colour, not grey1 or grey2: neither reaches 4.5:1 on the paper in every palette at this size. */
+.bp-cell-sub {
+  display: block;
+  margin-top: 1px;
+  font-size: 11.5px;
+}
+/*
+ * Below 520px of sheet each row stacks: ids and status inline on top, the long text, then "Label: value" lines.
+ * A wide table stacks below 720px. The flex settings here are inert until a stacked row turns into a flex box.
+ */
+.bp-table--rows tr {
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+  padding: 6px 0;
+}
+.bp-table--rows td {
+  flex: 1 0 100%;
+  order: 1;
+}
+.bp-table--rows td.bp-col--id,
+.bp-table--rows td.bp-col--status {
+  flex: none;
+  order: -1;
+}
+.bp-table--rows td.bp-col--long {
+  order: 0;
+}
+@container bp-sheet (width < 520px) {
+  .bp-table--rows,
+  .bp-table--rows tbody {
+    display: block;
+  }
+  .bp-table--rows thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .bp-table--rows tr {
+    display: flex;
+  }
+  .bp-table--rows tbody tr + tr {
+    border-top: 1px solid var(--bg2);
+  }
+  .bp-table--rows tbody tr > td,
+  .bp-table--rows tbody tr + tr > td {
+    padding: 0;
+    border-top: 0;
+  }
+  .bp-table--rows td.bp-col--id,
+  .bp-table--rows td.bp-col--status {
+    width: auto;
+  }
+  .bp-table--rows :is(td.bp-col--short, td.bp-col--list, td.bp-col--note)::before {
+    content: attr(data-label) ': ';
+    font-size: 11.5px;
+    color: var(--blueprint-quiet);
+  }
+  .bp-table--rows td:empty {
+    display: none;
+  }
+}
+@container bp-sheet (width < 720px) {
+  .bp-table--wide,
+  .bp-table--wide tbody {
+    display: block;
+  }
+  .bp-table--wide thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .bp-table--wide tr {
+    display: flex;
+  }
+  .bp-table--wide tbody tr + tr {
+    border-top: 1px solid var(--bg2);
+  }
+  .bp-table--wide tbody tr > td,
+  .bp-table--wide tbody tr + tr > td {
+    padding: 0;
+    border-top: 0;
+  }
+  .bp-table--wide td.bp-col--id,
+  .bp-table--wide td.bp-col--status {
+    width: auto;
+  }
+  .bp-table--wide :is(td.bp-col--short, td.bp-col--list, td.bp-col--note)::before {
+    content: attr(data-label) ': ';
+    font-size: 11.5px;
+    color: var(--blueprint-quiet);
+  }
+  .bp-table--wide td:empty {
+    display: none;
+  }
 }
 .bp-verdicts,
-.bp-criteria,
 .bp-list {
   margin: 6px 0;
   padding-left: 18px;
 }
 .bp-verdicts li,
-.bp-criteria li,
 .bp-list li {
   margin: 4px 0;
 }
@@ -7626,6 +7758,7 @@ button.bp-seg-hit {
   min-height: 0;
   border-left: 1px solid var(--bg2);
   background: var(--bg1);
+  container: bp-sheet / inline-size;
 }
 .bp-tabs {
   display: flex;

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { assumptionChip, basisRefs, sourceTags, type Assumption, type ChipTone } from './artifactData';
+import { assumptionChip, basisRefs, refTone, sourceTags, type Assumption, type ChipTone } from './artifactData';
 
 export function Chip({ tone, children }: { tone: ChipTone; children: ReactNode }) {
   return <span className={`bp-chip bp-chip--${tone}`}>{children}</span>;
@@ -22,7 +22,7 @@ export function BasisChips({ basis }: { basis: string }) {
   return (
     <>
       {refs.map((r) => (
-        <Chip key={r} tone={r.startsWith('Q') ? 'blue' : 'green'}>
+        <Chip key={r} tone={refTone(r)}>
           {r}
         </Chip>
       ))}
@@ -31,18 +31,7 @@ export function BasisChips({ basis }: { basis: string }) {
   );
 }
 
-export function AssumptionList({ items }: { items: Assumption[] }) {
-  return (
-    <ul className="bp-assumptions">
-      {items.map((a, i) => {
-        const chip = assumptionChip(a);
-        return (
-          <li key={a.id || i}>
-            <span className="bp-assumption-chip">{chip && <Chip tone={chip.tone}>{chip.label}</Chip>}</span>
-            <span>{a.text}</span>
-          </li>
-        );
-      })}
-    </ul>
-  );
+export function StatusChip({ assumption }: { assumption: Assumption }) {
+  const chip = assumptionChip(assumption);
+  return chip && <Chip tone={chip.tone}>{chip.label}</Chip>;
 }

@@ -1,7 +1,14 @@
 import { BodyMarkdown } from '../BodyMarkdown';
-import { labelsById, parseCards, type CardPreview } from '../artifactData';
-import { ManualChecks } from './parts';
+import { labelsById, parseCards, type CardPreview, type ManualCheck } from '../artifactData';
+import { IdPill } from './parts';
+import { TableSection, type Column } from './TableSection';
 import type { RendererProps } from './types';
+
+const MANUAL_COLUMNS: Column<ManualCheck>[] = [
+  { label: 'Step', kind: 'id', cell: (m) => <IdPill id={m.id} /> },
+  { label: 'Check', kind: 'long', cell: (m) => m.text },
+  { label: 'Covers', kind: 'list', cell: (m) => m.criteria.join(', ') || null },
+];
 
 export function CardsSheet({ artifact, previous, mode }: RendererProps) {
   const data = parseCards(artifact.data);
@@ -36,7 +43,12 @@ export function CardsSheet({ artifact, previous, mode }: RendererProps) {
       {data.cards.map((c) => (
         <CardBlock key={c.id} card={c} version={artifact.version} />
       ))}
-      <ManualChecks title="Manual checks" items={data.manual.filter((m) => !orderedIds.has(m.id))} />
+      <TableSection
+        title="Manual checks"
+        columns={MANUAL_COLUMNS}
+        rows={data.manual.filter((m) => !orderedIds.has(m.id))}
+        rowKey={(m) => m.id}
+      />
     </>
   );
 }
