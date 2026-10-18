@@ -2452,11 +2452,18 @@ func (m *Manager) SendRoundChat(ctx context.Context, sessionID, content, promptI
 	return m.sendMessage(ctx, sessionID, content, userSend{roundChat: promptID})
 }
 
-// SetCostCap sends the architect a `cap` command and, once it is accepted,
+// MaxCostCapUSD is the largest cost cap SetCostCap accepts.
+const MaxCostCapUSD = 1_000_000
+
+// SetCostCap sends the architect a `cap` command and, once the send succeeds,
 // records the new cap on the session row; 0 removes the cap. The amount is
-// rounded to cents. The architect refuses a cap at or below its spend, which
-// CM does not compare against.
+// rounded to cents. The architect may still refuse a cap at or below its
+// spend, which CM does not compare against.
 func (m *Manager) SetCostCap(ctx context.Context, sessionID string, capUSD float64) (Session, error) {
+	if math.IsNaN(capUSD) || math.IsInf(capUSD, 0) || capUSD > MaxCostCapUSD {
+		return Session{}, fmt.Errorf("%w: cost cap must be at most %d USD", ErrInvalidSessionInput, MaxCostCapUSD)
+	}
+
 	if capUSD < 0 {
 		return Session{}, fmt.Errorf("%w: cost cap must not be negative", ErrInvalidSessionInput)
 	}
@@ -2580,7 +2587,8 @@ func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us
 	// SendChatMessage returns; setWorking(false) on an unarmed session is a
 	// no-op, so arming afterwards would leave the indicator on. A failed
 	// send disarms only what it armed: an earlier turn may still be running.
-	armed := m.setWorking(sessionID, true)
+	// A command starts no turn, so no idle frame would clear the indicator.
+	armed := !us.command && m.setWorking(sessionID, true)
 
 	err = backend.SendChatMessage(ctx, payload)
 

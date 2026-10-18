@@ -2625,8 +2625,7 @@ session; 413 `CONTENT_TOO_LARGE` above 8 KiB.
 
 Changes a blueprint (`architect`) session's cost cap. CM sends the architect
 the session command `cap <usd>` (or `cap off`) through the same path as a
-message, so a `cold` session is opened first (429 `TOO_MANY_CHATS` is
-possible). Only when the send succeeds does CM record the new `cost_cap_usd`
+message, so a `cold` session is opened first. Only when the send succeeds does CM record the new `cost_cap_usd`
 on the session row; a failed send leaves the row unchanged. The row is CM's own
 record of the cap: the architect takes the cap from its start request only when
 the blueprint is created.
@@ -2635,8 +2634,8 @@ the blueprint is created.
 { "cost_cap_usd": 4.5 }
 ```
 
-`cost_cap_usd` is required; `0` removes the cap. The amount is rounded to
-cents, and the command carries it without trailing zeros (`cap 4`, `cap 4.5`,
+`cost_cap_usd` is required; `0` removes the cap, and the ceiling is 1,000,000.
+The amount is rounded to cents, and the command carries it without trailing zeros (`cap 4`, `cap 4.5`,
 `cap 4.25`). The row is stored with `kind` `"command"`, which the panel never
 renders, and never titles an untitled session.
 
@@ -2650,10 +2649,10 @@ Response 200 is the updated session object.
 | Status | Code                    | When                                                  |
 | ------ | ----------------------- | ----------------------------------------------------- |
 | 400    | `BAD_REQUEST`           | `cost_cap_usd` absent                                 |
-| 400    | `INVALID_CHAT_INPUT`    | Negative, positive but rounds to `0.00`, or not an `architect` session |
+| 400    | `INVALID_CHAT_INPUT`    | Negative, above 1,000,000, positive but rounds to `0.00`, or not an `architect` session |
 | 404    | `CHAT_NOT_FOUND`        | Unknown or foreign session id                         |
-| 429    | `TOO_MANY_CHATS`        | Cold session could not be opened                      |
 | 409    | `CHAT_KIND_UNAVAILABLE` | No backend configured for the kind                    |
+| 500    | `INTERNAL_ERROR`        | The architect was unreachable or refused the send; the row is unchanged |
 
 ### GET /api/chats/{id}/messages
 

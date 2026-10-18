@@ -1473,6 +1473,8 @@ func TestSetCostCap_Refusals(t *testing.T) {
 		"field absent":   {bp.ID, `{}`, http.StatusBadRequest, ErrCodeBadRequest},
 		"negative":       {bp.ID, `{"cost_cap_usd":-1}`, http.StatusBadRequest, ErrCodeInvalidChatInput},
 		"rounds to zero": {bp.ID, `{"cost_cap_usd":0.004}`, http.StatusBadRequest, ErrCodeInvalidChatInput},
+		"above ceiling":  {bp.ID, `{"cost_cap_usd":1000000.01}`, http.StatusBadRequest, ErrCodeInvalidChatInput},
+		"huge":           {bp.ID, `{"cost_cap_usd":1e307}`, http.StatusBadRequest, ErrCodeInvalidChatInput},
 		"chat session":   {plain.ID, `{"cost_cap_usd":4}`, http.StatusBadRequest, ErrCodeInvalidChatInput},
 		"unknown id":     {"nope", `{"cost_cap_usd":4}`, http.StatusNotFound, ErrCodeChatNotFound},
 	} {

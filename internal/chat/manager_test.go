@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -6303,6 +6304,36 @@ func TestManager_SetCostCap_SendsTheCommandAndUpdatesTheRow(t *testing.T) {
 	}
 }
 
+func TestManager_SetCostCap_AcceptsTheCeiling(t *testing.T) {
+	mgr, _, _ := newManagerWithArchitectStub(t)
+	bp := openArchitect(t, mgr)
+
+	sess, err := mgr.SetCostCap(context.Background(), bp.ID, chat.MaxCostCapUSD)
+	require.NoError(t, err)
+	assert.InDelta(t, float64(chat.MaxCostCapUSD), sess.CostCapUSD, 1e-9)
+}
+
+func TestManager_SetCostCap_DoesNotArmTheWorkingIndicator(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+	bp := openArchitect(t, mgr)
+
+	sess, err := mgr.SetCostCap(ctx, bp.ID, 4)
+	require.NoError(t, err)
+	assert.False(t, sess.AssistantWorking)
+
+	arch.mu.Lock()
+	arch.sendErr = fmt.Errorf("chat: /message: %w", chat.ErrBackendUnreachable)
+	arch.mu.Unlock()
+
+	_, err = mgr.SetCostCap(ctx, bp.ID, 5)
+	require.Error(t, err)
+
+	got, err := mgr.GetSession(ctx, bp.ID)
+	require.NoError(t, err)
+	assert.False(t, got.AssistantWorking)
+}
+
 func TestManager_SetCostCap_FailedSendLeavesTheCapUnchanged(t *testing.T) {
 	mgr, _, arch := newManagerWithArchitectStub(t)
 	ctx := context.Background()
@@ -6360,7 +6391,14 @@ func TestManager_SetCostCap_Refusals(t *testing.T) {
 	require.ErrorIs(t, err, chat.ErrInvalidSessionInput)
 	assert.Zero(t, chatStub.sendCalls.Load())
 
-	for name, v := range map[string]float64{"negative": -1, "rounds to zero": 0.004} {
+	for name, v := range map[string]float64{
+		"negative":       -1,
+		"rounds to zero": 0.004,
+		"above ceiling":  1_000_000.01,
+		"huge":           1e307,
+		"infinite":       math.Inf(1),
+		"not a number":   math.NaN(),
+	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := mgr.SetCostCap(ctx, bp.ID, v)
 			require.ErrorIs(t, err, chat.ErrInvalidSessionInput)
