@@ -9,7 +9,7 @@ import { KindTiles } from './KindTiles';
 import { NewChatFooter } from './NewChatFooter';
 import { ProjectList } from './ProjectList';
 import { EMPTY_BLUEPRINT_FORM, createLabel, disabledReason, type BlueprintForm } from './blueprintForm';
-import { useChatModelChoice, type ChatModelChoice } from './useChatModelChoice';
+import { useChatModelChoice, type ChatModelChoices } from './useChatModelChoice';
 import { useCreateSession } from './useCreateSession';
 
 interface NewChatDialogProps {
@@ -20,12 +20,12 @@ interface NewChatDialogProps {
 // The model pick lives out here so it persists between opens; the body
 // remounts on every open, so everything else starts fresh.
 export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
-  const models = useChatModelChoice();
+  const choices = useChatModelChoice();
   if (!open) return null;
-  return <NewChatDialogBody onClose={onClose} models={models} />;
+  return <NewChatDialogBody onClose={onClose} choices={choices} />;
 }
 
-function NewChatDialogBody({ onClose, models }: { onClose: () => void; models: ChatModelChoice }) {
+function NewChatDialogBody({ onClose, choices }: { onClose: () => void; choices: ChatModelChoices }) {
   const { projects } = useProjects();
   const { architectEnabled } = useTheme();
   const [blueprint, setBlueprint] = useState(false);
@@ -48,7 +48,9 @@ function NewChatDialogBody({ onClose, models }: { onClose: () => void; models: C
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose, creating]);
 
-  const reason = disabledReason(blueprint, form);
+  const picked = choices.blueprint;
+  const modelUnpriced = picked.models.some((m) => m.id === picked.model && m.unpriced === true);
+  const reason = disabledReason(blueprint, form, modelUnpriced);
   const canCreate = !creating && reason === null;
 
   const submit = () => {
@@ -60,10 +62,11 @@ function NewChatDialogBody({ onClose, models }: { onClose: () => void; models: C
             title: name,
             kind: 'architect',
             projects: form.projects,
+            model: picked.model || undefined,
             mode: form.mode,
             cost_cap_usd: form.capUSD > 0 ? form.capUSD : undefined,
           }
-        : { title: name, project: project || undefined, model: models.model || undefined },
+        : { title: name, project: project || undefined, model: choices.chat.model || undefined },
     );
   };
 
@@ -111,7 +114,7 @@ function NewChatDialogBody({ onClose, models }: { onClose: () => void; models: C
             />
           </Field>
           {blueprint ? (
-            <BlueprintFields projects={projects} value={form} onChange={setForm} />
+            <BlueprintFields projects={projects} value={form} onChange={setForm} models={picked} />
           ) : (
             <>
               <Field label="Project" hint={project ? 'The chat gets a checkout of its repo' : 'No checkout'}>
@@ -122,7 +125,7 @@ function NewChatDialogBody({ onClose, models }: { onClose: () => void; models: C
                   onChange={(next) => setProject(next[0] ?? '')}
                 />
               </Field>
-              <ChatModelPicker {...models} />
+              <ChatModelPicker {...choices.chat} />
             </>
           )}
         </div>

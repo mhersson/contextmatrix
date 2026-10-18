@@ -7833,6 +7833,24 @@ button.bp-seg-hit {
   text-align: left;
   cursor: pointer;
 }
+.qb-opt-pick {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.qb-opt-top.qb-opt-row {
+  padding: 0;
+  cursor: auto;
+}
 .qb-other .qb-opt-top {
   cursor: default;
 }
@@ -7860,9 +7878,17 @@ button.bp-seg-hit {
   font-size: 12.5px;
 }
 .qb-more {
+  padding: 9px 12px 9px 0;
+  border: 0;
+  background: none;
   color: var(--blue);
+  font: inherit;
   font-size: 12px;
   white-space: nowrap;
+  cursor: pointer;
+}
+.qb-more:hover {
+  text-decoration: underline;
 }
 .qb-detail {
   padding: 0 12px 10px 36px;

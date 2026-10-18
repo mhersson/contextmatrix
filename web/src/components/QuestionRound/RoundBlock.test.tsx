@@ -24,7 +24,8 @@ function renderBlock(extra: Record<string, unknown> = {}, mode: RoundMode = 'ope
 }
 
 const tab = (name: RegExp) => screen.getByRole('tab', { name });
-const option = (name: RegExp) => screen.getByRole('button', { name });
+const option = (name: RegExp) => screen.getAllByRole('button', { name }).find((b) => b.hasAttribute('aria-pressed'))!;
+const toggle = (title: string) => screen.getByRole('button', { name: `Show pros, cons and sources for ${title}` });
 
 describe('RoundBlock questions', () => {
   it('shows one tab per question, ticks answered ones and opens on the first open one', () => {
@@ -40,22 +41,45 @@ describe('RoundBlock questions', () => {
     expect(screen.getByRole('region', { name: /3 questions from the system designer/ })).toBeInTheDocument();
   });
 
-  it('selects an option on click, expands its pros, cons and sources, and collapses it on a second click', () => {
+  it('selects an option on click without expanding it', () => {
     renderBlock();
     const kustomize = option(/Kustomize/);
     expect(kustomize).toHaveAccessibleName(/Recommended/);
     fireEvent.click(kustomize);
     expect(kustomize).toHaveAttribute('aria-pressed', 'true');
-    expect(kustomize).toHaveAttribute('aria-expanded', 'true');
+    expect(toggle('Kustomize')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Built into kubectl')).not.toBeInTheDocument();
+  });
+
+  it('expands pros, cons and sources from the toggle without selecting, and folds them on a second click', () => {
+    renderBlock();
+    fireEvent.click(toggle('Kustomize'));
+    expect(toggle('Kustomize')).toHaveAttribute('aria-expanded', 'true');
+    expect(toggle('Kustomize')).toHaveTextContent('hide');
+    expect(option(/Kustomize/)).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByText('Built into kubectl')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'kubectl.docs.kubernetes.io/guides' })).toHaveAttribute(
       'href',
       'https://kubectl.docs.kubernetes.io/guides/',
     );
-    fireEvent.click(kustomize);
-    expect(kustomize).toHaveAttribute('aria-expanded', 'false');
-    expect(kustomize).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(toggle('Kustomize'));
+    expect(toggle('Kustomize')).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText('Built into kubectl')).not.toBeInTheDocument();
+  });
+
+  it('keeps several options expanded at once', () => {
+    renderBlock();
+    fireEvent.click(toggle('Kustomize'));
+    fireEvent.click(toggle('Helm'));
+    expect(toggle('Kustomize')).toHaveAttribute('aria-expanded', 'true');
+    expect(toggle('Helm')).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('picks with a digit without expanding', () => {
+    renderBlock();
+    fireEvent.keyDown(tab(/Deploy tooling/), { key: '2' });
+    expect(option(/Helm/)).toHaveAttribute('aria-pressed', 'true');
+    expect(toggle('Helm')).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('labels a collapsed option by what it carries and shows only those sections when expanded', () => {
@@ -73,17 +97,16 @@ describe('RoundBlock questions', () => {
         },
       ],
     });
-    expect(option(/Full/)).toHaveTextContent('pros · cons · 1 source');
-    expect(option(/ProsOnly/)).toHaveTextContent(/pros$/);
-    expect(option(/Bare/).textContent).toBe('3Bares');
-    fireEvent.click(option(/ProsOnly/));
+    expect(toggle('Full')).toHaveTextContent('pros · cons · 1 source');
+    expect(toggle('ProsOnly')).toHaveTextContent(/pros$/);
+    expect(screen.queryByRole('button', { name: /for Bare/ })).not.toBeInTheDocument();
+    fireEvent.click(toggle('ProsOnly'));
     expect(screen.getByRole('heading', { name: 'Pros' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Cons' })).not.toBeInTheDocument();
     expect(screen.queryByText(/Sources/)).not.toBeInTheDocument();
     fireEvent.click(option(/Bare/));
     expect(option(/Bare/)).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.queryByRole('heading', { name: 'Pros' })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Sources/)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Pros' })).toBeInTheDocument();
   });
 
   it('moves the selection, never stacking two picks on one question', () => {
@@ -96,9 +119,31 @@ describe('RoundBlock questions', () => {
 
   it('says model knowledge instead of links when research is off', () => {
     renderBlock({ research_off: true });
-    fireEvent.click(option(/Kustomize/));
+    fireEvent.click(toggle('Kustomize'));
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
     expect(screen.getByText(/model knowledge/)).toBeInTheDocument();
+  });
+
+  it('labels a research-off option that has only web sources so it can still be opened', () => {
+    renderBlock({
+      research_off: true,
+      questions: [
+        { number: 1, title: 'T', text: 'Q?', options: [{ title: 'Alpha', sources: [{ tag: 'S1', title: 'w', url: 'https://a.example/' }] }] },
+      ],
+    });
+    expect(toggle('Alpha')).toHaveTextContent('sources');
+    fireEvent.click(toggle('Alpha'));
+    expect(screen.getByText(/model knowledge/)).toBeInTheDocument();
+  });
+
+  it('keeps an expanded option open after switching tabs and back', () => {
+    renderBlock();
+    fireEvent.click(tab(/Deploy tooling/));
+    fireEvent.click(toggle('Kustomize'));
+    fireEvent.click(tab(/Logging/));
+    fireEvent.click(tab(/Deploy tooling/));
+    expect(toggle('Kustomize')).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Built into kubectl')).toBeInTheDocument();
   });
 
   it('shows a code source and an unsafe url as text, never as a link', () => {
@@ -112,7 +157,7 @@ describe('RoundBlock questions', () => {
         },
       ],
     });
-    fireEvent.click(option(/Alpha/));
+    fireEvent.click(toggle('Alpha'));
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
     expect(screen.getByText('internal/api/chats.go')).toBeInTheDocument();
     expect(screen.getByText('evil')).toBeInTheDocument();
@@ -162,8 +207,9 @@ describe('RoundBlock questions', () => {
       fireEvent.click(tab(/Deploy tooling/));
       expect(option(/Helm/)).toHaveAttribute('aria-pressed', 'true');
       fireEvent.click(option(/Kustomize/));
-      expect(option(/Kustomize/)).toHaveAttribute('aria-expanded', 'true');
       expect(option(/Kustomize/)).toHaveAttribute('aria-pressed', 'false');
+      fireEvent.click(toggle('Kustomize'));
+      expect(toggle('Kustomize')).toHaveAttribute('aria-expanded', 'true');
       expect(screen.getByRole('textbox', { name: /Your own answer to Q1/ })).toBeDisabled();
       unmount();
     }
@@ -203,8 +249,8 @@ describe('RoundBlock questions', () => {
         },
       ],
     });
-    expect(option(/Alpha/)).toHaveTextContent(/pros · 2 sources$/);
-    fireEvent.click(option(/Alpha/));
+    expect(toggle('Alpha')).toHaveTextContent(/pros · 2 sources$/);
+    fireEvent.click(toggle('Alpha'));
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
     expect(screen.getByText('internal/api/chats.go')).toBeInTheDocument();
     expect(screen.getByText('evil')).toBeInTheDocument();
@@ -455,7 +501,15 @@ describe('RoundBlock kept drafts', () => {
     makeDraft();
     first.unmount();
     mount();
-    expect(answered()).toMatch(/^0 of 4 answered/);
+    expect(answered()).toMatch(/^3 of 4 answered/);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual([
+      'Deploy tooling, answered',
+      'Logging, answered',
+      'Postgres, open',
+      'Assumptions, answered',
+      'Submit',
+    ]);
+    expect(tab(/Postgres/)).toHaveAttribute('aria-selected', 'true');
     fireEvent.click(tab(/Deploy tooling/));
     expect(option(/Helm/)).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(tab(/Logging/));
@@ -466,6 +520,14 @@ describe('RoundBlock kept drafts', () => {
     const rows = screen.getAllByRole('row').map((r) => Array.from((r as HTMLTableRowElement).cells).map((c) => c.textContent));
     expect(rows).toContainEqual(['Q1 Deploy tooling', 'Helm']);
     expect(rows).toContainEqual(['Q2 Logging', 'Loki only']);
+  });
+
+  it('keeps the opening tab active when a pick answers it', () => {
+    mount();
+    fireEvent.click(option(/Kustomize/));
+    expect(tab(/Deploy tooling/)).toHaveAttribute('aria-selected', 'true');
+    expect(tab(/Deploy tooling/).textContent).toBe('Deploy tooling, answered');
+    expect(answered()).toMatch(/^1 of 4 answered/);
   });
 
   it('drops a restored pick once the newest frame stores that question', () => {

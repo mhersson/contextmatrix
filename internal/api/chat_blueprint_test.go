@@ -2,6 +2,7 @@ package api
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"io"
@@ -418,6 +419,50 @@ func TestRouter_BlueprintRoutesFollowTheArchitectEntry(t *testing.T) {
 			if tt.wantBody != "" {
 				assert.Equal(t, tt.wantBody, string(body))
 			}
+		})
+	}
+}
+
+func TestRouter_ChatModelsWiresArchitectDefaultAndPricing(t *testing.T) {
+	opts := blueprintFixtureOpts("http://architect:9094")
+	_, mgr := newChatFixture(t, opts)
+
+	disabled := *opts.architectBackendCfg
+	disabled.Enabled = new(bool)
+
+	tests := []struct {
+		name        string
+		archCfg     *config.ArchitectBackendConfig
+		wantDefault string
+	}{
+		{"architect configured", opts.architectBackendCfg, opts.architectBackendCfg.DefaultModel},
+		{"architect not configured", &disabled, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(NewRouter(RouterConfig{
+				ChatManager: mgr, ChatHub: chat.NewSSEHub(8), ArchitectBackendCfg: tt.archCfg,
+				ChatEndpointModels: func(context.Context) ([]EndpointModelView, error) {
+					return []EndpointModelView{{ID: "priced"}, {ID: "free"}}, nil
+				},
+				ChatModelPriced: func(m string) bool { return m == "priced" },
+			}))
+			t.Cleanup(server.Close)
+
+			resp, err := http.Get(server.URL + "/api/chats/models")
+			require.NoError(t, err)
+
+			defer closeBody(t, resp.Body)
+
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			var body modelsBody
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+			assert.Equal(t, tt.wantDefault, body.ArchitectDefault)
+			require.Len(t, body.Models, 2)
+			assert.False(t, body.Models[0].Unpriced)
+			assert.True(t, body.Models[1].Unpriced)
 		})
 	}
 }

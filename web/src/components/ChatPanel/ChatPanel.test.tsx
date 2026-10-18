@@ -4,7 +4,7 @@ import { ChatPanel } from './ChatPanel';
 import { useWorkerLogs } from '../../hooks/useWorkerLogs';
 import { formatHHMM, formatTitle } from '../../utils/chatTimestamp';
 import type { LogEntry } from '../../types';
-import { rawRound, roundChatEntry, roundEntry } from '../../test-utils/roundFixtures';
+import { rawRound, roundChatEntry, roundEntry, roundReplyEntry } from '../../test-utils/roundFixtures';
 
 // Local formatter matching the production instance - locale pinned to 'en-GB'
 // so HH:MM output is deterministic regardless of the test environment's locale.
@@ -638,6 +638,44 @@ describe('ChatPanel question rounds', () => {
     expect(within(summaries[0]).getByText(/Loki only/)).toBeInTheDocument();
   });
 
+  it('shows a submitted round once, as its summary, with no bubble for the reply', () => {
+    const logs = [
+      roundEntry(1, 'round:1', rawRound()),
+      roundReplyEntry(2, 'Submitted all 3 answers. Q1 Kustomize'),
+      roundEntry(3, 'round:1', rawRound({ ...allAnswered, closed: true })),
+    ];
+    render(<ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);
+    expect(screen.getAllByRole('group', { name: /Answered questions from the system designer/ })).toHaveLength(1);
+    expect(screen.queryByText(/Submitted all 3 answers/)).not.toBeInTheDocument();
+  });
+
+  it('shows no bubble for a partial reply while the round is still open', () => {
+    const logs = [
+      roundEntry(1, 'round:1', rawRound()),
+      roundReplyEntry(2, 'Sent 1 of 3 answers; the rest later.'),
+      roundEntry(3, 'round:1', rawRound({ answers: [{ number: 1, option: 1 }] })),
+    ];
+    render(<ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);
+    expect(screen.getByRole('tablist', { name: 'Questions' })).toBeInTheDocument();
+    expect(screen.queryByText(/Sent 1 of 3 answers/)).not.toBeInTheDocument();
+  });
+
+  it('shows no bubble for a decisions-only reply to an assumptions round', () => {
+    const logs = [
+      roundEntry(1, 'round:1', rawRound({ questions: [], assumptions: [{ id: 'A1', text: 'Use Postgres' }] })),
+      roundReplyEntry(2, 'Submitted all 1 answers. A1 accepted'),
+      roundEntry(3, 'round:1', rawRound({ questions: [], assumptions: [{ id: 'A1', text: 'Use Postgres' }], decisions: [{ id: 'A1', accept: true }], closed: true })),
+    ];
+    render(<ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);
+    expect(screen.queryByText(/Submitted all 1 answers/)).not.toBeInTheDocument();
+  });
+
+  it('shows a round reply whose round is not loaded as a plain message', () => {
+    const logs = [roundReplyEntry(1, 'Submitted all 2 answers. from older history'), roundEntry(2, 'round:2', rawRound())];
+    render(<ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);
+    expect(screen.getByText(/Submitted all 2 answers. from older history/)).toBeInTheDocument();
+  });
+
   it('collapses a round closed with questions unanswered and marks them not answered', () => {
     const logs = [roundEntry(1, 'round:1', rawRound()), roundEntry(2, 'round:1', rawRound({ answers: [{ number: 1, option: 1 }], closed: true }))];
     render(<ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />);
@@ -845,7 +883,7 @@ describe('ChatPanel kept round drafts', () => {
   const onSendRound = vi.fn(async () => {});
   const key = 'contextmatrix-round-drafts';
   const draftIt = () => {
-    fireEvent.click(screen.getByRole('button', { name: /Helm/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^\d\s*Helm/ }));
   };
   const panel = (logs: LogEntry[], sessionID = 's1') => (
     <ChatPanel logs={logs} sessionID={sessionID} onSend={vi.fn()} onSendRound={onSendRound} sendDisabled={false} promptsLive />
@@ -858,7 +896,8 @@ describe('ChatPanel kept round drafts', () => {
     draftIt();
     first.unmount();
     render(panel(logs));
-    expect(screen.getByRole('button', { name: /Helm/ })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('tab', { name: /Deploy tooling/ }));
+    expect(screen.getByRole('button', { name: /^\d\s*Helm/ })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('keeps one session draft apart from another session with the same prompt id', () => {
@@ -866,7 +905,7 @@ describe('ChatPanel kept round drafts', () => {
     const view = render(panel(logs, 's1'));
     draftIt();
     view.rerender(panel(logs, 's2'));
-    expect(screen.getByRole('button', { name: /Helm/ })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: /^\d\s*Helm/ })).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('removes the draft when the round closes and prunes other rounds of the session', () => {

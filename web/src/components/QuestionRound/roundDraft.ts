@@ -55,10 +55,6 @@ export function answeredCount(round: Round, draft: RoundDraft): number {
   );
 }
 
-export function storedCount(round: Round): number {
-  return answeredCount(round, EMPTY_DRAFT);
-}
-
 export function sameAnswer(a: RoundAnswer | null, b: RoundAnswer | null): boolean {
   if (a === null || b === null) return a === b;
   return (a.option ?? 0) === (b.option ?? 0) && (a.text ?? '') === (b.text ?? '');
@@ -103,7 +99,7 @@ function clipBytes(s: string, max: number): string {
   return `${out}…`;
 }
 
-/** The readable message the transcript keeps for a reply; the architect reads the structured reply. */
+/** The readable summary stored with a reply; the architect reads the structured reply. */
 export function replySummary(round: Round, reply: RoundReply): string {
   const total = itemCount(round);
   const sent = (reply.answers?.length ?? 0) + (reply.decisions?.length ?? 0);

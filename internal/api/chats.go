@@ -110,6 +110,12 @@ type chatHandlers struct {
 	// the agent backend (best-effort: a read failure serves the list
 	// without flags). nil omits the field entirely.
 	blacklist blacklistReader
+	// priced, when non-nil, reports whether CM can price a model; picker
+	// entries it rejects are flagged unpriced. nil flags nothing (fail-open).
+	priced func(model string) bool
+	// architectDefault is backends.architect.default_model when the architect
+	// backend is configured, else "".
+	architectDefault string
 	// architect signs the blueprint proxy reads; nil when no architect
 	// backend is configured.
 	architect *architectUpstream
@@ -240,6 +246,13 @@ func (h *chatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sessions)
 }
 
+// isArchitectDefault reports whether model is the architect backend's own
+// default, which the picker seeds and the backend already accepts, so it skips
+// catalog validation exactly as an omitted model does.
+func (h *chatHandlers) isArchitectDefault(kind chat.SessionKind, model string) bool {
+	return kind == chat.KindArchitect && h.architectDefault != "" && model == h.architectDefault
+}
+
 func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Title      string   `json:"title"`
@@ -270,7 +283,7 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 		// fetch error or an empty catalog (cold start, endpoint outage -
 		// the builder-backed fetcher reports both as an empty list with a
 		// nil error) fails open so an upstream outage never blocks chat.
-		if model != "" {
+		if model != "" && !h.isArchitectDefault(kind, model) {
 			if models, err := h.endpointModels(r.Context()); err == nil && len(models) > 0 && !containsModelID(models, model) {
 				writeError(w, http.StatusBadRequest, ErrCodeInvalidModel, "model not in catalog", model)
 
@@ -283,7 +296,7 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 		}
 		// Validate against CM's vendor-screened catalog copy. validateModel
 		// fails open on an empty catalog (cold start, OpenRouter outage).
-		if model != "" && h.validateModel != nil && !h.validateModel(r.Context(), model) {
+		if model != "" && !h.isArchitectDefault(kind, model) && h.validateModel != nil && !h.validateModel(r.Context(), model) {
 			writeError(w, http.StatusBadRequest, ErrCodeInvalidModel, "model not in catalog", model)
 
 			return
@@ -322,6 +335,9 @@ type chatModelEntry struct {
 	// Blacklisted is true only for models in the opstore blacklist; omitempty
 	// keeps the key off the wire for every other model.
 	Blacklisted bool `json:"blacklisted,omitempty"`
+	// Unpriced is true only when CM cannot price the model, so a blueprint
+	// cost cap on it could never bind.
+	Unpriced bool `json:"unpriced,omitempty"`
 }
 
 // containsModelID reports whether id is present in the picker model list.
@@ -348,10 +364,11 @@ func containsModelID(models []chatModelEntry, id string) bool {
 //     chats fall back to the server default.
 func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 	type response struct {
-		Source     string           `json:"source"`
-		Models     []chatModelEntry `json:"models"`
-		Default    string           `json:"default"`
-		FetchError string           `json:"fetch_error,omitempty"`
+		Source           string           `json:"source"`
+		Models           []chatModelEntry `json:"models"`
+		Default          string           `json:"default"`
+		ArchitectDefault string           `json:"architect_default"`
+		FetchError       string           `json:"fetch_error,omitempty"`
 	}
 
 	if h.endpointModels != nil {
@@ -362,6 +379,8 @@ func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 				FetchError: err.Error(),
 				Models:     []chatModelEntry{},
 				Default:    h.orDefault,
+
+				ArchitectDefault: h.architectDefault,
 			})
 
 			return
@@ -371,9 +390,11 @@ func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 			models = []chatModelEntry{}
 		}
 
-		models = h.markBlacklisted(r.Context(), models)
+		models = h.annotateModels(r.Context(), models)
 
-		writeJSON(w, http.StatusOK, response{Source: "endpoint", Models: models, Default: h.orDefault})
+		writeJSON(w, http.StatusOK, response{
+			Source: "endpoint", Models: models, Default: h.orDefault, ArchitectDefault: h.architectDefault,
+		})
 
 		return
 	}
@@ -384,12 +405,13 @@ func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 			models = h.servedModels(r.Context())
 		}
 
-		models = h.markBlacklisted(r.Context(), models)
+		models = h.annotateModels(r.Context(), models)
 
 		writeJSON(w, http.StatusOK, response{
-			Source:  "openrouter",
-			Models:  models,
-			Default: h.orDefault,
+			Source:           "openrouter",
+			Models:           models,
+			Default:          h.orDefault,
+			ArchitectDefault: h.architectDefault,
 		})
 
 		return
@@ -397,23 +419,24 @@ func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 
 	// No chat backend configured: an empty endpoint-mode list renders
 	// nothing in the picker.
-	writeJSON(w, http.StatusOK, response{Source: "endpoint", Models: []chatModelEntry{}, Default: ""})
+	writeJSON(w, http.StatusOK, response{
+		Source: "endpoint", Models: []chatModelEntry{}, Default: "", ArchitectDefault: h.architectDefault,
+	})
 }
 
-// markBlacklisted returns the picker list with Blacklisted set on entries
-// whose ID is in the opstore blacklist. Best-effort: a failed read (or a nil
-// reader) returns the list unflagged; only the blacklist read itself is
-// swallowed, never the model fetch. The input may be a shared cached slice,
-// so flagged output is always a fresh slice - the cache is never mutated.
-func (h *chatHandlers) markBlacklisted(ctx context.Context, models []chatModelEntry) []chatModelEntry {
+// annotateModels returns the picker list with Blacklisted set on entries in
+// the opstore blacklist and Unpriced set on entries the price predicate
+// rejects. Best-effort: a failed blacklist read (or a nil reader or predicate)
+// leaves that flag off; only the flag read is swallowed, never the model
+// fetch. The input may be a shared cached slice, so the output is always a
+// fresh slice - the cache is never mutated.
+func (h *chatHandlers) annotateModels(ctx context.Context, models []chatModelEntry) []chatModelEntry {
 	flagged := blacklistedSet(ctx, h.blacklist)
-	if flagged == nil {
-		return models
-	}
 
 	out := make([]chatModelEntry, len(models))
 	for i, m := range models {
 		m.Blacklisted = flagged[m.ID]
+		m.Unpriced = h.priced != nil && !h.priced(m.ID)
 		out[i] = m
 	}
 

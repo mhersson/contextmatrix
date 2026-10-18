@@ -552,8 +552,9 @@ export interface LogEntry {
    * whose content is a {text, prompt} JSON envelope, "marker" for a blueprint
    * stage divider (type system) or sheet reference (type text) whose content
    * is a {text, marker} JSON envelope, "round_chat" for a user message typed
-   * in an open question round's chat box. Empty / absent means a
-   * regular message. The frontend matches on this rather than content
+   * in an open question round's chat box, "round_reply" for a user message
+   * answering a round (hidden when its round is loaded, a plain message
+   * otherwise). Empty / absent means a regular message. The frontend matches on this rather than content
    * strings so the rendering rule is unambiguous and survives reloads.
    */
   kind?: string;
@@ -901,6 +902,8 @@ export interface ChatModel {
   max_tokens: number;
   /** Present with true when the slug is on the ops.db model blacklist. */
   blacklisted?: boolean;
+  /** Present with true when CM cannot price the model, so a cost cap cannot hold. */
+  unpriced?: boolean;
 }
 
 export interface ChatModelList {
@@ -914,6 +917,8 @@ export interface ChatModelList {
   source: 'openrouter' | 'endpoint';
   models: ChatModel[];
   default: string;
+  /** The architect backend's default model; "" when no architect backend is configured. */
+  architect_default: string;
 }
 
 export interface ModelCatalogEntry {

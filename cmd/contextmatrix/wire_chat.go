@@ -271,6 +271,16 @@ func architectPriceFor(rates rateResolver) func(model string) (protocol.ModelPri
 	}
 }
 
+// modelPricedFor narrows a price lookup to the yes/no the model picker needs,
+// so the dialog and the architect cold open share one predicate.
+func modelPricedFor(price func(model string) (protocol.ModelPrice, bool)) func(model string) bool {
+	return func(model string) bool {
+		_, ok := price(model)
+
+		return ok
+	}
+}
+
 // priceable reports whether a rate prices prompt or completion tokens; a
 // catalog entry without pricing resolves to an all-zero rate.
 func priceable(rate service.ModelRate) bool {

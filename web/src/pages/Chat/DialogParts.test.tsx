@@ -5,6 +5,8 @@ import { ProjectList } from './ProjectList';
 import { BlueprintFields } from './BlueprintFields';
 import { EMPTY_BLUEPRINT_FORM } from './blueprintForm';
 
+vi.mock('../../hooks/useTheme', () => ({ useTheme: () => ({ favorites: null }) }));
+
 const projects = [
   { name: 'alpha', display_name: 'Alpha', repo: 'git@github.com:example/alpha.git' },
   { name: 'beta' },
@@ -49,15 +51,17 @@ describe('ProjectList', () => {
   });
 });
 
+const noModels = { source: 'endpoint' as const, model: '', defaultModel: '', models: [], onChange: () => {} };
+
 describe('BlueprintFields', () => {
   it('counts the picked projects', () => {
-    render(<BlueprintFields projects={projects} value={{ ...EMPTY_BLUEPRINT_FORM, projects: ['alpha', 'beta'] }} onChange={() => {}} />);
+    render(<BlueprintFields projects={projects} value={{ ...EMPTY_BLUEPRINT_FORM, projects: ['alpha', 'beta'] }} onChange={() => {}} models={noModels} />);
     expect(screen.getByText('2 selected')).toBeInTheDocument();
   });
 
   it('reports a mode and a cap preset', () => {
     const onChange = vi.fn();
-    render(<BlueprintFields projects={projects} value={EMPTY_BLUEPRINT_FORM} onChange={onChange} />);
+    render(<BlueprintFields projects={projects} value={EMPTY_BLUEPRINT_FORM} onChange={onChange} models={noModels} />);
     expect(screen.getByRole('radio', { name: 'No cap' })).toBeChecked();
     fireEvent.click(screen.getByRole('radio', { name: 'Yolo' }));
     expect(onChange).toHaveBeenCalledWith({ ...EMPTY_BLUEPRINT_FORM, mode: 'yolo' });

@@ -720,6 +720,7 @@ func main() {
 		ServedModels:           servedModelsFn,      // nil when catalogBuilder == nil
 		ServedModelsSource:     servedModelsSource,  // "" when catalogBuilder == nil
 		ValidateChatModel:      validateChatModelFn, // nil when catalogBuilder == nil
+		ChatModelPriced:        modelPricedFor(architectPriceFor(svc)),
 		AuthService:            authSvc,
 		AuthMode:               cfg.Auth.Mode,
 		LLMEndpoint:            llmEndpointFromConfig(cfg.LLMEndpoint),

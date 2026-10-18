@@ -72,3 +72,8 @@ export function roundEntry(seq: number, id: string, round: Record<string, unknow
 export function roundChatEntry(seq: number, content: string): LogEntry {
   return { ts: '2026-10-17T10:00:00Z', card_id: '', type: 'user', kind: 'round_chat', seq, content };
 }
+
+/** A sent round reply as CM stores it: a user row of kind "round_reply" holding the readable summary. */
+export function roundReplyEntry(seq: number, content: string): LogEntry {
+  return { ts: '2026-10-17T10:00:00Z', card_id: '', type: 'user', kind: 'round_reply', seq, content };
+}

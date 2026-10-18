@@ -12,14 +12,15 @@ interface QuestionPaneProps {
   /** The own-answer input's text. */
   own: string;
   mode: RoundMode;
-  /** The expanded option's 1-based position, or null. */
-  expanded: number | null;
+  /** The expanded options' 1-based positions. */
+  expanded: readonly number[];
   onOption: (option: number) => void;
+  onToggle: (option: number) => void;
   onOwn: (text: string) => void;
   ownRef: Ref<HTMLInputElement>;
 }
 
-export function QuestionPane({ round, question, draft, own, mode, expanded, onOption, onOwn, ownRef }: QuestionPaneProps) {
+export function QuestionPane({ round, question, draft, own, mode, expanded, onOption, onToggle, onOwn, ownRef }: QuestionPaneProps) {
   const stored = storedAnswer(round, question);
   const chosen = effectiveAnswer(round, draft, question);
   const n = question.number;
@@ -41,9 +42,10 @@ export function QuestionPane({ round, question, draft, own, mode, expanded, onOp
             option={o}
             recommended={question.recommended === i + 1}
             selected={chosen?.option === i + 1}
-            expanded={expanded === i + 1}
+            expanded={expanded.includes(i + 1)}
             researchOff={round.researchOff}
             onClick={() => onOption(i + 1)}
+            onToggle={() => onToggle(i + 1)}
           />
         ))}
         <div className={`qb-opt qb-other${chosen?.text !== undefined ? ' sel' : ''}`}>

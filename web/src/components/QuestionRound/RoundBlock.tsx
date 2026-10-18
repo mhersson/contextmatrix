@@ -5,7 +5,16 @@ import { AssumptionsPane } from './AssumptionsPane';
 import { QuestionPane } from './QuestionPane';
 import { RoundChat } from './RoundChat';
 import { SubmitPane, type SendPhase } from './SubmitPane';
-import { buildReply, itemCount, replySummary, storedAnswer, storedCount, storedDecision } from './roundDraft';
+import {
+  answeredCount,
+  buildReply,
+  effectiveAnswer,
+  effectiveDecision,
+  itemCount,
+  replySummary,
+  storedAnswer,
+  type RoundDraft,
+} from './roundDraft';
 import { countText, personaPhrase, type RoundMode } from './roundView';
 import { useRoundDraft } from './useRoundDraft';
 
@@ -24,14 +33,14 @@ function tabKeys(round: Round, mode: RoundMode): TabKey[] {
   return keys;
 }
 
-function tabInfo(round: Round, key: TabKey): TabInfo {
+function tabInfo(round: Round, draft: RoundDraft, key: TabKey): TabInfo {
   if (key === 'submit') return { label: 'Submit', state: 'submit' };
   if (key === 'assumptions') {
-    const done = round.assumptions.every((a) => storedDecision(round, a.id) !== null);
+    const done = round.assumptions.every((a) => effectiveDecision(round, draft, a.id) !== null);
     return { label: 'Assumptions', state: done ? 'done' : 'open' };
   }
   const q = round.questions.find((x) => `q:${x.number}` === key);
-  return { label: q?.title ?? key, state: q && storedAnswer(round, q) ? 'done' : 'open' };
+  return { label: q?.title ?? key, state: q && effectiveAnswer(round, draft, q) ? 'done' : 'open' };
 }
 
 /** The highest option key any question takes: its options plus the own answer, at most 9. */
@@ -84,9 +93,10 @@ export function RoundBlock({
   );
   const tabs = tabKeys(round, mode);
   const [picked, setPicked] = useState<TabKey | null>(null);
-  const active =
-    picked !== null && tabs.includes(picked) ? picked : (tabs.find((k) => tabInfo(round, k).state === 'open') ?? tabs[0]);
-  const [expanded, setExpanded] = useState<Readonly<Record<number, number | null>>>({});
+  // Chosen once on mount so a pick on this tab does not move the block on.
+  const [opening] = useState(() => tabs.find((k) => tabInfo(round, draft, k).state === 'open') ?? tabs[0]);
+  const active = picked !== null && tabs.includes(picked) ? picked : tabs.includes(opening) ? opening : tabs[0];
+  const [expanded, setExpanded] = useState<Readonly<Record<number, readonly number[]>>>({});
   const [phase, setPhase] = useState<SendPhase>('idle');
   const [sendError, setSendError] = useState<string | null>(null);
   const send = async (final: boolean) => {
@@ -131,9 +141,13 @@ export function RoundBlock({
     const q = round.questions.find((x) => x.number === number);
     const o = q?.options[option - 1];
     if (!o) return;
-    setExpanded((e) => ({ ...e, [number]: e[number] === option ? null : option }));
     if (mode === 'open') pickOption(number, option, o.title);
   };
+  const toggleOption = (number: number, option: number) =>
+    setExpanded((e) => {
+      const open = e[number] ?? [];
+      return { ...e, [number]: open.includes(option) ? open.filter((x) => x !== option) : [...open, option] };
+    });
 
   // Shortcuts never act on typed text: inside an input or textarea only Enter in the own answer is taken.
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
@@ -176,13 +190,13 @@ export function RoundBlock({
           <b>{countText(round)}</b> from {personaPhrase(round.persona)}
         </div>
         <span>
-          {storedCount(round)} of {itemCount(round)} answered
+          {answeredCount(round, draft)} of {itemCount(round)} answered
           {mode === 'readonly' ? '' : ' · your answers are kept if you leave'}
         </span>
       </div>
       <div className="qb-tabs" role="tablist" aria-label="Questions">
         {tabs.map((key) => {
-          const t = tabInfo(round, key);
+          const t = tabInfo(round, draft, key);
           return (
             <button
               key={key}
@@ -214,8 +228,9 @@ export function RoundBlock({
             draft={draft}
             own={own[question.number] ?? storedAnswer(round, question)?.text ?? ''}
             mode={mode}
-            expanded={expanded[question.number] ?? null}
+            expanded={expanded[question.number] ?? []}
             onOption={(option) => chooseOption(question.number, option)}
+            onToggle={(option) => toggleOption(question.number, option)}
             onOwn={(text) => typeOwn(question.number, text)}
             ownRef={ownRef}
           />

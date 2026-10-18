@@ -1,6 +1,8 @@
 import { useId } from 'react';
+import { ChatModelPicker } from './ChatModelPicker';
 import { Field } from './Field';
 import { ProjectList, type ProjectOption } from './ProjectList';
+import type { ChatModelChoice } from './useChatModelChoice';
 import {
   BLUEPRINT_MODES,
   CAP_PRESETS,
@@ -14,9 +16,10 @@ interface BlueprintFieldsProps {
   projects: ProjectOption[];
   value: BlueprintForm;
   onChange: (next: BlueprintForm) => void;
+  models: ChatModelChoice;
 }
 
-export function BlueprintFields({ projects, value, onChange }: BlueprintFieldsProps) {
+export function BlueprintFields({ projects, value, onChange, models }: BlueprintFieldsProps) {
   const picked = value.projects.length;
   return (
     <>
@@ -28,6 +31,7 @@ export function BlueprintFields({ projects, value, onChange }: BlueprintFieldsPr
           onChange={(next) => onChange({ ...value, projects: next })}
         />
       </Field>
+      <ChatModelPicker {...models} />
       <Field label="Mode">
         <ModeCards mode={value.mode} onChange={(mode) => onChange({ ...value, mode })} />
       </Field>

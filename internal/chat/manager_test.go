@@ -6051,9 +6051,38 @@ func TestManager_SendUserMessage_ChatConsumerDoesNotWaitOnTheSend(t *testing.T) 
 	require.NoError(t, err)
 }
 
-func TestManager_SendRoundReply_ForwardsTheRoundUnchanged(t *testing.T) {
-	mgr, _, arch := newManagerWithArchitectStub(t)
+func TestManager_SendUserMessage_PlainArchitectSendStoresNoKind(t *testing.T) {
+	hub := chat.NewSSEHub(128)
+	mgr, _, _ := newManagerWithArchitectStub(t, func(c *chat.Config) { c.Hub = hub })
+	ctx := context.Background()
 	bp := openArchitect(t, mgr)
+
+	ch, _, err := hub.Subscribe(bp.ID, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { hub.Unsubscribe(bp.ID, ch) })
+
+	_, err = mgr.SendUserMessage(ctx, bp.ID, "hello")
+	require.NoError(t, err)
+
+	msgs, err := mgr.ListMessages(ctx, bp.ID, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "hello", msgs[0].Content)
+	assert.Empty(t, msgs[0].Kind)
+
+	ev := nextMessageEvent(t, ch)
+	assert.Equal(t, "hello", ev.Content)
+	assert.Empty(t, ev.DataKind)
+}
+
+func TestManager_SendRoundReply_ForwardsTheRoundUnchanged(t *testing.T) {
+	hub := chat.NewSSEHub(128)
+	mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) { c.Hub = hub })
+	bp := openArchitect(t, mgr)
+
+	ch, _, err := hub.Subscribe(bp.ID, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { hub.Unsubscribe(bp.ID, ch) })
 
 	reply := protocol.RoundReply{
 		PromptID:  "round:1",
@@ -6062,7 +6091,7 @@ func TestManager_SendRoundReply_ForwardsTheRoundUnchanged(t *testing.T) {
 		Final:     true,
 	}
 
-	_, err := mgr.SendRoundReply(context.Background(), bp.ID, "Submitted all 3 answers.", reply)
+	_, err = mgr.SendRoundReply(context.Background(), bp.ID, "Submitted all 3 answers.", reply)
 	require.NoError(t, err)
 
 	arch.mu.Lock()
@@ -6077,7 +6106,12 @@ func TestManager_SendRoundReply_ForwardsTheRoundUnchanged(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)
 	assert.Equal(t, chat.RoleUser, msgs[0].Role)
-	assert.Equal(t, "Submitted all 3 answers.", msgs[0].Content, "the transcript keeps the readable summary")
+	assert.Equal(t, "Submitted all 3 answers.", msgs[0].Content)
+	assert.Equal(t, chat.EventKindRoundReply, msgs[0].Kind)
+	assert.Equal(t, "round_reply", chat.EventKindRoundReply, "the kind is a wire contract")
+
+	ev := nextMessageEvent(t, ch)
+	assert.Equal(t, chat.EventKindRoundReply, ev.DataKind)
 }
 
 func TestManager_SendRoundReply_RefusesAChatSession(t *testing.T) {

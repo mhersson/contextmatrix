@@ -100,7 +100,10 @@ export function ChatPanel({
   const transcriptLogs = useMemo(
     () =>
       filteredLogs.filter(
-        (e) => (e.kind !== ROUND_CHAT_KIND || rounds.stray.has(e)) && !OUT_OF_TRANSCRIPT.has(rounds.byEntry.get(e)),
+        (e) =>
+          (e.kind !== ROUND_CHAT_KIND || rounds.stray.has(e)) &&
+          !rounds.answered.has(e) &&
+          !OUT_OF_TRANSCRIPT.has(rounds.byEntry.get(e)),
       ),
     [filteredLogs, rounds],
   );

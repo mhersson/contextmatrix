@@ -112,8 +112,10 @@ type Session struct {
 // whose Content is a {text, prompt} JSON envelope, "marker" marks an
 // architect stage divider or sheet reference whose Content is a {text, marker}
 // JSON envelope, and "round_chat" marks a user message about an open question
-// round whose Content is plain text, as on any user row. Kind rides the live
-// SSE wire and the REST bootstrap alike, so the browser renders both the same.
+// round whose Content is plain text, as on any user row, and "round_reply"
+// marks a user message that answers a round, Content its readable summary.
+// Kind rides the live SSE wire and the REST bootstrap alike, so the browser
+// renders both the same.
 type Message struct {
 	ID               int64     `json:"id"`
 	SessionID        string    `json:"session_id"`

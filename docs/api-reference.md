@@ -2463,7 +2463,9 @@ A blueprint session on the architect backend takes its own fields:
 project in `projects`, a valid `mode` (`default`, `auto`, `auto+emit` or
 `yolo`; `default` when omitted), a non-negative `cost_cap_usd` and no
 `project`. `model` is not defaulted at create for architect sessions: the
-cold open uses `backends.architect.default_model`. Violations are 400
+cold open uses `backends.architect.default_model`. A `model` equal to that
+default is accepted without catalog validation, exactly like an omitted one;
+any other model is validated against the catalog as for chat sessions. Violations are 400
 `INVALID_CHAT_INPUT` with the reason in `details`; a create with no architect
 backend configured is 409 `CHAT_KIND_UNAVAILABLE`.
 
@@ -2477,7 +2479,8 @@ Tells the New Chat dialog which model picker to render.
 {
   "source": "openrouter",
   "models": [ { "id": "anthropic/claude-sonnet-4.5", "label": "anthropic/claude-sonnet-4.5", "max_tokens": 200000 } ],
-  "default": "anthropic/claude-sonnet-4"
+  "default": "anthropic/claude-sonnet-4",
+  "architect_default": "anthropic/claude-opus-4"
 }
 ```
 
@@ -2487,11 +2490,20 @@ Tells the New Chat dialog which model picker to render.
 - `"endpoint"`: `llm_endpoint.type: openai`. `models` is the endpoint's
   served list, cached for 5 minutes with last-good fallback; when the
   upstream fetch fails the response carries `fetch_error` with an empty
-  list. Also returned as `{"source":"endpoint","models":[],"default":""}`
-  when no chat backend is configured.
+  list. Also returned as
+  `{"source":"endpoint","models":[],"default":"","architect_default":""}` when
+  no chat backend is configured (`architect_default` is still the architect
+  entry's default when that backend is configured).
+
+`architect_default` is always present: `backends.architect.default_model` when
+the architect backend is configured, else `""`. The New blueprint dialog seeds
+its model pick from it.
 
 Blacklisted models carry `"blacklisted": true` (absent otherwise, best-effort
-join, informational only - see `GET /api/models`).
+join, informational only - see `GET /api/models`). Models CM cannot price
+carry `"unpriced": true` (absent otherwise). A blueprint with a cost cap on an
+unpriced model opens, but the architect refuses each of its capped stage runs
+without a price.
 
 ### GET /api/chats
 
@@ -2573,8 +2585,10 @@ session is opened automatically (so 429 `TOO_MANY_CHATS` is possible);
 ```
 
 On an `architect` session the body may also carry a question round's answers
-in `round`; `content` is then the readable summary the transcript keeps, and
-CM forwards both to the architect unchanged:
+in `round`; `content` is then the readable summary, and CM forwards both to the
+architect unchanged and stores the row with `kind` `"round_reply"`. The panel
+keeps that row out of the transcript when its round is loaded and shows it as
+a plain message otherwise:
 
 ```json
 {
@@ -2635,7 +2649,8 @@ exactly while the oldest loaded seq is `> 1`.
 `tool_result`, `stderr`, or `system`. `kind` (`"divider"` for the Clear
 Context row, `"prompt"` for an architect question or gate, `"marker"` for an
 architect stage divider or sheet reference, `"round_chat"` for a user message
-about an open question round) and `rehydration_phase` appear only when set.
+about an open question round, `"round_reply"` for a user message that answers a
+round) and `rehydration_phase` appear only when set.
 `content` is the raw text, except on a `prompt` row, where it
 is the JSON envelope `{"text": "<message>", "prompt": {"id": "...", "kind":
 "question", "text": "...", "free_text": true, "actions": [{"label": "...",

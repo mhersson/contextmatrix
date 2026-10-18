@@ -468,7 +468,10 @@ A question round's answers go to `/message` with `round` beside the readable
 summary in `content`: `{"prompt_id": "round:1", "answers": [{"number": 1,
 "option": 2}, {"number": 2, "text": "Loki only"}], "decisions": [{"id": "A1",
 "accept": false}], "final": true}`. `option` is the chosen option's 1-based
-position, or absent with `text` holding the person's own answer. Every reply
+position, or absent with `text` holding the person's own answer. CM stores the reply's
+row with kind `round_reply`; the panel leaves it out of the transcript when a
+round frame precedes it in the loaded log, and shows it as a plain message
+otherwise. Every reply
 carries all the answers and decisions the panel holds at that moment, stored
 or new, and `final` marks Submit all. Text typed in the round's chat box is
 a plain message without `round`; CM stores its row with kind `round_chat` so
