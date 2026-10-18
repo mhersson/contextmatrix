@@ -2477,7 +2477,8 @@ Tells the New Chat dialog which model picker to render.
 {
   "source": "openrouter",
   "models": [ { "id": "anthropic/claude-sonnet-4.5", "label": "anthropic/claude-sonnet-4.5", "max_tokens": 200000 } ],
-  "default": "anthropic/claude-sonnet-4"
+  "default": "anthropic/claude-sonnet-4",
+  "architect_default": "anthropic/claude-opus-4"
 }
 ```
 
@@ -2490,8 +2491,15 @@ Tells the New Chat dialog which model picker to render.
   list. Also returned as `{"source":"endpoint","models":[],"default":""}`
   when no chat backend is configured.
 
+`architect_default` is always present: `backends.architect.default_model` when
+the architect backend is configured, else `""`. The New blueprint dialog seeds
+its model pick from it.
+
 Blacklisted models carry `"blacklisted": true` (absent otherwise, best-effort
-join, informational only - see `GET /api/models`).
+join, informational only - see `GET /api/models`). Models CM cannot price
+carry `"unpriced": true` (absent otherwise). A blueprint with a cost cap on an
+unpriced model fails at start, because the architect refuses a capped run
+without a price.
 
 ### GET /api/chats
 

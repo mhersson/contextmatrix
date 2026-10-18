@@ -1369,3 +1369,86 @@ func TestSendMessage_RoundChatOnAChatSessionIsRefused(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 	assert.Empty(t, backend.sentPayloads())
 }
+
+type modelsBody struct {
+	Source           string           `json:"source"`
+	Models           []chatModelEntry `json:"models"`
+	ArchitectDefault string           `json:"architect_default"`
+}
+
+func getModels(t *testing.T, h *chatHandlers) modelsBody {
+	t.Helper()
+
+	rec := httptest.NewRecorder()
+	h.listModels(rec, httptest.NewRequest(http.MethodGet, "/api/chats/models", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var body modelsBody
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+
+	return body
+}
+
+func TestListModels_ArchitectDefaultOnEveryBranch(t *testing.T) {
+	t.Parallel()
+
+	ok := func(context.Context) ([]chatModelEntry, error) { return []chatModelEntry{{ID: "m"}}, nil }
+	fail := func(context.Context) ([]chatModelEntry, error) { return nil, fmt.Errorf("down") }
+
+	tests := []struct {
+		name string
+		h    *chatHandlers
+	}{
+		{"endpoint", &chatHandlers{endpointModels: ok}},
+		{"endpoint fetch error", &chatHandlers{endpointModels: fail}},
+		{"openrouter", &chatHandlers{openRouter: true}},
+		{"no backend", &chatHandlers{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.h.architectDefault = "anthropic/claude-opus-4"
+			assert.Equal(t, "anthropic/claude-opus-4", getModels(t, tt.h).ArchitectDefault)
+
+			tt.h.architectDefault = ""
+			assert.Empty(t, getModels(t, tt.h).ArchitectDefault)
+		})
+	}
+}
+
+func TestListModels_FlagsUnpricedWithoutMutatingCache(t *testing.T) {
+	t.Parallel()
+
+	cached := []chatModelEntry{{ID: "priced"}, {ID: "free"}}
+	h := &chatHandlers{
+		endpointModels: func(context.Context) ([]chatModelEntry, error) { return cached, nil },
+		priced:         func(m string) bool { return m == "priced" },
+	}
+
+	body := getModels(t, h)
+	require.Len(t, body.Models, 2)
+	assert.False(t, body.Models[0].Unpriced)
+	assert.True(t, body.Models[1].Unpriced)
+	assert.False(t, cached[1].Unpriced, "the shared slice must stay unflagged")
+
+	h.priced = nil
+	for _, m := range getModels(t, h).Models {
+		assert.False(t, m.Unpriced, "a nil predicate flags nothing")
+	}
+}
+
+func TestListModels_UnpricedAbsentFromWireWhenPriced(t *testing.T) {
+	t.Parallel()
+
+	h := &chatHandlers{
+		openRouter:   true,
+		servedModels: func(context.Context) []chatModelEntry { return []chatModelEntry{{ID: "a"}} },
+		priced:       func(string) bool { return true },
+	}
+
+	rec := httptest.NewRecorder()
+	h.listModels(rec, httptest.NewRequest(http.MethodGet, "/api/chats/models", nil))
+	assert.NotContains(t, rec.Body.String(), "unpriced")
+}

@@ -258,6 +258,9 @@ type RouterConfig struct {
 	// ValidateChatModel, when non-nil, reports whether a model slug is in the
 	// served set (fail-open on an empty catalog).
 	ValidateChatModel func(context.Context, string) bool
+	// ChatModelPriced, when non-nil, reports whether CM can price a model;
+	// GET /api/chats/models flags the entries it rejects as unpriced.
+	ChatModelPriced func(model string) bool
 
 	// AuthService enables multi-user mode: the session guard middleware and
 	// the /api/auth/* routes are installed only when it is non-nil. A nil
@@ -702,8 +705,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		}
 
 		chh.validateModel = cfg.ValidateChatModel
+		chh.priced = cfg.ChatModelPriced
 
 		if architectBackendConfigured {
+			chh.architectDefault = cfg.ArchitectBackendCfg.DefaultModel
 			chh.architect = newArchitectUpstream(cfg.ArchitectBackendCfg.URL, cfg.ArchitectBackendCfg.APIKey)
 			chh.live = newBlueprintLive(chh.architect, chh.hub)
 		}
