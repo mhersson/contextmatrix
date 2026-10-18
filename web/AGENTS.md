@@ -10,6 +10,10 @@ Auto-loaded when working in `web/`. Backend conventions live in the root
   endpoint in one file.
 - Styling is Tailwind utility classes + CSS custom properties only. No CSS
   modules, no styled-components, no hardcoded hex (see Color palettes).
+  `black` and `white` are palette-independent lightness anchors, allowed in
+  `index.css` only inside the `--blueprint-ink-*` definitions and never as a
+  text or surface colour in a component (modal backdrops keep their
+  `bg-black/50` scrim).
 - Files: `PascalCase.tsx` components, `useX.ts` hooks, `types/index.ts` shared
   types. Split components over ~150 lines.
 - **One EventSource per distinct URL.** `SSEProvider`
@@ -83,21 +87,24 @@ keeps the hamburger and a way back to the board.
 | Accents      | `--red --orange --yellow --green --aqua --blue --purple` | Priority / state / type accents (mapping below)                  |
 | Chat         | `--chat-assistant-bg/-ring`, `--chat-user-ring`        | Chat bubble fill and rings, shared by every palette                |
 | Prompt       | `--prompt-question-accent`, `--prompt-question-bg`, `--prompt-question-hover-bg`, `--prompt-question-ring`, `--chat-option-hover-bg` | Architect question accent (pink dark, rose to maroon light) and the light wash of the red/purple hue over the bubble for the bubble and option hover; neutral option hover mixes `--fg` into the bubble |
-| Blueprint    | `--blueprint-done`, `--blueprint-cloud`, `--blueprint-quiet`, `--blueprint-quiet-strong` | Done segments and their gate notches on the blueprint scale bar; the dashed revision cloud on the sheet; muted text at 4.5:1 in the blueprint pane and architect prompts: quiet on the `--bg0` paper and bars, quiet-strong on `--bg1`, `--bg2`, `--bg-dim`, `--bg-red` and other prompt bubbles; on the question wash (question bubbles, the gate bar) muted text takes `--fg`. Pane borders, rules and underlines keep `--grey1`, except the slice group label's rule, which matches its label. All derive from palette tokens in `:root` |
+| Blueprint    | `--blueprint-done`, `--blueprint-cloud`, `--blueprint-quiet`, `--blueprint-quiet-strong`, `--blueprint-ink-red/-orange/-green/-aqua/-blue/-accent` | Done segments and their gate notches on the blueprint scale bar; the dashed revision cloud on the sheet; muted text at 4.5:1 in the blueprint pane and architect prompts: quiet on the `--bg0` paper and bars, quiet-strong on `--bg1`, `--bg2`, `--bg-dim`, `--bg-red` and other prompt bubbles; tone text (statuses, readiness, lists, links, errors) at 4.5:1 on `--bg0` to `--bg2` in the ink tokens, the tone lifted toward `white` in dark palettes (green needs no lift) and deepened toward `black` in light ones; on a tint, tone text takes `--fg` (as do architect prompt errors), and on the question wash (question bubbles, the gate bar) muted and tone text take it. Pane borders, rules and underlines keep `--grey1` or the plain tone, except the neutral slice group label's rule, which matches its quiet label. All derive from palette tokens, plus `white` and `black` for the inks |
 
 **UI semantic mapping:**
 
 - Card type badges: task = `--blue`, bug = `--red`, feature = `--green`,
   subtask = `--aqua`.
 - Priority: critical = `--red`, high = `--orange`, medium = `--yellow`,
-  low = `--grey1` (`--blueprint-quiet-strong` on the blueprint sheet's pill).
-- Blueprint sheet chips (`.bp-chip`): `--fg` text on the tone's `--bg-<tone>`
-  tint with a ring in the tone (grey: `--bg2`, no ring); tone-coloured text
-  misses 4.5:1 on the tints in the light palettes and Everforest dark.
+  low = `--grey1`. The blueprint sheet's priority pills carry the tone as
+  tint and ring around `--fg` text; low is `--blueprint-quiet-strong` text.
+- Blueprint sheet chips (`.bp-chip`) and type and priority pills
+  (`.bp-pill--<type|priority>`): `--fg` text on the tone's `--bg-<tone>`
+  tint with a ring in the tone (grey chip: `--bg2`, no ring); tone-coloured
+  text misses 4.5:1 on the tints in the light palettes and Everforest dark.
 - Review finding severity (blueprint review popover and gate bar):
-  critical = `--red`, major = `--orange`, minor = `--blueprint-quiet-strong`
-  text (`--fg` in the gate bar) in a `--grey1` ring; a critical finding not
-  yet fixed sits on `--bg-red` with a `--red` left edge.
+  critical = a `--red` ring, major = an `--orange` ring, both around `--fg`
+  text; minor = `--blueprint-quiet-strong` text (`--fg` in the gate bar) in a
+  `--grey1` ring; a critical finding not yet fixed sits on `--bg-red` with a
+  `--red` left edge.
 - Card state borders: agent-active = `--aqua`, stalled = `--red`,
   unassigned = `--bg3`.
 - Primary action = `--green`; secondary = `--aqua`; destructive = `--red`.

@@ -6661,6 +6661,21 @@ textarea {
   --blueprint-quiet: color-mix(in oklab, var(--grey1) 40%, var(--fg));
   /* Muted text on --bg1, --bg2, --bg-dim and --bg-red, where quiet falls below 4.5:1 in several palettes. */
   --blueprint-quiet-strong: color-mix(in oklab, var(--grey1) 22%, var(--fg));
+  /* Tone text at 4.5:1 on --bg0 to --bg2: dark palettes lift a tone toward white where needed, light ones deepen it toward black, keeping more hue than --fg would. */
+  --blueprint-ink-red: color-mix(in oklab, var(--red) 75%, white);
+  --blueprint-ink-orange: color-mix(in oklab, var(--orange) 85%, white);
+  --blueprint-ink-green: var(--green);
+  --blueprint-ink-aqua: color-mix(in oklab, var(--aqua) 95%, white);
+  --blueprint-ink-blue: color-mix(in oklab, var(--blue) 95%, white);
+  --blueprint-ink-accent: color-mix(in oklab, var(--prompt-question-accent) 85%, white);
+}
+[data-theme="light"] {
+  --blueprint-ink-red: color-mix(in oklab, var(--red) 75%, black);
+  --blueprint-ink-orange: color-mix(in oklab, var(--orange) 65%, black);
+  --blueprint-ink-green: color-mix(in oklab, var(--green) 70%, black);
+  --blueprint-ink-aqua: color-mix(in oklab, var(--aqua) 70%, black);
+  --blueprint-ink-blue: color-mix(in oklab, var(--blue) 75%, black);
+  --blueprint-ink-accent: color-mix(in oklab, var(--prompt-question-accent) 90%, black);
 }
 
 /* Blueprint scale bar. */
@@ -6803,15 +6818,15 @@ button.bp-seg-hit {
 }
 .bp-seg-group--waiting .bp-seg-group-label {
   border-color: var(--prompt-question-accent);
-  color: var(--prompt-question-accent);
+  color: var(--blueprint-ink-accent);
 }
 .bp-seg-group--failed .bp-seg-group-label {
   border-color: var(--red);
-  color: var(--red);
+  color: var(--blueprint-ink-red);
 }
 .bp-seg-group--running .bp-seg-group-label {
   border-color: var(--aqua);
-  color: var(--aqua);
+  color: var(--blueprint-ink-aqua);
 }
 .bp-seg-hit:hover .bp-seg-tip,
 .bp-seg-hit:focus-visible .bp-seg-tip {
@@ -6838,10 +6853,10 @@ button.bp-seg-hit {
   white-space: nowrap;
 }
 .bp-scale-where .bp-ask {
-  color: var(--prompt-question-accent);
+  color: var(--blueprint-ink-accent);
 }
 .bp-scale-where .bp-failed {
-  color: var(--red);
+  color: var(--blueprint-ink-red);
 }
 .bp-cost-wrap {
   position: relative;
@@ -6932,7 +6947,7 @@ button.bp-seg-hit {
   padding: 0 2px;
   border-radius: 2px;
   background: var(--bg-red);
-  color: var(--red);
+  color: var(--fg);
   text-decoration: line-through;
 }
 .bp-body ins,
@@ -7005,6 +7020,16 @@ button.bp-seg-hit {
   padding: 0 7px;
   border-radius: 999px;
   background: var(--bg2);
+}
+/* Same treatment and reason as .bp-chip. */
+.bp-pill--feature,
+.bp-pill--task,
+.bp-pill--bug,
+.bp-pill--critical,
+.bp-pill--high,
+.bp-pill--medium {
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--bp-pill-tone) 60%, transparent);
 }
 .bp-dec {
   position: relative;
@@ -7266,28 +7291,28 @@ button.bp-seg-hit {
   cursor: pointer;
 }
 .bp-card a {
-  color: var(--blue);
+  color: var(--blueprint-ink-blue);
 }
 .bp-pill--feature {
+  --bp-pill-tone: var(--green);
   background: var(--bg-green);
-  color: var(--green);
 }
 .bp-pill--task {
+  --bp-pill-tone: var(--blue);
   background: var(--bg-blue);
-  color: var(--blue);
 }
 .bp-pill--bug,
 .bp-pill--critical {
+  --bp-pill-tone: var(--red);
   background: var(--bg-red);
-  color: var(--red);
 }
 .bp-pill--high {
+  --bp-pill-tone: var(--orange);
   background: var(--bg-orange);
-  color: var(--orange);
 }
 .bp-pill--medium {
+  --bp-pill-tone: var(--yellow);
   background: var(--bg-yellow);
-  color: var(--yellow);
 }
 .bp-pill--low {
   color: var(--blueprint-quiet-strong);
@@ -7324,18 +7349,18 @@ button.bp-seg-hit {
 .bp-ready {
   font-size: 12px;
   font-weight: 600;
-  color: var(--green);
+  color: var(--blueprint-ink-green);
 }
 .bp-not-ready {
   font-size: 12px;
   font-weight: 600;
-  color: var(--orange);
+  color: var(--blueprint-ink-orange);
 }
 .bp-list--red li {
-  color: var(--red);
+  color: var(--blueprint-ink-red);
 }
 .bp-list--orange li {
-  color: var(--orange);
+  color: var(--blueprint-ink-orange);
 }
 
 /* Blueprint sheet: paper, stamps and live writing. */
@@ -7446,7 +7471,7 @@ button.bp-seg-hit {
   gap: 10px;
   margin: 0 0 14px;
   font-size: 12px;
-  color: var(--aqua);
+  color: var(--blueprint-ink-aqua);
 }
 .bp-progress-rule {
   flex: none;
@@ -7458,7 +7483,7 @@ button.bp-seg-hit {
   animation: bp-hatch 1.2s linear infinite;
 }
 .bp-progress--waiting {
-  color: var(--prompt-question-accent);
+  color: var(--blueprint-ink-accent);
 }
 .bp-progress--waiting .bp-progress-rule {
   border-color: var(--prompt-question-accent);
@@ -7490,7 +7515,7 @@ button.bp-seg-hit {
   padding: 6px 10px;
   border-radius: 4px;
   background: var(--bg-red);
-  color: var(--red);
+  color: var(--fg);
   font-size: 12px;
 }
 .bp-check-problems {
@@ -7503,7 +7528,7 @@ button.bp-seg-hit {
 }
 .bp-load-error {
   font-size: 12.5px;
-  color: var(--red);
+  color: var(--blueprint-ink-red);
 }
 @media (prefers-reduced-motion: reduce) {
   .bp-progress-rule,
@@ -7577,19 +7602,19 @@ button.bp-seg-hit {
   cursor: pointer;
 }
 .bp-st--running {
-  color: var(--aqua);
+  color: var(--blueprint-ink-aqua);
 }
 .bp-st--waiting {
-  color: var(--prompt-question-accent);
+  color: var(--blueprint-ink-accent);
 }
 .bp-st--ok {
-  color: var(--green);
+  color: var(--blueprint-ink-green);
 }
 .bp-st--old {
-  color: var(--orange);
+  color: var(--blueprint-ink-orange);
 }
 .bp-st--bad {
-  color: var(--red);
+  color: var(--blueprint-ink-red);
 }
 .bp-st--muted {
   color: var(--blueprint-quiet-strong);
@@ -7688,10 +7713,10 @@ button.bp-seg-hit {
 .bp-cap-reason:empty {
   display: none;
 }
-.bp-cap-reason,
-.bp-cap-error {
+.bp-cap .bp-cap-reason,
+.bp-cap .bp-cap-error {
   margin: 0;
-  color: var(--red);
+  color: var(--blueprint-ink-red);
 }
 .bp-sent {
   margin-left: 4px;
@@ -7699,7 +7724,7 @@ button.bp-seg-hit {
   color: var(--blueprint-quiet-strong);
 }
 .bp-tb-link--bad {
-  color: var(--red);
+  color: var(--blueprint-ink-red);
   text-decoration-color: var(--red);
 }
 .bp-ledger {
@@ -7715,6 +7740,7 @@ button.bp-seg-hit {
   border-radius: 3px;
 }
 .bp-finding--blocking {
+  --blueprint-ink-red: var(--fg);
   border-left-color: var(--red);
   background: var(--bg-red);
 }
@@ -7739,11 +7765,11 @@ button.bp-seg-hit {
 }
 .bp-sev--critical {
   border-color: var(--red);
-  color: var(--red);
+  color: var(--fg);
 }
 .bp-sev--major {
   border-color: var(--orange);
-  color: var(--orange);
+  color: var(--fg);
 }
 .bp-claim {
   display: block;
@@ -7766,15 +7792,14 @@ button.bp-seg-hit {
   flex: 1 1 200px;
   font-size: 12px;
 }
-.bp-gatebar > span > b {
-  color: var(--prompt-question-accent);
-}
 .bp-gatebar > div {
   margin-top: 0;
 }
 .bp-gate-ledger {
-  /* Only --fg clears 4.5:1 on the question wash, so the ledger's muted text takes it. */
+  /* Only --fg clears 4.5:1 on the question wash, so the ledger's muted and tone text take it. */
   --blueprint-quiet-strong: var(--fg);
+  --blueprint-ink-red: var(--fg);
+  --blueprint-ink-green: var(--fg);
   flex: 1 1 100%;
   min-width: 0;
   font-size: 12px;
@@ -7785,9 +7810,6 @@ button.bp-seg-hit {
   border-left: 3px solid var(--red);
   border-radius: 3px;
   background: var(--bg-red);
-}
-.bp-gate-block > b {
-  color: var(--red);
 }
 .bp-gate-ledger > div {
   max-height: 12rem;
@@ -7910,7 +7932,7 @@ button.bp-seg-hit {
   color: var(--fg);
 }
 .bp-slice--wait {
-  color: var(--prompt-question-accent);
+  color: var(--blueprint-ink-accent);
 }
 .bp-slice:disabled {
   opacity: 0.5;
@@ -8045,7 +8067,7 @@ button.bp-seg-hit {
 }
 .chat-pane-sheet-btn--on {
   background: var(--bg2);
-  color: var(--aqua);
+  color: var(--blueprint-ink-aqua);
 }
 .chat-pane-sheet-dot {
   width: 6px;

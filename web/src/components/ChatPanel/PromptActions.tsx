@@ -194,7 +194,7 @@ export function PromptActions({ prompt, status, answer, onReply }: PromptActions
         <div
           role="alert"
           className="text-xs px-2 py-1 rounded font-mono"
-          style={{ background: 'var(--bg-red)', color: 'var(--red)' }}
+          style={{ background: 'var(--bg-red)', color: 'var(--fg)' }}
         >
           {error}
         </div>
