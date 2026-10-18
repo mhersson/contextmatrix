@@ -564,7 +564,8 @@ func main() {
 
 	// Chat: manager + SSE hub + idle reaper + warm-idle grace timer. The chat
 	// store is the shared operational store (opStore) opened above.
-	chatMgr, chatHub, chatCleanup, chatWorkerAPIKey := wireChat(ctx, cfg, svc, opStore)
+	// ContextWindow is nil-receiver safe, so a deployment without a catalog sends no context window.
+	chatMgr, chatHub, chatCleanup, chatWorkerAPIKey := wireChat(ctx, cfg, svc, opStore, catalogBuilder.ContextWindow)
 	defer chatCleanup()
 
 	// Wire backend subsystems: client, end-session subscriber, reconcile sweep,

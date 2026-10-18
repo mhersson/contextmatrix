@@ -9,6 +9,8 @@ export interface MarkerRow {
 
 const rows = new WeakMap<LogEntry, MarkerRow>();
 
+const KINDS: ReadonlySet<unknown> = new Set(['stage', 'artifact', 'review']);
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
@@ -33,13 +35,13 @@ function parseEnvelope(content: string): MarkerRow {
   if (!isRecord(raw)) return { text: content, marker: null };
   const text = typeof raw.text === 'string' ? raw.text : '';
   const m = isRecord(raw.marker) ? raw.marker : null;
-  if (!m || (m.kind !== 'stage' && m.kind !== 'artifact') || typeof m.stage !== 'string' || m.stage === '') {
+  if (!m || !KINDS.has(m.kind) || typeof m.stage !== 'string' || m.stage === '') {
     return { text: text || content, marker: null };
   }
   return {
     text,
     marker: {
-      kind: m.kind,
+      kind: m.kind as LogMarker['kind'],
       stage: m.stage,
       slice: typeof m.slice === 'string' && m.slice !== '' ? m.slice : undefined,
       persona: typeof m.persona === 'string' && m.persona !== '' ? m.persona : undefined,

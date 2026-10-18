@@ -17,6 +17,7 @@ import { StructuredPayload } from './StructuredPayload';
 import { PromptActions } from './PromptActions';
 import { parsePromptEntry, type PromptState } from './prompts';
 import { parseMarkerEntry } from '../Blueprint/markers';
+import { ReviewCard } from '../Blueprint/ReviewCard';
 import { SheetReference } from '../Blueprint/SheetReference';
 import { StageDivider } from '../Blueprint/StageDivider';
 import { RoundBlock } from '../QuestionRound/RoundBlock';
@@ -55,16 +56,18 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
   // Blueprint markers replace artifact bodies in the transcript; an unreadable one shows its fallback line.
   const marker = parseMarkerEntry(entry);
   if (marker) {
-    if (marker.marker?.kind === 'stage') return <StageDivider marker={marker.marker} />;
-    if (marker.marker?.kind === 'artifact') return <SheetReference marker={marker.marker} />;
-    return (
+    const fallback = (
       <div
-        className="pl-3 border-l-2 text-sm leading-relaxed break-words"
+        className="pl-3 border-l-2 text-sm leading-relaxed break-words whitespace-pre-line"
         style={{ borderLeftColor: accentFor('system'), color: textFor('system') }}
       >
         {marker.text}
       </div>
     );
+    if (marker.marker?.kind === 'stage') return <StageDivider marker={marker.marker} />;
+    if (marker.marker?.kind === 'artifact') return <SheetReference marker={marker.marker} />;
+    if (marker.marker?.kind === 'review') return <ReviewCard marker={marker.marker} fallback={fallback} />;
+    return fallback;
   }
 
   // ChatPanel keeps older frames and the docked round out of the transcript, so a round row here is closed,

@@ -551,3 +551,62 @@ export function findArtifact(stage: string, version: number, slice = ''): Bluepr
   if (!found) throw new Error(`no fixture for ${stage}${slice ? ` ${slice}` : ''} v${version}`);
   return found;
 }
+
+/** A reviewer's account past the summary clamp. */
+export const CARD_SUMMARY =
+  'Read acceptance rev 2 against the design and the conventions, and ran each criterion against the clean-checkout premise. ' +
+  'The dist-dependent checks now build first, the e2e budget holds and the clock seam is named, so the version passes; ' +
+  'one minor gap remains and two new findings need a decision before decomposition.';
+
+/** A passed round 2 of 3: two fixed (critical first when unfolded), one still open, two new, one past the finding clamp. */
+export const CARD_REVIEW: BlueprintArtifactReview = {
+  reviewer: 'tester',
+  score: 4,
+  threshold: 4,
+  passed: true,
+  round: 2,
+  max_rounds: 3,
+  summary: CARD_SUMMARY,
+  findings: [
+    {
+      id: 'R1',
+      severity: 'minor',
+      status: 'fixed',
+      verified_in: 2,
+      text: 'AC18 tests only 30 days plus 1 ms as expired.',
+      reviewer_note: 'Boundary defined: valid while now <= expires_at.',
+      addressed_in: 2,
+      addressed_by: 'senior_developer',
+      addressed_note: 'Defined the session boundary in the conventions.',
+    },
+    { id: 'R2', severity: 'critical', status: 'fixed', verified_in: 2, text: 'The e2e budget exceeds the shared rate limit.' },
+    {
+      id: 'R3',
+      severity: 'minor',
+      status: 'still_open',
+      verified_in: 2,
+      text: 'AC29 names no script file or npm script.',
+      addressed_in: 2,
+      addressed_by: 'senior_developer',
+      addressed_note: 'Named the script step.',
+    },
+    {
+      id: 'R4',
+      severity: 'minor',
+      status: 'open',
+      text: 'AC27 is a Vitest test, and so runs inside `npm run verify`, yet it runs `npm run test:e2e` twice. That needs Playwright browser downloads, which the design keeps out of verify.',
+    },
+    { id: 'R5', severity: 'major', status: 'open', text: 'No criterion checks the UI mapping of 409 identifier_taken to the identifier input.' },
+  ],
+};
+
+/** Round 1 sends the version back with one new finding and no summary. */
+export const SENT_BACK_REVIEW: BlueprintArtifactReview = {
+  reviewer: 'senior_developer',
+  score: 3,
+  threshold: 4,
+  passed: false,
+  round: 1,
+  max_rounds: 3,
+  findings: [{ id: 'R1', severity: 'major', status: 'open', text: 'Choose one password hashing algorithm with its cost parameters.' }],
+};

@@ -1141,16 +1141,16 @@ no server-side coupling to `create_pr` or `await_ci`.
 Chat state lives in the operational store `ops.db`, separate from the boards
 repo and `images.db`; the same file holds `model_blacklist` and
 `model_outcomes`. `ensureSchema` in `internal/opstore/sqlite/schema.go` runs
-`CREATE TABLE IF NOT EXISTS` for every table; there is no migration ledger.
-A column added to an existing table is grown by `addColumnIfMissing`, and an
-`ops.db` newer than the binary is refused. `chat_messages` carries `kind TEXT NOT NULL DEFAULT ''` (`divider` for
-the clear-context row, `prompt` for an architect question or gate whose content
-is a `{text, prompt}` JSON envelope, `marker` for an architect stage divider or
-sheet reference whose content is a `{text, marker}` JSON envelope, `round_chat`
-for a user message about an open question round whose content is plain text,
-`round_reply` for a user message that answers a round whose content is its
-readable summary, `command` for a session command such as `cap 4` that the
-panel never renders)
+`CREATE TABLE IF NOT EXISTS` for every table; there is no migration ledger. A
+column added to an existing table is grown by `addColumnIfMissing`, and an
+`ops.db` newer than the binary is refused. `chat_messages` carries `kind TEXT
+NOT NULL DEFAULT ''` (`divider` for the clear-context row, `prompt` for an
+architect question or gate whose content is a `{text, prompt}` JSON envelope,
+`marker` for an architect stage divider, sheet reference or reviewer verdict
+whose content is a `{text, marker}` JSON envelope, `round_chat` for a user
+message about an open question round whose content is plain text, `round_reply`
+for a user message that answers a round whose content is its readable summary,
+`command` for a session command such as `cap 4` that the panel never renders)
 and a unique index on `(session_id, seq)`.
 
 **`chat_sessions`:**

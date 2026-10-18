@@ -29,6 +29,7 @@ func wireChat(
 	cfg *config.Config,
 	svc *service.CardService,
 	chatStore chat.Store,
+	architectContextWindow func(ctx context.Context, model string) int,
 ) (*chat.Manager, *chat.SSEHub, func(), string) {
 	var chatBackend chat.Backend
 
@@ -118,6 +119,7 @@ func wireChat(
 		ArchitectDefaultModel:           architectDefaultModel,
 		ArchitectWorkerCredentialsToken: architectWorkerCredentialsToken,
 		ArchitectPrice:                  architectPriceFor(svc),
+		ArchitectContextWindow:          architectContextWindow,
 		ArchitectResearch:               research,
 		ResolveProjectExec: func(rctx context.Context, project string) (chat.ProjectExecInfo, error) {
 			p, err := svc.GetProject(rctx, project)

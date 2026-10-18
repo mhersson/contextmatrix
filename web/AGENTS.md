@@ -104,7 +104,9 @@ keeps the hamburger and a way back to the board.
   critical = a `--red` ring, major = an `--orange` ring, both around `--fg`
   text; minor = `--blueprint-quiet-strong` text (`--fg` in the gate bar) in a
   `--grey1` ring; a critical finding not yet fixed sits on `--bg-red` with a
-  `--red` left edge.
+  `--red` left edge. In the transcript's review card, critical and major sit
+  on `--bg-red` and `--bg-orange` with a ring in the tone around `--fg` text,
+  and minor is `--blueprint-quiet` text in a `--bg3` ring.
 - Card state borders: agent-active = `--aqua`, stalled = `--red`,
   unassigned = `--bg3`.
 - Primary action = `--green`; secondary = `--aqua`; destructive = `--red`.

@@ -450,7 +450,7 @@ response returns. Differences from a chat start:
 | `model`                                         | The session row's model, else `backends.architect.default_model`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `llm_endpoint`, `mcp_api_key`                   | As for chat: the configured `llm_endpoint` and CM's `mcp_api_key`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `git_credentials_token`                         | Minted over the architect entry's `api_key`, in the same `<session_id>.<mac>` form as for chat. `GET /api/worker/git-credentials` verifies it and refuses it once the session ends.                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `architect`                                     | `{"projects": ["alpha", "beta"], "mode": "default", "cost_cap_usd": 3, "price": {"prompt_usd_per_mtok": 3, "completion_usd_per_mtok": 15, "cache_read_usd_per_mtok": 0.3, "cache_write_usd_per_mtok": 3.75}}`. `mode` is `default`, `auto`, `auto+emit` or `yolo`. `price` is the model's resolved per-token rate from CM's `token_costs` and catalog lookup, in USD per million tokens with the cache defaults applied; it is omitted when CM has no price for the model, or prices neither its prompt nor its completion tokens, and the architect then refuses to run a capped blueprint. `research`, `{"provider": "brave", "api_key": "..."}`, is present only when `backends.architect.research` is `search`; the architect then gives its interviewing stages web search and fetch. |
+| `architect`                                     | `{"projects": ["alpha", "beta"], "mode": "default", "cost_cap_usd": 3, "context_window": 200000, "price": {"prompt_usd_per_mtok": 3, "completion_usd_per_mtok": 15, "cache_read_usd_per_mtok": 0.3, "cache_write_usd_per_mtok": 3.75}}`. `mode` is `default`, `auto`, `auto+emit` or `yolo`. `price` is the model's resolved per-token rate from CM's `token_costs` and catalog lookup, in USD per million tokens with the cache defaults applied; it is omitted when CM has no price for the model, or prices neither its prompt nor its completion tokens, and the architect then refuses to run a capped blueprint. `context_window` is the model's context length in tokens from CM's model catalog, looked up by the same catalog lookup as `price`; it is omitted when the catalog does not list the model or gives no length, and the architect then sizes compaction by its own default. `research`, `{"provider": "brave", "api_key": "..."}`, is present only when `backends.architect.research` is `search`; the architect then gives its interviewing stages web search and fetch. |
 
 `/chat/end` ends the session on the architect; reopening it sends a new
 `/chat/start` for the same session id. Architect sessions do not count toward
@@ -595,16 +595,18 @@ ignored.
 `marker` turns an architect frame into a transcript marker, for example
 `{"kind": "artifact", "stage": "solution_design", "persona": "System
 designer", "version": 2, "note": "Revised for the 3 findings"}`. `kind` is
-`stage` for a stage divider (sent on a `system` frame) or `artifact` for a
-sheet reference (sent on a `text` frame); `persona`, `version` and `note` are
-optional, and `content` stays a plain fallback line. Only the architect sets
-`marker`. CM stores such a frame on an architect session as a `kind:
-"marker"` row with the frame's role, whose content is a `{"text", "marker"}`
-JSON envelope, cutting `content` first and `marker.note` only if the marker
-alone overflows the 32 KiB row cap (a marker whose kind, stage and persona
-alone overflow it is stored as the plain message); a frame that carries both
-`marker` and `prompt` is stored as a marker. On any other session, and in
-task session logs, the field is ignored.
+`stage` for a stage divider (sent on a `system` frame), `artifact` for a sheet
+reference, or `review` for a reviewer's verdict on the version `stage`,
+`slice` and `version` name, with the reviewer in `persona` (both sent on a
+`text` frame); `slice`, `persona`, `version` and `note` are optional, and
+`content` stays a plain fallback line. Only the architect sets `marker`. CM
+stores such a frame on an architect session as a `kind: "marker"` row with the
+frame's role, whose content is a `{"text", "marker"}` JSON envelope, cutting
+`content` first and `marker.note` only if the marker alone overflows the 32
+KiB row cap (a marker whose kind, stage and persona alone overflow it is
+stored as the plain message); a frame that carries both `marker` and `prompt`
+is stored as a marker. On any other session, and in task session logs, the
+field is ignored.
 
 A prompt of kind `round` is a question round: instead of actions it carries
 `round`, with the asking `persona` and `stage`, the `questions` (each with
