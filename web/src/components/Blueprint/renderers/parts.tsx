@@ -15,7 +15,7 @@ export function AssumptionNumber({ row }: { row: NumberedAssumption }) {
 const ASSUMPTION_COLUMNS: Column<NumberedAssumption>[] = [
   { label: '#', kind: 'id', cell: (row) => <AssumptionNumber row={row} /> },
   { label: 'Assumption', kind: 'long', cell: (row) => row.a.text },
-  { label: 'Basis', kind: 'short', cell: (row) => <BasisChips basis={row.a.basis} /> },
+  { label: 'Basis', kind: 'list', cell: (row) => (row.a.basis ? <BasisChips basis={row.a.basis} /> : null) },
 ];
 
 interface AssumptionsTableProps {

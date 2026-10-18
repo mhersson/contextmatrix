@@ -7000,18 +7000,25 @@ button.bp-seg-hit {
   color: var(--grey1);
 }
 .bp-table {
-  width: 100%;
+  display: block;
+  max-width: 100%;
   margin: 6px 0 4px;
+  overflow-x: auto;
   border-collapse: collapse;
   font-size: 12.5px;
   line-height: 1.5;
+}
+/* A list table fills the sheet and never scrolls, so a row's cloud and its triangle stay visible. */
+.bp-table--rows {
+  display: table;
+  width: 100%;
+  overflow: visible;
 }
 .bp-table th,
 .bp-table td {
   padding: 4px 12px 4px 0;
   text-align: left;
   vertical-align: top;
-  overflow-wrap: anywhere;
 }
 .bp-table th:last-child,
 .bp-table td:last-child {
@@ -7035,14 +7042,21 @@ button.bp-seg-hit {
   width: 1%;
   white-space: nowrap;
 }
-.bp-table .bp-pill + .bp-pill {
-  margin-left: 4px;
+.bp-table td.bp-col--long,
+.bp-table td.bp-col--note {
+  overflow-wrap: anywhere;
 }
-/* A basis that says more than its references wraps under the chips instead of widening the column. */
-.bp-table .bp-basis-rest {
-  display: block;
-  min-width: 14ch;
-  white-space: normal;
+.bp-table .bp-pill {
+  white-space: nowrap;
+}
+.bp-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 3px 4px;
+  vertical-align: top;
+}
+.bp-tags .bp-chip + .bp-chip {
+  margin-left: 0;
 }
 .bp-table tr.bp-cloud {
   outline-offset: 2px;
@@ -7051,14 +7065,13 @@ button.bp-seg-hit {
   top: 5px;
 }
 .bp-n {
-  color: var(--grey1);
   font-variant-numeric: tabular-nums;
 }
+/* Body colour, not grey1 or grey2: neither reaches 4.5:1 on the paper in every palette at this size. */
 .bp-cell-sub {
   display: block;
   margin-top: 1px;
   font-size: 11.5px;
-  color: var(--grey1);
 }
 /* Below 520px of sheet each row stacks: ids and status inline on top, the long text, then "Label: value" lines. */
 @container bp-sheet (width < 520px) {
@@ -7067,7 +7080,12 @@ button.bp-seg-hit {
     display: block;
   }
   .bp-table--rows thead {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .bp-table--rows tr {
     display: flex;
@@ -7096,6 +7114,7 @@ button.bp-seg-hit {
     order: 0;
   }
   .bp-table--rows td.bp-col--short::before,
+  .bp-table--rows td.bp-col--list::before,
   .bp-table--rows td.bp-col--note::before {
     content: attr(data-label) ': ';
     font-size: 11.5px;
@@ -7687,6 +7706,7 @@ button.bp-seg-hit {
   min-height: 0;
   border-left: 1px solid var(--bg2);
   background: var(--bg1);
+  container: bp-sheet / inline-size;
 }
 .bp-tabs {
   display: flex;
@@ -7746,7 +7766,6 @@ button.bp-seg-hit {
   min-height: 0;
   padding: 16px;
   overflow-y: auto;
-  container: bp-sheet / inline-size;
 }
 .bp-empty {
   margin: 24px;

@@ -51,7 +51,14 @@ function assumptionColumns(withAnswer: boolean): Column<NumberedAssumption>[] {
     },
     ...(withAnswer ? [ANSWER_COLUMN] : []),
     { label: 'Status', kind: 'status', cell: ({ a }) => <StatusChip assumption={a} /> },
-    { label: 'Basis', kind: 'short', cell: ({ a }) => <BasisChips basis={[a.basis, ...sourceTags(a.evidence)].join(' ')} /> },
+    {
+      label: 'Basis',
+      kind: 'list',
+      cell: ({ a }) => {
+        const basis = [a.basis, ...sourceTags(a.evidence)].join(' ').trim();
+        return basis ? <BasisChips basis={basis} /> : null;
+      },
+    },
     { label: 'Stage', kind: 'short', cell: ({ a }) => (a.stage ? stageText(a.stage).name : null) },
   ];
 }

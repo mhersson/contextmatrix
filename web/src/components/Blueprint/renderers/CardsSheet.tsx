@@ -7,7 +7,7 @@ import type { RendererProps } from './types';
 const MANUAL_COLUMNS: Column<ManualCheck>[] = [
   { label: 'Step', kind: 'id', cell: (m) => <IdPill id={m.id} /> },
   { label: 'Check', kind: 'long', cell: (m) => m.text },
-  { label: 'Covers', kind: 'short', cell: (m) => m.criteria.join(', ') || null },
+  { label: 'Covers', kind: 'list', cell: (m) => m.criteria.join(', ') || null },
 ];
 
 export function CardsSheet({ artifact, previous, mode }: RendererProps) {

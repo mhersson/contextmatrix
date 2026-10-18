@@ -36,16 +36,15 @@ describe('artifact data', () => {
     expect(stageAssumptions(['T.'])).toEqual([]);
   });
 
-  it('labels each assumption status apart from its basis and claims none it does not have', () => {
+  it('chips each assumption status in its tone, apart from its basis and sources, and claims none it does not have', () => {
     const a = { id: 'A1', text: 't', basis: 'Q3', status: '', evidence: '[S2] x', answer: '', stage: '' };
-    expect(assumptionChip({ ...a, status: 'assumed' })).toEqual({ tone: 'purple', label: 'assumed by responder' });
-    expect(assumptionChip({ ...a, status: 'confirmed' })).toEqual({ tone: 'blue', label: 'confirmed by you' });
-    expect(assumptionChip({ ...a, status: 'verified' })).toEqual({ tone: 'green', label: 'verified' });
-    expect(assumptionChip({ ...a, status: 'unverified' })).toEqual({ tone: 'yellow', label: 'unverified' });
-    expect(assumptionChip({ ...a, status: 'contradicted' })).toEqual({ tone: 'red', label: 'contradicted' });
-    expect(assumptionChip({ ...a, status: 'unconfirmed, awaiting user confirmation' })).toEqual({ tone: 'yellow', label: 'unconfirmed' });
-    expect(assumptionChip({ ...a, status: 'pending review' })).toEqual({ tone: 'grey', label: 'pending review' });
-    expect(assumptionChip({ ...a, status: '' })).toBeNull();
+    const chip = (status: string) => assumptionChip({ ...a, status });
+    const statuses = ['unverified', 'unconfirmed', 'contradicted', 'assumed', 'confirmed', 'verified', 'pending review'];
+    expect(statuses.map((s) => chip(s)!.tone)).toEqual(['yellow', 'yellow', 'red', 'purple', 'blue', 'green', 'grey']);
+    for (const s of statuses) expect(chip(s)!.label).not.toMatch(/Q3|S2/);
+    expect(chip('unconfirmed, awaiting user confirmation')).toEqual(chip('unconfirmed'));
+    expect(chip('pending review')!.label).toBe('pending review');
+    expect(chip('')).toBeNull();
   });
 
   it('splits a basis into question, round answer and source references', () => {

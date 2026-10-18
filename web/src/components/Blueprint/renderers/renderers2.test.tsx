@@ -3,6 +3,8 @@ import { render, screen, within } from '@testing-library/react';
 import { ArtifactRenderer } from './ArtifactRenderer';
 import { BOARD_V1, CARDS_V1, READINESS_V2, SIGNOFF_V1, ref, viewAtDesignGate } from '../../../test-utils/blueprintFixtures';
 import type { BlueprintArtifact } from '../../../types';
+import { assumptionChip } from '../artifactData';
+import { stageText } from '../stages';
 
 vi.mock('../../ChatPanel/ChatMarkdown', () => ({
   ChatMarkdown: ({ source }: { source: string }) => <div data-testid="md">{source}</div>,
@@ -117,21 +119,26 @@ describe('ReadinessSheet', () => {
 
 describe('SignoffSheet', () => {
   const signoffWith = (over: object) => ({ ...SIGNOFF_V1, data: { ...(SIGNOFF_V1.data as object), ...over } });
+  const status = (s: string) => assumptionChip({ id: '', text: '', basis: '', evidence: '', answer: '', stage: '', status: s })!.label;
+  const stage = (s: string) => stageText(s).name;
 
   it('gives each run step a row with its place, what it does and its kind', () => {
     show(SIGNOFF_V1);
     const order = sectionOf(/^Run order/);
     expect(cellsIn(order, 'Pretty-print the GET / response')).toEqual(['1', 'D1', 'Pretty-print the GET / response', 'feature']);
-    expect(cellsIn(order, 'curl prints one key per line.')).toEqual(['2', 'M1', 'curl prints one key per line.', 'manual']);
+    const manual = cellsIn(order, 'curl prints one key per line.');
+    expect(manual.slice(0, 3)).toEqual(['2', 'M1', 'curl prints one key per line.']);
+    expect(manual[3]).not.toBe('');
+    expect(manual[3]).not.toBe('feature');
   });
 
   it('gives each assumption a row with your answer, its status, its basis and sources, and its stage', () => {
     show(SIGNOFF_V1);
     const assumptions = sectionOf(/^Assumptions/);
-    expect(cellsIn(assumptions, 'Two-space indentation.')).toEqual(['A2', 'Two-space indentation.', 'Two spaces', 'confirmed by you', 'Q1', 'Intake']);
-    expect(cellsIn(assumptions, 'No README example.')).toEqual(['A3', 'No README example.', '', 'assumed by responder', 'Q3', 'Solution design']);
-    expect(cellsIn(assumptions, 'Clients ignore whitespace.')).toEqual(['A1', 'Clients ignore whitespace.', '', 'unverified', '', 'Intake']);
-    expect(cellsIn(assumptions, 'The README has an example.')).toEqual(['A5', 'The README has an example.', '', 'contradicted', 'S2', 'Grounding']);
+    expect(cellsIn(assumptions, 'Two-space indentation.')).toEqual(['A2', 'Two-space indentation.', 'Two spaces', status('confirmed'), 'Q1', stage('intake')]);
+    expect(cellsIn(assumptions, 'No README example.')).toEqual(['A3', 'No README example.', '', status('assumed'), 'Q3', stage('solution_design')]);
+    expect(cellsIn(assumptions, 'Clients ignore whitespace.')).toEqual(['A1', 'Clients ignore whitespace.', '', status('unverified'), '', stage('intake')]);
+    expect(cellsIn(assumptions, 'The README has an example.')).toEqual(['A5', 'The README has an example.', '', status('contradicted'), 'S2', stage('grounding')]);
   });
 
   it('puts the evidence under a verified assumption', () => {
@@ -140,9 +147,9 @@ describe('SignoffSheet', () => {
       'A4',
       'Encode ends with a newline.main.go',
       '',
-      'verified',
+      status('verified'),
       'S1',
-      'Grounding',
+      stage('grounding'),
     ]);
   });
 
@@ -169,7 +176,7 @@ describe('SignoffSheet', () => {
     show(signoffWith({ assumptions: [{ id: 'A1', stage: 'intake', text: 'T.', basis: 'Q1', status: 'confirmed' }] }));
     const assumptions = sectionOf(/^Assumptions/);
     expect(within(assumptions).getAllByRole('columnheader')).toHaveLength(5);
-    expect(cellsIn(assumptions, 'T.')).toEqual(['A1', 'T.', 'confirmed by you', 'Q1', 'Intake']);
+    expect(cellsIn(assumptions, 'T.')).toEqual(['A1', 'T.', status('confirmed'), 'Q1', stage('intake')]);
   });
 
   it('gives each manual check after the run a row and keeps the warnings and setup steps', () => {

@@ -78,6 +78,13 @@ describe('SlicesSheet', () => {
     expect(revised('An unknown subcommand exits 2.', 2)).toBe(true);
   });
 
+  it('clouds nothing when an unchanged version repeats an assumption id', () => {
+    const repeated = sliced({ assumptions: [assumptions[0], { ...assumptions[0], text: 'A second sentence under the same id.' }] });
+    render(<SlicesSheet artifact={{ ...repeated, version: 2 }} previous={repeated} mode="clouds" view={view} />);
+    expect(revised('An unknown subcommand exits 2.', 2)).toBe(false);
+    expect(revised('A second sentence under the same id.', 2)).toBe(false);
+  });
+
   it('keeps the slices of an older blueprint without assumptions', () => {
     render(<SlicesSheet artifact={SLICES_V1} previous={null} mode="plain" view={view} />);
     expect(cellsOf('Pretty-print GET /')).toEqual(['SL1', 'Pretty-print GET /Readable with plain curl.', 'homelander', '']);

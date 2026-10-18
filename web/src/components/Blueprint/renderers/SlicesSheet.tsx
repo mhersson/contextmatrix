@@ -21,7 +21,7 @@ const SLICE_COLUMNS: Column<Slice>[] = [
   },
   {
     label: 'Project',
-    kind: 'short',
+    kind: 'list',
     cell: (s) =>
       s.projects.map((p) => (
         <span key={p} className="bp-pill">
@@ -29,7 +29,7 @@ const SLICE_COLUMNS: Column<Slice>[] = [
         </span>
       )),
   },
-  { label: 'After', kind: 'short', cell: (s) => s.dependsOn.join(', ') || null },
+  { label: 'After', kind: 'list', cell: (s) => s.dependsOn.join(', ') || null },
 ];
 
 const ASSUMPTION_COLUMNS: Column<NumberedAssumption>[] = [

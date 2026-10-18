@@ -2,11 +2,11 @@ import type { ReactNode } from 'react';
 import { RevisionMark } from '../RevisionCloud';
 
 /**
- * How a column sits: id and status stay narrow and, on a narrow sheet, inline at the top of the
- * row; long takes the rest and wraps; short never wraps; note wraps. Short and note cells read
- * "Label: value" on a narrow sheet.
+ * How a column sits: id and status stay narrow and, on a narrow sheet, inline at the top of the row;
+ * long takes the rest and wraps; short holds one value and never wraps; list wraps only between its
+ * values; note wraps. Short, list and note cells read "Label: value" on a narrow sheet.
  */
-export type ColumnKind = 'id' | 'status' | 'long' | 'short' | 'note';
+export type ColumnKind = 'id' | 'status' | 'long' | 'short' | 'list' | 'note';
 
 export interface Column<T> {
   label: string;
@@ -26,6 +26,12 @@ interface TableSectionProps<T> {
   version?: number;
 }
 
+// Adjacent chips and pills leave no break opportunity, so a list's values wrap in a flex row instead.
+function Cell({ kind, children }: { kind: ColumnKind; children: ReactNode }) {
+  if (kind !== 'list' || children == null) return children;
+  return <span className="bp-tags">{children}</span>;
+}
+
 export function TableSection<T>({ title, sub, columns, rows, rowKey, changed, version }: TableSectionProps<T>) {
   if (rows.length === 0) return null;
   return (
@@ -34,26 +40,27 @@ export function TableSection<T>({ title, sub, columns, rows, rowKey, changed, ve
         {title} <span className="bp-count">{rows.length}</span>
         {sub && <span className="bp-h-sub"> {sub}</span>}
       </h3>
-      <table className="bp-table bp-table--rows">
-        <thead>
-          <tr>
+      {/* Explicit roles keep the table semantics WebKit drops when a narrow sheet restyles the rows. */}
+      <table role="table" className="bp-table bp-table--rows">
+        <thead role="rowgroup">
+          <tr role="row">
             {columns.map((c) => (
-              <th key={c.label} scope="col" className={`bp-col--${c.kind}`}>
+              <th key={c.label} role="columnheader" scope="col" className={`bp-col--${c.kind}`}>
                 {c.label}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody>
+        <tbody role="rowgroup">
           {rows.map((row, i) => {
             const key = rowKey(row, i);
             const clouded = version !== undefined && changed?.has(key) === true;
             return (
-              <tr key={key} className={clouded ? 'bp-cloud' : undefined}>
+              <tr key={key} role="row" className={clouded ? 'bp-cloud' : undefined}>
                 {columns.map((c, ci) => (
-                  <td key={c.label} className={`bp-col--${c.kind}`} data-label={c.label}>
+                  <td key={c.label} role="cell" className={`bp-col--${c.kind}`} data-label={c.label}>
                     {clouded && ci === 0 && <RevisionMark version={version} />}
-                    {c.cell(row)}
+                    <Cell kind={c.kind}>{c.cell(row)}</Cell>
                   </td>
                 ))}
               </tr>
