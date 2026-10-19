@@ -250,7 +250,22 @@ board. Promote-to-autonomous lives in that tab.
     `cap` command that the transcript does not show; the architect's
     confirmation line is the visible record, and the cell follows the cap the
     architect republishes; the pane header's cap follows after a successful
-    save.
+    save. Left of the spend sits the blueprint's mode over a small "Mode"
+    caption, in orange for yolo. Until the sign-off is approved or the pipeline
+    ends it is a button too, for a popover listing the new-blueprint dialog's
+    four modes with their descriptions, the current one marked; Switch sends the
+    pick, and picking Yolo turns it into an orange Switch and run, as the
+    dialog's button reads Create and run. Switching away from Default notes what
+    happens to what waits for you: a question round goes to the responder now
+    and answers you have not sent are dropped, and a waiting stage gate is
+    approved now if its review passed, unless a gate reply keeps that stage with
+    you. At a waiting sign-off, Auto + emit and Yolo note that the sign-off is
+    decided automatically unless a critical finding or a preflight warning holds
+    it, but only when switching from Default or Auto. The switch goes to the
+    architect as a `mode` command the transcript does not show, and the
+    architect's line is the visible record; the cell follows the mode the
+    architect republishes. Once the sign-off is approved or the pipeline ends
+    the caption reads "Mode locked" and the cell no longer opens.
   - The sheet renders each artifact (need, slices, shared decisions, design,
     grounding, acceptance, cards, readiness, sign-off, board) as a document.
     Long lists are tables with the row count beside each heading: the need's

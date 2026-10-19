@@ -6694,6 +6694,7 @@ textarea {
 
 /* Blueprint scale bar. */
 .bp-scale {
+  position: relative;
   display: flex;
   flex-shrink: 0;
   align-items: center;
@@ -7736,6 +7737,96 @@ button.bp-seg-hit {
 .bp-cap .bp-cap-error {
   margin: 0;
   color: var(--blueprint-ink-red);
+}
+.bp-mode-wrap {
+  margin-left: auto;
+}
+.bp-mode-wrap + .bp-cost-wrap {
+  margin-left: 0;
+}
+.bp-mode {
+  display: flex;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  font-size: 11.5px;
+  color: var(--blueprint-quiet);
+  white-space: nowrap;
+}
+button.bp-mode {
+  cursor: pointer;
+}
+button.bp-mode:hover > span {
+  color: var(--fg);
+}
+.bp-mode:focus-visible {
+  outline: 2px solid var(--aqua);
+  outline-offset: 3px;
+}
+.bp-mode small {
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.bp-mode--yolo > span:first-child {
+  color: var(--blueprint-ink-orange);
+}
+.bp-cap--modes {
+  right: 12px;
+  top: calc(100% - 4px);
+  width: min(320px, calc(100% - 24px));
+}
+.bp-mode-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bp-mode-option {
+  position: relative;
+  display: block;
+  padding: 6px 8px;
+  border: 1px solid var(--bg4);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.bp-mode-option:has(input:focus-visible) {
+  outline: 2px solid var(--aqua);
+  outline-offset: 1px;
+}
+.bp-mode-option b {
+  display: block;
+  font-size: 12px;
+}
+.bp-mode-option b small {
+  margin-left: 6px;
+  font-weight: normal;
+}
+.bp-mode-option span {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--blueprint-quiet-strong);
+}
+.bp-mode-option--on {
+  border-color: color-mix(in oklab, var(--blue) 65%, var(--bg3));
+  background: color-mix(in oklab, var(--blue) 9%, var(--bg2));
+}
+.bp-mode-option--yolo.bp-mode-option--on {
+  border-color: color-mix(in oklab, var(--orange) 70%, var(--bg3));
+  background: color-mix(in oklab, var(--orange) 9%, var(--bg2));
+}
+.bp-mode-note {
+  margin: 0;
+  color: var(--blueprint-quiet-strong);
+}
+.bp-cap button.bp-mode-save--yolo {
+  background: color-mix(in oklab, var(--orange) 24%, var(--bg3));
+  border-color: color-mix(in oklab, var(--orange) 60%, var(--bg4));
 }
 .bp-sent {
   margin-left: 4px;

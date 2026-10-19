@@ -480,3 +480,18 @@ describe('api.setChatCostCap', () => {
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({ cost_cap_usd: 4.5 });
   });
 });
+
+describe('api.setChatMode', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('posts the mode to the session mode endpoint', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => makeResponse({ id: 'S1' }));
+    await api.setChatMode('S1', 'auto+emit');
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(String(url)).toContain('/chats/S1/mode');
+    expect((init as RequestInit).method).toBe('POST');
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ mode: 'auto+emit' });
+  });
+});
