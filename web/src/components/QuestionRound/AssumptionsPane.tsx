@@ -14,6 +14,16 @@ export function AssumptionsPane({ round, draft, mode, onDecide }: AssumptionsPan
     <>
       <p className="qb-q">Assumptions</p>
       <p className="qb-why">Accept each one, or turn it into a question for the next round.</p>
+      <div className="qb-assume-all">
+        <button
+          type="button"
+          className="qb-choice"
+          disabled={mode !== 'open'}
+          onClick={() => round.assumptions.forEach((a) => onDecide(a.id, true))}
+        >
+          Accept all
+        </button>
+      </div>
       {round.assumptions.map((a, i) => {
         const d = effectiveDecision(round, draft, a.id);
         return (

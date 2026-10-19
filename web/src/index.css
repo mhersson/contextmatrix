@@ -8595,6 +8595,12 @@ button.bp-rv-head {
   }
 }
 
+.qb-assume-all {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 6px;
+}
+
 .qb-assume .qb-opt-top {
   cursor: default;
 }
