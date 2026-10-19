@@ -6,7 +6,8 @@ import { CHAT_SESSIONS_CHANGED_EVENT } from '../../hooks/useChatSessions';
 import { resetChatModelsCache } from '../../utils/chatModels';
 import type { BlueprintCost } from '../../types';
 
-vi.mock('../../api/client', () => ({
+vi.mock('../../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api/client')>()),
   api: { setChatCostCap: vi.fn(), listChats: vi.fn(), listChatModels: vi.fn() },
 }));
 
@@ -99,7 +100,7 @@ describe('CostCell', () => {
   });
 
   it('stays open with the error when the save fails', async () => {
-    vi.mocked(api.setChatCostCap).mockRejectedValue(new Error('architect unreachable'));
+    vi.mocked(api.setChatCostCap).mockRejectedValue({ error: 'architect unreachable', code: 'INTERNAL_ERROR' });
     open(WITH_CAP);
     fireEvent.change(amount(), { target: { value: '4' } });
     fireEvent.click(save());
@@ -123,7 +124,7 @@ describe('CostCell', () => {
     const changed = vi.fn();
     window.addEventListener(CHAT_SESSIONS_CHANGED_EVENT, changed);
     try {
-      vi.mocked(api.setChatCostCap).mockRejectedValueOnce(new Error('nope'));
+      vi.mocked(api.setChatCostCap).mockRejectedValueOnce({ error: 'nope', code: 'INTERNAL_ERROR' });
       open(WITH_CAP);
       fireEvent.change(amount(), { target: { value: '4' } });
       fireEvent.click(save());
