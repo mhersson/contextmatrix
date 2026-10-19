@@ -2505,6 +2505,26 @@ func (m *Manager) SetCostCap(ctx context.Context, sessionID string, capUSD float
 	return m.store.GetSession(ctx, sessionID)
 }
 
+// SetMode sends the architect a `mode` command and, once the send succeeds,
+// records the mode on the session row, which every later start carries. The
+// architect refuses a switch once emission has started, which CM does not
+// check.
+func (m *Manager) SetMode(ctx context.Context, sessionID, mode string) (Session, error) {
+	if !protocol.ValidArchitectMode(mode) {
+		return Session{}, fmt.Errorf("%w: unknown mode %q", ErrInvalidSessionInput, mode)
+	}
+
+	if _, err := m.sendMessage(ctx, sessionID, "mode "+mode, userSend{command: true}); err != nil {
+		return Session{}, err
+	}
+
+	if err := m.store.UpdateSessionMode(ctx, sessionID, mode); err != nil {
+		return Session{}, fmt.Errorf("chat: record mode: %w", err)
+	}
+
+	return m.store.GetSession(ctx, sessionID)
+}
+
 // userSend is what a send carries beside its content: a round reply's
 // answers, the prompt id of the round a chat message is about, or a session
 // command.

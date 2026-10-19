@@ -6415,6 +6415,153 @@ func TestManager_SetCostCap_Refusals(t *testing.T) {
 	assert.Empty(t, arch.sendArgs)
 }
 
+func TestManager_SetMode_SendsTheCommandAndUpdatesTheRow(t *testing.T) {
+	ctx := context.Background()
+
+	for _, mode := range []string{
+		protocol.ArchitectModeAuto, protocol.ArchitectModeAutoEmit, protocol.ArchitectModeYolo, protocol.ArchitectModeDefault,
+	} {
+		t.Run(mode, func(t *testing.T) {
+			mgr, _, arch := newManagerWithArchitectStub(t)
+			bp := openArchitect(t, mgr)
+
+			sess, err := mgr.SetMode(ctx, bp.ID, mode)
+			require.NoError(t, err)
+			assert.Equal(t, mode, sess.Mode)
+			assert.False(t, sess.AssistantWorking, "a command starts no turn")
+
+			arch.mu.Lock()
+			sent := append([]sendArg(nil), arch.sendArgs...)
+			arch.mu.Unlock()
+
+			require.Len(t, sent, 1)
+			assert.Equal(t, "mode "+mode, sent[0].Content, "the command is a wire contract")
+
+			got, err := mgr.GetSession(ctx, bp.ID)
+			require.NoError(t, err)
+			assert.Equal(t, mode, got.Mode)
+
+			msgs, err := mgr.ListMessages(ctx, bp.ID, 0, 10)
+			require.NoError(t, err)
+			require.Len(t, msgs, 1)
+			assert.Equal(t, chat.EventKindCommand, msgs[0].Kind)
+			assert.Equal(t, "mode "+mode, msgs[0].Content)
+		})
+	}
+}
+
+func TestManager_SetMode_EveryLaterStartCarriesTheSwitchedMode(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+	bp := openArchitect(t, mgr)
+
+	startMode := func() string {
+		t.Helper()
+		arch.mu.Lock()
+		defer arch.mu.Unlock()
+
+		require.NotNil(t, arch.lastOpts.Architect)
+
+		return arch.lastOpts.Architect.Mode
+	}
+
+	require.Equal(t, protocol.ArchitectModeDefault, startMode())
+
+	_, err := mgr.SetMode(ctx, bp.ID, protocol.ArchitectModeAuto)
+	require.NoError(t, err)
+
+	// A cold open, as after a CM restart, starts from the session row.
+	require.NoError(t, mgr.EndSession(ctx, bp.ID))
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), arch.startCalls.Load())
+	assert.Equal(t, protocol.ArchitectModeAuto, startMode(), "a reopen never reverts the switch")
+
+	// An architect that lost the session gets the start re-sent before the message.
+	arch.mu.Lock()
+	seq := make([]error, arch.sendCalls.Load()+1)
+	seq[len(seq)-1] = errSessionUnknown()
+	arch.sendErrSeq = seq
+	arch.mu.Unlock()
+
+	_, err = mgr.SendUserMessage(ctx, bp.ID, "approve")
+	require.NoError(t, err)
+	require.Equal(t, int64(3), arch.startCalls.Load())
+	assert.Equal(t, protocol.ArchitectModeAuto, startMode(), "the re-sent start carries the switch")
+}
+
+func TestManager_SetMode_ColdSessionOpensAndApplies(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+	bp := openArchitect(t, mgr)
+
+	require.NoError(t, mgr.EndSession(ctx, bp.ID))
+
+	startsBefore := arch.startCalls.Load()
+
+	_, err := mgr.SetMode(ctx, bp.ID, protocol.ArchitectModeYolo)
+	require.NoError(t, err)
+	assert.Greater(t, arch.startCalls.Load(), startsBefore, "the send cold-opens the session")
+
+	got, err := mgr.GetSession(ctx, bp.ID)
+	require.NoError(t, err)
+	assert.Equal(t, protocol.ArchitectModeYolo, got.Mode)
+}
+
+func TestManager_SetMode_FailedSendLeavesTheModeUnchanged(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+	bp := openArchitect(t, mgr)
+
+	arch.mu.Lock()
+	arch.sendErr = fmt.Errorf("chat: /message: %w", chat.ErrBackendUnreachable)
+	arch.mu.Unlock()
+
+	_, err := mgr.SetMode(ctx, bp.ID, protocol.ArchitectModeAuto)
+	require.Error(t, err)
+
+	got, err := mgr.GetSession(ctx, bp.ID)
+	require.NoError(t, err)
+	assert.Equal(t, protocol.ArchitectModeDefault, got.Mode)
+	assert.False(t, got.AssistantWorking)
+
+	msgs, err := mgr.ListMessages(ctx, bp.ID, 0, 10)
+	require.NoError(t, err)
+	assert.Empty(t, msgs)
+}
+
+func TestManager_SetMode_Refusals(t *testing.T) {
+	mgr, chatStub, arch := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+	bp := openArchitect(t, mgr)
+
+	chatSess, err := mgr.CreateSession(ctx, chat.CreateInput{CreatedBy: "human:web"})
+	require.NoError(t, err)
+
+	_, err = mgr.SetMode(ctx, chatSess.ID, protocol.ArchitectModeAuto)
+	require.ErrorIs(t, err, chat.ErrInvalidSessionInput)
+	assert.Zero(t, chatStub.sendCalls.Load())
+
+	got, err := mgr.GetSession(ctx, chatSess.ID)
+	require.NoError(t, err)
+	assert.Empty(t, got.Mode, "a chat session keeps no mode")
+
+	for _, m := range []string{"", "AUTO", "turbo", "auto emit", "mode auto"} {
+		t.Run(m, func(t *testing.T) {
+			_, err := mgr.SetMode(ctx, bp.ID, m)
+			require.ErrorIs(t, err, chat.ErrInvalidSessionInput)
+		})
+	}
+
+	_, err = mgr.SetMode(ctx, "no-such-session", protocol.ArchitectModeAuto)
+	require.ErrorIs(t, err, chat.ErrSessionNotFound)
+
+	arch.mu.Lock()
+	defer arch.mu.Unlock()
+
+	assert.Empty(t, arch.sendArgs)
+}
+
 func TestManager_CommandRowDoesNotTitleAnUntitledSession(t *testing.T) {
 	mgr, _, _ := newManagerWithArchitectStub(t)
 	ctx := context.Background()
