@@ -68,7 +68,7 @@ export function verdictOf(r: BlueprintArtifactReview): 'passed' | 'failed' | nul
 }
 
 export function verdictLine(r: BlueprintArtifactReview): string {
-  const line = [r.round ? `round ${r.round}` : '', `passes at ${r.threshold} of 5`, verdictOf(r) ?? '']
+  const line = [r.round ? `round ${r.round}` : '', `passes at ${r.threshold} of 5`, verdictOf(r) ?? '', r.sent_back ? 'sent back' : '']
     .filter(Boolean)
     .join(' · ');
   return line[0].toUpperCase() + line.slice(1);
