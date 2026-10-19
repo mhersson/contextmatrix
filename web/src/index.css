@@ -6743,6 +6743,10 @@ button.bp-seg-hit {
   border-color: var(--prompt-question-accent);
   background: repeating-linear-gradient(-45deg, var(--prompt-question-accent) 0 2px, transparent 2px 5px);
 }
+/* A step an ended pipeline never reached: dashed, so it never reads as still to come. */
+.bp-seg--not-reached .bp-seg-rule {
+  border-style: dashed;
+}
 @keyframes bp-hatch {
   to {
     background-position: 14px 0;

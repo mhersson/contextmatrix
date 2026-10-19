@@ -223,24 +223,30 @@ board. Promote-to-autonomous lives in that tab.
   - The scale bar under the pane header draws one segment per pipeline step:
     done steps filled green, the current step hatched (aqua while a run works,
     the question accent while the blueprint waits for you), pending steps
-    outlined, a failed step outlined red and folded slicing as a narrow
-    segment; gates carry a notch. A blueprint cut into two or more slices draws
-    each slice's steps together, bracketed under the bar with the slice's id;
-    the slice in progress also shows its title, in the colour of its current
-    segment. Beside the bar the current stage, with its slice when there are
-    several (Solution design · SL2), says who is doing what. Hover a segment
-    for its persona, status and cost; click a finished one to open its
-    artifact. The right end shows the architect's spend against the blueprint
-    cap; the meter turns orange at 80% and red at the cap. Click it (it is a
-    button, also with no cap set) for a popover with the spend, the cap, +$2 /
-    +$5 / +$10 raises (added to the cap, or to the spend with no cap), an
-    amount field and a "No cap" choice. An amount at or below the spend is
-    refused, as is any amount on a model CM cannot price (only "No cap" is
-    offered, and only when a cap is set). Raising the cap continues a blueprint
-    that stopped on its cap. The change goes to the architect as a `cap`
-    command that the transcript does not show; the architect's confirmation
-    line is the visible record, and the cell follows the cap the architect
-    republishes; the pane header's cap follows after a successful save.
+    outlined, a failed step outlined red and folded slicing as a narrow segment;
+    gates carry a notch. When the pipeline ended before the sign-off (a stage
+    left nothing to build on, or the readiness rounds ran out), the step that
+    stopped it is outlined red and opens the version that stopped it, every step
+    it never reached is dashed and opens nothing, and the stopping step's newest
+    version reads Stopped on the sheet unless a gate decided it. A blueprint cut
+    into two or more slices draws each slice's steps together, bracketed under
+    the bar with the slice's id; the slice in progress also shows its title, in
+    the colour of its current segment. Beside the bar the current stage, with
+    its slice when there are several (Solution design · SL2), says who is doing
+    what; on an ended blueprint it names the stopping step and, in red, why the
+    pipeline stopped. Hover a segment for its persona, status and cost; click a
+    finished one to open its artifact. The right end shows the architect's spend
+    against the blueprint cap; the meter turns orange at 80% and red at the cap.
+    Click it (it is a button, also with no cap set) for a popover with the
+    spend, the cap, +$2 / +$5 / +$10 raises (added to the cap, or to the spend
+    with no cap), an amount field and a "No cap" choice. An amount at or below
+    the spend is refused, as is any amount on a model CM cannot price (only "No
+    cap" is offered, and only when a cap is set). Raising the cap continues a
+    blueprint that stopped on its cap. The change goes to the architect as a
+    `cap` command that the transcript does not show; the architect's
+    confirmation line is the visible record, and the cell follows the cap the
+    architect republishes; the pane header's cap follows after a successful
+    save.
   - The sheet renders each artifact (need, slices, shared decisions, design,
     grounding, acceptance, cards, readiness, sign-off, board) as a document.
     Long lists are tables with the row count beside each heading: the need's

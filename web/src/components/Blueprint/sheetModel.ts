@@ -116,14 +116,13 @@ export function shownStatus(
   }
   if (writing) return { text: 'Writing', tone: 'running' };
   if (!stored) return { text: '', tone: 'muted' };
-  // A failed step leaves its newest version current (or reviewing on older architects); that must not read as done.
-  if (
-    stepFor(view, stage, slice)?.status === 'failed' &&
+  // A failed or stopped step leaves its newest version current (or reviewing on older architects); that must not read as done.
+  const stepStatus = stepFor(view, stage, slice)?.status;
+  const newestOpen =
     stored.version === latestArtifact(view, stage, slice)?.version &&
-    (stored.status === 'current' || stored.status === 'reviewing')
-  ) {
-    return { text: stored.review ? 'Failed' : 'Review failed', tone: 'bad' };
-  }
+    (stored.status === 'current' || stored.status === 'reviewing');
+  if (newestOpen && stepStatus === 'failed') return { text: stored.review ? 'Failed' : 'Review failed', tone: 'bad' };
+  if (newestOpen && stepStatus === 'stopped') return { text: 'Stopped', tone: 'bad' };
   switch (stored.status) {
     case 'reviewing':
       return { text: 'Being reviewed', tone: 'running' };

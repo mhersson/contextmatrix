@@ -1189,7 +1189,7 @@ export interface ChatSessionUpdate {
 }
 
 // Blueprint sessions: the architect's view of one blueprint, proxied by CM
-// unchanged (protocol v0.30.0). Go omits zero-valued omitempty fields, so
+// unchanged (protocol v0.32.0). Go omits zero-valued omitempty fields, so
 // those are optional here; normalizeView fills missing or null arrays.
 
 /** One piece of a blueprint in slicing order; the id is SL<n>, shown as is and never parsed. */
@@ -1198,6 +1198,7 @@ export interface BlueprintSlice {
   title: string;
 }
 
+/** stopped: the step whose result ended the pipeline; not_reached: a step an ended pipeline never ran (no run, no artifact). */
 export type BlueprintStepStatus =
   | 'pending'
   | 'running'
@@ -1207,7 +1208,9 @@ export type BlueprintStepStatus =
   | 'done'
   | 'failed'
   | 'folded'
-  | 'skipped';
+  | 'skipped'
+  | 'stopped'
+  | 'not_reached';
 
 export interface BlueprintPipelineStep {
   /** Pack stage id, "signoff" or "emission". */
@@ -1320,7 +1323,10 @@ export interface BlueprintArtifactRef {
 export interface BlueprintView {
   id: string;
   mode: string;
+  /** The architect's coarse state; "ended" when the pipeline stopped before the sign-off. Unknown states render neutrally. */
   state: string;
+  /** One plain line on why the pipeline ended; set only when state is "ended". */
+  end_reason?: string;
   seq: number;
   /** The newest slicing version's pieces in order; [] before slicing stores one. */
   slices: BlueprintSlice[];

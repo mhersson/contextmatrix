@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { formatHHMM } from '../../utils/chatTimestamp';
-import { DESIGN_REVIEW, ref, step, viewAtDesignGate, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
+import { DESIGN_REVIEW, ref, step, viewAtDesignGate, viewEndedAtSlicing, viewEndedInSlice, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
 import type { BlueprintView } from '../../types';
 import { holdDraft } from './draft';
 import { defaultShown, resolveShown, reviewFor, reviewingPersona, sheetTabs, sliceForTab, sliceSubtitle, sliceTabs, shownStatus, stampFor, versionOptions, waitingOn, writingVersion } from './sheetModel';
@@ -320,5 +320,24 @@ describe('slice tabs', () => {
     expect(sliceSubtitle(viewSliced(), 'SL2')).toBe('SL2 · Logs searchable in the cluster');
     expect(sliceSubtitle(viewSliced(), '')).toBe('');
     expect(sliceSubtitle(viewOneSlice(), 'SL1')).toBe('');
+  });
+});
+
+describe('an ended blueprint', () => {
+  it("reads the stopping step's newest version as stopped, never done", () => {
+    const view = viewEndedAtSlicing();
+    expect(shownStatus(view, 'slicing', '', view.artifacts[1], false)).toEqual({ text: 'Stopped', tone: 'bad' });
+    expect(shownStatus(view, 'intake', '', view.artifacts[0], false)).toEqual({ text: 'Done', tone: 'ok' });
+  });
+
+  it('leaves a decided version on the stopping step alone', () => {
+    const view = { ...viewEndedAtSlicing(), artifacts: [ref('intake', 1, 'current'), ref('slicing', 1, 'approved', { decided_by: 'automatic' })] };
+    expect(shownStatus(view, 'slicing', '', view.artifacts[1], false).text).toBe('Approved');
+  });
+
+  it('marks the stopping stage as the current tab and opens its sheet', () => {
+    const view = viewEndedInSlice();
+    expect(sheetTabs(view, null).filter((t) => t.current).map((t) => t.stage)).toEqual(['decomposition']);
+    expect(defaultShown(view, null)).toEqual({ stage: 'decomposition', slice: 'SL2', version: 1 });
   });
 });

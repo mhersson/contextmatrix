@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { ScaleBar } from './ScaleBar';
-import { viewAtDesignGate, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
+import { THREE_SLICES, ref, viewAtDesignGate, viewEndedAtSlicing, viewEndedInSlice, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
+import { stageText } from './stages';
 
 function tones() {
   return screen.getAllByRole('listitem').map((li) => li.getAttribute('data-tone'));
@@ -102,5 +103,38 @@ describe('ScaleBar slices', () => {
     const items = screen.getAllByRole('listitem');
     expect(items.filter((li) => li.classList.contains('bp-seg--first'))).toEqual([items[0]]);
     expect(items.filter((li) => li.classList.contains('bp-seg--end'))).toEqual(items.slice(-3));
+  });
+});
+
+describe('ScaleBar on an ended blueprint', () => {
+  it('draws the stopping step in the failed tone and every step after it as not reached', () => {
+    render(<ScaleBar chatId="S3" view={viewEndedAtSlicing()} compact={false} onOpenStage={() => {}} />);
+    expect(tones()).toEqual(['done', 'failed', ...Array(7).fill('not-reached')]);
+  });
+
+  it('names the stopping step and the end reason beside the bar', () => {
+    const view = viewEndedAtSlicing();
+    render(<ScaleBar chatId="S3" view={view} compact={false} onOpenStage={() => {}} />);
+    const where = screen.getByRole('status');
+    expect(where).toHaveTextContent(stageText('slicing').name);
+    expect(where).toHaveTextContent(view.end_reason!);
+    expect(where.querySelector('span')).toHaveClass('bp-failed');
+  });
+
+  it('opens the stopping step and never a step the pipeline did not reach, even one holding an artifact', () => {
+    const onOpen = vi.fn();
+    const view = viewEndedAtSlicing();
+    view.artifacts = [...view.artifacts, ref('solution_design', 1, 'superseded')];
+    render(<ScaleBar chatId="S3" view={view} compact={false} onOpenStage={onOpen} />);
+    expect(within(screen.getAllByRole('listitem')[2]).queryByRole('button')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Open Slices/ }));
+    expect(onOpen).toHaveBeenCalledWith('slicing', '');
+  });
+
+  it('brackets the slice that stopped the pipeline in the failed tone and names it beside the bar', () => {
+    render(<ScaleBar chatId="S2" view={viewEndedInSlice()} compact={false} onOpenStage={() => {}} />);
+    expect(screen.getByText(`SL2 · ${THREE_SLICES[1].title}`).parentElement).toHaveClass('bp-seg-group--failed');
+    expect(screen.getByText('SL3').parentElement).not.toHaveClass('bp-seg-group--failed');
+    expect(screen.getByRole('status')).toHaveTextContent(`${stageText('decomposition').name} · SL2`);
   });
 });

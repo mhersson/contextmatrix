@@ -141,8 +141,9 @@ export function visibleSteps(view: BlueprintView): BlueprintPipelineStep[] {
   return view.pipeline.filter((s) => s.status !== 'skipped');
 }
 
-/** Every step the blueprint runs is done or folded. */
+/** Every step the blueprint runs is done or folded; an ended blueprint never finished. */
 export function finished(view: BlueprintView): boolean {
+  if (view.state === 'ended') return false;
   const steps = visibleSteps(view);
   return steps.length > 0 && steps.every((s) => s.status === 'done' || s.status === 'folded');
 }
@@ -151,6 +152,9 @@ const ACTIVE = new Set<BlueprintStepStatus>(['running', 'reviewing', 'revising',
 
 export function currentStep(view: BlueprintView): BlueprintPipelineStep | null {
   const steps = visibleSteps(view);
+  // Nothing runs on an ended blueprint, so it stands where the step that ended it stopped.
+  const stopped = view.state === 'ended' ? steps.find((s) => s.status === 'stopped') : undefined;
+  if (stopped) return stopped;
   const named = gateArtifact(view) ?? view.current;
   const byName = named ? steps.find((s) => s.stage === named.stage && sliceOf(s) === sliceOf(named)) : undefined;
   return (
@@ -210,6 +214,7 @@ export function describeCurrent(view: BlueprintView): CurrentText | null {
     if (step.stage !== 'emission') return say('Done', 'done');
     return say(view.state === 'done' ? 'Cards on the board' : 'Cards on the board; watching their runs', 'done');
   }
+  if (view.state === 'ended') return say(view.end_reason ? `Stopped: ${view.end_reason}` : 'Stopped', 'failed');
   // The responder only answers questions; under an auto policy the question has no open prompt.
   if (run?.kind === 'responder') {
     return say(
@@ -279,6 +284,10 @@ export function stepStatusText(step: BlueprintPipelineStep, view: BlueprintView)
       return 'Failed';
     case 'skipped':
       return 'Skipped';
+    case 'stopped':
+      return 'Stopped the pipeline';
+    case 'not_reached':
+      return 'Not reached';
     default:
       return 'Not started';
   }

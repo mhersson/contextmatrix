@@ -151,6 +151,60 @@ export function viewOneSlice(): BlueprintView {
   };
 }
 
+/** The zero-slice end: slicing stored no slices, so nothing after it ran. */
+export function viewEndedAtSlicing(): BlueprintView {
+  return {
+    id: 'S3',
+    mode: 'default',
+    state: 'ended',
+    end_reason: 'slicing stored no slices, so nothing could be designed',
+    seq: 12,
+    slices: [],
+    pipeline: [
+      step('intake', 'product_owner', 'done', { latest_version: 1, cost_usd: 0.03 }),
+      step('slicing', 'product_owner', 'stopped', { gate: true, latest_version: 1, cost_usd: 0.02 }),
+      step('solution_design', 'system_designer', 'not_reached', { gate: true, policy: 'human' }),
+      step('grounding', 'senior_developer', 'not_reached'),
+      step('acceptance', 'senior_developer', 'not_reached', { gate: true, policy: 'auto' }),
+      step('decomposition', 'senior_developer', 'not_reached'),
+      step('readiness', 'reviewer', 'not_reached', { max_rounds: 3 }),
+      step('signoff', 'you', 'not_reached', { gate: true }),
+      step('emission', 'architect', 'not_reached'),
+    ],
+    cost: { spent_usd: 0.05, run_spent_usd: 0, cap_usd: 2, run_cap_usd: 0.5, priced: true },
+    artifacts: [ref('intake', 1, 'current'), ref('slicing', 1, 'current')],
+  };
+}
+
+/** SL2's cards stopped the pipeline: SL1 and SL2's earlier steps done, SL3 and everything after never ran. */
+export function viewEndedInSlice(): BlueprintView {
+  const v = viewSliced();
+  return {
+    ...v,
+    state: 'ended',
+    end_reason: 'the cards still failed their contract checks after three submits',
+    open: undefined,
+    pipeline: [
+      step('intake', 'product_owner', 'done', { latest_version: 1 }),
+      step('slicing', 'product_owner', 'done', { gate: true, latest_version: 1 }),
+      step('shared_decisions', 'system_designer', 'done', { gate: true, policy: 'human', latest_version: 1 }),
+      ...sliceSteps('SL1', ['done', 'done', 'done', 'done']),
+      ...sliceSteps('SL2', ['done', 'done', 'done', 'stopped']),
+      ...sliceSteps('SL3', ['not_reached', 'not_reached', 'not_reached', 'not_reached']),
+      step('readiness', 'reviewer', 'not_reached', { max_rounds: 3 }),
+      step('signoff', 'you', 'not_reached', { gate: true }),
+      step('emission', 'architect', 'not_reached'),
+    ],
+    artifacts: [
+      ...v.artifacts.filter((a) => a.status !== 'at_gate'),
+      ref('solution_design', 1, 'approved', { slice: 'SL2', decided_by: 'you' }),
+      ref('grounding', 1, 'current', { slice: 'SL2' }),
+      ref('acceptance', 1, 'approved', { slice: 'SL2', decided_by: 'automatic' }),
+      ref('decomposition', 1, 'current', { slice: 'SL2' }),
+    ],
+  };
+}
+
 export const DESIGN_SL1_V1: BlueprintArtifact = {
   stage: 'solution_design',
   slice: 'SL1',
