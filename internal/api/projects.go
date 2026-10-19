@@ -39,6 +39,8 @@ type updateProjectRequest struct {
 	// CardDefaults replaces the whole block like Verify: omitted preserves,
 	// a present object replaces (built-in values normalize it away).
 	CardDefaults *board.CardDefaults `json:"card_defaults,omitempty"`
+	// POC is omitted to preserve the flag; true or false sets it.
+	POC *bool `json:"poc,omitempty"`
 }
 
 // remoteExecutionUpdate is the field-level merge shape for remote_execution on
@@ -277,6 +279,7 @@ func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) 
 		GitHubCredential: req.GitHubCredential,
 		RemoteExecution:  remoteExecution,
 		CardDefaults:     req.CardDefaults,
+		POC:              req.POC,
 	})
 	if err != nil {
 		handleServiceError(w, r, err)
