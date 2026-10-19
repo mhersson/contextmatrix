@@ -41,6 +41,17 @@ function text(seq: number, content: string): LogEntry {
 }
 
 describe('parsePromptEntry', () => {
+  it("reads a feedback action's ask only as a non-empty string", () => {
+    const env = parsePromptEntry(
+      prompt(1, [
+        { label: 'Approve over critical findings', reply: 'approve', feedback: true, ask: 'Why approve over the critical findings?' },
+        { label: 'Reject', reply: 'reject', feedback: true, ask: '  ' },
+        { label: 'Hold', reply: 'hold', feedback: true, ask: 5 },
+      ]),
+    );
+    expect(env?.prompt.actions.map((a) => a.ask)).toEqual(['Why approve over the critical findings?', undefined, undefined]);
+  });
+
   it('reads the envelope text, id, free-text flag and actions', () => {
     expect(parsePromptEntry(prompt(1, GATE, { free_text: true }))).toEqual({
       text: 'prompt 1',

@@ -583,14 +583,15 @@ example `{"id": "gate:sign-off:v2", "kind": "gate", "text": "Sign off v2?",
 style by it and treat any other value as neutral. `text` is the prompt without
 its option list or reply instructions, for a consumer that renders the actions
 as the answers; when it is empty the consumer renders `content`. `recommended`
-marks the suggested action, whose label carries no "(recommended)" suffix. All
-three are optional. Only the architect sets `prompt`, and `content` stays the
-full readable message. CM stores such a frame on an architect session as a
-`kind: "prompt"` row whose content is a `{"text", "prompt"}` JSON envelope,
-cutting `content` first and `prompt.text` only if it alone overflows the
-32 KiB row cap; a prompt whose actions alone overflow it is stored as the
-plain message. On any other session, and in task session logs, the field is
-ignored.
+marks the suggested action, whose label carries no "(recommended)" suffix. `ask`
+on a feedback action labels the text box it opens (the sign-off's approval over
+critical findings asks why); empty means the consumer's own label. All four are
+optional. Only the architect sets `prompt`, and `content` stays the full
+readable message. CM stores such a frame on an architect session as a `kind:
+"prompt"` row whose content is a `{"text", "prompt"}` JSON envelope, cutting
+`content` first and `prompt.text` only if it alone overflows the 32 KiB row cap;
+a prompt whose actions alone overflow it is stored as the plain message. On any
+other session, and in task session logs, the field is ignored.
 
 `marker` turns an architect frame into a transcript marker, for example
 `{"kind": "artifact", "stage": "solution_design", "persona": "System

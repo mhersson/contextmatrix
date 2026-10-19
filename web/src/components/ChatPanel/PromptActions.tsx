@@ -149,7 +149,7 @@ export function PromptActions({ prompt, status, answer, onReply }: PromptActions
       {feedbackFor && (
         <div className="flex flex-col gap-1.5">
           <label htmlFor={feedbackId} className="chat-prompt-muted text-xs">
-            Feedback for {feedbackFor.label}
+            {feedbackFor.ask ?? `Feedback for ${feedbackFor.label}`}
           </label>
           <textarea
             ref={textareaRef}

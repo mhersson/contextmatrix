@@ -1,6 +1,6 @@
 import { BodyMarkdown } from '../BodyMarkdown';
-import { parseNeed } from '../artifactData';
-import { AssumptionsTable } from './parts';
+import { parseNeed, stageOutcomes } from '../artifactData';
+import { AssumptionsTable, OutcomesTable } from './parts';
 import type { RendererProps } from './types';
 
 export function NeedSheet({ artifact, previous, mode }: RendererProps) {
@@ -9,6 +9,11 @@ export function NeedSheet({ artifact, previous, mode }: RendererProps) {
   return (
     <>
       <BodyMarkdown body={artifact.body} previous={previous?.body} mode={mode} version={artifact.version} />
+      <OutcomesTable
+        items={stageOutcomes(artifact.data)}
+        previous={mode === 'clouds' && previous ? stageOutcomes(previous.data) : null}
+        version={artifact.version}
+      />
       {data && <AssumptionsTable items={data.assumptions} previous={before} version={artifact.version} />}
     </>
   );

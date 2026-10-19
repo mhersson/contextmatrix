@@ -2,20 +2,44 @@ import { describe, it, expect } from 'vitest';
 import {
   assumptionChip,
   basisRefs,
+  crossFindings,
   httpUrl,
+  parseAcceptance,
   parseAssumptions,
   parseBoard,
   parseCards,
   parseGrounding,
+  parseSignoff,
   parseSharedDecisions,
   parseSlices,
   refTone,
   stageAssumptions,
+  stageOutcomes,
   withoutTags,
 } from './artifactData';
-import { BOARD_V1, CARDS_V1, GROUNDING_V1, SHARED_V1, SHARED_V2 } from '../../test-utils/blueprintFixtures';
+import { ACCEPTANCE_V1, BOARD_V1, CARDS_V1, GROUNDING_V1, SHARED_V1, SHARED_V2, SIGNOFF_V1 } from '../../test-utils/blueprintFixtures';
 
 describe('artifact data', () => {
+  it("reads a criterion's and a manual check's outcomes and the slice's edge-case sweep", () => {
+    const [slice] = parseAcceptance({
+      slices: [
+        {
+          id: 'SL1',
+          criteria: [{ id: 'AC1', project: 'p', text: 't', outcomes: ['O1', 2] }],
+          manual: [{ id: 'MC1', text: 'm' }],
+          sweep: [{ condition: 'Limits', settled_by: ['AC1'] }, { condition: 'Permissions', not_applicable: 'No auth.' }, { settled_by: ['AC1'] }],
+        },
+      ],
+    })!;
+    expect(slice.criteria[0].outcomes).toEqual(['O1']);
+    expect(slice.manual[0].outcomes).toEqual([]);
+    expect(slice.sweep).toEqual([
+      { condition: 'Limits', settledBy: ['AC1'], notApplicable: '' },
+      { condition: 'Permissions', settledBy: [], notApplicable: 'No auth.' },
+    ]);
+    expect(parseAcceptance(ACCEPTANCE_V1.data)![0].sweep).toEqual([]);
+  });
+
   it('reads assumptions as sentences or objects and skips junk', () => {
     const none = { id: '', basis: '', status: '', evidence: '', answer: '', stage: '' };
     expect(parseAssumptions(['A.', { text: 'B.', basis: 'Q1' }, 7, { basis: 'Q2' }, ''])).toEqual([
@@ -104,5 +128,50 @@ describe('parseSharedDecisions', () => {
   it('treats missing contracts as none and junk as no data', () => {
     expect(parseSharedDecisions(SHARED_V2.data)?.contracts).toEqual([]);
     expect(parseSharedDecisions('nope')).toBeNull();
+  });
+});
+
+describe('outcomes and basis references', () => {
+  it("reads a stage's outcomes with their quality and skips junk", () => {
+    const data = { outcomes: [{ id: 'O1', text: 'Under 50 ms at p95.', quality: 'performance' }, { id: 'O2', text: 'Indented JSON.' }, { id: 'O3' }, 'junk'] };
+    expect(stageOutcomes(data)).toEqual([
+      { id: 'O1', text: 'Under 50 ms at p95.', quality: 'performance' },
+      { id: 'O2', text: 'Indented JSON.', quality: '' },
+    ]);
+    expect(stageOutcomes({ assumptions: [] })).toEqual([]);
+    expect(stageOutcomes('nope')).toEqual([]);
+  });
+
+  it('chips stated assumptions and outcomes beside questions, round answers and sources', () => {
+    expect(basisRefs('A3, O2 and Q1')).toEqual({ refs: ['A3', 'O2', 'Q1'], rest: 'and' });
+    expect(basisRefs('round2.A1 restates A1')).toEqual({ refs: ['round2.A1', 'A1'], rest: 'restates' });
+    expect(basisRefs('AC4, SL2 and DEC2')).toEqual({ refs: [], rest: 'AC4 SL2 and DEC2' });
+  });
+
+  it('tones assumptions and outcomes apart from answers and sources', () => {
+    expect(['A3', 'O2', 'Q1', 'round2.A1', 'S3'].map(refTone)).toEqual(['grey', 'grey', 'blue', 'blue', 'green']);
+  });
+});
+
+describe('findings across the blueprint', () => {
+  it('reads them critical first, then major, minor and any other severity, and skips junk', () => {
+    const cross = [
+      { id: 'X1', severity: 'minor', text: 'A3 and A7 say the same thing.', refs: ['A3', 'A7', 4] },
+      { id: 'X2', severity: 'constructor', text: 'Odd.' },
+      { id: 'X3', severity: 'critical', text: 'DEC2 keeps field order but D3 sorts keys.', refs: ['DEC2', 'D3'] },
+      { id: 'X4', severity: 'major', text: 'No criterion proves O2.', refs: ['O2'] },
+      { id: 'X5', severity: 'major' },
+    ];
+    const found = crossFindings({ cross });
+    expect(found.map((f) => f.id)).toEqual(['X3', 'X4', 'X1', 'X2']);
+    expect(found[2].refs).toEqual(['A3', 'A7']);
+    expect(crossFindings({ cards: [] })).toEqual([]);
+    expect(crossFindings('nope')).toEqual([]);
+  });
+
+  it("reads the sign-off's findings and override reason, none on an older sign-off", () => {
+    const data = { ...(SIGNOFF_V1.data as object), cross: [{ id: 'X1', severity: 'critical', text: 'T.' }], override_reason: 'False positive.' };
+    expect(parseSignoff(data)).toMatchObject({ overrideReason: 'False positive.', cross: [{ id: 'X1', severity: 'critical', text: 'T.', refs: [] }] });
+    expect(parseSignoff(SIGNOFF_V1.data)).toMatchObject({ overrideReason: '', cross: [] });
   });
 });

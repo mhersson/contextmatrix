@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { BlueprintView } from '../../types';
 import { formatHHMM } from '../../utils/chatTimestamp';
-import { LEDGER_REVIEW_V1, LEDGER_REVIEW_V2, THREE_SLICES, ref, step, viewAtDesignGate, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
+import { LEDGER_REVIEW_V1, LEDGER_REVIEW_V2, THREE_SLICES, ref, step, viewAtDesignGate, viewEndedAtSlicing, viewEndedInSlice, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
 import {
   artifactsFor,
   barGroups,
@@ -10,6 +10,7 @@ import {
   currentStep,
   decidedByText,
   describeCurrent,
+  finished,
   latestArtifact,
   normalizeView,
   personaName,
@@ -213,5 +214,36 @@ describe('slice names', () => {
       ['', 1], ['', 1], ['', 1], ['SL1', 4], ['SL2', 4], ['SL3', 4], ['', 1], ['', 1], ['', 1],
     ]);
     expect(barGroups(viewOneSlice()).every((g) => g.slice === '' && g.steps.length === 1)).toBe(true);
+  });
+});
+
+describe('an ended blueprint', () => {
+  it('never reads finished and stands on the step that stopped it', () => {
+    const view = viewEndedAtSlicing();
+    expect(finished(view)).toBe(false);
+    expect(currentStep(view)?.stage).toBe('slicing');
+    const allDone = { ...view, pipeline: view.pipeline.map((s) => ({ ...s, status: 'done' as const })) };
+    expect(finished(allDone)).toBe(false);
+  });
+
+  it('says why the pipeline stopped, in the failed tone', () => {
+    const view = viewEndedAtSlicing();
+    const text = describeCurrent(view)!;
+    expect(text).toMatchObject({ name: stageText('slicing').name, tone: 'failed' });
+    expect(text.line).toContain(view.end_reason!);
+    const bare = describeCurrent({ ...view, end_reason: undefined })!;
+    expect(bare.tone).toBe('failed');
+    expect(bare.line).not.toBe('');
+    expect(bare.line).not.toMatch(/:\s*$/);
+  });
+
+  it('names the slice whose step stopped the pipeline', () => {
+    expect(describeCurrent(viewEndedInSlice())!.name).toBe(`${stageText('decomposition').name} · SL2`);
+  });
+
+  it('tells a stopped step and one never reached apart from a pending one', () => {
+    const view = viewEndedAtSlicing();
+    const texts = [step('grounding', 'senior_developer', 'pending'), view.pipeline[1], view.pipeline[2]].map((s) => stepStatusText(s, view));
+    expect(new Set(texts).size).toBe(3);
   });
 });

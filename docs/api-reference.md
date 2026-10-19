@@ -2689,14 +2689,15 @@ as `cap 4`, which the panel never renders) and `rehydration_phase` appear only
 when set. `content` is the raw text, except on a `prompt` row, where it is the
 JSON envelope `{"text": "<message>", "prompt": {"id": "...", "kind": "question",
 "text": "...", "free_text": true, "actions": [{"label": "...", "reply": "...",
-"feedback": true, "recommended": true}]}}` (`kind`, `text` and `recommended` are
-optional), and on a `marker` row, where it is `{"text": "<fallback line>",
-"marker": {"kind": "artifact", "stage": "solution_design", "persona": "System
-designer", "version": 2, "note": "..."}}` (`kind` is `stage`, `artifact` or
-`review`; `slice`, `persona`, `version` and `note` are optional). A prompt whose
-actions alone, or a marker whose kind, stage and persona alone, overflow the 32
-KiB row cap is stored as a plain message with no `kind`. Empty transcripts
-return `{"messages": []}`; unknown session is 404.
+"feedback": true, "recommended": true, "ask": "..."}]}}` (`kind`, `text`,
+`recommended` and `ask` are optional), and on a `marker` row, where it is
+`{"text": "<fallback line>", "marker": {"kind": "artifact", "stage":
+"solution_design", "persona": "System designer", "version": 2, "note": "..."}}`
+(`kind` is `stage`, `artifact` or `review`; `slice`, `persona`, `version` and
+`note` are optional). A prompt whose actions alone, or a marker whose kind,
+stage and persona alone, overflow the 32 KiB row cap is stored as a plain
+message with no `kind`. Empty transcripts return `{"messages": []}`; unknown
+session is 404.
 
 The browser fetches the newest page with `tail=1`, subscribes to
 `/stream?since_seq=<last>` so the seam is gapless, and pages older history

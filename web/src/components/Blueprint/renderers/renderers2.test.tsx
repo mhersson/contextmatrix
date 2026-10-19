@@ -19,6 +19,21 @@ const cellsIn = (section: HTMLElement, text: string) =>
     .getAllByRole('cell')
     .map((c) => c.textContent);
 
+const CROSS = [
+  { id: 'X1', severity: 'minor', text: 'A3 and A7 say the same thing.', refs: ['A3', 'A7'] },
+  { id: 'X2', severity: 'critical', text: 'DEC2 keeps field order but D3 sorts keys.', refs: ['DEC2', 'D3'] },
+  { id: 'X3', severity: 'major', text: 'No criterion proves O2.', refs: ['O2'] },
+];
+const withCross = (a: BlueprintArtifact, over: object = {}): BlueprintArtifact => ({
+  ...a,
+  data: { ...(a.data as object), cross: CROSS, ...over },
+});
+const firstCells = (section: HTMLElement) =>
+  within(section)
+    .getAllByRole('row')
+    .slice(1)
+    .map((r) => within(r).getAllByRole('cell')[0].textContent);
+
 describe('CardsSheet', () => {
   it('previews each card with its project, type, priority, places, criteria and dependencies', () => {
     show(CARDS_V1);
@@ -86,6 +101,25 @@ describe('ReadinessSheet', () => {
     v.artifacts = [...v.artifacts, ref('readiness', 1, 'superseded'), ref('readiness', 2, 'current')];
     return v;
   }
+
+  it('lists the findings across the blueprint above the cards, critical first', () => {
+    const { container } = render(<ArtifactRenderer artifact={withCross(READINESS_V2)} previous={null} mode="plain" view={inLoop()} />);
+    const table = sectionOf(/^Across the blueprint/);
+    expect(firstCells(table)).toEqual(['X2', 'X3', 'X1']);
+    expect(cellsIn(table, 'DEC2 keeps field order but D3 sorts keys.')).toEqual(['X2', 'critical', 'DEC2 keeps field order but D3 sorts keys.', 'DEC2 D3']);
+    expect(within(table).getByText('critical')).toHaveClass('bp-sev--critical');
+    expect(table.compareDocumentPosition(container.querySelector('.bp-readiness')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows an unknown severity neutrally', () => {
+    render(<ArtifactRenderer artifact={withCross(READINESS_V2, { cross: [{ id: 'X9', severity: 'blocker', text: 'Odd.' }] })} previous={null} mode="plain" view={inLoop()} />);
+    expect(within(sectionOf(/^Across the blueprint/)).getByText('blocker')).toHaveAttribute('class', 'bp-sev');
+  });
+
+  it('shows no findings table for a version stored before readiness judged the whole blueprint', () => {
+    render(<ArtifactRenderer artifact={READINESS_V2} previous={null} mode="plain" view={inLoop()} />);
+    expect(screen.queryByRole('heading', { name: /^Across the blueprint/ })).not.toBeInTheDocument();
+  });
 
   it('shows the loop round on the newest version and each card ready or its findings', () => {
     render(<ArtifactRenderer artifact={READINESS_V2} previous={null} mode="plain" view={inLoop()} />);
@@ -191,6 +225,19 @@ describe('SignoffSheet', () => {
     expect(screen.getByText('A1 holds.')).toBeInTheDocument();
   });
 
+  it('opens with the findings across the blueprint and the reason you approved over a critical one', () => {
+    show(withCross(SIGNOFF_V1, { override_reason: 'X2 is a false positive; D3 keeps the order.' }));
+    expect(screen.getAllByRole('heading', { level: 3 })[0]).toHaveTextContent(/^Across the blueprint/);
+    expect(firstCells(sectionOf(/^Across the blueprint/))).toEqual(['X2', 'X3', 'X1']);
+    expect(screen.getByRole('note', { name: 'Override' })).toHaveTextContent('X2 is a false positive; D3 keeps the order.');
+  });
+
+  it('shows neither on a sign-off stored before them', () => {
+    show(SIGNOFF_V1);
+    expect(screen.queryByRole('heading', { name: /^Across the blueprint/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('note', { name: 'Override' })).not.toBeInTheDocument();
+  });
+
   it('says when the preflight could not run', () => {
     show({ ...SIGNOFF_V1, data: { ...(SIGNOFF_V1.data as object), preflight_error: 'repo unreachable' } });
     expect(screen.getByRole('note', { name: 'Preflight' })).toHaveTextContent('repo unreachable');
@@ -245,6 +292,14 @@ describe('ReadinessSheet revision clouds', () => {
     expect(rowFor(container, 'D3').querySelector('.bp-cloud')).not.toBeNull();
     expect(rowFor(container, 'D1').querySelector('.bp-cloud')).toBeNull();
     expect(screen.getByText('Changed in rev 2.')).toBeInTheDocument();
+  });
+
+  it('clouds the finding across the blueprint that changed', () => {
+    const before = withCross(previous, { cross: [CROSS[0], { ...CROSS[1], text: 'Older.' }, CROSS[2]] });
+    render(<ArtifactRenderer artifact={withCross(READINESS_V2)} previous={before} mode="clouds" view={view} />);
+    const table = sectionOf(/^Across the blueprint/);
+    expect(within(table).getByText('DEC2 keeps field order but D3 sorts keys.').closest('.bp-cloud')).not.toBeNull();
+    expect(within(table).getByText('No criterion proves O2.').closest('.bp-cloud')).toBeNull();
   });
 
   it('marks nothing in plain mode', () => {

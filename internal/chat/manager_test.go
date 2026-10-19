@@ -5520,6 +5520,7 @@ func TestManager_Consumer_PromptDisplayFieldsRoundTrip(t *testing.T) {
 		Actions: []protocol.LogAction{
 			{Label: "SQLite", Reply: "1", Recommended: true},
 			{Label: "Postgres", Reply: "2"},
+			{Label: "Neither", Reply: "neither", Feedback: true, Ask: "What should it use instead?"},
 		},
 	}
 
@@ -5528,7 +5529,7 @@ func TestManager_Consumer_PromptDisplayFieldsRoundTrip(t *testing.T) {
 
 	var env promptEnvelope
 	require.NoError(t, json.Unmarshal([]byte(msg.Content), &env))
-	assert.Equal(t, *p, env.Prompt, "kind, text and recommended survive")
+	assert.Equal(t, *p, env.Prompt, "kind, text, recommended and ask survive")
 }
 
 func TestManager_Consumer_OversizedContentIsCutBeforePromptText(t *testing.T) {

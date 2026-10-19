@@ -44,6 +44,21 @@ export function stageAssumptions(data: unknown): Assumption[] {
   return isRecord(data) ? parseAssumptions(data.assumptions) : [];
 }
 
+export interface Outcome {
+  id: string;
+  text: string;
+  /** The quality the outcome states measurably (performance, security, ...); empty for a plain outcome. */
+  quality: string;
+}
+
+/** The measurable outcomes a stage's data states; none on a version stored before outcomes existed. */
+export function stageOutcomes(data: unknown): Outcome[] {
+  if (!isRecord(data)) return [];
+  return records(data.outcomes).flatMap((o): Outcome[] =>
+    str(o.text) ? [{ id: str(o.id), text: str(o.text), quality: str(o.quality) }] : [],
+  );
+}
+
 export type ChipTone = 'yellow' | 'red' | 'purple' | 'blue' | 'green' | 'grey';
 
 /** Source tags such as S1 cited in a text. */
@@ -78,9 +93,10 @@ export function assumptionChip(a: Assumption): { tone: ChipTone; label: string }
   }
 }
 
-const BASIS_REF = /\b(?:[QS]\d+|round\d+\.A\d+)\b/g;
+// A round answer matches first, so round2.A1 stays one reference.
+const BASIS_REF = /\b(?:round\d+\.A\d+|[QSAO]\d+)\b/g;
 
-/** Question (Q1), round answer (round2.A1) and source (S1) references in a basis, and whatever else it says. */
+/** Question (Q1), round answer (round2.A1), source (S1), assumption (A3) and outcome (O1) references in a basis, and whatever else it says. */
 export function basisRefs(basis: string): { refs: string[]; rest: string } {
   const refs = [...new Set(basis.match(BASIS_REF) ?? [])];
   const rest = basis
@@ -90,9 +106,10 @@ export function basisRefs(basis: string): { refs: string[]; rest: string } {
   return { refs, rest };
 }
 
-/** A source reads green; a question or round answer blue. */
+/** A source reads green, a question or round answer blue, a stated assumption or an outcome grey. */
 export function refTone(ref: string): ChipTone {
-  return ref.startsWith('S') ? 'green' : 'blue';
+  if (ref.startsWith('S')) return 'green';
+  return ref.startsWith('A') || ref.startsWith('O') ? 'grey' : 'blue';
 }
 
 export interface NeedData {
@@ -221,6 +238,8 @@ export interface Criterion {
   id: string;
   project: string;
   text: string;
+  /** The outcomes the criterion proves (O1, ...); none before outcomes existed. */
+  outcomes: string[];
 }
 
 export interface ManualCheck {
@@ -238,10 +257,25 @@ export function labelsById(cards: { id: string; title: string }[], manual: Manua
   ]);
 }
 
+export interface AcceptanceCheck extends ManualCheck {
+  /** The outcomes the check proves, when it names any. */
+  outcomes: string[];
+}
+
+/** One condition of the pack's edge-case list: settled by this slice's criteria or checks, or not applicable. */
+export interface SweepEntry {
+  condition: string;
+  settledBy: string[];
+  /** Why the condition does not apply; empty when it is settled. */
+  notApplicable: string;
+}
+
 export interface AcceptanceSlice {
   id: string;
   criteria: Criterion[];
-  manual: ManualCheck[];
+  manual: AcceptanceCheck[];
+  /** One entry per edge-case condition; none before the sweep existed. */
+  sweep: SweepEntry[];
 }
 
 function parseManual(v: unknown): ManualCheck[] {
@@ -252,8 +286,11 @@ export function parseAcceptance(data: unknown): AcceptanceSlice[] | null {
   if (!isRecord(data)) return null;
   return records(data.slices).map((s) => ({
     id: str(s.id),
-    criteria: records(s.criteria).map((c) => ({ id: str(c.id), project: str(c.project), text: str(c.text) })),
-    manual: parseManual(s.manual),
+    criteria: records(s.criteria).map((c) => ({ id: str(c.id), project: str(c.project), text: str(c.text), outcomes: strs(c.outcomes) })),
+    manual: records(s.manual).map((m) => ({ id: str(m.id), text: str(m.text), criteria: strs(m.criteria), outcomes: strs(m.outcomes) })),
+    sweep: records(s.sweep).flatMap((e): SweepEntry[] =>
+      str(e.condition) ? [{ condition: str(e.condition), settledBy: strs(e.settled_by), notApplicable: str(e.not_applicable) }] : [],
+    ),
   }));
 }
 
@@ -309,6 +346,33 @@ export function parseReadiness(data: unknown): ReadinessCard[] | null {
   return records(data.cards).map((c) => ({ id: str(c.id), ready: c.ready === true, findings: strs(c.findings) }));
 }
 
+export interface CrossFinding {
+  id: string;
+  /** critical, major or minor; any other value shows neutrally. */
+  severity: string;
+  text: string;
+  /** The ids the finding names: decisions, criteria, cards, assumptions, outcomes or slices. */
+  refs: string[];
+}
+
+// A Map, so a severity named after an Object prototype key still ranks last.
+const SEVERITY_RANK = new Map([
+  ['critical', 0],
+  ['major', 1],
+  ['minor', 2],
+]);
+
+/** Problems between artifacts, critical first; none on a version stored before readiness judged the whole blueprint. */
+export function crossFindings(data: unknown): CrossFinding[] {
+  if (!isRecord(data)) return [];
+  const rank = (f: CrossFinding) => SEVERITY_RANK.get(f.severity) ?? SEVERITY_RANK.size;
+  return records(data.cross)
+    .flatMap((f): CrossFinding[] =>
+      str(f.text) ? [{ id: str(f.id), severity: str(f.severity), text: str(f.text), refs: strs(f.refs) }] : [],
+    )
+    .sort((a, b) => rank(a) - rank(b));
+}
+
 export interface SignoffCard {
   id: string;
   project: string;
@@ -333,6 +397,10 @@ export interface SignoffData {
   assumptionsProse: string;
   /** Set only when the preflight could not run. */
   preflightError: string;
+  /** The judged readiness version's findings across the blueprint, critical first. */
+  cross: CrossFinding[];
+  /** Your reason for approving over a critical finding; set once approved. */
+  overrideReason: string;
 }
 
 export function parseSignoff(data: unknown): SignoffData | null {
@@ -356,6 +424,8 @@ export function parseSignoff(data: unknown): SignoffData | null {
     assumptions: parseAssumptions(data.assumptions),
     assumptionsProse: str(data.assumptions),
     preflightError: str(data.preflight_error),
+    cross: crossFindings(data),
+    overrideReason: str(data.override_reason),
   };
 }
 

@@ -1,8 +1,8 @@
 import { BodyMarkdown } from '../BodyMarkdown';
-import { parseDesign, stageAssumptions, type Decision, type DesignSlice } from '../artifactData';
+import { parseDesign, stageAssumptions, stageOutcomes, type Decision, type DesignSlice } from '../artifactData';
 import { changedById } from '../revisions';
 import { ContractList, DecisionList } from './decisions';
-import { AssumptionsTable } from './parts';
+import { AssumptionsTable, OutcomesTable } from './parts';
 import type { RendererProps } from './types';
 
 // Design changes are found per decision id; the written text below per paragraph.
@@ -37,6 +37,11 @@ export function DesignSheet({ artifact, previous, mode }: RendererProps) {
           <ContractList contracts={s.contracts} />
         </section>
       ))}
+      <OutcomesTable
+        items={stageOutcomes(artifact.data)}
+        previous={mode === 'clouds' && previous ? stageOutcomes(previous.data) : null}
+        version={artifact.version}
+      />
       <AssumptionsTable
         items={stageAssumptions(artifact.data)}
         previous={mode === 'clouds' && previous ? stageAssumptions(previous.data) : null}

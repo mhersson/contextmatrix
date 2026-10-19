@@ -22,12 +22,13 @@ interface ScaleBarProps {
   onOpenStage: (stage: string, slice: string) => void;
 }
 
-type SegmentTone = 'done' | 'running' | 'waiting' | 'failed' | 'pending';
+type SegmentTone = 'done' | 'running' | 'waiting' | 'failed' | 'pending' | 'not-reached';
 
 function segmentTone(step: BlueprintPipelineStep, isCurrent: boolean, tone: Tone | undefined): SegmentTone {
   if (isCurrent && (tone === 'running' || tone === 'waiting')) return tone;
   if (step.status === 'done' || step.status === 'folded') return 'done';
-  if (step.status === 'failed') return 'failed';
+  if (step.status === 'failed' || step.status === 'stopped') return 'failed';
+  if (step.status === 'not_reached') return 'not-reached';
   return 'pending';
 }
 
@@ -78,7 +79,9 @@ export function ScaleBar({ chatId, view, compact, onOpenStage }: ScaleBarProps) 
       {!compact && text && (
         <div className="bp-scale-where" role="status">
           <b>{text.name}</b>
-          <span className={lineClass}>{text.line}</span>
+          <span className={lineClass} title={text.line}>
+            {text.line}
+          </span>
         </div>
       )}
       <CostCell chatId={chatId} cost={view.cost} />
@@ -114,7 +117,9 @@ function Segment({ step, view, tone, first, end, onOpen }: SegmentProps) {
       </span>
     </>
   );
-  const openable = tone === 'done' && artifactsFor(view, step.stage, sliceOf(step)).length > 0;
+  // The step that ended the pipeline holds the version that ended it.
+  const openable =
+    (tone === 'done' || step.status === 'stopped') && artifactsFor(view, step.stage, sliceOf(step)).length > 0;
   return (
     <div role="listitem" data-tone={tone} className={`bp-seg bp-seg--${tone}${step.status === 'folded' ? ' bp-seg--folded' : ''}${first ? ' bp-seg--first' : ''}${end ? ' bp-seg--end' : ''}`}>
       {openable ? (

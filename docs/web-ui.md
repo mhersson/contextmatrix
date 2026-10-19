@@ -162,10 +162,12 @@ board. Promote-to-autonomous lives in that tab.
   themes and a dusty rose to maroon in the light ones, and the suggested option
   carries a "recommended" chip. A prompt marked as a gate keeps compact buttons
   in a row. A click sends that reply as your message, a feedback action such as
-  Reject asks for text first, and typing the reply works too. A prompt closes
-  when a reply answers it or a later prompt replaces it. It then shows a
-  one-line summary instead of buttons, and a closed non-gate prompt keeps its
-  options above the summary as a smaller list with the answering option marked.
+  Reject asks for text first, in a box labelled with the architect's question
+  when it sends one (an approval over critical findings asks why), and typing
+  the reply works too. A prompt closes when a reply answers it or a later
+  prompt replaces it. It then shows a one-line summary instead of buttons, and
+  a closed non-gate prompt keeps its options above the summary as a smaller
+  list with the answering option marked.
   A closed question's list and summary render in the normal text colour on the
   tint; gates and neutral prompts keep the muted grey. The buttons are disabled
   while the session is not live or its stream is disconnected, and prompts show
@@ -223,36 +225,54 @@ board. Promote-to-autonomous lives in that tab.
   - The scale bar under the pane header draws one segment per pipeline step:
     done steps filled green, the current step hatched (aqua while a run works,
     the question accent while the blueprint waits for you), pending steps
-    outlined, a failed step outlined red and folded slicing as a narrow
-    segment; gates carry a notch. A blueprint cut into two or more slices draws
-    each slice's steps together, bracketed under the bar with the slice's id;
-    the slice in progress also shows its title, in the colour of its current
-    segment. Beside the bar the current stage, with its slice when there are
-    several (Solution design · SL2), says who is doing what. Hover a segment
-    for its persona, status and cost; click a finished one to open its
-    artifact. The right end shows the architect's spend against the blueprint
-    cap; the meter turns orange at 80% and red at the cap. Click it (it is a
-    button, also with no cap set) for a popover with the spend, the cap, +$2 /
-    +$5 / +$10 raises (added to the cap, or to the spend with no cap), an
-    amount field and a "No cap" choice. An amount at or below the spend is
-    refused, as is any amount on a model CM cannot price (only "No cap" is
-    offered, and only when a cap is set). Raising the cap continues a blueprint
-    that stopped on its cap. The change goes to the architect as a `cap`
-    command that the transcript does not show; the architect's confirmation
-    line is the visible record, and the cell follows the cap the architect
-    republishes; the pane header's cap follows after a successful save.
+    outlined, a failed step outlined red and folded slicing as a narrow segment;
+    gates carry a notch. When the pipeline ended before the sign-off (a stage
+    left nothing to build on, or the readiness rounds ran out), the step that
+    stopped it is outlined red and opens the version that stopped it, every step
+    it never reached is dashed and opens nothing, and the stopping step's newest
+    version reads Stopped on the sheet unless a gate decided it. A blueprint cut
+    into two or more slices draws each slice's steps together, bracketed under
+    the bar with the slice's id; the slice in progress also shows its title, in
+    the colour of its current segment. Beside the bar the current stage, with
+    its slice when there are several (Solution design · SL2), says who is doing
+    what; on an ended blueprint it names the stopping step and, in red, why the
+    pipeline stopped. Hover a segment for its persona, status and cost; click a
+    finished one to open its artifact. The right end shows the architect's spend
+    against the blueprint cap; the meter turns orange at 80% and red at the cap.
+    Click it (it is a button, also with no cap set) for a popover with the
+    spend, the cap, +$2 / +$5 / +$10 raises (added to the cap, or to the spend
+    with no cap), an amount field and a "No cap" choice. An amount at or below
+    the spend is refused, as is any amount on a model CM cannot price (only "No
+    cap" is offered, and only when a cap is set). Raising the cap continues a
+    blueprint that stopped on its cap. The change goes to the architect as a
+    `cap` command that the transcript does not show; the architect's
+    confirmation line is the visible record, and the cell follows the cap the
+    architect republishes; the pane header's cap follows after a successful
+    save.
   - The sheet renders each artifact (need, slices, shared decisions, design,
     grounding, acceptance, cards, readiness, sign-off, board) as a document.
     Long lists are tables with the row count beside each heading: the need's
-    assumptions and the design's (when it states any) with their basis, the
-    slices with what each delivers, its projects and the slices it comes after,
-    and their assumptions with a status; each slice's acceptance criteria with
-    their project and the manual checks with their slice; the cards sheet's
-    manual checks outside the playbook order with the checks they cover; and on
-    the sign-off the run order, the assumptions (your answer, status, basis and
-    source chips, and the stage that stated each) and the manual checks after
-    the run. Below 520px of sheet width each table row stacks into a block; the
-    sign-off's assumptions, with more columns, stack below 720px. Tabs follow
+    outcomes, each with its id and the quality it states, and the outcomes the
+    shared decisions or the design add; the need's assumptions and the
+    design's (when it states any) with their basis, the slices with what each
+    delivers, its projects and the slices it comes after, and their
+    assumptions with a status; each slice's acceptance criteria with their
+    project and the outcomes each proves, the manual checks with their slice
+    (and their outcomes when any check names one), and each slice's edge cases
+    with the criteria or checks that settle each or why it does not apply; the
+    cards sheet's manual checks outside the playbook order with the checks
+    they cover; on the readiness sheet the problems found across the blueprint
+    (between decisions, contracts, cards and assumptions), each with its id,
+    severity, finding and the ids it names, critical first, above the cards; and
+    on the sign-off the same table at the top, a note with your reason when you
+    approved over a critical finding, the run order, the assumptions (your
+    answer, status, basis and source chips, and the stage that stated each) and
+    the manual checks after the run. A version stored before the architect
+    recorded outcomes, edge cases or findings across the blueprint shows none of
+    those tables or columns. Below 520px of sheet width each table row stacks
+    into a block; the sign-off's assumptions, with more columns, stack below
+    720px. A basis chips what it rests on: answers (Q1, round2.A1) blue, sources
+    (S1) green, and stated assumptions (A3) and outcomes (O1) grey. Tabs follow
     the current stage until you pick one; a pick holds until the current stage,
     or the slice it runs for, changes. Stages without an artifact are dimmed and
     stages the pack does not run are hidden. The shared decisions sheet shows
