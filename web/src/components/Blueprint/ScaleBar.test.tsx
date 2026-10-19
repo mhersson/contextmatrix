@@ -119,6 +119,7 @@ describe('ScaleBar on an ended blueprint', () => {
     expect(where).toHaveTextContent(stageText('slicing').name);
     expect(where).toHaveTextContent(view.end_reason!);
     expect(where.querySelector('span')).toHaveClass('bp-failed');
+    expect(where.querySelector('span')?.getAttribute('title')).toContain(view.end_reason!);
   });
 
   it('opens the stopping step and never a step the pipeline did not reach, even one holding an artifact', () => {

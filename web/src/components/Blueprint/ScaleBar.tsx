@@ -79,7 +79,9 @@ export function ScaleBar({ chatId, view, compact, onOpenStage }: ScaleBarProps) 
       {!compact && text && (
         <div className="bp-scale-where" role="status">
           <b>{text.name}</b>
-          <span className={lineClass}>{text.line}</span>
+          <span className={lineClass} title={text.line}>
+            {text.line}
+          </span>
         </div>
       )}
       <CostCell chatId={chatId} cost={view.cost} />
