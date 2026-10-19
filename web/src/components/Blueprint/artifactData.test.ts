@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  acceptedLabel,
   assumptionChip,
   basisRefs,
   crossFindings,
@@ -173,5 +174,52 @@ describe('findings across the blueprint', () => {
     const data = { ...(SIGNOFF_V1.data as object), cross: [{ id: 'X1', severity: 'critical', text: 'T.' }], override_reason: 'False positive.' };
     expect(parseSignoff(data)).toMatchObject({ overrideReason: 'False positive.', cross: [{ id: 'X1', severity: 'critical', text: 'T.', refs: [] }] });
     expect(parseSignoff(SIGNOFF_V1.data)).toMatchObject({ overrideReason: '', cross: [] });
+  });
+});
+
+describe('a plain-language sign-off', () => {
+  it('reads consequences, acceptances, superseded answers and the summary, skipping junk', () => {
+    const data = parseSignoff({
+      ...(SIGNOFF_V1.data as object),
+      assumptions: [
+        { id: 'A1', stage: 'intake', text: 'Items sync through a hosted database.', status: 'assumed', consequence: 'Adding items needs internet.', consequence_accepted: { by: 'human', round: 2 } },
+        { id: 'Q4', stage: 'intake', text: 'Offline edits are dropped.', status: 'assumed', superseded_by: 'Q7' },
+        { id: 'A2', stage: 'intake', text: 'T.', status: 'assumed', consequence_accepted: 'yes' },
+        { id: 'A3', stage: 'intake', text: 'U.', status: 'assumed', consequence_accepted: { by: 'human', round: 'two' } },
+        { id: 'A4', stage: 'intake', text: 'V.', status: 'assumed', consequence_accepted: { by: 'human', round: 0 } },
+        { id: 'A5', stage: 'intake', text: 'W.', status: 'assumed', consequence_accepted: { by: 'human', round: 1.5 } },
+      ],
+      plain_summary: {
+        build: ['Shopping list: one list both phones share', 7],
+        can_do: ['Add, tick off and remove items'],
+        accepted: [{ id: 'A1', text: 'Adding items needs internet.', changed: true }, { id: 'A9' }, 'junk'],
+      },
+    })!;
+    expect(data.assumptions.map((a) => [a.id, a.status, a.consequence, a.accepted, a.supersededBy])).toEqual([
+      ['A1', 'assumed', 'Adding items needs internet.', { by: 'human', round: 2 }, ''],
+      ['Q4', 'assumed', '', null, 'Q7'],
+      ['A2', 'assumed', '', null, ''],
+      ['A3', 'assumed', '', null, ''],
+      ['A4', 'assumed', '', null, ''],
+      ['A5', 'assumed', '', null, ''],
+    ]);
+    expect(data.plainSummary).toEqual({
+      build: ['Shopping list: one list both phones share'],
+      canDo: ['Add, tick off and remove items'],
+      accepted: [{ id: 'A1', text: 'Adding items needs internet.', changed: true }],
+    });
+  });
+
+  it('has no summary on a sign-off without one, or with nothing in it', () => {
+    expect(parseSignoff(SIGNOFF_V1.data)!.plainSummary).toBeNull();
+    expect(parseSignoff({ ...(SIGNOFF_V1.data as object), plain_summary: { build: [], can_do: [], accepted: [] } })!.plainSummary).toBeNull();
+    expect(parseSignoff({ ...(SIGNOFF_V1.data as object), plain_summary: 'x' })!.plainSummary).toBeNull();
+  });
+
+  it('names the person who accepted a consequence as the sheet names your answers', () => {
+    expect(acceptedLabel({ by: 'human', round: 2 })).toBe(acceptedLabel({ by: '', round: 2 }));
+    expect(acceptedLabel({ by: 'human', round: 2 })).not.toContain('human');
+    expect(acceptedLabel({ by: 'ops-team', round: 2 })).toContain('ops-team');
+    expect(acceptedLabel({ by: 'human', round: 2 })).not.toBe(acceptedLabel({ by: 'human', round: 3 }));
   });
 });

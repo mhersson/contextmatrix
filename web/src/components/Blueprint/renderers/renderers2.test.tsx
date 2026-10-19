@@ -3,7 +3,7 @@ import { render, screen, within } from '@testing-library/react';
 import { ArtifactRenderer } from './ArtifactRenderer';
 import { BOARD_V1, CARDS_V1, READINESS_V2, SIGNOFF_V1, ref, viewAtDesignGate } from '../../../test-utils/blueprintFixtures';
 import type { BlueprintArtifact } from '../../../types';
-import { assumptionChip } from '../artifactData';
+import { acceptedLabel, assumptionChip, CHANGED_SINCE_ACCEPTED, supersededLabel } from '../artifactData';
 import { stageText } from '../stages';
 
 vi.mock('../../ChatPanel/ChatMarkdown', () => ({
@@ -241,6 +241,61 @@ describe('SignoffSheet', () => {
   it('says when the preflight could not run', () => {
     show({ ...SIGNOFF_V1, data: { ...(SIGNOFF_V1.data as object), preflight_error: 'repo unreachable' } });
     expect(screen.getByRole('note', { name: 'Preflight' })).toHaveTextContent('repo unreachable');
+  });
+  describe('on a plain-language blueprint', () => {
+    const plain = signoffWith({
+      assumptions: [
+        { id: 'A1', stage: 'intake', text: 'Items sync through a hosted database.', basis: 'Q2', status: 'assumed', consequence: 'Adding items needs internet.', consequence_accepted: { by: 'human', round: 2 } },
+        { id: 'Q4', stage: 'intake', text: 'Offline edits are dropped.', basis: 'Q4', status: 'assumed', superseded_by: 'Q7' },
+      ],
+      plain_summary: {
+        build: ['Shopping list: one list both phones share'],
+        can_do: ['Add, tick off and remove items'],
+        accepted: [{ id: 'A1', text: 'Adding items needs internet.', changed: true }],
+      },
+    });
+    const rowWith = (text: string) => screen.getAllByRole('row').find((r) => within(r).queryByText(text) !== null)!;
+
+    it('opens with the plain summary, above the findings across the blueprint', () => {
+      show(withCross(plain));
+      const build = screen.getByText('Shopping list: one list both phones share');
+      const cross = screen.getByRole('heading', { name: /^Across the blueprint/ });
+      expect(build.compareDocumentPosition(cross) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(screen.getByText('Add, tick off and remove items').compareDocumentPosition(cross) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('lists the consequences you accepted, marking one whose decision changed since', () => {
+      show(plain);
+      const changed = screen.getAllByRole('row').filter((r) => within(r).queryByText(CHANGED_SINCE_ACCEPTED) !== null);
+      expect(changed).toHaveLength(1);
+      expect(changed[0]).toHaveTextContent('A1');
+      expect(changed[0]).toHaveTextContent('Adding items needs internet.');
+    });
+
+    it('puts each consequence under its technical decision, with who accepted it beside the unchanged status', () => {
+      show(plain);
+      const row = rowWith('Items sync through a hosted database.');
+      expect(within(row).getByText('Adding items needs internet.')).toBeInTheDocument();
+      expect(row).toHaveTextContent(status('assumed'));
+      expect(row).toHaveTextContent(acceptedLabel({ by: 'human', round: 2 }));
+      expect(row).not.toHaveTextContent(status('confirmed'));
+      expect(row).not.toHaveTextContent(CHANGED_SINCE_ACCEPTED);
+    });
+
+    it('keeps a superseded responder answer, marked with the answer that replaced it', () => {
+      show(plain);
+      const row = rowWith('Offline edits are dropped.');
+      expect(row).toHaveTextContent(supersededLabel('Q7'));
+      expect(row).toHaveTextContent(status('assumed'));
+    });
+
+    it('draws nothing for an empty summary', () => {
+      const before = show(SIGNOFF_V1);
+      const headings = screen.getAllByRole('heading', { level: 3 }).length;
+      before.unmount();
+      show(signoffWith({ plain_summary: { build: [], can_do: [], accepted: [] } }));
+      expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(headings);
+    });
   });
 });
 

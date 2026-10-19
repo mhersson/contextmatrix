@@ -7064,6 +7064,10 @@ button.bp-seg-hit {
   --bp-chip-tone: var(--green);
   background: var(--bg-green);
 }
+.bp-chip--orange {
+  --bp-chip-tone: var(--orange);
+  background: var(--bg-orange);
+}
 .bp-chip--grey {
   background: var(--bg2);
 }
@@ -7211,6 +7215,13 @@ button.bp-seg-hit {
   margin-top: 1px;
   font-size: 11.5px;
 }
+.bp-consequence {
+  color: var(--blueprint-quiet-strong);
+}
+.bp-superseded {
+  color: var(--blueprint-quiet);
+  text-decoration: line-through;
+}
 /*
  * Below 520px of sheet each row stacks: ids and status inline on top, the long text, then "Label: value" lines.
  * A wide table stacks below 720px. The flex settings here are inert until a stacked row turns into a flex box.
@@ -7261,6 +7272,13 @@ button.bp-seg-hit {
   .bp-table--rows td.bp-col--status {
     width: auto;
   }
+  .bp-table--rows td.bp-col--status {
+    max-width: 100%;
+    white-space: normal;
+  }
+  .bp-table--rows td.bp-col--status .bp-chip {
+    margin-bottom: 2px;
+  }
   .bp-table--rows :is(td.bp-col--short, td.bp-col--list, td.bp-col--note)::before {
     content: attr(data-label) ': ';
     font-size: 11.5px;
@@ -7297,6 +7315,13 @@ button.bp-seg-hit {
   .bp-table--wide td.bp-col--id,
   .bp-table--wide td.bp-col--status {
     width: auto;
+  }
+  .bp-table--wide td.bp-col--status {
+    max-width: 100%;
+    white-space: normal;
+  }
+  .bp-table--wide td.bp-col--status .bp-chip {
+    margin-bottom: 2px;
   }
   .bp-table--wide :is(td.bp-col--short, td.bp-col--list, td.bp-col--note)::before {
     content: attr(data-label) ': ';

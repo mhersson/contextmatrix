@@ -20,23 +20,82 @@ export interface Assumption {
   stage: string;
 }
 
+function parseAssumption(a: unknown): Assumption | null {
+  if (typeof a === 'string') return a.trim() ? { id: '', text: a, basis: '', status: '', evidence: '', answer: '', stage: '' } : null;
+  if (!isRecord(a) || !str(a.text)) return null;
+  return {
+    id: str(a.id),
+    text: str(a.text),
+    basis: str(a.basis),
+    status: str(a.status),
+    evidence: str(a.evidence),
+    answer: str(a.answer),
+    stage: str(a.stage),
+  };
+}
+
 export function parseAssumptions(v: unknown): Assumption[] {
   if (!Array.isArray(v)) return [];
   return v.flatMap((a): Assumption[] => {
-    if (typeof a === 'string') return a.trim() ? [{ id: '', text: a, basis: '', status: '', evidence: '', answer: '', stage: '' }] : [];
-    if (!isRecord(a) || !str(a.text)) return [];
-    return [
-      {
-        id: str(a.id),
-        text: str(a.text),
-        basis: str(a.basis),
-        status: str(a.status),
-        evidence: str(a.evidence),
-        answer: str(a.answer),
-        stage: str(a.stage),
-      },
-    ];
+    const parsed = parseAssumption(a);
+    return parsed ? [parsed] : [];
   });
+}
+
+export interface ConsequenceAccepted {
+  /** The architect's responder constant: "human" (or empty) is you, anything else is named as given. */
+  by: string;
+  round: number;
+}
+
+export interface SignoffAssumption extends Assumption {
+  /** The plain consequence of the decision, on a plain-language blueprint. */
+  consequence: string;
+  accepted: ConsequenceAccepted | null;
+  /** The id of the answer that replaced this superseded responder answer. */
+  supersededBy: string;
+}
+
+export function parseSignoffAssumptions(v: unknown): SignoffAssumption[] {
+  if (!Array.isArray(v)) return [];
+  return v.flatMap((a): SignoffAssumption[] => {
+    const base = parseAssumption(a);
+    if (!base) return [];
+    if (!isRecord(a)) return [{ ...base, consequence: '', accepted: null, supersededBy: '' }];
+    const marker = a.consequence_accepted;
+    const accepted =
+      isRecord(marker) && typeof marker.round === 'number' && Number.isInteger(marker.round) && marker.round > 0
+        ? { by: str(marker.by), round: marker.round }
+        : null;
+    return [{ ...base, consequence: str(a.consequence), accepted, supersededBy: str(a.superseded_by) }];
+  });
+}
+
+export const CHANGED_SINCE_ACCEPTED = 'changed since you accepted it';
+
+export function acceptedLabel(a: ConsequenceAccepted): string {
+  const who = a.by === 'human' || a.by === '' ? 'you' : a.by;
+  return `consequence accepted by ${who}, round ${a.round}`;
+}
+
+export const supersededLabel = (id: string): string => `superseded by ${id}`;
+
+export interface PlainSummary {
+  build: string[];
+  canDo: string[];
+  accepted: { id: string; text: string; changed: boolean }[];
+}
+
+export function parsePlainSummary(v: unknown): PlainSummary | null {
+  if (!isRecord(v)) return null;
+  const summary: PlainSummary = {
+    build: strs(v.build),
+    canDo: strs(v.can_do),
+    accepted: records(v.accepted).flatMap((a) =>
+      str(a.text) ? [{ id: str(a.id), text: str(a.text), changed: a.changed === true }] : [],
+    ),
+  };
+  return summary.build.length + summary.canDo.length + summary.accepted.length > 0 ? summary : null;
 }
 
 /** The assumptions a stage's data states beside its other fields. */
@@ -59,7 +118,7 @@ export function stageOutcomes(data: unknown): Outcome[] {
   );
 }
 
-export type ChipTone = 'yellow' | 'red' | 'purple' | 'blue' | 'green' | 'grey';
+export type ChipTone = 'yellow' | 'red' | 'purple' | 'blue' | 'green' | 'orange' | 'grey';
 
 /** Source tags such as S1 cited in a text. */
 export function sourceTags(text: string): string[] {
@@ -392,7 +451,9 @@ export interface SignoffData {
   blocking: string[];
   warnings: string[];
   steps: string[];
-  assumptions: Assumption[];
+  assumptions: SignoffAssumption[];
+  /** The plain-language summary the sign-off opens with; null on a blueprint without one. */
+  plainSummary: PlainSummary | null;
   /** An older blueprint's assumptions, given as text instead of a list. */
   assumptionsProse: string;
   /** Set only when the preflight could not run. */
@@ -421,7 +482,8 @@ export function parseSignoff(data: unknown): SignoffData | null {
     blocking: strs(data.blocking),
     warnings: strs(data.warnings),
     steps: strs(data.steps),
-    assumptions: parseAssumptions(data.assumptions),
+    assumptions: parseSignoffAssumptions(data.assumptions),
+    plainSummary: parsePlainSummary(data.plain_summary),
     assumptionsProse: str(data.assumptions),
     preflightError: str(data.preflight_error),
     cross: crossFindings(data),

@@ -1,15 +1,15 @@
 import type { Assumption } from '../artifactData';
 import { changedById } from '../revisions';
 
-export interface NumberedAssumption {
-  a: Assumption;
+export interface NumberedAssumption<A extends Assumption = Assumption> {
+  a: A;
   /** The assumption's place on the sheet, from 1. */
   n: number;
   /** The id, or the text when the stage gave none; a repeat gets its occurrence appended. */
   key: string;
 }
 
-export function numbered(items: Assumption[]): NumberedAssumption[] {
+export function numbered<A extends Assumption>(items: A[]): NumberedAssumption<A>[] {
   const seen = new Map<string, number>();
   return items.map((a, i) => {
     const base = a.id || a.text;
