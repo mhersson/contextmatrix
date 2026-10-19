@@ -60,13 +60,17 @@ export function countsLine(r: BlueprintArtifactReview): string {
 }
 
 export function explainText(r: BlueprintArtifactReview): string {
-  const cap = r.max_rounds ? `, at most ${r.max_rounds} rounds` : '';
-  return `The reviewer grades each version from 1 to 5. A version passes with ${r.threshold} or more and no open critical finding; otherwise it goes back to be revised${cap}.`;
+  const last = r.max_rounds ? `, and round ${r.max_rounds} goes to the gate whatever its verdict` : '';
+  return `The reviewer grades each version from 1 to 5. A version passes with ${r.threshold} or more and no open critical finding. A version that passes with no open major finding goes to the gate with any open minor findings; any other goes back for a revision${last}.`;
 }
 
-/** An unfixed critical finding fails the review whatever the reviewer's flag says. */
-export function passedOf(r: BlueprintArtifactReview): boolean {
-  return verdictOf(r) === 'passed';
+export type CardVerdict = 'passed' | 'sent back' | 'failed';
+
+/** The architect's sent_back flag decides, so a pass that went back for its open major finding never reads passed. */
+export function cardVerdict(r: BlueprintArtifactReview): CardVerdict | null {
+  if (r.sent_back) return 'sent back';
+  const v = verdictOf(r);
+  return v === 'passed' ? 'passed' : v === 'failed' ? 'failed' : null;
 }
 
 export interface CardStatus {

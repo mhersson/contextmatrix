@@ -303,9 +303,12 @@ board. Promote-to-autonomous lives in that tab.
     a blueprint has two or more slices, dividers, references, review cards
     and question round headers name the slice (Design · SL2).
   - Each reviewer verdict shows as a closed review card: the reviewer, the
-    stage and version, passed or sent back with a (?) that explains the pass
-    mark, the findings counted by status, and, when known, the round out of
-    the stage's limit. Opened, it shows the reviewer's summary, then the
+    stage and version, its verdict with a (?) that explains the pass mark:
+    sent back (orange) when the version went back for a revision, which a
+    pass with an open major finding does too, passed (green) when it passed
+    and went to the gate, and failed (red) when the stage's last round fell
+    short and went to the gate anyway, the findings counted by status, and,
+    when known, the round out of the stage's limit. Opened, it shows the reviewer's summary, then the
     findings under Still open, New this round and Fixed (folded until
     clicked), critical first, each with its severity and status. Long text
     clamps behind read more, and a finding's details link shows the

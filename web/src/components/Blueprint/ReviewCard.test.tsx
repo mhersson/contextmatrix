@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { BlueprintArtifactRef, BlueprintSlice, LogMarker } from '../../types';
-import { CARD_REVIEW, CARD_SUMMARY, SENT_BACK_REVIEW, THREE_SLICES, ref } from '../../test-utils/blueprintFixtures';
+import { CARD_REVIEW, CARD_SUMMARY, LAST_ROUND_FAILED_REVIEW, SENT_BACK_REVIEW, SETTLED_REVIEW, THREE_SLICES, ref } from '../../test-utils/blueprintFixtures';
 import { FINDING_CLAMP_CHARS, SUMMARY_CLAMP_CHARS } from './reviewModel';
 import { ReviewCard } from './ReviewCard';
 import { BlueprintArtifactsContext, BlueprintSheetContext } from './sheetContext';
@@ -25,6 +25,28 @@ const openCard = () => fireEvent.click(header());
 const finding = (id: string) => screen.getByText(id).closest('li')!;
 
 describe('ReviewCard', () => {
+  it('labels the verdict from what happened to the version', () => {
+    const verdict = () => group().querySelector('.bp-rv-verdict');
+    const { rerender } = render(card(MARKER, reviewed(CARD_REVIEW)));
+    expect(verdict()).toHaveTextContent(/^sent back$/);
+    expect(group()).not.toHaveClass('bp-rv--pass');
+
+    rerender(card(MARKER, reviewed(SETTLED_REVIEW)));
+    expect(verdict()).toHaveTextContent(/^passed$/);
+    expect(group()).toHaveClass('bp-rv--pass');
+
+    rerender(card(MARKER, reviewed(LAST_ROUND_FAILED_REVIEW)));
+    expect(verdict()).toHaveTextContent(/^failed$/);
+    expect(group()).toHaveClass('bp-rv--fail');
+  });
+
+  it('shows no verdict word for a review from before the pass flag', () => {
+    render(card(MARKER, reviewed({ ...SETTLED_REVIEW, passed: undefined })));
+    expect(group().querySelector('.bp-rv-verdict')).toBeNull();
+    expect(group()).not.toHaveClass('bp-rv--pass');
+    expect(group()).not.toHaveClass('bp-rv--fail');
+  });
+
   it('stays collapsed until its header is pressed, outside the live region, and collapses again', () => {
     render(card());
     expect(group()).toHaveAttribute('aria-live', 'off');
