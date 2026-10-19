@@ -86,7 +86,7 @@ export function PaneHeader({
       </div>
       {chatId && (
         <div className="chat-pane-meta">
-          {chat?.kind === 'architect' && <BlueprintMeta mode={chat.mode} capUsd={chat.cost_cap_usd} />}
+          {chat?.kind === 'architect' && <BlueprintMeta chatId={chatId} mode={chat.mode} capUsd={chat.cost_cap_usd} />}
           <PaneContextUsage chatId={chatId} fallbackModel={chat?.model} blueprint={chat?.kind === 'architect'} />
           <span
             className="chat-pane-status-dot"
@@ -255,11 +255,13 @@ function PaneContextUsage({ chatId, fallbackModel, blueprint }: { chatId: string
   );
 }
 
-/** A blueprint session's kind, mode and cost cap. A zero cap means the
- *  architect's own default applies, so no amount is shown. */
-function BlueprintMeta({ mode, capUsd }: { mode?: string; capUsd?: number }) {
+/** A blueprint session's kind, mode and cost cap. The mode is the view's once
+ *  it loads, since the row can hold a switch the architect refused. A zero cap
+ *  means the architect's own default applies, so no amount is shown. */
+function BlueprintMeta({ chatId, mode, capUsd }: { chatId: string; mode?: string; capUsd?: number }) {
+  const live = useChatLiveData(chatId);
   const cap = capUsd != null && capUsd > 0 ? `$${capUsd.toFixed(2)} cap` : undefined;
-  const text = ['Blueprint', mode, cap].filter(Boolean).join(' · ');
+  const text = ['Blueprint', live?.blueprintMode ?? mode, cap].filter(Boolean).join(' · ');
   return (
     <span className="chat-pane-model-pill chat-pane-blueprint-pill" title={text}>
       {text}

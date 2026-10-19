@@ -120,6 +120,23 @@ describe('BlueprintPane', () => {
     clearChatLiveData('S1');
   });
 
+  it("publishes the view's mode for the pane header and follows a switch", () => {
+    clearChatLiveData('S1');
+    const pane = (view: BlueprintView) => (
+      <BlueprintPane chatId="S1" state={{ status: 'ready', view, draft: null }} onRetry={vi.fn()} logs={[]} promptsLive onReply={vi.fn()} phone={false}>
+        <div>transcript</div>
+      </BlueprintPane>
+    );
+    const { result } = renderHook(() => useChatLiveData('S1'));
+    const view = viewAtDesignGate();
+    const { rerender } = render(pane(view));
+    expect(result.current?.blueprintMode).toBe(view.mode);
+
+    rerender(pane({ ...view, seq: view.seq + 1, mode: 'auto' }));
+    expect(result.current?.blueprintMode).toBe('auto');
+    clearChatLiveData('S1');
+  });
+
   beforeEach(() => {
     paneWidth = 1000;
     broken.stage = null;

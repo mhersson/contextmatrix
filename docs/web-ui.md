@@ -154,8 +154,10 @@ board. Promote-to-autonomous lives in that tab.
   session. The sidebar marks blueprint sessions with an aqua drafting-compass
   icon. The pane header shows a blueprint's mode and cost cap, and the
   architect's spend from the blueprint view (the figure the scale bar shows)
-  where a chat's header shows CM's estimate from its token counts; and the admin
-  Chats page lists every session's kind, mode and cap. The architect's questions
+  where a chat's header shows CM's estimate from its token counts. Once the
+  view loads, the header's mode is the view's too, so a switch the architect
+  refused never shows there. The admin Chats page lists every session's kind,
+  mode and cap as the session row holds them. The architect's questions
   and gates show reply buttons under the message. A question's options are
   stacked full-width buttons showing the whole option text. The question bubble
   is tinted, with a 5px left bar and accent-bordered options in pink in the dark
