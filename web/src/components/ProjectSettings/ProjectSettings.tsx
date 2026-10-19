@@ -12,6 +12,7 @@ import {
 } from '../../lib/cardDefaults';
 import { DangerSection } from './DangerSection';
 import { DefaultSkillsSelector } from './DefaultSkillsSelector';
+import { PocSection } from './PocSection';
 import { GitHubCredentialSection } from './GitHubCredentialSection';
 import { GitHubImportSection } from './GitHubImportSection';
 import { RepoListSection } from './RepoListSection';
@@ -109,6 +110,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   const [cardDefaults, setCardDefaults] = useState<ResolvedCardDefaults>(() => resolveCardDefaults());
   const [defaultSkills, setDefaultSkills] = useState<string[] | null>(null);
   const [githubCredential, setGithubCredential] = useState('');
+  const [poc, setPoc] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [cardCount, setCardCount] = useState(0);
@@ -140,6 +142,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     setCardDefaults(resolveCardDefaults(cfg.card_defaults));
     setDefaultSkills(cfg.default_skills ?? null);
     setGithubCredential(cfg.github_credential ?? '');
+    setPoc(cfg.poc ?? false);
   }, []);
 
   useEffect(() => {
@@ -191,6 +194,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       skills: JSON.stringify(defaultSkills) !== JSON.stringify(config.default_skills ?? null),
       images: remoteExecutionTouched,
       verify: verifyToString(verify) !== verifyToString(config.verify),
+      poc: poc !== (config.poc ?? false),
     };
   }, [
     config,
@@ -205,6 +209,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     defaultSkills,
     githubCredential,
     cardDefaults,
+    poc,
   ]);
 
   const isDirty = dirty !== null && Object.values(dirty).some(Boolean);
@@ -219,7 +224,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     { key: 'source', label: 'Source', dirty: !!dirty && (dirty.repo || dirty.credential || dirty.import) },
     { key: 'workflow', label: 'Workflow', dirty: !!dirty && (dirty.lists || dirty.transitions) },
     { key: 'automation', label: 'Automation', dirty: !!dirty && (dirty.cardDefaults || dirty.skills) },
-    { key: 'execution', label: 'Execution', dirty: !!dirty && (dirty.images || dirty.verify) },
+    { key: 'execution', label: 'Execution', dirty: !!dirty && (dirty.images || dirty.verify || dirty.poc) },
     { key: 'danger', label: 'Danger', danger: true, dirty: false },
   ];
 
@@ -283,6 +288,9 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         // server replaces the whole block and normalizes built-ins to nil, so
         // resetting every row to the built-ins clears it from .board.yaml.
         ...(dirty.cardDefaults ? { card_defaults: toWireCardDefaults(cardDefaults) } : {}),
+        // Sent only when changed; false goes out explicitly because an
+        // omitted key preserves the flag server-side.
+        ...(dirty.poc ? { poc } : {}),
       };
       const updated = await api.updateProject(project, input);
       setConfig(updated);
@@ -314,6 +322,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     defaultSkills,
     githubCredential,
     cardDefaults,
+    poc,
     mode,
     project,
     onUpdated,
@@ -482,6 +491,9 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       case 'execution':
         return (
           <>
+            <SettingsSection title="Proof of concept">
+              <PocSection value={poc} onChange={setPoc} />
+            </SettingsSection>
             <SettingsSection title="Remote execution">
               <RemoteExecutionSection
                 value={remoteExecution}

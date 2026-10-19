@@ -138,6 +138,43 @@ func TestResolveProject_CardDefaultsLocalOnlyChangeKept(t *testing.T) {
 	assert.Empty(t, out.Resolutions)
 }
 
+// TestResolveProject_POCOneSidedChangeKept pins that a one-sided poc change
+// survives a routine remote next_id bump, so a merge can neither drop a local
+// switch-on nor resurrect a flag switched off locally.
+func TestResolveProject_POCOneSidedChangeKept(t *testing.T) {
+	tests := []struct {
+		name                       string
+		base, ours, theirs, wanted bool
+	}{
+		{"local switch-on kept", false, true, false, true},
+		{"local switch-off kept", true, false, true, false},
+		{"remote switch-off taken", true, true, false, false},
+		{"remote switch-on taken", false, false, true, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base := projCfg()
+			base.POC = tt.base
+			ours := projCfg()
+			ours.POC = tt.ours
+			theirs := projCfg()
+			theirs.POC = tt.theirs
+			theirs.NextID = base.NextID + 1
+
+			out, err := Resolve(Input{
+				Path: "alpha/.board.yaml", Base: serializeProj(t, base),
+				Ours: serializeProj(t, ours), Theirs: serializeProj(t, theirs),
+			}, testCtx())
+			require.NoError(t, err)
+
+			got, err := board.ParseProjectConfig(out.Content)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wanted, got.POC)
+			assert.Empty(t, out.Resolutions)
+		})
+	}
+}
+
 func TestResolveProject_Unparseable(t *testing.T) {
 	theirs := projCfg()
 	valid := serializeProj(t, theirs)

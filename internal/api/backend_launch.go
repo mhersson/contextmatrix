@@ -127,6 +127,7 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 		CardID:      id,
 		Project:     project,
 		RepoURL:     projectCfg.Repo,
+		POC:         projectCfg.POC,
 		MCPAPIKey:   h.mcpAPIKey,
 		BaseBranch:  card.BaseBranch,
 		Interactive: interactive,

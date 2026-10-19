@@ -69,9 +69,12 @@ type ProjectConfig struct {
 	// CardDefaults are the create-time defaults for a card's human-set
 	// automation fields (autonomous, mob, PR gates). nil = built-in defaults.
 	// See CardDefaults / ResolveCardDefaults.
-	CardDefaults *CardDefaults            `yaml:"card_defaults,omitempty" json:"card_defaults,omitempty"`
-	Favorites    map[string]TierFavorites `yaml:"favorites,omitempty"        json:"-"` // per-project tier overrides; merged with global at trigger time
-	Templates    map[string]string        `yaml:"-" json:"templates,omitempty"`        // loaded from templates/ dir at runtime
+	CardDefaults *CardDefaults `yaml:"card_defaults,omitempty" json:"card_defaults,omitempty"`
+	// POC marks a proof-of-concept project: agent runs get one generic
+	// reviewer and main-behaviour tests. Human-set; no MCP tool writes it.
+	POC       bool                     `yaml:"poc,omitempty" json:"poc,omitempty"`
+	Favorites map[string]TierFavorites `yaml:"favorites,omitempty"        json:"-"` // per-project tier overrides; merged with global at trigger time
+	Templates map[string]string        `yaml:"-" json:"templates,omitempty"`        // loaded from templates/ dir at runtime
 }
 
 var (

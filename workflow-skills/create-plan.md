@@ -445,13 +445,14 @@ After `DOCS_WRITTEN` is received: reclaim the parent card:
 Call `start_review(card_id=<parent_id>, agent_id=<your_agent_id>)`.
 The response always has `inline: true` - `review-task` is forced to inline execution.
 
-Execute the returned `content` directly in this session. The three
-specialists are blocking parallel `Agent` calls inside that inline run -
-review-task Step 2 already calls `heartbeat` before spawning them. Keep your
-claim throughout - do NOT release before, during, or after the inline run.
-Inside the inline run, the skill: runs Pass 1 (test/lint gate); if Pass 1
-passes, spawns three specialist agents in parallel for Correctness,
-Design & Maintainability, and Security & Performance; synthesizes their
+Execute the returned `content` directly in this session. The
+specialists are blocking `Agent` calls inside that inline run - review-task
+Step 2 already calls `heartbeat` before spawning them. Keep your claim
+throughout - do NOT release before, during, or after the inline run. Inside
+the inline run, the skill: runs Pass 1 (test/lint gate); if Pass 1 passes,
+spawns three specialist agents in parallel for Correctness, Design &
+Maintainability, and Security & Performance (one generic reviewer when the
+project is a POC and the card has no mob review); synthesizes their
 reports; writes the `## Review Findings` section to the parent card; and
 prints `REVIEW_FINDINGS`.
 

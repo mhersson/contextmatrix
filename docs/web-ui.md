@@ -387,10 +387,17 @@ sets Light or Dark and the palette: Everforest, Catppuccin, GitHub or Ayu.
   types and priorities (`stalled` and `not_planned` cannot be removed) and the
   transition matrix: rows are where a card is, columns where it may go.
   **Automation** holds card defaults (what a new card's Automation rail starts
-  with) and default skills. **Execution** holds the remote-execution worker
-  images and the verify gate. **Danger** deletes the project. A tab with
-  unsaved edits shows a dot until Save changes or Discard. In `multi` mode the
-  wizard is admin-only and the settings page is read-only for non-admins.
+  with) and default skills. **Execution** holds the proof-of-concept switch,
+  the remote-execution worker images and the verify gate. The switch has its
+  explanation printed beside it: cards get one generic code review instead of
+  three specialists, tests cover the main behaviour, there is no dedicated
+  security review and maintainability findings do not block, while real bugs
+  and vulnerabilities still do. It applies to runs started after the
+  save. **Danger** deletes the project. A tab with unsaved edits shows a dot
+  until Save changes or Discard. In `multi` mode the wizard is admin-only and
+  the settings page is read-only for non-admins.
+- A proof-of-concept project shows a small POC label next to its name in the
+  sidebar; its tooltip gives the short form of the same explanation.
 
 ## Playbooks
 

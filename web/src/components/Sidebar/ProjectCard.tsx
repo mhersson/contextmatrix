@@ -1,13 +1,15 @@
 import type { DashboardData } from '../../types';
+import { POC_TOOLTIP } from '../../lib/poc';
 
 interface ProjectCardProps {
   name: string;
   displayName?: string;
   summary?: DashboardData;
   isActive: boolean;
+  poc?: boolean;
 }
 
-export function ProjectCard({ name, displayName, summary, isActive }: ProjectCardProps) {
+export function ProjectCard({ name, displayName, summary, isActive, poc }: ProjectCardProps) {
   const activeAgentCount = summary?.active_agents.length ?? 0;
   const inProgressCount = summary?.state_counts?.in_progress ?? 0;
 
@@ -23,6 +25,11 @@ export function ProjectCard({ name, displayName, summary, isActive }: ProjectCar
           >
             {displayName ?? name}
           </span>
+          {poc && (
+            <span className="sb-poc" title={POC_TOOLTIP}>
+              POC
+            </span>
+          )}
           {inProgressCount > 0 && (
             <svg
               className="sb-activity-spin animate-spin flex-shrink-0"

@@ -148,12 +148,12 @@ The "Caller" column uses these values:
 
 ### Projects
 
-| Tool             | Description                                                    | Caller |
-| ---------------- | -------------------------------------------------------------- | ------ |
-| `list_projects`  | All projects with their configs                                | any    |
-| `create_project` | Create a board; `boards_repo` picks the repo when several exist | any   |
-| `update_project` | Change states, types, priorities, transitions, repo            | any    |
-| `delete_project` | Delete a project with zero cards                               | any    |
+| Tool             | Description                                                                                                                        | Caller |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `list_projects`  | All projects with their configs                                                                                                    | any    |
+| `create_project` | Create a board; `boards_repo` picks the repo when several exist                                                                    | any    |
+| `update_project` | Change states, types, priorities, transitions, repo; default_skills, remote_execution, verify, card_defaults and poc are preserved | any    |
+| `delete_project` | Delete a project with zero cards                                                                                                   | any    |
 
 ### Playbooks
 

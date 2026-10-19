@@ -187,14 +187,14 @@ Based on the card's current state and body content:
 
 15. Call `start_review(card_id='<card_id>', agent_id=<your_agent_id>)`. The
     response always has `inline: true` - review-task is forced to inline
-    because it spawns three specialist sub-agents in parallel via the `Agent`
-    tool, which only the top-level (your) session has.
+    because it spawns specialist sub-agents via the `Agent` tool, which only
+    the top-level (your) session has.
 16. Execute the returned `content` inline. Do NOT release your claim.
     The skill runs Pass 1 (test/lint gate); if Pass 1 passes, spawns three
-    specialist agents in parallel (Correctness, Design &
-    Maintainability, Security & Performance); synthesizes their reports;
-    writes findings to the parent card body; and prints
-    `REVIEW_FINDINGS`.
+    specialist agents in parallel (Correctness, Design & Maintainability,
+    Security & Performance) or, on a POC project without mob review, one
+    generic reviewer; synthesizes their reports; writes findings to the
+    parent card body; and prints `REVIEW_FINDINGS`.
 17. Parse the `recommendation` from the printed `REVIEW_FINDINGS`. The cycle
     budget is **`MAX_REVISION_PASSES = 3`** (initial review + up to two
     revisions; the third review is the final decision).

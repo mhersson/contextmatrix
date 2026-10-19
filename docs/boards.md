@@ -94,6 +94,7 @@ card_defaults:                     # what a new card's Automation rail starts wi
   mob_phases: [review]
   create_pr: false                 # omit to keep the built-in true
   await_ci: true
+poc: true                          # proof of concept: lighter review and test bar, see running-cards.md
 favorites:                         # per-tier model preferences, merged with config.yaml
   complex: [anthropic/claude-opus-4.8]
   critical:
@@ -202,3 +203,4 @@ the upstream skills change. Task skills are a different system; see
 - [GitHub issue import](github-issue-import.md) - the `github` block
 - [Remote execution](remote-execution.md) - `remote_execution` and `verify`
 - [Model selection](model-selection.md) - `favorites`
+- [Running cards](running-cards.md#poc-projects) - what a POC project's runs do differently

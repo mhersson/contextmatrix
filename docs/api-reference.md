@@ -1481,6 +1481,7 @@ List all projects, or one by slug.
   "github": { "...": "..." },
   "default_skills": ["go-development"],
   "verify": { "command": "make test", "timeout_seconds": 600 },
+  "poc": true,
   "templates": { "...": "..." }
 }
 ```
@@ -1508,6 +1509,7 @@ them.
   "github_credential": "org-app",
   "verify": { "command": "make test", "timeout_seconds": 600, "env": ["JAVA_HOME"] },
   "card_defaults": { "autonomous": true, "mob_participants": 3, "mob_phases": ["review"], "await_ci": true },
+  "poc": true,
   "remote_execution": {
     "worker_image": "my-org/go-worker:latest",
     "chat_worker_image": "my-org/go-chat-worker:latest"
@@ -1522,6 +1524,7 @@ them.
 | `default_skills`    | Omitted or `null` clears (the backend mounts the full task-skills set); `[]` mounts none; a list constrains cards without their own `skills`. Unknown names: 400 `VALIDATION_ERROR`.                                                                                  |
 | `verify`            | Replace-whole-struct: omitted preserves, a present object replaces, a zero-value object clears. Invalid: 422 `VALIDATION_ERROR`. The card-level `verify` overrides it field by field.                                                                                 |
 | `card_defaults`     | Replace-whole-struct like `verify`: omitted preserves, a present object replaces, a block equal to the built-ins clears. `mob_participants` / `mob_phases` outside the server's mob bounds: 422 `VALIDATION_ERROR`. `create_pr` absent inside the block means `true`. |
+| `poc`               | Proof-of-concept flag: omitted preserves, `true` or `false` sets it. Not settable through MCP.                                                                                                                                                                        |
 | `remote_execution`  | Per-field merge: each of `worker_image` and `chat_worker_image` is independently omittable (preserves) or set; `""` clears back to the backend's default image. Charset and 512-byte cap: 422.                                                                        |
 
 Returns 200 with the updated `ProjectConfig`.

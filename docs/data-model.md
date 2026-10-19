@@ -523,6 +523,7 @@ type ProjectConfig struct {
     DefaultSkills    *[]string                `yaml:"default_skills,omitempty"    json:"default_skills,omitempty"`
     Verify           *VerifyConfig            `yaml:"verify,omitempty"            json:"verify,omitempty"`
     CardDefaults     *CardDefaults            `yaml:"card_defaults,omitempty"     json:"card_defaults,omitempty"`
+    POC              bool                     `yaml:"poc,omitempty"               json:"poc,omitempty"`
     Favorites        map[string]TierFavorites `yaml:"favorites,omitempty"         json:"-"`
     Templates        map[string]string        `yaml:"-"                           json:"templates,omitempty"`     // loaded from templates/ at runtime
 }
@@ -965,6 +966,7 @@ Top-level `.board.yaml` fields (full reference in
 | `default_skills`    | Project task-skill fallback; see below.                                          |
 | `verify`            | Project verify gate; see the card-level `verify` field.                          |
 | `card_defaults`     | Create-time defaults for the card automation fields; see below.                  |
+| `poc`               | Proof-of-concept flag; see below.                                                |
 | `favorites`         | Per-tier model preferences, hand-edited only; see the `Favorites` note.          |
 
 ### `default_skills` (optional, `*[]string`)
@@ -1026,6 +1028,15 @@ always wins; seats and phases resolve as one unit (an explicit
 normalizes built-in values away; `mob_participants` / `mob_phases` are checked
 against the server's mob bounds (422 `VALIDATION_ERROR`). Edited in Project
 Settings under "Card defaults".
+
+### `poc` (optional, `bool`)
+
+Marks a proof-of-concept project. Absent means `false`, the full production
+workflow. Set only by a human, through `PUT /api/projects/{project}` (Project
+Settings, Execution tab); MCP `update_project` preserves it. On a shared
+boards repo the three-way merge keeps a change made on one side only, so a
+remote `next_id` bump neither drops a local switch-on nor brings back a flag
+switched off locally.
 
 ### `verify` (optional) and `favorites` (optional)
 

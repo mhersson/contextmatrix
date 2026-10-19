@@ -84,6 +84,7 @@ func resolveProject(in Input, project string, _ Context) (Output, error) {
 	out.Verify = pickDeep(base.Verify, ours.Verify, theirs.Verify, theirsWins, "verify")
 	out.Favorites = pickDeep(base.Favorites, ours.Favorites, theirs.Favorites, theirsWins, "favorites")
 	out.CardDefaults = pickDeep(base.CardDefaults, ours.CardDefaults, theirs.CardDefaults, theirsWins, "card_defaults")
+	out.POC = pickDeep(base.POC, ours.POC, theirs.POC, theirsWins, "poc")
 
 	data, err := board.SerializeProjectConfig(&out)
 	if err != nil {

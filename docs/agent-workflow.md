@@ -37,7 +37,7 @@ flowchart TB
 ```
 
 The review skill runs inline because only the top-level session has the
-`Agent` tool needed to spawn the three specialists. Specialists run on the
+`Agent` tool needed to spawn the specialists. Specialists run on the
 review skill's size-based pick (`sonnet`, or `opus` above 600 changed lines
 or 10 changed files) regardless of the orchestrator's model.
 
@@ -105,7 +105,7 @@ Skill content that reaches an orchestrator without lifecycle framing lets it
 solve the task while leaving orphaned cards. Sub-agents get the framing from
 the preamble; inline runs get it from the envelope.
 
-**`review-task` is always inline.** It spawns three specialists in parallel
+**`review-task` is always inline.** It spawns the review specialists in parallel
 and only the top-level session has the `Agent` tool; as a spawned sub-agent
 it would degrade silently to a single-perspective walkthrough. Do not
 reintroduce a model-match gate on `start_review`. `get_skill('review-task')`
@@ -389,6 +389,14 @@ transition. The orchestrator runs it in its own session and keeps the claim.
   `specialist-security`) so its usage lands in its own bucket. Specialists
   never claim, transition or write the card; they return a Markdown report
   with Critical, Important, Minor and Nit findings.
+- **POC projects.** When `get_task_context` returns `config.poc: true` and
+  the card has no mob review (`mob_participants >= 2` with `mob_phases`
+  empty or containing `review`), Pass 2 spawns one generic reviewer
+  (`specialist-generic`) instead. It blocks on bugs, exploitable
+  vulnerabilities, broken or vacuous tests and out-of-scope changes; missing
+  edge-case tests, coverage, maintainability, design taste and security
+  hardening are Nits. Pass 1 drops the edge-case completeness check and
+  synthesis skips the cross-cutting hunt.
 - **Synthesis.** Merge and dedupe, keep the strictest defensible severity,
   hunt cross-cutting gaps. Any Critical or Important → `revise`. Only Minors
   → fix them inline when every fix is concrete, bounded and uncoupled and
@@ -806,7 +814,7 @@ declare the model for spawned sub-agents. Haiku is not used.
 | Planning         | `opus`                                                                       | `plan-draft` sub-agent                                   | Decomposition is decision work; isolation pays the drafting tokens once                         |
 | Subtask creation | Orchestrator                                                                 | Inline `create_card` calls                               | Trivial work; a sub-agent costs more than it saves                                              |
 | Execution        | `sonnet`                                                                     | Sub-agent per subtask                                    | Fresh context per task and parallel execution                                                   |
-| Review           | Orchestrator synthesizes; specialists `sonnet`, `opus` for large change sets | Inline via `start_review`; three `Agent` specialists     | Only the top-level session can spawn the specialists; findings stay in context for the decision |
+| Review           | Orchestrator synthesizes; specialists `sonnet`, `opus` for large change sets | Inline via `start_review`; `Agent` specialists           | Only the top-level session can spawn the specialists; findings stay in context for the decision |
 | Documentation    | `sonnet`                                                                     | Sub-agent                                                | Context isolation late in the run                                                               |
 
 `create-plan` declares `sonnet`, so `get_skill` returns `inline: true` for a

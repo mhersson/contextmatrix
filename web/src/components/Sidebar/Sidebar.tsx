@@ -124,7 +124,7 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
     >
       {({ isActive }) => (
         <div aria-current={isActive ? 'page' : undefined}>
-          <ProjectCard name={p.name} displayName={p.display_name} summary={summaries.get(p.name)} isActive={isActive} />
+          <ProjectCard name={p.name} displayName={p.display_name} summary={summaries.get(p.name)} isActive={isActive} poc={p.poc} />
         </div>
       )}
     </NavLink>

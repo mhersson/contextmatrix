@@ -120,3 +120,90 @@ func TestUpdateProject_MCP_PreservesCardDefaults(t *testing.T) {
 	assert.True(t, cur.CardDefaults.Autonomous)
 	assert.Equal(t, 3, cur.CardDefaults.MobParticipants)
 }
+
+func pocSeedInput(poc *bool) service.UpdateProjectInput {
+	return service.UpdateProjectInput{
+		States:      []string{"todo", "in_progress", "blocked", "review", "done", "stalled", "not_planned"},
+		Types:       []string{"task", "bug", "feature"},
+		Priorities:  []string{"low", "medium", "high", "critical"},
+		Transitions: testProjectConfig().Transitions,
+		POC:         poc,
+	}
+}
+
+// TestUpdateProject_MCP_PreservesPOC pins that no MCP call changes a project's
+// poc flag: a normal update and one smuggling a poc argument both leave the
+// human's setting in place.
+func TestUpdateProject_MCP_PreservesPOC(t *testing.T) {
+	env := setupMCP(t)
+	ctx := context.Background()
+
+	_, err := env.svc.UpdateProject(ctx, "test-project", pocSeedInput(new(true)))
+	require.NoError(t, err)
+
+	args := map[string]any{
+		"project":     "test-project",
+		"states":      []string{"todo", "in_progress", "blocked", "review", "done", "stalled", "not_planned"},
+		"types":       []string{"task", "bug", "feature"},
+		"priorities":  []string{"low", "medium", "high", "critical"},
+		"transitions": testProjectConfig().Transitions,
+	}
+	result := callTool(t, env, "update_project", args)
+	require.False(t, result.IsError, "update_project should not error")
+
+	cur, err := env.svc.GetProject(ctx, "test-project")
+	require.NoError(t, err)
+	assert.True(t, cur.POC, "an MCP update must not clear poc")
+
+	// Rejected by the schema or ignored by the handler - either way it must not land.
+	args["poc"] = false
+	_, _ = callToolRaw(t, env, "update_project", args)
+
+	cur, err = env.svc.GetProject(ctx, "test-project")
+	require.NoError(t, err)
+	assert.True(t, cur.POC, "a poc argument on update_project must not reach the project")
+}
+
+// TestProjectConfig_MCP_CarriesPOC pins the poc wire contract the workflow
+// skills (get_task_context) and the architect (list_projects) read: true when
+// set, absent when false.
+func TestProjectConfig_MCP_CarriesPOC(t *testing.T) {
+	env := setupMCP(t)
+	ctx := context.Background()
+	card := createTestCard(t, env, "POC card", "task", "high")
+
+	configs := func() (taskContext, listed map[string]any) {
+		t.Helper()
+
+		var tc struct {
+			Config map[string]any `json:"config"`
+		}
+		unmarshalResult(t, callTool(t, env, "get_task_context", map[string]any{"card_id": card.ID}), &tc)
+
+		var lp struct {
+			Projects []map[string]any `json:"projects"`
+		}
+		unmarshalResult(t, callTool(t, env, "list_projects", map[string]any{}), &lp)
+
+		for _, p := range lp.Projects {
+			if p["name"] == "test-project" {
+				return tc.Config, p
+			}
+		}
+
+		t.Fatal("test-project missing from list_projects")
+
+		return nil, nil
+	}
+
+	tc, lp := configs()
+	assert.NotContains(t, tc, "poc", "false poc is omitted from get_task_context")
+	assert.NotContains(t, lp, "poc", "false poc is omitted from list_projects")
+
+	_, err := env.svc.UpdateProject(ctx, "test-project", pocSeedInput(new(true)))
+	require.NoError(t, err)
+
+	tc, lp = configs()
+	assert.Equal(t, true, tc["poc"])
+	assert.Equal(t, true, lp["poc"])
+}
