@@ -5382,6 +5382,20 @@ textarea {
 .sb-navrow.active {
   background-color: var(--bg2);
 }
+/* POC marker beside a sidebar project name: the tone sits in the ring and the
+   text stays --fg, so it keeps contrast on every palette's tints. */
+.sb-poc {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border-radius: 9999px;
+  border: 1px solid var(--yellow);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  color: var(--fg);
+}
 @media (prefers-reduced-motion: reduce) {
   .sb-activity-spin {
     animation: none;

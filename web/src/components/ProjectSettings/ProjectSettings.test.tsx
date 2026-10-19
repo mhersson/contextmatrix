@@ -831,3 +831,78 @@ describe('ProjectSettings - Danger tab delete flow', () => {
     expect(screen.getByRole('button', { name: 'Delete project' })).toBeDisabled();
   });
 });
+
+describe('ProjectSettings - proof of concept switch', () => {
+  const pocToggle = () => screen.getByRole('checkbox', { name: /proof of concept/i });
+
+  async function save() {
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    await waitFor(() => expect(saveButton).not.toBeDisabled());
+    fireEvent.click(saveButton);
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    return mocks.updateProject.mock.calls[0][1];
+  }
+
+  it('untouched: saving an unrelated field omits poc from the PUT body', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig({ poc: true }));
+    mocks.updateProject.mockResolvedValue(baseConfig({ poc: true, repo: 'git@github.com:org/new.git' }));
+    await renderSettings();
+    fireEvent.change(screen.getByLabelText(/repository url/i), {
+      target: { value: 'git@github.com:org/new.git' },
+    });
+    expect(await save()).not.toHaveProperty('poc');
+  });
+
+  it('switching on marks Execution unsaved and sends poc: true', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    mocks.updateProject.mockResolvedValue(baseConfig({ poc: true }));
+    await renderSettings();
+    openTab(/execution/i);
+    expect(pocToggle()).not.toBeChecked();
+    fireEvent.click(pocToggle());
+    expect(dirtyTabs()).toEqual(['Execution (unsaved changes)']);
+    expect(await save()).toHaveProperty('poc', true);
+  });
+
+  it('switching off a POC project sends poc: false rather than omitting it', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig({ poc: true }));
+    mocks.updateProject.mockResolvedValue(baseConfig());
+    await renderSettings();
+    openTab(/execution/i);
+    expect(pocToggle()).toBeChecked();
+    fireEvent.click(pocToggle());
+    expect(await save()).toHaveProperty('poc', false);
+  });
+
+  it('the switch is described by text visible on the Execution tab', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    await renderSettings();
+    openTab(/execution/i);
+    expect(pocToggle()).toHaveAccessibleDescription();
+    const descId = pocToggle().getAttribute('aria-describedby');
+    expect(descId).toBeTruthy();
+    expect(document.getElementById(descId!)).toBeVisible();
+  });
+
+  it('read-only viewers see the switch disabled', async () => {
+    mocks.useOptionalAuth.mockReturnValue({
+      mode: 'multi',
+      user: { username: 'viewer', display_name: 'Viewer', is_admin: false },
+    });
+    mocks.getProject.mockResolvedValue(baseConfig({ poc: true }));
+    await renderSettings();
+    openTab(/execution/i);
+    expect(pocToggle()).toBeDisabled();
+  });
+
+  it('Discard restores the loaded poc value and clears the dot', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig({ poc: true }));
+    await renderSettings();
+    openTab(/execution/i);
+    fireEvent.click(pocToggle());
+    expect(pocToggle()).not.toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: /discard/i }));
+    expect(pocToggle()).toBeChecked();
+    expect(dirtyTabs()).toHaveLength(0);
+  });
+});

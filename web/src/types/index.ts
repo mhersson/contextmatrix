@@ -182,6 +182,8 @@ export interface ProjectConfig {
    * Empty/absent means the instance `github.*` config default applies.
    */
   github_credential?: string;
+  /** Proof-of-concept project: agent runs get one generic reviewer and main-behaviour tests. Absent = false. */
+  poc?: boolean;
 }
 
 export type SortMode = 'recent' | 'id-asc' | 'id-desc' | 'priority' | 'type' | 'manual';
@@ -506,6 +508,11 @@ export interface UpdateProjectInput {
    * value changed from the loaded config.
    */
   card_defaults?: CardDefaults;
+  /**
+   * Omitted preserves the flag; true or false sets it. Send only when it
+   * changed, and send false explicitly - omitting it never switches it off.
+   */
+  poc?: boolean;
 }
 
 export interface StopAllResponse {

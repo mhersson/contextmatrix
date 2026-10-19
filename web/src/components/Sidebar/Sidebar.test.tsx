@@ -129,6 +129,26 @@ describe('Sidebar', () => {
     expect(names).toEqual(['alpha', 'Bravo', 'Charlie']);
   });
 
+  it('marks a POC project with a POC label that carries a tooltip', () => {
+    mockUseProjects.mockReturnValue({
+      projects: [
+        { name: 'alpha', prefix: 'A', next_id: 1, states: [], types: [], priorities: [], transitions: {}, poc: true },
+        { name: 'mango', prefix: 'M', next_id: 1, states: [], types: [], priorities: [], transitions: {} },
+      ],
+      loading: false,
+      error: null,
+      connected: true,
+      refreshProjects: async () => {},
+    });
+
+    renderSidebar();
+
+    const labels = screen.getAllByText('POC');
+    expect(labels).toHaveLength(1);
+    expect(labels[0].closest('a')).toHaveAttribute('href', '/projects/alpha');
+    expect(labels[0]).toHaveAttribute('title', expect.stringMatching(/\S/));
+  });
+
   describe('playbooks shortcut', () => {
     beforeEach(() => {
       mockUseProjects.mockReturnValue({
