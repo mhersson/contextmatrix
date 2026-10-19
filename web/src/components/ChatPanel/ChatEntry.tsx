@@ -15,6 +15,7 @@ import {
 } from './chatEntryUtils';
 import { StructuredPayload } from './StructuredPayload';
 import { PromptActions } from './PromptActions';
+import { TechnicalDetail } from '../TechnicalDetail';
 import { parsePromptEntry, type PromptState } from './prompts';
 import { parseMarkerEntry } from '../Blueprint/markers';
 import { ReviewCard } from '../Blueprint/ReviewCard';
@@ -159,6 +160,7 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
             ) : (
               <ChatMarkdown source={body} />
             )}
+            <TechnicalDetail detail={prompt?.prompt.detail} render={(d) => <ChatMarkdown source={d} />} />
             {prompt && promptStatus && (
               <PromptActions
                 prompt={prompt.prompt}

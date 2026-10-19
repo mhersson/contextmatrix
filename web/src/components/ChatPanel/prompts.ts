@@ -22,6 +22,8 @@ export interface ChatPrompt {
   kind?: string;
   /** The prompt's own text without the option list; the envelope text is the fallback. */
   text?: string;
+  /** The technical text behind a plain-language prompt; present only when non-blank. */
+  detail?: string;
   freeText: boolean;
   actions: PromptAction[];
   /** Set on a kind "round" prompt with an id: a tabbed question round (QuestionRound/rounds.ts derives its state). */
@@ -94,6 +96,7 @@ function parseEnvelope(content: string): PromptEnvelope | null {
       id,
       kind,
       text: typeof p.text === 'string' && p.text !== '' ? p.text : undefined,
+      ...(typeof p.detail === 'string' && p.detail.trim() !== '' ? { detail: p.detail } : {}),
       freeText: p.free_text === true,
       actions,
       ...(round ? { round } : {}),

@@ -163,17 +163,20 @@ board. Promote-to-autonomous lives in that tab.
   the view's too, so a switch the architect refused never shows there. The admin
   Chats page lists every session's kind, mode and cap as the session row holds
   them. The architect's questions and gates show reply buttons under the
-  message. A question's options are stacked full-width buttons showing the whole
-  option text. The question bubble is tinted, with a 5px left bar and
-  accent-bordered options in pink in the dark themes and a dusty rose to maroon
-  in the light ones, and the suggested option carries a "recommended" chip. A
-  prompt marked as a gate keeps compact buttons in a row. A click sends that
-  reply as your message, a feedback action such as Reject asks for text first,
-  in a box labelled with the architect's question when it sends one (an approval
-  over critical findings asks why), and typing the reply works too. A prompt
-  closes when a reply answers it, when the architect's decision line answers it
-  (it decided the prompt itself, as at a waiting sign-off after a switch to Auto
-  + emit or Yolo), or when a later prompt replaces it. It then shows a one-line
+  message. On a plain-language blueprint a prompt reads in plain words with
+  plain buttons (such as Continue anyway and Stop) that send the architect's
+  usual replies, and its technical text is folded under a Technical detail line.
+  A question's options are stacked full-width buttons showing the whole option
+  text. The question bubble is tinted, with a 5px left bar and accent-bordered
+  options in pink in the dark themes and a dusty rose to maroon in the light
+  ones, and the suggested option carries a "recommended" chip. A prompt marked
+  as a gate keeps compact buttons in a row. A click sends that reply as your
+  message, a feedback action such as Reject asks for text first, in a box
+  labelled with the architect's question when it sends one (an approval over
+  critical findings asks why), and typing the reply works too. A prompt closes
+  when a reply answers it, when the architect's decision line answers it (it
+  decided the prompt itself, as at a waiting sign-off after a switch to Auto +
+  emit or Yolo), or when a later prompt replaces it. It then shows a one-line
   summary instead of buttons, and a closed non-gate prompt keeps its options
   above the summary as a smaller list with the answering option marked. A closed
   question's list and summary render in the normal text colour on the tint;
@@ -183,22 +186,24 @@ board. Promote-to-autonomous lives in that tab.
 - A question round from the architect docks at the bottom of the pane in place
   of the message box while it waits for you; the transcript keeps scrolling
   above it. It has one tab per question, ticked once it has an answer (stored by
-  the architect or picked here) and dotted while open, an Assumptions tab when the stage states
-  assumptions, and a Submit tab. A question tab shows the question, why it
-  matters and numbered options; the suggested one carries a Recommended chip,
-  and clicking an option selects it. An option's "pros · cons · N sources" link
-  shows them (links and code paths; with the architect's research off, its code
-  paths and "model knowledge" instead of links) and "hide" folds them; each
-  option opens on its own. The last option on every question is "Type your
-  own answer". The Assumptions tab accepts each assumption or turns it into a
-  question; "Accept all" above the list accepts every one, including those
-  turned into a question, and each can still be flipped after. The Submit tab
-  reviews every answer: "Submit all N" sends them as final, and "Send N now,
-  answer the rest later" stores the ones picked so far on the architect, so
-  they show on any device and survive leaving, and the round stays open. A
-  sent reply shows no transcript bubble: the docked block and, once closed,
-  the round's summary are its record; a reply whose round is not loaded shows
-  as a plain message. Under a dotted line on every tab, "Chat about these
+  the architect or picked here) and dotted while open, an Assumptions tab when
+  the stage states assumptions, and a Submit tab. A question tab shows the
+  question, why it matters and numbered options; the suggested one carries a
+  Recommended chip, and clicking an option selects it. An option's "pros · cons
+  · N sources" link shows them (links and code paths; with the architect's
+  research off, its code paths and "model knowledge" instead of links) and
+  "hide" folds them; each option opens on its own. The last option on every
+  question is "Type your own answer". The Assumptions tab accepts each
+  assumption or turns it into a question; on a plain-language blueprint each
+  entry is what a decision means for you, with the technical decision behind it
+  folded under Technical detail; "Accept all" above the list accepts every one,
+  including those turned into a question, and each can still be flipped after.
+  The Submit tab reviews every answer: "Submit all N" sends them as final, and
+  "Send N now, answer the rest later" stores the ones picked so far on the
+  architect, so they show on any device and survive leaving, and the round stays
+  open. A sent reply shows no transcript bubble: the docked block and, once
+  closed, the round's summary are its record; a reply whose round is not loaded
+  shows as a plain message. Under a dotted line on every tab, "Chat about these
   questions" holds the thread about the round and is the pane's only text box
   while the round is open; the thread scrolls on its own, so the box and the
   foot stay in view. What you type there reaches the architect as a plain
@@ -210,27 +215,27 @@ board. Promote-to-autonomous lives in that tab.
   assumption decisions and typed answers not yet sent are kept in this browser
   per round, so closing the pane, reloading or navigating away restores them;
   they count in "K of N answered" and the tab ticks, and a restored block opens
-  on its first unanswered tab (picking never moves you on);
-  one is dropped when the architect has since stored that question or decision,
-  or revised the option it picked, and a round's drafts are cleared when it
-  closes or a newer round replaces it. The architect republishes a round
-  whenever it changes, and only the newest version shows. A closed round (every
-  question answered and the stage resumed, or the pipeline went past it), and a
-  round a newer one replaced, collapses into a card in the style of a sheet
-  reference, titled after the asking stage's questions (or assumptions, for a
-  round of only assumptions), with how many of each, the persona and what
-  became of the round: answered or all accepted by you or the responder, how
-  many were answered, accepted, turned into questions or not decided, or no
-  longer open for a replaced round. Clicking the card, or Enter or Space on
-  it, opens it in place: each question with its number, title and text and the
-  stored answer beneath it, any question left unanswered marked "not answered",
-  then each assumption with its decision (accepted, turned into a question or
-  not decided). At the bottom of the open card a collapsed "Chat about these
-  questions (N)" opens the round's thread of N messages, when it has one. A
-  round the auto responder answered arrives closed and shows as the same card,
-  marked answered by the responder, and the message box stays. While the session
-  is not live or its stream reconnects the round stays docked with its answers
-  disabled; its chat box sends whenever the message box would.
+  on its first unanswered tab (picking never moves you on); one is dropped when
+  the architect has since stored that question or decision, or revised the
+  option it picked, and a round's drafts are cleared when it closes or a newer
+  round replaces it. The architect republishes a round whenever it changes, and
+  only the newest version shows. A closed round (every question answered and the
+  stage resumed, or the pipeline went past it), and a round a newer one
+  replaced, collapses into a card in the style of a sheet reference, titled
+  after the asking stage's questions (or assumptions, for a round of only
+  assumptions), with how many of each, the persona and what became of the round:
+  answered or all accepted by you or the responder, how many were answered,
+  accepted, turned into questions or not decided, or no longer open for a
+  replaced round. Clicking the card, or Enter or Space on it, opens it in place:
+  each question with its number, title and text and the stored answer beneath
+  it, any question left unanswered marked "not answered", then each assumption
+  with its decision (accepted, turned into a question or not decided). At the
+  bottom of the open card a collapsed "Chat about these questions (N)" opens the
+  round's thread of N messages, when it has one. A round the auto responder
+  answered arrives closed and shows as the same card, marked answered by the
+  responder, and the message box stays. While the session is not live or its
+  stream reconnects the round stays docked with its answers disabled; its chat
+  box sends whenever the message box would.
 - A blueprint pane adds a scale bar, a sheet and marker rows to the chat pane:
   - The scale bar under the pane header draws one segment per pipeline step:
     done steps filled green, the current step hatched (aqua while a run works,

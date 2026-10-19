@@ -386,6 +386,24 @@ describe('RoundBlock sending', () => {
     expect(screen.queryByText(/\bA[12]\b/)).not.toBeInTheDocument();
   });
 
+  it('shows a plain consequence with its technical detail folded under it, and no fold without one', () => {
+    renderBlock({
+      questions: [],
+      assumptions: [
+        { id: 'A1', text: 'Adding items needs internet.', detail: 'Items sync through a hosted database.' },
+        { id: 'A2', text: 'Only the two of you see the list.' },
+      ],
+    });
+    fireEvent.click(tab(/Assumptions/));
+    const a1 = screen.getByRole('group', { name: 'Assumption 1' });
+    const fold = within(a1).getByText('Items sync through a hosted database.').closest('details');
+    expect(fold).not.toBeNull();
+    expect(fold).not.toHaveAttribute('open');
+    expect(within(a1).getByText('Adding items needs internet.').closest('details')).toBeNull();
+    expect(screen.getByRole('group', { name: 'Assumption 2' }).querySelector('details')).toBeNull();
+    expect(within(a1).getByRole('button', { name: 'Accept' })).toBeEnabled();
+  });
+
   it('accepts every assumption at once, over turned and stored ones, and leaves each row to flip after', async () => {
     const { onSendRound } = renderSending({
       assumptions: [

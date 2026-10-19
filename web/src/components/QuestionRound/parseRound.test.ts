@@ -117,4 +117,22 @@ describe('parseRound', () => {
     expect(parseRound(rawRound({ slice: 'SL2' }))?.slice).toBe('SL2');
     expect(parseRound(rawRound())?.slice).toBe('');
   });
+
+  it('keeps the technical detail a plain consequence folds, only when it has one', () => {
+    const r = parseRound(
+      rawRound({
+        questions: [],
+        assumptions: [
+          { id: 'A1', text: 'Adding items needs internet.', detail: 'Items sync through a hosted database.' },
+          { id: 'A2', text: 'Only the two of you see the list.', detail: '  ' },
+          { id: 'A3', text: 'Nightly backups are enough.', detail: 7 },
+        ],
+      }),
+    );
+    expect(r!.assumptions).toEqual([
+      { id: 'A1', text: 'Adding items needs internet.', detail: 'Items sync through a hosted database.' },
+      { id: 'A2', text: 'Only the two of you see the list.' },
+      { id: 'A3', text: 'Nightly backups are enough.' },
+    ]);
+  });
 });

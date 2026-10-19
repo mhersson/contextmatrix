@@ -316,3 +316,21 @@ describe('derivePromptStates command rows', () => {
     expect(derivePromptStates([p, cmd], true).get(p)).toEqual({ status: 'open' });
   });
 });
+
+describe('parsePromptEntry on a plain-language prompt', () => {
+  const promptEntry = (prompt: Record<string, unknown>): LogEntry => ({
+    ts: '2026-10-19T10:00:00Z',
+    card_id: '',
+    type: 'text',
+    kind: 'prompt',
+    seq: 1,
+    content: JSON.stringify({ text: 'Fallback.', prompt }),
+  });
+
+  it('keeps the technical detail apart from the plain text, only when it has one', () => {
+    const env = parsePromptEntry(promptEntry({ id: 'gate:signoff:v3', kind: 'gate', text: 'Plain.', detail: 'Technical.', actions: [] }));
+    expect(env?.prompt).toMatchObject({ text: 'Plain.', detail: 'Technical.' });
+    expect(parsePromptEntry(promptEntry({ id: 'Q1', detail: ' ' }))?.prompt).not.toHaveProperty('detail');
+    expect(parsePromptEntry(promptEntry({ id: 'Q2', detail: ['x'] }))?.prompt).not.toHaveProperty('detail');
+  });
+});

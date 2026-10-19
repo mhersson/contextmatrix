@@ -8755,6 +8755,31 @@ button.bp-rv-head {
   gap: 8px;
   padding: 0 12px 10px 36px;
 }
+.tech-detail {
+  margin-top: 4px;
+  font-size: 11.5px;
+}
+.tech-detail > summary {
+  cursor: pointer;
+  width: fit-content;
+  color: var(--blueprint-quiet-strong);
+}
+.tech-detail > summary:focus-visible {
+  outline: 2px solid var(--aqua);
+  outline-offset: 2px;
+}
+.tech-detail > div {
+  margin-top: 2px;
+  color: var(--blueprint-quiet-strong);
+  white-space: normal;
+}
+/* --fg on the question wash, as .bp-gate-ledger: quiet-strong falls under 4.5:1 there. */
+[data-prompt-kind="question"] .tech-detail {
+  --blueprint-quiet-strong: var(--fg);
+}
+.qb-assume .tech-detail {
+  padding: 0 12px 8px 36px;
+}
 .qb-choice {
   padding: 4px 10px;
   border: 1px solid var(--bg4);
