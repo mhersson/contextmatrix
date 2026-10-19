@@ -18,7 +18,7 @@ export function DialogueIcon() {
   );
 }
 
-/** A magnifier over a reviewed version: a tick when it passed, an exclamation when it went back. */
+/** A magnifier over a reviewed version: a tick when it passed, an exclamation otherwise. */
 export function ReviewIcon({ passed }: { passed: boolean }) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.3} aria-hidden="true">

@@ -18,7 +18,7 @@ export function DesignSheet({ artifact, previous, mode }: RendererProps) {
     <>
       {slices.map((s) => (
         <section key={s.id}>
-          {/* Every per-slice design holds one entry, and the sheet already names its slice. */}
+          {/* A per-slice design holds one entry, named under the sheet title when slices show; designs from before per-slice design hold several. */}
           {s.projects.length > 0 && (
             <h3>
               {slices.length > 1 && `${s.id} `}

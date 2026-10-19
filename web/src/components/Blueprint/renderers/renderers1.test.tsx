@@ -121,6 +121,13 @@ describe('DesignSheet', () => {
     expect(screen.getByRole('heading', { name: 'SL2 web' })).toBeInTheDocument();
   });
 
+  it('keeps the id heading of an entry without projects when the design holds several', () => {
+    const data = DESIGN_V2.data as { slices: Record<string, unknown>[] };
+    const two = { ...data, slices: [data.slices[0], { ...data.slices[0], id: 'SL2', projects: [], decisions: [] }] };
+    render(<DesignSheet artifact={{ ...DESIGN_V2, data: two }} previous={null} mode="plain" view={view} />);
+    expect(screen.getByRole('heading', { name: 'SL2' })).toBeInTheDocument();
+  });
+
   it('draws no heading for one slice without projects', () => {
     const data = DESIGN_V2.data as { slices: Record<string, unknown>[] };
     const bare = { ...data, slices: [{ ...data.slices[0], projects: [] }] };

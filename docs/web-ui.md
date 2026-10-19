@@ -152,7 +152,9 @@ board. Promote-to-autonomous lives in that tab.
   (Create chat, Create blueprint, or Create and run for yolo). A blueprint
   whose architect does not start keeps the dialog open with the error, and
   with unchanged settings, Create then retries the same session. The sidebar
-  marks blueprint sessions with an aqua drafting-compass icon. The pane header shows a blueprint's mode and cost cap, and the architect's spend from the blueprint view (the figure the scale bar shows) where a chat's header shows CM's estimate from its token counts;
+  marks blueprint sessions with an aqua drafting-compass icon. The pane header shows a blueprint's mode and cost cap, and the
+  architect's spend from the blueprint view (the figure the scale bar shows)
+  where a chat's header shows CM's estimate from its token counts;
   and the admin Chats page lists every session's kind, mode and cap. The
   architect's questions and gates show reply buttons under the message. A
   question's options are stacked full-width buttons showing the whole option
@@ -273,8 +275,8 @@ board. Promote-to-autonomous lives in that tab.
     Checked by gives
     the reviewer and score, in red and ending "failed" when the shown version's
     own review failed (a score under the pass mark or a critical finding not
-    fixed). Click it for the findings ledger: the round, the pass mark and the
-    verdict, then each finding's id, a severity badge (critical, major or minor)
+    fixed). Click it for the findings ledger: the round, the pass mark, the
+    verdict and whether it went back for a revision, then each finding's id, a severity badge (critical, major or minor)
     and the reviewer's status (open, fixed in rev N or still open in rev N); a
     critical finding not yet fixed sits on a red wash. Beside it the builder's
     note shows as a claim, "rev N says: ...", or else the revision the finding
@@ -310,7 +312,8 @@ board. Promote-to-autonomous lives in that tab.
     pass with an open major finding does too, passed (green) when it passed
     and went to the gate, and failed (red) when the stage's last round fell
     short and went to the gate anyway, the findings counted by status, and,
-    when known, the round out of the stage's limit. Opened, it shows the reviewer's summary, then the
+    when known, the round out of the stage's limit. Opened, it shows the
+    reviewer's summary, then the
     findings under Still open, New this round and Fixed (folded until
     clicked), critical first, each with its severity and status. Long text
     clamps behind read more, and a finding's details link shows the
