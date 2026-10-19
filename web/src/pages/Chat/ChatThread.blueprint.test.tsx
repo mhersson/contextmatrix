@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { api } from '../../api/client';
 import { viewAtDesignGate } from '../../test-utils/blueprintFixtures';
 import type { ChatSession } from '../../types';
 import { rawRound, roundEntry } from '../../test-utils/roundFixtures';
+import { useChatLiveData } from '../../hooks/useChatLiveData';
 import { ChatThread } from './ChatThread';
 
 vi.mock('../../api/client', () => ({
@@ -73,6 +74,14 @@ describe('ChatThread on an architect session', () => {
     expect(await screen.findByText('Design rev 2 is ready for you.')).toBeInTheDocument();
     expect(screen.queryByText(/"type":"snapshot"/)).not.toBeInTheDocument();
     expect(MockEventSource.instances.map((es) => es.url)).toEqual(['/api/chats/S1/stream?since_seq=0']);
+  });
+
+  it("never publishes CM's cost estimate for the pane header", async () => {
+    vi.mocked(api.getChat).mockResolvedValue({ ...session, model: 'm-1', estimated_cost_usd: 0.5 });
+    const { result } = renderHook(() => useChatLiveData('S1'));
+    render(<ChatThread sessionID="S1" embedded />);
+    await waitFor(() => expect(result.current?.model).toBe('m-1'));
+    expect(result.current?.estimatedCostUsd).toBeUndefined();
   });
 
   it('refetches the view when its chat stream reopens', async () => {
