@@ -183,12 +183,14 @@ board. Promote-to-autonomous lives in that tab.
   paths and "model knowledge" instead of links) and "hide" folds them; each
   option opens on its own. The last option on every question is "Type your
   own answer". The Assumptions tab accepts each assumption or turns it into a
-  question. The Submit tab reviews every answer: "Submit all N" sends them as
-  final, and "Send N now, answer the rest later" stores the ones picked so far
-  on the architect, so they show on any device and survive leaving, and the
-  round stays open. A sent reply shows no transcript bubble: the docked block
-  and, once closed, the round's summary are its record; a reply whose round is
-  not loaded shows as a plain message. Under a dotted line on every tab, "Chat about these
+  question; "Accept all" above the list accepts every one, including those
+  turned into a question, and each can still be flipped after. The Submit tab
+  reviews every answer: "Submit all N" sends them as final, and "Send N now,
+  answer the rest later" stores the ones picked so far on the architect, so
+  they show on any device and survive leaving, and the round stays open. A
+  sent reply shows no transcript bubble: the docked block and, once closed,
+  the round's summary are its record; a reply whose round is not loaded shows
+  as a plain message. Under a dotted line on every tab, "Chat about these
   questions" holds the thread about the round and is the pane's only text box
   while the round is open; the thread scrolls on its own, so the box and the
   foot stay in view. What you type there reaches the architect as a plain

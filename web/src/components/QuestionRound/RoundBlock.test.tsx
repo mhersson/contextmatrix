@@ -386,6 +386,49 @@ describe('RoundBlock sending', () => {
     expect(screen.queryByText(/\bA[12]\b/)).not.toBeInTheDocument();
   });
 
+  it('accepts every assumption at once, over turned and stored ones, and leaves each row to flip after', async () => {
+    const { onSendRound } = renderSending({
+      assumptions: [
+        { id: 'A1', text: 'One cluster per environment.' },
+        { id: 'A2', text: 'Nightly backups are enough.' },
+        { id: 'A3', text: 'No multi-region.' },
+      ],
+      decisions: [{ id: 'A3', accept: false }],
+    });
+    answerAll();
+    fireEvent.click(tab(/Assumptions/));
+    const row = (n: number) => screen.getByRole('group', { name: `Assumption ${n}` });
+    fireEvent.click(within(row(1)).getByRole('button', { name: 'Turn into a question' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Accept all' }));
+    for (const n of [1, 2, 3]) {
+      expect(within(row(n)).getByRole('button', { name: 'Accept' })).toHaveAttribute('aria-pressed', 'true');
+      expect(within(row(n)).getByRole('button', { name: 'Turn into a question' })).toHaveAttribute('aria-pressed', 'false');
+    }
+    expect(screen.getByText(/of 6 answered/).textContent).toMatch(/^6 of 6 answered/);
+    fireEvent.click(within(row(2)).getByRole('button', { name: 'Turn into a question' }));
+    fireEvent.click(tab(/Submit/));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit all 6' }));
+    await waitFor(() => expect(onSendRound).toHaveBeenCalledTimes(1));
+    const [, reply] = onSendRound.mock.calls[0] as unknown as [string, RoundReply];
+    expect(reply.decisions).toEqual([
+      { id: 'A1', accept: true },
+      { id: 'A2', accept: false },
+      { id: 'A3', accept: true },
+    ]);
+  });
+
+  it('never accepts all on a paused or responder round', () => {
+    for (const mode of ['paused', 'readonly'] as const) {
+      const { unmount } = renderBlock({ assumptions: [{ id: 'A1', text: 'One cluster per environment.' }] }, mode);
+      fireEvent.click(tab(/Assumptions/));
+      const all = screen.getByRole('button', { name: 'Accept all' });
+      expect(all).toBeDisabled();
+      fireEvent.click(all);
+      expect(screen.getByRole('button', { name: 'Accept' })).toHaveAttribute('aria-pressed', 'false');
+      unmount();
+    }
+  });
+
   it('chats about the round through the plain message path, on every tab', async () => {
     const { onSendChat } = renderSending({ chat: [{ from: 'system_designer', text: 'Ask me anything.' }] });
     for (const name of [/Deploy tooling/, /Submit/]) {
@@ -522,6 +565,16 @@ describe('RoundBlock kept drafts', () => {
     const rows = screen.getAllByRole('row').map((r) => Array.from((r as HTMLTableRowElement).cells).map((c) => c.textContent));
     expect(rows).toContainEqual(['Q1 Deploy tooling', 'Helm']);
     expect(rows).toContainEqual(['Q2 Logging', 'Loki only']);
+  });
+
+  it('keeps an Accept all after the block is closed and reopened', () => {
+    const first = mount({ assumptions: [{ id: 'A1', text: 'One cluster per environment.' }, { id: 'A2', text: 'Nightly backups are enough.' }] });
+    fireEvent.click(tab(/Assumptions/));
+    fireEvent.click(screen.getByRole('button', { name: 'Accept all' }));
+    first.unmount();
+    mount({ assumptions: [{ id: 'A1', text: 'One cluster per environment.' }, { id: 'A2', text: 'Nightly backups are enough.' }] });
+    fireEvent.click(tab(/Assumptions/));
+    expect(screen.getAllByRole('button', { name: 'Accept' }).map((b) => b.getAttribute('aria-pressed'))).toEqual(['true', 'true']);
   });
 
   it('keeps the opening tab active when a pick answers it', () => {
