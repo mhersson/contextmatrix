@@ -558,12 +558,13 @@ export const CARD_SUMMARY =
   'The dist-dependent checks now build first, the e2e budget holds and the clock seam is named, so the version passes; ' +
   'one minor gap remains and two new findings need a decision before decomposition.';
 
-/** A passed round 2 of 3: two fixed (critical first when unfolded), one still open, two new, one past the finding clamp. */
+/** Passed round 2 of 3 yet sent back for its open major finding: two fixed (critical first when unfolded), one still open, two new, one past the finding clamp. */
 export const CARD_REVIEW: BlueprintArtifactReview = {
   reviewer: 'tester',
   score: 4,
   threshold: 4,
   passed: true,
+  sent_back: true,
   round: 2,
   max_rounds: 3,
   summary: CARD_SUMMARY,
@@ -606,7 +607,33 @@ export const SENT_BACK_REVIEW: BlueprintArtifactReview = {
   score: 3,
   threshold: 4,
   passed: false,
+  sent_back: true,
   round: 1,
   max_rounds: 3,
   findings: [{ id: 'R1', severity: 'major', status: 'open', text: 'Choose one password hashing algorithm with its cost parameters.' }],
+};
+
+/** Round 2 of 3 settles: it passes with only a minor finding open, so it goes to the gate. */
+export const SETTLED_REVIEW: BlueprintArtifactReview = {
+  reviewer: 'senior_developer',
+  score: 4,
+  threshold: 4,
+  passed: true,
+  round: 2,
+  max_rounds: 3,
+  findings: [
+    { id: 'R1', severity: 'major', status: 'fixed', verified_in: 2, text: 'Choose one password hashing algorithm with its cost parameters.' },
+    { id: 'R2', severity: 'minor', status: 'open', text: 'Name the log field that carries the request id.' },
+  ],
+};
+
+/** Round 3 of 3 falls short and goes to the gate anyway. */
+export const LAST_ROUND_FAILED_REVIEW: BlueprintArtifactReview = {
+  reviewer: 'senior_developer',
+  score: 3,
+  threshold: 4,
+  passed: false,
+  round: 3,
+  max_rounds: 3,
+  findings: [{ id: 'R1', severity: 'major', status: 'still_open', verified_in: 3, text: 'Choose one password hashing algorithm with its cost parameters.' }],
 };

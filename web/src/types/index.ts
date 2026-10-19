@@ -1283,6 +1283,8 @@ export interface BlueprintArtifactReview {
   threshold: number;
   /** Score at or above threshold and no open critical finding; absent before protocol v0.28.0. */
   passed?: boolean;
+  /** True when this verdict sent the version back for a revision in the same attempt; false or absent when it went to the gate, and before protocol v0.31.0. */
+  sent_back?: boolean;
   /** The reviewer round within the stage attempt, 1-based. */
   round?: number;
   /** The most reviewer rounds the stage's attempt runs; absent when unknown. */

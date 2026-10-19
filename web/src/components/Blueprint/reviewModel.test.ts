@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BlueprintArtifactReview, LogMarker } from '../../types';
-import { CARD_REVIEW, SENT_BACK_REVIEW, ref } from '../../test-utils/blueprintFixtures';
-import { cardStatus, countsLine, findingGroups, reviewFor, statusCounts } from './reviewModel';
+import { CARD_REVIEW, LAST_ROUND_FAILED_REVIEW, SENT_BACK_REVIEW, SETTLED_REVIEW, ref } from '../../test-utils/blueprintFixtures';
+import { cardStatus, cardVerdict, countsLine, findingGroups, reviewFor, statusCounts } from './reviewModel';
 
 const marker = (extra: Partial<LogMarker> = {}): LogMarker => ({ kind: 'review', stage: 'acceptance', version: 2, ...extra });
 
@@ -92,5 +92,29 @@ describe('countsLine', () => {
     expect(countsLine(r)).toContain('9');
     expect(countsLine({ ...r, max_rounds: 0 })).not.toContain('9');
     expect(countsLine({ ...r, round: 0 })).not.toContain('9');
+  });
+});
+
+describe('cardVerdict', () => {
+  it('reads sent back whenever the architect sent the version back, even on a pass', () => {
+    expect(cardVerdict(CARD_REVIEW)).toBe('sent back');
+    expect(cardVerdict(SENT_BACK_REVIEW)).toBe('sent back');
+  });
+
+  it('reads passed on a pass that went to the gate and failed on a last round that fell short', () => {
+    expect(cardVerdict(SETTLED_REVIEW)).toBe('passed');
+    expect(cardVerdict(LAST_ROUND_FAILED_REVIEW)).toBe('failed');
+  });
+
+  it('reads failed on a pass flag with a critical finding still open', () => {
+    const r: BlueprintArtifactReview = {
+      ...SETTLED_REVIEW,
+      findings: [{ id: 'R1', severity: 'critical', status: 'still_open', text: 'x' }],
+    };
+    expect(cardVerdict(r)).toBe('failed');
+  });
+
+  it('gives no verdict for a review from before the pass flag', () => {
+    expect(cardVerdict({ ...SETTLED_REVIEW, passed: undefined })).toBeNull();
   });
 });

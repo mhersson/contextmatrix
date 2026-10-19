@@ -18,10 +18,14 @@ export function DesignSheet({ artifact, previous, mode }: RendererProps) {
     <>
       {slices.map((s) => (
         <section key={s.id}>
-          <h3>
-            {s.id}
-            {s.projects.length > 0 && <span className="bp-h-sub"> {s.projects.join(', ')}</span>}
-          </h3>
+          {/* A per-slice design holds one entry, named under the sheet title when slices show; designs from before per-slice design hold several. */}
+          {s.projects.length > 0 && (
+            <h3>
+              {slices.length > 1 && `${s.id} `}
+              <span className="bp-h-sub">{s.projects.join(', ')}</span>
+            </h3>
+          )}
+          {slices.length > 1 && s.projects.length === 0 && <h3>{s.id}</h3>}
           <DecisionList
             decisions={s.decisions}
             beforeById={beforeById}

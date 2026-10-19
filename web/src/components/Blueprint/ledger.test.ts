@@ -94,6 +94,14 @@ describe('verdict', () => {
   it('states the round, the pass mark and the verdict', () => {
     expect(verdictLine(LEDGER_REVIEW_FAILED)).toBe('Round 3 · passes at 4 of 5 · failed');
   });
+
+  it('ends with sent back exactly when the review went back for a revision', () => {
+    const last = (r: Parameters<typeof verdictLine>[0]) => verdictLine(r).split(' · ').at(-1);
+    expect(last({ ...LEDGER_REVIEW_V2, sent_back: true })).toBe('sent back');
+    expect(last({ ...LEDGER_REVIEW_FAILED, sent_back: true })).toBe('sent back');
+    expect(last({ ...LEDGER_REVIEW_V2, sent_back: false })).toBe('passed');
+    expect(last(LEDGER_REVIEW_FAILED)).toBe('failed');
+  });
 });
 
 describe('ledger shape', () => {

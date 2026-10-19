@@ -2,7 +2,7 @@ import { useId, useState, type ReactNode } from 'react';
 import type { LogMarker } from '../../types';
 import { ChevronIcon, ReviewIcon } from './icons';
 import { ReviewBody } from './ReviewBody';
-import { countsLine, explainText, passedOf, reviewFor } from './reviewModel';
+import { cardVerdict, countsLine, explainText, reviewFor } from './reviewModel';
 import { useBlueprintArtifacts, useBlueprintSheet } from './sheetContext';
 import { personaName, sliceOf, sliceSuffix, stageText } from './stages';
 
@@ -14,15 +14,17 @@ export function ReviewCard({ marker, fallback }: { marker: LogMarker; fallback: 
   const id = useId();
   if (!review) return fallback;
 
-  const passed = passedOf(review);
+  const verdict = cardVerdict(review);
+  const tone = verdict === 'passed' ? ' bp-rv--pass' : verdict === 'failed' ? ' bp-rv--fail' : '';
   const title = `${personaName(marker.persona || review.reviewer)} reviewed ${stageText(marker.stage).name}${sliceSuffix(slices, sliceOf(marker))} rev ${marker.version}`;
   const openable = !!review.summary || review.findings.length > 0;
   const explain = explainText(review);
   const text = (
     <>
-      <ReviewIcon passed={passed} />
+      <ReviewIcon passed={verdict === 'passed'} />
       <span className="bp-rv-text">
-        <b>{title}</b> <span className="bp-rv-verdict">{passed ? 'passed' : 'sent back'}</span>
+        <b>{title}</b>
+        {verdict && <> <span className="bp-rv-verdict">{verdict}</span></>}
         <span className="bp-rv-help" title={explain} aria-hidden="true">
           ?
         </span>
@@ -34,7 +36,7 @@ export function ReviewCard({ marker, fallback }: { marker: LogMarker; fallback: 
     <div className="flex justify-start">
       {/* The transcript is a polite live region; opening the card must not read every finding aloud. */}
       <div
-        className={`bp-rv ${passed ? 'bp-rv--pass' : 'bp-rv--fail'}${open ? ' open' : ''}`}
+        className={`bp-rv${tone}${open ? ' open' : ''}`}
         role="group"
         aria-label={title}
         aria-live="off"

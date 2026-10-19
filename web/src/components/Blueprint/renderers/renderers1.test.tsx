@@ -107,6 +107,35 @@ describe('DesignSheet', () => {
     expect(screen.getByText('None between projects.')).toBeInTheDocument();
   });
 
+  it('heads a one-slice design with its projects only', () => {
+    render(<DesignSheet artifact={DESIGN_V2} previous={null} mode="plain" view={view} />);
+    expect(screen.queryByText(/SL1/)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'homelander' })).toBeInTheDocument();
+  });
+
+  it('heads each slice with its id when the design holds several', () => {
+    const data = DESIGN_V2.data as { slices: Record<string, unknown>[] };
+    const two = { ...data, slices: [data.slices[0], { ...data.slices[0], id: 'SL2', projects: ['web'], decisions: [] }] };
+    render(<DesignSheet artifact={{ ...DESIGN_V2, data: two }} previous={null} mode="plain" view={view} />);
+    expect(screen.getByRole('heading', { name: 'SL1 homelander' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'SL2 web' })).toBeInTheDocument();
+  });
+
+  it('keeps the id heading of an entry without projects when the design holds several', () => {
+    const data = DESIGN_V2.data as { slices: Record<string, unknown>[] };
+    const two = { ...data, slices: [data.slices[0], { ...data.slices[0], id: 'SL2', projects: [], decisions: [] }] };
+    render(<DesignSheet artifact={{ ...DESIGN_V2, data: two }} previous={null} mode="plain" view={view} />);
+    expect(screen.getByRole('heading', { name: 'SL2' })).toBeInTheDocument();
+  });
+
+  it('draws no heading for one slice without projects', () => {
+    const data = DESIGN_V2.data as { slices: Record<string, unknown>[] };
+    const bare = { ...data, slices: [{ ...data.slices[0], projects: [] }] };
+    render(<DesignSheet artifact={{ ...DESIGN_V2, data: bare }} previous={null} mode="plain" view={view} />);
+    expect(screen.queryByText(/SL1/)).not.toBeInTheDocument();
+    expect(screen.getByText('Indent through the existing encoder')).toBeInTheDocument();
+  });
+
   it('clouds the decision that changed and no other', () => {
     const { container } = render(<DesignSheet artifact={DESIGN_V2} previous={DESIGN_V1} mode="clouds" view={view} />);
     const decisionClouds = [...container.querySelectorAll('.bp-cloud')].filter((c) => c.querySelector('.bp-dec'));

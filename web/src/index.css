@@ -8194,6 +8194,10 @@ button.bp-rv-head {
 .bp-rv--pass .bp-rv-verdict {
   color: var(--blueprint-ink-green);
 }
+.bp-rv--fail .bp-rv-head > svg:first-child,
+.bp-rv--fail .bp-rv-verdict {
+  color: var(--blueprint-ink-red);
+}
 .bp-rv-help {
   display: inline-grid;
   place-items: center;

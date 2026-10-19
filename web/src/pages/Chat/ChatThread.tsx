@@ -177,7 +177,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
       model: merged.model,
       contextTokens: merged.context_tokens,
       contextTokensUpdatedAt: merged.context_tokens_updated_at,
-      estimatedCostUsd: merged.estimated_cost_usd,
+      estimatedCostUsd: merged.kind === 'architect' ? undefined : merged.estimated_cost_usd,
       promptTokens: merged.prompt_tokens,
       completionTokens: merged.completion_tokens,
       cacheReadTokens: merged.cache_read_tokens,

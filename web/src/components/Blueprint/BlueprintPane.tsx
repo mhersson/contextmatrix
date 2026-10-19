@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { setChatLiveData } from '../../hooks/useChatLiveData';
 import type { BlueprintArtifactRef, BlueprintSlice, LogEntry } from '../../types';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { EdgeStrip } from './EdgeStrip';
@@ -54,6 +55,10 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
   }, [chatId, phoneButton, sheet.open, sheet.hasNew]);
   useEffect(() => () => publishSheetButton(chatId, null), [chatId]);
   useEffect(() => registerSheetToggle(chatId, sheet.toggle), [chatId, sheet.toggle]);
+  const spent = view?.cost.spent_usd;
+  useEffect(() => {
+    if (spent !== undefined) setChatLiveData(chatId, { blueprintSpentUsd: spent });
+  }, [chatId, spent]);
   const divider = useSheetDivider(bodyRef);
   const openGateId = view?.open?.kind === 'gate' ? view.open.prompt_id : undefined;
   const gatePrompt = useMemo(() => gatePromptFor(logs, promptsLive, openGateId), [logs, promptsLive, openGateId]);
