@@ -1,5 +1,6 @@
 import { BasisChips } from '../Chips';
-import type { Assumption } from '../artifactData';
+import type { Assumption, Outcome } from '../artifactData';
+import { changedById } from '../revisions';
 import { assumptionKey, changedAssumptions, numbered, type NumberedAssumption } from './rows';
 import { TableSection, type Column } from './TableSection';
 
@@ -50,5 +51,32 @@ export function TextList({ title, items, tone }: { title: string; items: string[
         ))}
       </ul>
     </section>
+  );
+}
+
+const OUTCOME_COLUMNS: Column<Outcome>[] = [
+  { label: 'Id', kind: 'id', cell: (o) => (o.id ? <IdPill id={o.id} /> : null) },
+  { label: 'Outcome', kind: 'long', cell: (o) => o.text },
+  { label: 'Quality', kind: 'short', cell: (o) => o.quality || null },
+];
+
+interface OutcomesTableProps {
+  items: Outcome[];
+  /** The previous version's outcomes, when its changes are clouded. */
+  previous: Outcome[] | null;
+  version: number;
+}
+
+/** A stage's measurable outcomes; nothing for a version stored before outcomes existed. */
+export function OutcomesTable({ items, previous, version }: OutcomesTableProps) {
+  return (
+    <TableSection
+      title="Outcomes"
+      columns={OUTCOME_COLUMNS}
+      rows={items}
+      rowKey={(o, i) => o.id || `#${i}`}
+      changed={previous ? changedById(previous, items) : undefined}
+      version={version}
+    />
   );
 }

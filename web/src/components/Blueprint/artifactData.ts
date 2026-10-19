@@ -44,6 +44,21 @@ export function stageAssumptions(data: unknown): Assumption[] {
   return isRecord(data) ? parseAssumptions(data.assumptions) : [];
 }
 
+export interface Outcome {
+  id: string;
+  text: string;
+  /** The quality the outcome states measurably (performance, security, ...); empty for a plain outcome. */
+  quality: string;
+}
+
+/** The measurable outcomes a stage's data states; none on a version stored before outcomes existed. */
+export function stageOutcomes(data: unknown): Outcome[] {
+  if (!isRecord(data)) return [];
+  return records(data.outcomes).flatMap((o): Outcome[] =>
+    str(o.text) ? [{ id: str(o.id), text: str(o.text), quality: str(o.quality) }] : [],
+  );
+}
+
 export type ChipTone = 'yellow' | 'red' | 'purple' | 'blue' | 'green' | 'grey';
 
 /** Source tags such as S1 cited in a text. */
@@ -78,9 +93,10 @@ export function assumptionChip(a: Assumption): { tone: ChipTone; label: string }
   }
 }
 
-const BASIS_REF = /\b(?:[QS]\d+|round\d+\.A\d+)\b/g;
+// A round answer matches first, so round2.A1 stays one reference.
+const BASIS_REF = /\b(?:round\d+\.A\d+|[QSAO]\d+)\b/g;
 
-/** Question (Q1), round answer (round2.A1) and source (S1) references in a basis, and whatever else it says. */
+/** Question (Q1), round answer (round2.A1), source (S1), assumption (A3) and outcome (O1) references in a basis, and whatever else it says. */
 export function basisRefs(basis: string): { refs: string[]; rest: string } {
   const refs = [...new Set(basis.match(BASIS_REF) ?? [])];
   const rest = basis
@@ -90,9 +106,10 @@ export function basisRefs(basis: string): { refs: string[]; rest: string } {
   return { refs, rest };
 }
 
-/** A source reads green; a question or round answer blue. */
+/** A source reads green, a question or round answer blue, a stated assumption or an outcome grey. */
 export function refTone(ref: string): ChipTone {
-  return ref.startsWith('S') ? 'green' : 'blue';
+  if (ref.startsWith('S')) return 'green';
+  return ref.startsWith('A') || ref.startsWith('O') ? 'grey' : 'blue';
 }
 
 export interface NeedData {

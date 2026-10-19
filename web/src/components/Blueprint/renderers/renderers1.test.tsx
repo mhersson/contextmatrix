@@ -18,6 +18,7 @@ import {
   SLICES_V1,
   viewAtDesignGate,
 } from '../../../test-utils/blueprintFixtures';
+import type { BlueprintArtifact } from '../../../types';
 
 vi.mock('../../ChatPanel/ChatMarkdown', () => ({
   ChatMarkdown: ({ source }: { source: string }) => <div data-testid="md">{source}</div>,
@@ -294,5 +295,48 @@ describe('SharedDecisionsSheet', () => {
   it('is what the sheet draws for the shared decisions stage', () => {
     render(<ArtifactRenderer artifact={SHARED_V1} previous={null} mode="plain" view={view} />);
     expect(screen.getByText('Deploy tooling')).toBeInTheDocument();
+  });
+});
+
+describe('outcomes', () => {
+  const OUTCOMES = [
+    { id: 'O1', text: 'GET / answers in under 50 ms at the 95th percentile.', quality: 'performance' },
+    { id: 'O2', text: 'The body is indented JSON.' },
+  ];
+  const withOutcomes = (a: BlueprintArtifact, outcomes: unknown = OUTCOMES): BlueprintArtifact => ({
+    ...a,
+    data: { ...(a.data as object), outcomes },
+  });
+
+  it("lists the need's outcomes with their quality before the assumptions", () => {
+    const { container } = render(<NeedSheet artifact={withOutcomes(NEED_V1)} previous={null} mode="plain" view={view} />);
+    expect(cellsOf(/under 50 ms/)).toEqual(['O1', OUTCOMES[0].text, 'performance']);
+    expect(cellsOf('The body is indented JSON.')).toEqual(['O2', 'The body is indented JSON.', '']);
+    const headings = [...container.querySelectorAll('h3')].map((h) => h.textContent ?? '');
+    expect(headings.findIndex((h) => h.startsWith('Outcomes'))).toBeLessThan(headings.findIndex((h) => h.startsWith('Assumptions')));
+  });
+
+  it('shows the outcomes shared decisions or a design add', () => {
+    const { unmount } = render(<SharedDecisionsSheet artifact={withOutcomes(SHARED_V1, [OUTCOMES[0]])} previous={null} mode="plain" view={view} />);
+    expect(cellsOf(/under 50 ms/)[0]).toBe('O1');
+    unmount();
+    const design = withOutcomes(DESIGN_V2, [{ id: 'O3', text: 'A restart loses no samples.', quality: 'data loss' }]);
+    render(<DesignSheet artifact={design} previous={null} mode="plain" view={view} />);
+    expect(cellsOf('A restart loses no samples.')).toEqual(['O3', 'A restart loses no samples.', 'data loss']);
+  });
+
+  it('shows no outcomes table for a version stored before outcomes', () => {
+    const { unmount } = render(<NeedSheet artifact={NEED_V1} previous={null} mode="plain" view={view} />);
+    expect(screen.queryByRole('heading', { name: /^Outcomes/ })).not.toBeInTheDocument();
+    unmount();
+    render(<DesignSheet artifact={DESIGN_V2} previous={null} mode="plain" view={view} />);
+    expect(screen.queryByRole('heading', { name: /^Outcomes/ })).not.toBeInTheDocument();
+  });
+
+  it('clouds the outcome that changed and no other', () => {
+    const previous = withOutcomes({ ...NEED_V1, version: 1 }, [OUTCOMES[0], { ...OUTCOMES[1], text: 'Older.' }]);
+    render(<NeedSheet artifact={withOutcomes({ ...NEED_V1, version: 2 })} previous={previous} mode="clouds" view={view} />);
+    expect(revised('The body is indented JSON.', 2)).toBe(true);
+    expect(revised(/under 50 ms/, 2)).toBe(false);
   });
 });

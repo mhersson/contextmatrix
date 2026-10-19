@@ -11,6 +11,7 @@ import {
   parseSlices,
   refTone,
   stageAssumptions,
+  stageOutcomes,
   withoutTags,
 } from './artifactData';
 import { BOARD_V1, CARDS_V1, GROUNDING_V1, SHARED_V1, SHARED_V2 } from '../../test-utils/blueprintFixtures';
@@ -104,5 +105,27 @@ describe('parseSharedDecisions', () => {
   it('treats missing contracts as none and junk as no data', () => {
     expect(parseSharedDecisions(SHARED_V2.data)?.contracts).toEqual([]);
     expect(parseSharedDecisions('nope')).toBeNull();
+  });
+});
+
+describe('outcomes and basis references', () => {
+  it("reads a stage's outcomes with their quality and skips junk", () => {
+    const data = { outcomes: [{ id: 'O1', text: 'Under 50 ms at p95.', quality: 'performance' }, { id: 'O2', text: 'Indented JSON.' }, { id: 'O3' }, 'junk'] };
+    expect(stageOutcomes(data)).toEqual([
+      { id: 'O1', text: 'Under 50 ms at p95.', quality: 'performance' },
+      { id: 'O2', text: 'Indented JSON.', quality: '' },
+    ]);
+    expect(stageOutcomes({ assumptions: [] })).toEqual([]);
+    expect(stageOutcomes('nope')).toEqual([]);
+  });
+
+  it('chips stated assumptions and outcomes beside questions, round answers and sources', () => {
+    expect(basisRefs('A3, O2 and Q1')).toEqual({ refs: ['A3', 'O2', 'Q1'], rest: 'and' });
+    expect(basisRefs('round2.A1 restates A1')).toEqual({ refs: ['round2.A1', 'A1'], rest: 'restates' });
+    expect(basisRefs('AC4, SL2 and DEC2')).toEqual({ refs: [], rest: 'AC4 SL2 and DEC2' });
+  });
+
+  it('tones assumptions and outcomes apart from answers and sources', () => {
+    expect(['A3', 'O2', 'Q1', 'round2.A1', 'S3'].map(refTone)).toEqual(['grey', 'grey', 'blue', 'blue', 'green']);
   });
 });

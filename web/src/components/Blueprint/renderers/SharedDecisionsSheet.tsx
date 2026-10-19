@@ -1,8 +1,8 @@
 import { BodyMarkdown } from '../BodyMarkdown';
-import { parseSharedDecisions, stageAssumptions } from '../artifactData';
+import { parseSharedDecisions, stageAssumptions, stageOutcomes } from '../artifactData';
 import { changedById } from '../revisions';
 import { ContractList, DecisionList } from './decisions';
-import { AssumptionsTable } from './parts';
+import { AssumptionsTable, OutcomesTable } from './parts';
 import type { RendererProps } from './types';
 
 export function SharedDecisionsSheet({ artifact, previous, mode }: RendererProps) {
@@ -25,6 +25,11 @@ export function SharedDecisionsSheet({ artifact, previous, mode }: RendererProps
         />
         <ContractList contracts={data.contracts} />
       </section>
+      <OutcomesTable
+        items={stageOutcomes(artifact.data)}
+        previous={mode === 'clouds' && previous ? stageOutcomes(previous.data) : null}
+        version={artifact.version}
+      />
       <AssumptionsTable
         items={data.assumptions}
         previous={mode === 'clouds' && previous ? stageAssumptions(previous.data) : null}
