@@ -14,6 +14,9 @@ Critical and Important defects. Minor findings are fixed inline by the reviewer
 (Step 4). Polish-level Nits do not block. When in doubt, send the work back - a
 revise cycle is cheaper than a regression in main.
 
+In POC mode (Step 1) the gate is whether the code does what the card asks and
+works; Specialist P below sets which findings may block.
+
 ## Step 1: Confirm claim and load context
 
 `claim_card(card_id, agent_id)` is idempotent - call it to re-affirm. Reclaim if
@@ -24,13 +27,19 @@ any prior `## Review Findings` rounds, plus subtask summaries (titles and
 states, no bodies). A bracketed note names any omitted body sections - call
 `get_card` for those, `get_task_context` for the latest full state.
 
+Call `get_task_context(card_id)`. The review runs in **POC mode** when
+`config.poc` is `true` and the card has no mob review; otherwise in **full
+mode**, this skill as written. Absent `poc` means `false`. Mob review is on
+when `mob_participants >= 2` and `mob_phases` is empty or contains `review`
+(no phases listed means review only).
+
 ## Step 2: Pass 1 - Spec compliance and test gate
 
 If Pass 1 fails, skip Step 3 entirely and jump to Step 5 with
 `recommendation: revise`.
 
 - **Completeness:** all requirements addressed, all subtasks done, acceptance
-  criteria met, edge cases covered.
+  criteria met, edge cases covered (full mode only).
 - **Scope:** nothing added outside the plan; no cross-subtask assumption
   conflicts.
 - **Tests + lint:** run the project's own test/verify command and lint if
@@ -40,6 +49,10 @@ If Pass 1 fails, skip Step 3 entirely and jump to Step 5 with
 On success, call `heartbeat(card_id, agent_id)` before Step 3.
 
 ## Step 3: Pass 2 - Three parallel specialists
+
+**POC mode:** spawn one Specialist P instead of A, B and C, labelled
+`specialist-generic`, with the same model pick, common context and hard
+constraints.
 
 ### Pick the specialist model
 
@@ -158,6 +171,16 @@ Specialist hard constraints:
 - Algorithmic complexity, N+1, quadratic loops on user input.
 - Memory / resource leaks; hot-path allocations; caching effectiveness.
 
+### Specialist P - Generic (POC mode only)
+
+The bar: does the code do what the card asks, and does it work.
+
+- Keep the real severity for bugs and logic errors, exploitable
+  vulnerabilities (a committed secret included), broken or vacuous tests, and
+  changes outside the card's scope.
+- File as Nits, never higher: missing edge-case tests, coverage gaps,
+  maintainability and design taste, and security hardening.
+
 ### Specialist output format
 
 ```markdown
@@ -199,6 +222,8 @@ Call `report_usage` **before** emitting the block. Nothing follows it.
   assessment; list each finding once under its most natural specialty.
 - Hunt cross-cutting issues no single specialist owned (e.g., new flag without
   test, docs, or migration path).
+- POC mode: skip the cross-cutting hunt and never raise a Specialist P
+  severity.
 - When a finding asserts a specific statement (comment, doc line, error
   message, claim) is incorrect, grep the repo for other occurrences of that
   statement or close paraphrases of it, and list every hit in the finding's
@@ -328,7 +353,8 @@ Do **not** call `release_card`. Do **not** call `transition_card`.
 
 - `update_card` before printing `REVIEW_FINDINGS`.
 - `REVIEW_FINDINGS` block format is exact.
-- All three specialists in one message; sequential spawning is wrong.
+- Full mode: all three specialists in one message; sequential spawning is
+  wrong. POC mode: one Specialist P.
 - Pass 1 failure short-circuits Pass 2.
 - MCP tools only - never curl, wget, or HTTP.
 - Categorize severity honestly. Critical = broken or unsafe. Important = real
