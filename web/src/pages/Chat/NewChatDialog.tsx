@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useIdentity } from '../../hooks/useIdentity';
 import { useProjects } from '../../hooks/useProjects';
 import { useTheme } from '../../hooks/useTheme';
 import { BlueprintFields } from './BlueprintFields';
@@ -8,7 +9,14 @@ import { Field } from './Field';
 import { KindTiles } from './KindTiles';
 import { NewChatFooter } from './NewChatFooter';
 import { ProjectList } from './ProjectList';
-import { EMPTY_BLUEPRINT_FORM, createLabel, disabledReason, type BlueprintForm } from './blueprintForm';
+import {
+  EMPTY_BLUEPRINT_FORM,
+  createLabel,
+  disabledReason,
+  readPlainLanguage,
+  rememberPlainLanguage,
+  type BlueprintForm,
+} from './blueprintForm';
 import { useChatModelChoice, type ChatModelChoices } from './useChatModelChoice';
 import { useCreateSession } from './useCreateSession';
 
@@ -28,8 +36,12 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
 function NewChatDialogBody({ onClose, choices }: { onClose: () => void; choices: ChatModelChoices }) {
   const { projects } = useProjects();
   const { architectEnabled } = useTheme();
+  const { identity } = useIdentity();
   const [blueprint, setBlueprint] = useState(false);
-  const [form, setForm] = useState<BlueprintForm>(EMPTY_BLUEPRINT_FORM);
+  const [form, setForm] = useState<BlueprintForm>(() => ({
+    ...EMPTY_BLUEPRINT_FORM,
+    plainLanguage: readPlainLanguage(identity),
+  }));
   const [title, setTitle] = useState('');
   const [project, setProject] = useState('');
   const { create, creating, error, clearError } = useCreateSession(onClose);
@@ -56,6 +68,7 @@ function NewChatDialogBody({ onClose, choices }: { onClose: () => void; choices:
   const submit = () => {
     if (!canCreate) return;
     const name = title.trim() || undefined;
+    if (blueprint) rememberPlainLanguage(identity, form.plainLanguage);
     void create(
       blueprint
         ? {
@@ -65,6 +78,7 @@ function NewChatDialogBody({ onClose, choices }: { onClose: () => void; choices:
             model: picked.model || undefined,
             mode: form.mode,
             cost_cap_usd: form.capUSD > 0 ? form.capUSD : undefined,
+            ...(form.plainLanguage ? { plain_language: true } : {}),
           }
         : { title: name, project: project || undefined, model: choices.chat.model || undefined },
     );

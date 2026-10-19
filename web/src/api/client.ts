@@ -534,6 +534,7 @@ class APIClient {
     projects?: string[];
     mode?: string;
     cost_cap_usd?: number;
+    plain_language?: boolean;
   }): Promise<ChatSession> {
     return this.request<ChatSession>('/chats', {
       method: 'POST',

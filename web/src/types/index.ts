@@ -869,6 +869,8 @@ export interface ChatSession {
   mode?: string;
   /** Architect cost cap in USD; architect sessions only. */
   cost_cap_usd?: number;
+  /** Fixed at creation: the blueprint asks in plain language. */
+  plain_language?: boolean;
   status: ChatStatus;
   created_at: string;
   last_active: string;

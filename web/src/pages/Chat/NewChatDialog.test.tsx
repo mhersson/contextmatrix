@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { NewChatDialog } from './NewChatDialog';
+import { PLAIN_LANGUAGE } from './blueprintForm';
 
 const navigate = vi.fn();
 vi.mock('react-router', () => ({ useNavigate: () => navigate }));
@@ -45,6 +46,9 @@ const baseModels = [
 let modelList = baseModels;
 vi.mock('../../hooks/useTheme', () => ({ useTheme: () => ({ architectEnabled, favorites: null }) }));
 
+let identity: string | null = 'human:web-abc';
+vi.mock('../../hooks/useIdentity', () => ({ useIdentity: () => ({ identity }) }));
+
 function renderDialog() {
   render(<NewChatDialog open onClose={() => {}} />);
 }
@@ -56,6 +60,7 @@ function startBlueprint() {
 
 describe('NewChatDialog', () => {
   beforeEach(() => {
+    identity = 'human:web-abc';
     createChat.mockReset();
     openChat.mockReset();
     navigate.mockReset();
@@ -255,5 +260,53 @@ describe('NewChatDialog', () => {
     expect(await screen.findByRole('alert')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('radio', { name: 'Chat' }));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  const plainSwitch = () => screen.getByRole('switch', { name: PLAIN_LANGUAGE.label });
+  const createAlpha = async () => {
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Alpha' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create blueprint' }));
+    await waitFor(() => expect(createChat).toHaveBeenCalled());
+  };
+
+  it('offers plain language only for a blueprint', () => {
+    renderDialog();
+    expect(screen.queryByRole('switch', { name: PLAIN_LANGUAGE.label })).not.toBeInTheDocument();
+  });
+
+  it('sends plain language when switched on, and the next blueprint starts with it on', async () => {
+    const first = render(<NewChatDialog open onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Blueprint' }));
+    expect(plainSwitch()).not.toBeChecked();
+    fireEvent.click(plainSwitch());
+    expect(plainSwitch()).toBeChecked();
+    await createAlpha();
+    expect(createChat.mock.calls[0][0].plain_language).toBe(true);
+    first.unmount();
+    startBlueprint();
+    expect(plainSwitch()).toBeChecked();
+  });
+
+  it('keeps each person their own choice', async () => {
+    identity = 'human:alice';
+    const first = render(<NewChatDialog open onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Blueprint' }));
+    fireEvent.click(plainSwitch());
+    await createAlpha();
+    first.unmount();
+    identity = 'human:bob';
+    startBlueprint();
+    expect(plainSwitch()).not.toBeChecked();
+  });
+
+  it('remembers nothing until a blueprint is created, and sends no flag while off', async () => {
+    const first = render(<NewChatDialog open onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Blueprint' }));
+    fireEvent.click(plainSwitch());
+    first.unmount();
+    startBlueprint();
+    expect(plainSwitch()).not.toBeChecked();
+    await createAlpha();
+    expect(createChat.mock.calls[0][0]).not.toHaveProperty('plain_language');
   });
 });

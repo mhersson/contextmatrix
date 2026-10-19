@@ -143,39 +143,43 @@ board. Promote-to-autonomous lives in that tab.
   one it creates chats only. Both kinds take an optional title. A chat picks one
   project from a list (or Across projects, with no checkout) and a model. A
   blueprint picks one or more target projects, one of four described modes
-  (default, auto, auto + emit, yolo), a model (defaulting to the architect's
-  default, kept separate from the chat pick) and a cost cap preset ($1, $2, $5,
-  $10 or no cap), in that order, and runs on the architect backend instead of a
-  chat worker. The footer says why Create is disabled, including a cost cap on a
-  model CM cannot price; Ctrl+Enter anywhere, or Enter in the title, creates.
-  The button names the outcome (Create chat, Create blueprint, or Create and run
-  for yolo). A blueprint whose architect does not start keeps the dialog open
-  with the error, and with unchanged settings, Create then retries the same
-  session. The sidebar marks blueprint sessions with an aqua drafting-compass
-  icon. The pane header shows a blueprint's mode and cost cap, and the
-  architect's spend from the blueprint view (the figure the scale bar shows)
-  where a chat's header shows CM's estimate from its token counts. Once the
-  view loads, the header's mode is the view's too, so a switch the architect
-  refused never shows there. The admin Chats page lists every session's kind,
-  mode and cap as the session row holds them. The architect's questions and
-  gates show reply buttons under the message. A question's options are stacked
-  full-width buttons showing the whole option text. The question bubble is
-  tinted, with a 5px left bar and accent-bordered options in pink in the dark
-  themes and a dusty rose to maroon in the light ones, and the suggested option
-  carries a "recommended" chip. A prompt marked as a gate keeps compact buttons
-  in a row. A click sends that reply as your message, a feedback action such as
-  Reject asks for text first, in a box labelled with the architect's question
-  when it sends one (an approval over critical findings asks why), and typing
-  the reply works too. A prompt closes when a reply answers it, when the
-  architect's decision line answers it (it decided the prompt itself, as at a
-  waiting sign-off after a switch to Auto + emit or Yolo), or when a later
-  prompt replaces it. It then shows a one-line summary instead of buttons, and a
-  closed non-gate prompt keeps its options above the summary as a smaller list
-  with the answering option marked.
-  A closed question's list and summary render in the normal text colour on the
-  tint; gates and neutral prompts keep the muted grey. The buttons are disabled
-  while the session is not live or its stream is disconnected, and prompts show
-  with the Text filter off.
+  (default, auto, auto + emit, yolo), a Plain language switch, a model
+  (defaulting to the architect's default, kept separate from the chat pick) and
+  a cost cap preset ($1, $2, $5, $10 or no cap), in that order, and runs on the
+  architect backend instead of a chat worker. Plain language asks the person
+  only what they want and how it should look and work; the architect makes the
+  technical decisions and shows each as what it means for them. The switch opens
+  at the choice the person last created a blueprint with in this browser, kept
+  per user when CM has accounts and per browser otherwise. The footer says why
+  Create is disabled, including a cost cap on a model CM cannot price;
+  Ctrl+Enter anywhere, or Enter in the title, creates. The button names the
+  outcome (Create chat, Create blueprint, or Create and run for yolo). A
+  blueprint whose architect does not start keeps the dialog open with the error,
+  and with unchanged settings, Create then retries the same session. The sidebar
+  marks blueprint sessions with an aqua drafting-compass icon. The pane header
+  shows a blueprint's mode and cost cap, and the architect's spend from the
+  blueprint view (the figure the scale bar shows) where a chat's header shows
+  CM's estimate from its token counts. Once the view loads, the header's mode is
+  the view's too, so a switch the architect refused never shows there. The admin
+  Chats page lists every session's kind, mode and cap as the session row holds
+  them. The architect's questions and gates show reply buttons under the
+  message. A question's options are stacked full-width buttons showing the whole
+  option text. The question bubble is tinted, with a 5px left bar and
+  accent-bordered options in pink in the dark themes and a dusty rose to maroon
+  in the light ones, and the suggested option carries a "recommended" chip. A
+  prompt marked as a gate keeps compact buttons in a row. A click sends that
+  reply as your message, a feedback action such as Reject asks for text first,
+  in a box labelled with the architect's question when it sends one (an approval
+  over critical findings asks why), and typing the reply works too. A prompt
+  closes when a reply answers it, when the architect's decision line answers it
+  (it decided the prompt itself, as at a waiting sign-off after a switch to Auto
+  + emit or Yolo), or when a later prompt replaces it. It then shows a one-line
+  summary instead of buttons, and a closed non-gate prompt keeps its options
+  above the summary as a smaller list with the answering option marked. A closed
+  question's list and summary render in the normal text colour on the tint;
+  gates and neutral prompts keep the muted grey. The buttons are disabled while
+  the session is not live or its stream is disconnected, and prompts show with
+  the Text filter off.
 - A question round from the architect docks at the bottom of the pane in place
   of the message box while it waits for you; the transcript keeps scrolling
   above it. It has one tab per question, ticked once it has an answer (stored by

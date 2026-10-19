@@ -6432,6 +6432,7 @@ textarea {
 .nd-kind:focus-visible,
 .nd-project:has(input:focus-visible),
 .nd-mode:has(input:focus-visible),
+.nd-plain:has(input:focus-visible),
 .nd-cap:has(input:focus-visible) {
   outline: 2px solid color-mix(in oklab, var(--blue) 60%, transparent);
   outline-offset: 1px;
@@ -6514,6 +6515,45 @@ textarea {
 .nd-mode--yolo.nd-mode--on {
   border-color: color-mix(in oklab, var(--orange) 70%, var(--bg3));
   background: color-mix(in oklab, var(--orange) 9%, var(--bg0));
+}
+.nd-plain {
+  position: relative;
+  display: block;
+  padding: 8px 10px;
+  text-align: left;
+  border: 1px solid var(--bg3);
+  border-radius: 8px;
+  background: var(--bg0);
+  color: var(--fg);
+  cursor: pointer;
+}
+.nd-plain b {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.nd-plain b::before {
+  content: '';
+  flex: none;
+  width: 22px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--bg4);
+}
+.nd-plain--on b::before {
+  background: color-mix(in oklab, var(--blue) 65%, var(--bg3));
+}
+.nd-plain span {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--blueprint-quiet-strong);
+}
+.nd-plain--on {
+  border-color: color-mix(in oklab, var(--blue) 65%, var(--bg3));
+  background: color-mix(in oklab, var(--blue) 9%, var(--bg0));
 }
 .nd-caps {
   display: flex;
