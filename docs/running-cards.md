@@ -126,6 +126,31 @@ the phase's normal output. Discussions degrade to the solo path on quorum loss,
 engine errors or an exhausted mob budget. The transcript streams to the Chat
 tab.
 
+## POC projects
+
+A project with `poc: true` (Project Settings, Execution tab) runs its cards on
+a lighter bar meant for proofs of concept. CM puts the flag on the trigger at
+every launch, so a run keeps the value it started with and the first run
+after a switch-off gets the full workflow.
+
+- **Review.** One generic reviewer per round replaces the correctness, design
+  and security specialists, the authoritative pass included. Bugs,
+  exploitable vulnerabilities (a committed secret included), broken or vacuous
+  tests and out-of-scope changes block. Missing edge-case tests, coverage,
+  maintainability, design taste and security hardening never block and never
+  reach a fix request, and the post-approval cleanup pass does not run.
+- **Tests.** The planner and coder write tests for the main behaviour the
+  card names, not every edge case.
+- **Mob review wins.** A card with mob review (`mob_participants >= 2` and
+  `mob_phases` empty or containing `review`) keeps its full review: mob
+  seats, the three-specialist authoritative pass, the cleanup pass and
+  unfiltered fix requests. Its test scope still follows the flag.
+- **Unchanged.** Both verify gates, models and tiers, budget, turn limits,
+  the review attempts cap, PR gates, the document phase and Best-of-N.
+- **Local runs.** `run-autonomous` and `create-plan` read `poc` from
+  `get_task_context`; `review-task` then runs one generic reviewer on the same
+  bar unless the card has mob review.
+
 ## PR gates
 
 With `await_ci` or `await_copilot_review` set, the run enters `pr_gates`
