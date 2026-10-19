@@ -1221,6 +1221,29 @@ func TestCreateChat_ArchitectKind(t *testing.T) {
 	assert.Empty(t, sess.Model, "architect model defaults at cold open, not at create")
 }
 
+func TestCreateChat_PlainLanguage(t *testing.T) {
+	mux, _ := newChatFixture(t, architectFixtureOpts())
+
+	for name, tc := range map[string]struct {
+		body string
+		want bool
+	}{
+		"blueprint on":  {`{"kind":"architect","projects":["alpha"],"plain_language":true}`, true},
+		"blueprint off": {`{"kind":"architect","projects":["alpha"]}`, false},
+		"chat":          {`{"plain_language":true}`, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats", tc.body))
+			require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+			var sess chat.Session
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sess))
+			assert.Equal(t, tc.want, sess.PlainLanguage)
+		})
+	}
+}
+
 func TestCreateChat_ArchitectInvalidInput(t *testing.T) {
 	mux, _ := newChatFixture(t, architectFixtureOpts())
 

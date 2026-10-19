@@ -1153,8 +1153,10 @@ Chat state lives in the operational store `ops.db`, separate from the boards
 repo and `images.db`; the same file holds `model_blacklist` and
 `model_outcomes`. `ensureSchema` in `internal/opstore/sqlite/schema.go` runs
 `CREATE TABLE IF NOT EXISTS` for every table; there is no migration ledger. A
-column added to an existing table is grown by `addColumnIfMissing`, and an
-`ops.db` newer than the binary is refused. `chat_messages` carries `kind TEXT
+column added to an existing table is grown by `addColumnIfMissing`, without a
+schema version bump when it has a default that older binaries never name, so a
+rolled-back binary still opens the database; an `ops.db` newer than the binary
+is refused. `chat_messages` carries `kind TEXT
 NOT NULL DEFAULT ''` (`divider` for the clear-context row, `prompt` for an
 architect question or gate whose content is a `{text, prompt}` JSON envelope,
 `marker` for an architect stage divider, sheet reference or reviewer verdict
@@ -1190,6 +1192,7 @@ and a unique index on `(session_id, seq)`.
 | `kind`                      | TEXT    | `chat`  | `chat` or `architect` (blueprint); selects the backend.        |
 | `mode`                      | TEXT    | `''`    | Architect session mode; empty for chat sessions.               |
 | `cost_cap_usd`              | REAL    | `0`     | Architect session cost cap in USD; `0` for chat sessions.      |
+| `plain_language`            | INTEGER | `0`     | `1` for an architect session created in plain language; never changed after creation. |
 
 **`chat_cost_archive`:** `DeleteSession` copies the cost columns here before
 removing the session row; transcript and title are not kept. `AggregateCost`

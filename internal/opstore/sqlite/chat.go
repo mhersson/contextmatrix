@@ -21,7 +21,7 @@ var _ chat.Store = (*Store)(nil)
 const sessionColumns = `id, title, project, status, created_at, last_active, created_by,
     container_id, workspace, model, context_tokens, context_tokens_updated_at, rehydration_active,
     rehydration_started_at, prompt_tokens, completion_tokens, cache_read_tokens,
-    cache_creation_tokens, estimated_cost_usd, kind, mode, cost_cap_usd`
+    cache_creation_tokens, estimated_cost_usd, kind, mode, cost_cap_usd, plain_language`
 
 func (s *Store) CreateSession(ctx context.Context, sess chat.Session) error {
 	workspaceJSON, err := json.Marshal(sess.Workspace)
@@ -34,14 +34,19 @@ func (s *Store) CreateSession(ctx context.Context, sess chat.Session) error {
 		kind = chat.KindChat
 	}
 
+	plainLanguage := 0
+	if sess.PlainLanguage {
+		plainLanguage = 1
+	}
+
 	_, err = s.db.ExecContext(ctx, `INSERT INTO chat_sessions
         (id, title, project, status, created_at, last_active, created_by, container_id, workspace, model,
-         kind, mode, cost_cap_usd)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         kind, mode, cost_cap_usd, plain_language)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sess.ID, sess.Title, nullIf(sess.Project), string(sess.Status),
 		sess.CreatedAt.Unix(), sess.LastActive.Unix(), sess.CreatedBy,
 		nullIf(sess.ContainerID), string(workspaceJSON), sess.Model,
-		string(kind), sess.Mode, sess.CostCapUSD,
+		string(kind), sess.Mode, sess.CostCapUSD, plainLanguage,
 	)
 	if err != nil {
 		return fmt.Errorf("chat: insert session: %w", err)
@@ -542,6 +547,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 		estimatedCostUSD            float64
 		kind, mode                  string
 		costCapUSD                  float64
+		plainLanguage               int
 	)
 
 	if err := sc.Scan(
@@ -550,7 +556,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 		&model, &contextTokens, &contextTokensUpdatedAt, &rehydrationActive,
 		&rehydrationStartedAt,
 		&promptTokens, &completionTokens, &cacheReadTokens, &cacheCreationTokens,
-		&estimatedCostUSD, &kind, &mode, &costCapUSD,
+		&estimatedCostUSD, &kind, &mode, &costCapUSD, &plainLanguage,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return chat.Session{}, chat.ErrSessionNotFound
@@ -565,6 +571,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 	s.Kind = chat.SessionKind(kind)
 	s.Mode = mode
 	s.CostCapUSD = costCapUSD
+	s.PlainLanguage = plainLanguage != 0
 	s.CreatedAt = time.Unix(createdAt, 0).UTC()
 	s.LastActive = time.Unix(lastActive, 0).UTC()
 	s.Model = model.String

@@ -864,6 +864,38 @@ func TestSession_KindModeCostCapRoundTrip(t *testing.T) {
 	assert.Equal(t, chat.KindChat, gotPlain.Kind)
 }
 
+func TestSession_PlainLanguageRoundTrip(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	bp := sessionRow("BP1")
+	bp.Kind = chat.KindArchitect
+	bp.Mode = "default"
+	bp.PlainLanguage = true
+	require.NoError(t, s.CreateSession(ctx, bp))
+	require.NoError(t, s.CreateSession(ctx, sessionRow("C1")))
+
+	got, err := s.GetSession(ctx, "BP1")
+	require.NoError(t, err)
+	assert.True(t, got.PlainLanguage)
+
+	listed, err := s.ListSessions(ctx, chat.SessionFilter{Kind: chat.KindArchitect})
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.True(t, listed[0].PlainLanguage)
+
+	// Every open and status flip rewrites the row through UpdateSession.
+	got.Status = chat.StatusActive
+	require.NoError(t, s.UpdateSession(ctx, got))
+	again, err := s.GetSession(ctx, "BP1")
+	require.NoError(t, err)
+	assert.True(t, again.PlainLanguage)
+
+	chatRow, err := s.GetSession(ctx, "C1")
+	require.NoError(t, err)
+	assert.False(t, chatRow.PlainLanguage)
+}
+
 func TestListSessions_FilterByKind(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
