@@ -99,7 +99,7 @@ describe('BlueprintPane', () => {
     clearChatLiveData('S1');
     const { result } = renderHook(() => useChatLiveData('S1'));
     renderPane({ status: 'loading' });
-    expect(result.current?.blueprintSpentUsd).toBeUndefined();
+    expect(result.current).toBeUndefined();
   });
 
   it("publishes the view's spend for the pane header and follows a new snapshot", () => {

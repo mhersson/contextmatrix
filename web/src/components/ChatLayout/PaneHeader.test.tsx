@@ -126,6 +126,12 @@ describe('PaneHeader Clear context menu', () => {
 });
 
 describe('PaneContextUsage cost glyph', () => {
+  it('shows no amount for an architect session before the chat list knows its kind', () => {
+    act(() => setChatLiveData('chat-1', { model: 'model-x', estimatedCostUsd: undefined }));
+    render(<PaneHeader {...baseProps} chat={undefined} />);
+    expect(screen.queryByLabelText(/dollars/)).not.toBeInTheDocument();
+  });
+
   it("shows a blueprint's recorded spend, never the token estimate", () => {
     const architect = { ...activeChat(), kind: 'architect' as const, mode: 'default' };
     act(() => setChatLiveData('chat-1', { model: 'model-x', estimatedCostUsd: 0.02 }));
