@@ -57,9 +57,12 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
   useEffect(() => registerSheetToggle(chatId, sheet.toggle), [chatId, sheet.toggle]);
   const spent = view?.cost.spent_usd;
   const mode = view?.mode;
+  const plain = view?.plain_language === true;
   useEffect(() => {
-    if (spent !== undefined && mode !== undefined) setChatLiveData(chatId, { blueprintSpentUsd: spent, blueprintMode: mode });
-  }, [chatId, spent, mode]);
+    if (spent !== undefined && mode !== undefined) {
+      setChatLiveData(chatId, { blueprintSpentUsd: spent, blueprintMode: mode, blueprintPlainLanguage: plain });
+    }
+  }, [chatId, spent, mode, plain]);
   const divider = useSheetDivider(bodyRef);
   const openGateId = view?.open?.kind === 'gate' ? view.open.prompt_id : undefined;
   const gatePrompt = useMemo(() => gatePromptFor(logs, promptsLive, openGateId), [logs, promptsLive, openGateId]);
@@ -82,8 +85,8 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
   const next = view?.slices ?? [];
   if (next.length !== slices.length || next.some((s, i) => s.id !== slices[i].id || s.title !== slices[i].title)) setSlices(next);
   const actions = useMemo(
-    () => ({ openArtifact: (stage: string, slice: string, version?: number) => show(stage, slice, version ?? null), slices }),
-    [show, slices],
+    () => ({ openArtifact: (stage: string, slice: string, version?: number) => show(stage, slice, version ?? null), slices, plainLanguage: plain }),
+    [show, slices, plain],
   );
 
   const hasSheet = layout !== null && (state.status === 'ready' || state.status === 'unreachable');

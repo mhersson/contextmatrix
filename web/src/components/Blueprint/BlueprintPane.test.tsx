@@ -3,7 +3,7 @@ import { act, render, renderHook, screen, fireEvent, waitFor, within } from '@te
 import { api } from '../../api/client';
 import { clearChatLiveData, useChatLiveData } from '../../hooks/useChatLiveData';
 import { BlueprintPane } from './BlueprintPane';
-import { useBlueprintArtifacts } from './sheetContext';
+import { useBlueprintArtifacts, useBlueprintSheet } from './sheetContext';
 import { resetArtifactCache } from './artifactCache';
 import { toggleSheet, useSheetButton } from './sheetButtonStore';
 import type { BlueprintState } from './state';
@@ -134,6 +134,28 @@ describe('BlueprintPane', () => {
 
     rerender(pane({ ...view, seq: view.seq + 1, mode: 'auto' }));
     expect(result.current?.blueprintMode).toBe('auto');
+    clearChatLiveData('S1');
+  });
+
+  it("publishes the view's plain-language flag to the pane header and the transcript", () => {
+    clearChatLiveData('S1');
+    function Probe() {
+      return <span data-testid="plain">{String(useBlueprintSheet()?.plainLanguage === true)}</span>;
+    }
+    const pane = (view: BlueprintView) => (
+      <BlueprintPane chatId="S1" state={{ status: 'ready', view, draft: null }} onRetry={vi.fn()} logs={[]} promptsLive onReply={vi.fn()} phone={false}>
+        <Probe />
+      </BlueprintPane>
+    );
+    const { result } = renderHook(() => useChatLiveData('S1'));
+    const view = viewAtDesignGate();
+    const { rerender } = render(pane(view));
+    expect(result.current?.blueprintPlainLanguage).toBe(false);
+    expect(screen.getByTestId('plain')).toHaveTextContent('false');
+
+    rerender(pane({ ...view, seq: view.seq + 1, plain_language: true }));
+    expect(result.current?.blueprintPlainLanguage).toBe(true);
+    expect(screen.getByTestId('plain')).toHaveTextContent('true');
     clearChatLiveData('S1');
   });
 

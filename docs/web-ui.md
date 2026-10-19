@@ -160,29 +160,31 @@ board. Promote-to-autonomous lives in that tab.
   shows a blueprint's mode and cost cap, and the architect's spend from the
   blueprint view (the figure the scale bar shows) where a chat's header shows
   CM's estimate from its token counts. Once the view loads, the header's mode is
-  the view's too, so a switch the architect refused never shows there. The admin
-  Chats page lists every session's kind, mode and cap as the session row holds
-  them. The architect's questions and gates show reply buttons under the
-  message. On a plain-language blueprint a prompt reads in plain words with
-  plain buttons (such as Continue anyway and Stop) that send the architect's
-  usual replies, and its technical text is folded under a Technical detail line.
-  A question's options are stacked full-width buttons showing the whole option
-  text. The question bubble is tinted, with a 5px left bar and accent-bordered
-  options in pink in the dark themes and a dusty rose to maroon in the light
-  ones, and the suggested option carries a "recommended" chip. A prompt marked
-  as a gate keeps compact buttons in a row. A click sends that reply as your
-  message, a feedback action such as Reject asks for text first, in a box
-  labelled with the architect's question when it sends one (an approval over
-  critical findings asks why), and typing the reply works too. A prompt closes
-  when a reply answers it, when the architect's decision line answers it (it
-  decided the prompt itself, as at a waiting sign-off after a switch to Auto +
-  emit or Yolo), or when a later prompt replaces it. It then shows a one-line
-  summary instead of buttons, and a closed non-gate prompt keeps its options
-  above the summary as a smaller list with the answering option marked. A closed
-  question's list and summary render in the normal text colour on the tint;
-  gates and neutral prompts keep the muted grey. The buttons are disabled while
-  the session is not live or its stream is disconnected, and prompts show with
-  the Text filter off.
+  the view's too, so a switch the architect refused never shows there. A
+  blueprint created in plain language shows a Plain language badge beside the
+  pill; once the view loads the badge follows the view, so an architect that
+  does not run plain language shows none. The admin Chats page lists every
+  session's kind, mode and cap as the session row holds them. The architect's
+  questions and gates show reply buttons under the message. On a plain-language
+  blueprint a prompt reads in plain words with plain buttons (such as Continue
+  anyway and Stop) that send the architect's usual replies, and its technical
+  text is folded under a Technical detail line. A question's options are stacked
+  full-width buttons showing the whole option text. The question bubble is
+  tinted, with a 5px left bar and accent-bordered options in pink in the dark
+  themes and a dusty rose to maroon in the light ones, and the suggested option
+  carries a "recommended" chip. A prompt marked as a gate keeps compact buttons
+  in a row. A click sends that reply as your message, a feedback action such as
+  Reject asks for text first, in a box labelled with the architect's question
+  when it sends one (an approval over critical findings asks why), and typing
+  the reply works too. A prompt closes when a reply answers it, when the
+  architect's decision line answers it (it decided the prompt itself, as at a
+  waiting sign-off after a switch to Auto + emit or Yolo), or when a later
+  prompt replaces it. It then shows a one-line summary instead of buttons, and a
+  closed non-gate prompt keeps its options above the summary as a smaller list
+  with the answering option marked. A closed question's list and summary render
+  in the normal text colour on the tint; gates and neutral prompts keep the
+  muted grey. The buttons are disabled while the session is not live or its
+  stream is disconnected, and prompts show with the Text filter off.
 - A question round from the architect docks at the bottom of the pane in place
   of the message box while it waits for you; the transcript keeps scrolling
   above it. It has one tab per question, ticked once it has an answer (stored by
@@ -233,9 +235,11 @@ board. Promote-to-autonomous lives in that tab.
   bottom of the open card a collapsed "Chat about these questions (N)" opens the
   round's thread of N messages, when it has one. A round the auto responder
   answered arrives closed and shows as the same card, marked answered by the
-  responder, and the message box stays. While the session is not live or its
-  stream reconnects the round stays docked with its answers disabled; its chat
-  box sends whenever the message box would.
+  responder, and the message box stays. On a plain-language blueprint a round
+  the responder is still answering shows as that card too, so its technical
+  questions stay folded. While the session is not live or its stream reconnects
+  the round stays docked with its answers disabled; its chat box sends whenever
+  the message box would.
 - A blueprint pane adds a scale bar, a sheet and marker rows to the chat pane:
   - The scale bar under the pane header draws one segment per pipeline step:
     done steps filled green, the current step hatched (aqua while a run works,
@@ -251,26 +255,27 @@ board. Promote-to-autonomous lives in that tab.
     the colour of its current segment. Beside the bar the current stage, with
     its slice when there are several (Solution design · SL2), says who is doing
     what; on an ended blueprint it names the stopping step and, in red, why the
-    pipeline stopped. Hover a segment for its persona, status and cost; click a
-    finished one to open its artifact. The right end shows the architect's spend
-    against the blueprint cap; the meter turns orange at 80% and red at the cap.
-    Click it (it is a button, also with no cap set) for a popover with the
-    spend, the cap, +$2 / +$5 / +$10 raises (added to the cap, or to the spend
-    with no cap), an amount field and a "No cap" choice. An amount at or below
-    the spend is refused, as is any amount on a model CM cannot price (only "No
-    cap" is offered, and only when a cap is set). Raising the cap continues a
-    blueprint that stopped on its cap. The change goes to the architect as a
-    `cap` command that the transcript does not show; the architect's
-    confirmation line is the visible record, and the cell follows the cap the
-    architect republishes; the pane header's cap follows after a successful
-    save. Left of the spend sits the blueprint's mode over a small "Mode"
-    caption, in orange for yolo. Until the sign-off is approved or the pipeline
-    ends it is a button too, for a popover listing the new-blueprint dialog's
-    four modes with their descriptions, the current one marked; Switch sends the
-    pick, and picking Yolo turns it into an orange Switch and run, as the
-    dialog's button reads Create and run. Switching away from Default notes what
-    happens to what waits for you: a question round goes to the responder now
-    and answers you have not sent are dropped, and a waiting stage gate is
+    pipeline stopped, in plain words on a plain-language blueprint with the
+    technical reason folded under it. Hover a segment for its persona, status
+    and cost; click a finished one to open its artifact. The right end shows the
+    architect's spend against the blueprint cap; the meter turns orange at 80%
+    and red at the cap. Click it (it is a button, also with no cap set) for a
+    popover with the spend, the cap, +$2 / +$5 / +$10 raises (added to the cap,
+    or to the spend with no cap), an amount field and a "No cap" choice. An
+    amount at or below the spend is refused, as is any amount on a model CM
+    cannot price (only "No cap" is offered, and only when a cap is set). Raising
+    the cap continues a blueprint that stopped on its cap. The change goes to
+    the architect as a `cap` command that the transcript does not show; the
+    architect's confirmation line is the visible record, and the cell follows
+    the cap the architect republishes; the pane header's cap follows after a
+    successful save. Left of the spend sits the blueprint's mode over a small
+    "Mode" caption, in orange for yolo. Until the sign-off is approved or the
+    pipeline ends it is a button too, for a popover listing the new-blueprint
+    dialog's four modes with their descriptions, the current one marked; Switch
+    sends the pick, and picking Yolo turns it into an orange Switch and run, as
+    the dialog's button reads Create and run. Switching away from Default notes
+    what happens to what waits for you: a question round goes to the responder
+    now and answers you have not sent are dropped, and a waiting stage gate is
     approved now if its review passed, unless a gate reply keeps that stage with
     you. At a waiting sign-off, Auto + emit and Yolo note that the sign-off is
     decided automatically unless a critical finding or a preflight warning holds

@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import type { AvailableChat, Slot } from './types';
 import { PaneAccentStripe } from './PaneAccentStripe';
+import { PLAIN_LANGUAGE } from '../../pages/Chat/blueprintForm';
 import { useChatLiveData } from '../../hooks/useChatLiveData';
 import { useMenuDismiss } from '../../hooks/useMenuDismiss';
 import { toggleSheet, useSheetButton } from '../Blueprint/sheetButtonStore';
@@ -87,6 +88,7 @@ export function PaneHeader({
       {chatId && (
         <div className="chat-pane-meta">
           {chat?.kind === 'architect' && <BlueprintMeta chatId={chatId} mode={chat.mode} capUsd={chat.cost_cap_usd} />}
+          {chat?.kind === 'architect' && <PlainLanguageBadge chatId={chatId} fromRow={chat.plain_language === true} />}
           <PaneContextUsage chatId={chatId} fallbackModel={chat?.model} blueprint={chat?.kind === 'architect'} />
           <span
             className="chat-pane-status-dot"
@@ -253,6 +255,14 @@ function PaneContextUsage({ chatId, fallbackModel, blueprint }: { chatId: string
       )}
     </>
   );
+}
+
+/** Marks a plain-language blueprint. The view's flag wins once it loads, so an
+ *  architect that predates the flag shows no badge. */
+function PlainLanguageBadge({ chatId, fromRow }: { chatId: string; fromRow: boolean }) {
+  const plain = useChatLiveData(chatId)?.blueprintPlainLanguage ?? fromRow;
+  if (!plain) return null;
+  return <span className="chat-pane-model-pill chat-pane-plain-pill">{PLAIN_LANGUAGE.label}</span>;
 }
 
 /** A blueprint session's kind, mode and cost cap. The mode is the view's once

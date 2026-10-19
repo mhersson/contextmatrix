@@ -174,6 +174,8 @@ export interface CurrentText {
   /** Who is doing what. */
   line: string;
   tone: Tone;
+  /** The technical reason behind a plain end reason; folded under the line. */
+  detail?: string;
 }
 
 /** " · SL2" after a stage name while the blueprint shows slices; "" otherwise. */
@@ -214,7 +216,11 @@ export function describeCurrent(view: BlueprintView): CurrentText | null {
     if (step.stage !== 'emission') return say('Done', 'done');
     return say(view.state === 'done' ? 'Cards on the board' : 'Cards on the board; watching their runs', 'done');
   }
-  if (view.state === 'ended') return say(view.end_reason ? `Stopped: ${view.end_reason}` : 'Stopped', 'failed');
+  if (view.state === 'ended') {
+    const text = say(view.end_reason ? `Stopped: ${view.end_reason}` : 'Stopped', 'failed');
+    const detail = view.end_detail?.trim();
+    return detail ? { ...text, detail } : text;
+  }
   // The responder only answers questions; under an auto policy the question has no open prompt.
   if (run?.kind === 'responder') {
     return say(

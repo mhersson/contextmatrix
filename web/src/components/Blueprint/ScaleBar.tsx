@@ -1,4 +1,5 @@
 import type { BlueprintPipelineStep, BlueprintView } from '../../types';
+import { TechnicalDetail } from '../TechnicalDetail';
 import { CostCell } from './CostCell';
 import { ModeCell } from './ModeCell';
 import {
@@ -83,6 +84,7 @@ export function ScaleBar({ chatId, view, compact, onOpenStage }: ScaleBarProps) 
           <span className={lineClass} title={text.line}>
             {text.line}
           </span>
+          <TechnicalDetail detail={text.detail} />
         </div>
       )}
       <ModeCell chatId={chatId} view={view} />

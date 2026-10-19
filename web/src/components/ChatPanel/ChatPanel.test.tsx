@@ -3,6 +3,7 @@ import { render, screen, fireEvent, renderHook, act, waitFor, within } from '@te
 import { ChatPanel } from './ChatPanel';
 import { useWorkerLogs } from '../../hooks/useWorkerLogs';
 import { formatHHMM, formatTitle } from '../../utils/chatTimestamp';
+import { BlueprintSheetContext } from '../Blueprint/sheetContext';
 import type { LogEntry } from '../../types';
 import { rawRound, roundChatEntry, roundEntry, roundReplyEntry } from '../../test-utils/roundFixtures';
 
@@ -933,6 +934,18 @@ describe('ChatPanel question rounds', () => {
     expect(screen.getByRole('textbox', { name: 'Message' })).toBeInTheDocument();
     const block = screen.getByRole('region', { name: /3 questions from the system designer/ });
     expect(within(block).queryByRole('tab', { name: /Submit/ })).not.toBeInTheDocument();
+  });
+
+  it('folds a responder round into its card on a plain-language blueprint', () => {
+    const logs = [roundEntry(1, 'round:1', rawRound({ responder: true, answers: [{ number: 1, option: 1 }] }))];
+    render(
+      <BlueprintSheetContext.Provider value={{ openArtifact: vi.fn(), slices: [], plainLanguage: true }}>
+        <ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />
+      </BlueprintSheetContext.Provider>,
+    );
+    expect(screen.queryByRole('region', { name: /3 questions from the system designer/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /from the system designer/ })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Message' })).toBeInTheDocument();
   });
 });
 

@@ -1751,6 +1751,12 @@ textarea {
 .chat-pane-blueprint-pill {
   max-width: 260px;
 }
+.chat-pane-plain-pill {
+  flex-shrink: 0;
+  background: var(--bg-green);
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--green) 60%, transparent);
+}
 /* Only the blueprint pill yields on a narrow pane; the actions keep their size. */
 .chat-pane-meta:has(.chat-pane-blueprint-pill) {
   flex-shrink: 1;
@@ -6916,6 +6922,9 @@ button.bp-seg-hit {
 }
 .bp-scale-where .bp-failed {
   color: var(--blueprint-ink-red);
+}
+.bp-scale-where .tech-detail > div {
+  max-width: 420px;
 }
 .bp-cost-wrap {
   position: relative;

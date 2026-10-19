@@ -6,6 +6,8 @@ export interface BlueprintSheetActions {
   openArtifact: (stage: string, slice: string, version?: number) => void;
   /** The blueprint's slices, so transcript rows can name theirs. */
   slices: readonly BlueprintSlice[];
+  /** The blueprint runs in plain language, so transcript rows fold technical rounds. */
+  plainLanguage?: boolean;
 }
 
 export const BlueprintSheetContext = createContext<BlueprintSheetActions | null>(null);

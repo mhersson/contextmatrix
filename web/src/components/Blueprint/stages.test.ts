@@ -218,6 +218,21 @@ describe('slice names', () => {
 });
 
 describe('an ended blueprint', () => {
+  it("carries a plain-language blueprint's technical reason apart from the plain one", () => {
+    const view = {
+      ...viewEndedAtSlicing(),
+      plain_language: true,
+      end_reason: 'The architect found nothing it could build on.',
+      end_detail: 'slicing stored no slices, so nothing could be designed',
+    };
+    const text = describeCurrent(view)!;
+    expect(text.line).toContain(view.end_reason);
+    expect(text.line).not.toContain(view.end_detail);
+    expect(text.detail).toBe(view.end_detail);
+    expect(describeCurrent(viewEndedAtSlicing())!.detail).toBeUndefined();
+    expect(describeCurrent({ ...view, end_detail: ' ' })!.detail).toBeUndefined();
+  });
+
   it('never reads finished and stands on the step that stopped it', () => {
     const view = viewEndedAtSlicing();
     expect(finished(view)).toBe(false);
