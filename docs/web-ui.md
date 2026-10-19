@@ -162,10 +162,12 @@ board. Promote-to-autonomous lives in that tab.
   themes and a dusty rose to maroon in the light ones, and the suggested option
   carries a "recommended" chip. A prompt marked as a gate keeps compact buttons
   in a row. A click sends that reply as your message, a feedback action such as
-  Reject asks for text first, and typing the reply works too. A prompt closes
-  when a reply answers it or a later prompt replaces it. It then shows a
-  one-line summary instead of buttons, and a closed non-gate prompt keeps its
-  options above the summary as a smaller list with the answering option marked.
+  Reject asks for text first, in a box labelled with the architect's question
+  when it sends one (an approval over critical findings asks why), and typing
+  the reply works too. A prompt closes when a reply answers it or a later
+  prompt replaces it. It then shows a one-line summary instead of buttons, and
+  a closed non-gate prompt keeps its options above the summary as a smaller
+  list with the answering option marked.
   A closed question's list and summary render in the normal text colour on the
   tint; gates and neutral prompts keep the muted grey. The buttons are disabled
   while the session is not live or its stream is disconnected, and prompts show

@@ -13,6 +13,31 @@ const gate: ChatPrompt = {
 };
 
 describe('PromptActions', () => {
+  it("labels the feedback box with the action's ask and keeps the default for an action without one", () => {
+    const onReply = vi.fn().mockResolvedValue(undefined);
+    const ask = 'Why approve over the critical findings?';
+    const signoff: ChatPrompt = {
+      id: 'gate:signoff:v1',
+      kind: 'gate',
+      freeText: false,
+      actions: [
+        { label: 'Approve over critical findings', reply: 'approve', feedback: true, ask, recommended: false },
+        { label: 'Reject', reply: 'reject', feedback: true, recommended: false },
+      ],
+    };
+    render(<PromptActions prompt={signoff} status="open" onReply={onReply} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reject' }));
+    expect(screen.getByRole('textbox', { name: /Reject/ })).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: ask })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve over critical findings' }));
+    const box = screen.getByRole('textbox', { name: ask });
+    fireEvent.change(box, { target: { value: 'the cache finding is a false positive' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onReply).toHaveBeenCalledWith('approve the cache finding is a false positive');
+  });
+
   it('sends the clicked reply and stays disabled once sent', async () => {
     const onReply = vi.fn().mockResolvedValue(undefined);
     render(<PromptActions prompt={gate} status="open" onReply={onReply} />);

@@ -8,6 +8,8 @@ export interface PromptAction {
   label: string;
   reply: string;
   feedback: boolean;
+  /** The architect's label for the feedback box, such as why you approve over critical findings; absent for the default label. */
+  ask?: string;
   /** The architect's suggested answer; shown as a chip. */
   recommended: boolean;
 }
@@ -70,7 +72,15 @@ function parseEnvelope(content: string): PromptEnvelope | null {
         a.label.trim() !== '' &&
         typeof a.reply === 'string' &&
         a.reply.trim() !== ''
-          ? [{ label: a.label, reply: a.reply, feedback: a.feedback === true, recommended: a.recommended === true }]
+          ? [
+              {
+                label: a.label,
+                reply: a.reply,
+                feedback: a.feedback === true,
+                recommended: a.recommended === true,
+                ...(typeof a.ask === 'string' && a.ask.trim() !== '' ? { ask: a.ask } : {}),
+              },
+            ]
           : [],
       )
     : [];
