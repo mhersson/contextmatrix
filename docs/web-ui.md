@@ -253,55 +253,59 @@ board. Promote-to-autonomous lives in that tab.
     grounding, acceptance, cards, readiness, sign-off, board) as a document.
     Long lists are tables with the row count beside each heading: the need's
     outcomes, each with its id and the quality it states, and the outcomes the
-    shared decisions or the design add; the need's assumptions and the design's
-    (when it states any) with their basis, the slices with what each delivers,
-    its projects and the slices it comes after, and their assumptions with a
-    status; each slice's acceptance criteria with their project and the manual
-    checks with their slice; the cards sheet's manual checks outside the
-    playbook order with the checks they cover; and on the sign-off the run
-    order, the assumptions (your answer, status, basis and source chips, and the
-    stage that stated each) and the manual checks after the run. Below 520px of
-    sheet width each table row stacks into a block; the sign-off's assumptions,
-    with more columns, stack below 720px. A basis chips what it rests on:
-    answers (Q1, round2.A1) blue, sources (S1) green, and stated assumptions
-    (A3) and outcomes (O1) grey. Tabs follow the current stage until you pick
-    one; a pick holds until the current stage, or the slice it runs for,
-    changes. Stages without an artifact are dimmed and stages the pack does not
-    run are hidden. The shared decisions sheet shows the decisions every slice
-    builds on as the design sheet shows a slice's, with their contracts and
-    assumptions. The design sheet heads its decisions with the projects they
-    cover; a design that holds several slices, as designs made before per-slice
-    design do, heads each slice's decisions with its id as well. A blueprint cut
-    into two or more slices runs design, grounding, acceptance and cards once
-    per slice: those four tabs sit between separators, and while one is open a
-    row of slice tabs (each slice's id and title) opens under it, joined to the
+    shared decisions or the design add; the need's assumptions and the
+    design's (when it states any) with their basis, the slices with what each
+    delivers, its projects and the slices it comes after, and their
+    assumptions with a status; each slice's acceptance criteria with their
+    project and the outcomes each proves, the manual checks with their slice
+    (and their outcomes when any check names one), and each slice's edge cases
+    with the criteria or checks that settle each or why it does not apply; the
+    cards sheet's manual checks outside the playbook order with the checks
+    they cover; and on the sign-off the run order, the assumptions (your
+    answer, status, basis and source chips, and the stage that stated each)
+    and the manual checks after the run. Below 520px of sheet width each table
+    row stacks into a block; the sign-off's assumptions, with more columns,
+    stack below 720px. A basis chips what it rests on: answers (Q1, round2.A1)
+    blue, sources (S1) green, and stated assumptions (A3) and outcomes (O1)
+    grey. Tabs follow the current stage until you pick one; a pick holds until
+    the current stage, or the slice it runs for, changes. Stages without an
+    artifact are dimmed and stages the pack does not run are hidden. The
+    shared decisions sheet shows the decisions every slice builds on as the
+    design sheet shows a slice's, with their contracts and assumptions. The
+    design sheet heads its decisions with the projects they cover; a design
+    that holds several slices, as designs made before per-slice design do,
+    heads each slice's decisions with its id as well. A blueprint cut into two
+    or more slices runs design, grounding, acceptance and cards once per
+    slice: those four tabs sit between separators, and while one is open a row
+    of slice tabs (each slice's id and title) opens under it, joined to the
     open tab by a shared shade. The chosen slice sits on the paper colour, a
-    slice waiting for you shows in the question accent, and slices without that
-    sheet yet are dimmed. Switching stage tabs keeps the chosen slice, and the
-    sheet names the slice under its title. A blueprint with one slice shows none
-    of this and no Shared tab. The title block names the sheet, its revision (a
-    picker when there are several), who drew it, who checked it and its status.
-    Checked by gives the reviewer and score, in red and ending "failed" when the
-    shown version's own review failed (a score under the pass mark or a critical
-    finding not fixed). Click it for the findings ledger: the round, the pass
-    mark, the verdict and whether it went back for a revision, then each
-    finding's id, a severity badge (critical, major or minor) and the reviewer's
-    status (open, fixed in rev N or still open in rev N); a critical finding not
-    yet fixed sits on a red wash. Beside it the builder's note shows as a claim,
-    "rev N says: ...", or else the revision the finding was sent to; only the
-    reviewer's status says a finding is fixed. An older architect's review shows
-    no round or verdict and never reads failed; its findings show as a numbered
-    list without id, severity or status. Stamps mark approved, rejected,
-    superseded and folded versions. On the newest version a dashed cloud marks
-    what changed, and Compare strikes removed words and highlights added ones.
-    At a gate a bar above the title block repeats the gate's buttons. When the
-    version at the gate has its own review, the bar also names each critical
-    finding not yet fixed, with its id, status and text, and, when it has
-    findings, a Findings (N) toggle opens the whole ledger there. While a
-    question round waits, the asking stage's sheet shows the version it owes
-    with the status Waiting on N questions (or the assumptions still undecided).
-    While a run works the sheet shows its turns, tool calls and tokens, and
-    fills in as the model writes when the model streams its draft.
+    slice waiting for you shows in the question accent, and slices without
+    that sheet yet are dimmed. Switching stage tabs keeps the chosen slice,
+    and the sheet names the slice under its title. A blueprint with one slice
+    shows none of this and no Shared tab. The title block names the sheet, its
+    revision (a picker when there are several), who drew it, who checked it
+    and its status. Checked by gives the reviewer and score, in red and ending
+    "failed" when the shown version's own review failed (a score under the
+    pass mark or a critical finding not fixed). Click it for the findings
+    ledger: the round, the pass mark, the verdict and whether it went back for
+    a revision, then each finding's id, a severity badge (critical, major or
+    minor) and the reviewer's status (open, fixed in rev N or still open in
+    rev N); a critical finding not yet fixed sits on a red wash. Beside it the
+    builder's note shows as a claim, "rev N says: ...", or else the revision
+    the finding was sent to; only the reviewer's status says a finding is
+    fixed. An older architect's review shows no round or verdict and never
+    reads failed; its findings show as a numbered list without id, severity or
+    status. Stamps mark approved, rejected, superseded and folded versions. On
+    the newest version a dashed cloud marks what changed, and Compare strikes
+    removed words and highlights added ones. At a gate a bar above the title
+    block repeats the gate's buttons. When the version at the gate has its own
+    review, the bar also names each critical finding not yet fixed, with its
+    id, status and text, and, when it has findings, a Findings (N) toggle
+    opens the whole ledger there. While a question round waits, the asking
+    stage's sheet shows the version it owes with the status Waiting on N
+    questions (or the assumptions still undecided). While a run works the
+    sheet shows its turns, tool calls and tokens, and fills in as the model
+    writes when the model streams its draft.
   - From 760px pane width the sheet sits beside the transcript at 46% with a
     draggable divider (320px minimum each side). Narrower panes show an edge
     strip that opens the sheet over the transcript; on a phone a Sheet

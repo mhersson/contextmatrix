@@ -267,6 +267,57 @@ describe('AcceptanceSheet revision clouds', () => {
   });
 });
 
+describe('AcceptanceSheet traces', () => {
+  const sl1 = {
+    id: 'SL1',
+    criteria: [
+      { id: 'AC1', project: 'homelander', text: 'The body has several lines.', outcomes: ['O2'] },
+      { id: 'AC2', project: 'homelander', text: 'Keys keep struct order.', outcomes: ['O1', 'O2'] },
+    ],
+    manual: [{ id: 'MC1', text: 'curl prints one key per line.', outcomes: ['O2'] }],
+    sweep: [
+      { condition: 'Empty or missing input', settled_by: ['AC1', 'MC1'] },
+      { condition: 'Concurrency', not_applicable: 'The handler holds no shared state.' },
+    ],
+  };
+  const traced = (slice: object = sl1, version = 1) => ({ ...ACCEPTANCE_V1, version, data: { slices: [slice] } });
+
+  it('names the outcomes each criterion and manual check proves', () => {
+    render(<AcceptanceSheet artifact={traced()} previous={null} mode="plain" view={view} />);
+    expect(cellsOf('Keys keep struct order.')).toEqual(['AC2', 'Keys keep struct order.', 'homelander', 'O1 O2']);
+    expect(cellsOf('curl prints one key per line.')).toEqual(['MC1', 'SL1', 'curl prints one key per line.', 'O2']);
+  });
+
+  it('adds the outcomes column only to a table whose rows cite one', () => {
+    render(<AcceptanceSheet artifact={traced({ ...sl1, manual: [{ id: 'MC1', text: 'curl prints one key per line.' }] })} previous={null} mode="plain" view={view} />);
+    const criteria = screen.getByRole('heading', { name: /^SL1/ }).closest('section')!;
+    const manual = screen.getByRole('heading', { name: /^Manual checks/ }).closest('section')!;
+    expect(within(criteria).getByRole('columnheader', { name: 'Outcomes' })).toBeInTheDocument();
+    expect(within(manual).queryByRole('columnheader', { name: 'Outcomes' })).not.toBeInTheDocument();
+  });
+
+  it("lists the slice's edge cases with what settles each or why it does not apply", () => {
+    render(<AcceptanceSheet artifact={traced()} previous={null} mode="plain" view={view} />);
+    const sweep = screen.getByRole('heading', { name: /^Edge cases/ }).closest('section')!;
+    expect(within(sweep).getAllByRole('row')).toHaveLength(3);
+    expect(cellsOf('Empty or missing input')).toEqual(['Empty or missing input', 'AC1 MC1']);
+    expect(cellsOf('Concurrency')[1]).toContain('The handler holds no shared state.');
+  });
+
+  it('shows no outcomes column or edge cases for a version stored before them', () => {
+    render(<AcceptanceSheet artifact={ACCEPTANCE_V1} previous={null} mode="plain" view={view} />);
+    expect(screen.queryByRole('columnheader', { name: 'Outcomes' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /^Edge cases/ })).not.toBeInTheDocument();
+  });
+
+  it('clouds the edge case that changed and no other', () => {
+    const previous = traced({ ...sl1, sweep: [sl1.sweep[0], { condition: 'Concurrency', settled_by: ['AC2'] }] });
+    render(<AcceptanceSheet artifact={traced(sl1, 2)} previous={previous} mode="clouds" view={view} />);
+    expect(clouded('Concurrency')).toBe(true);
+    expect(clouded('Empty or missing input')).toBe(false);
+  });
+});
+
 describe('SharedDecisionsSheet', () => {
   it('renders the shared decisions, contracts and assumptions as one unsliced section', () => {
     render(<SharedDecisionsSheet artifact={SHARED_V1} previous={null} mode="plain" view={view} />);

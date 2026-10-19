@@ -3,6 +3,7 @@ import {
   assumptionChip,
   basisRefs,
   httpUrl,
+  parseAcceptance,
   parseAssumptions,
   parseBoard,
   parseCards,
@@ -14,9 +15,29 @@ import {
   stageOutcomes,
   withoutTags,
 } from './artifactData';
-import { BOARD_V1, CARDS_V1, GROUNDING_V1, SHARED_V1, SHARED_V2 } from '../../test-utils/blueprintFixtures';
+import { ACCEPTANCE_V1, BOARD_V1, CARDS_V1, GROUNDING_V1, SHARED_V1, SHARED_V2 } from '../../test-utils/blueprintFixtures';
 
 describe('artifact data', () => {
+  it("reads a criterion's and a manual check's outcomes and the slice's edge-case sweep", () => {
+    const [slice] = parseAcceptance({
+      slices: [
+        {
+          id: 'SL1',
+          criteria: [{ id: 'AC1', project: 'p', text: 't', outcomes: ['O1', 2] }],
+          manual: [{ id: 'MC1', text: 'm' }],
+          sweep: [{ condition: 'Limits', settled_by: ['AC1'] }, { condition: 'Permissions', not_applicable: 'No auth.' }, { settled_by: ['AC1'] }],
+        },
+      ],
+    })!;
+    expect(slice.criteria[0].outcomes).toEqual(['O1']);
+    expect(slice.manual[0].outcomes).toEqual([]);
+    expect(slice.sweep).toEqual([
+      { condition: 'Limits', settledBy: ['AC1'], notApplicable: '' },
+      { condition: 'Permissions', settledBy: [], notApplicable: 'No auth.' },
+    ]);
+    expect(parseAcceptance(ACCEPTANCE_V1.data)![0].sweep).toEqual([]);
+  });
+
   it('reads assumptions as sentences or objects and skips junk', () => {
     const none = { id: '', basis: '', status: '', evidence: '', answer: '', stage: '' };
     expect(parseAssumptions(['A.', { text: 'B.', basis: 'Q1' }, 7, { basis: 'Q2' }, ''])).toEqual([

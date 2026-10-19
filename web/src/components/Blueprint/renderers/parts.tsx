@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import { BasisChips } from '../Chips';
 import type { Assumption, Outcome } from '../artifactData';
 import { changedById } from '../revisions';
@@ -6,6 +7,20 @@ import { TableSection, type Column } from './TableSection';
 
 export function IdPill({ id }: { id: string }) {
   return <span className="bp-id">{id}</span>;
+}
+
+/** Ids as pills; the spaces between them let a note cell wrap, and a list cell's flex row drops them. */
+export function IdList({ ids }: { ids: readonly string[] }) {
+  return (
+    <>
+      {ids.map((id, i) => (
+        <Fragment key={`${i}:${id}`}>
+          {i > 0 && ' '}
+          <IdPill id={id} />
+        </Fragment>
+      ))}
+    </>
+  );
 }
 
 /** An assumption's id, or its place on the sheet when the stage gave it none. */

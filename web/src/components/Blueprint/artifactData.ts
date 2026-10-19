@@ -238,6 +238,8 @@ export interface Criterion {
   id: string;
   project: string;
   text: string;
+  /** The outcomes the criterion proves (O1, ...); none before outcomes existed. */
+  outcomes: string[];
 }
 
 export interface ManualCheck {
@@ -255,10 +257,25 @@ export function labelsById(cards: { id: string; title: string }[], manual: Manua
   ]);
 }
 
+export interface AcceptanceCheck extends ManualCheck {
+  /** The outcomes the check proves, when it names any. */
+  outcomes: string[];
+}
+
+/** One condition of the pack's edge-case list: settled by this slice's criteria or checks, or not applicable. */
+export interface SweepEntry {
+  condition: string;
+  settledBy: string[];
+  /** Why the condition does not apply; empty when it is settled. */
+  notApplicable: string;
+}
+
 export interface AcceptanceSlice {
   id: string;
   criteria: Criterion[];
-  manual: ManualCheck[];
+  manual: AcceptanceCheck[];
+  /** One entry per edge-case condition; none before the sweep existed. */
+  sweep: SweepEntry[];
 }
 
 function parseManual(v: unknown): ManualCheck[] {
@@ -269,8 +286,11 @@ export function parseAcceptance(data: unknown): AcceptanceSlice[] | null {
   if (!isRecord(data)) return null;
   return records(data.slices).map((s) => ({
     id: str(s.id),
-    criteria: records(s.criteria).map((c) => ({ id: str(c.id), project: str(c.project), text: str(c.text) })),
-    manual: parseManual(s.manual),
+    criteria: records(s.criteria).map((c) => ({ id: str(c.id), project: str(c.project), text: str(c.text), outcomes: strs(c.outcomes) })),
+    manual: records(s.manual).map((m) => ({ id: str(m.id), text: str(m.text), criteria: strs(m.criteria), outcomes: strs(m.outcomes) })),
+    sweep: records(s.sweep).flatMap((e): SweepEntry[] =>
+      str(e.condition) ? [{ condition: str(e.condition), settledBy: strs(e.settled_by), notApplicable: str(e.not_applicable) }] : [],
+    ),
   }));
 }
 
