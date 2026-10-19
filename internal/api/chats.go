@@ -846,6 +846,36 @@ func (h *chatHandlers) setCostCap(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sess)
 }
 
+// setMode switches a blueprint's mode by sending the architect a `mode`
+// command.
+func (h *chatHandlers) setMode(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Mode *string `json:"mode"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+
+	if body.Mode == nil {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "mode is required", "")
+
+		return
+	}
+
+	if _, ok := h.ownedSession(w, r); !ok {
+		return
+	}
+
+	sess, err := h.mgr.SetMode(r.Context(), r.PathValue("id"), *body.Mode)
+	if err != nil {
+		handleChatError(w, r, err)
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, sess)
+}
+
 func (h *chatHandlers) streamChat(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
