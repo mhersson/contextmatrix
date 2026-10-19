@@ -67,6 +67,10 @@ type UpdateProjectInput struct {
 	//   nil pointer   - preserve the existing card_defaults block
 	//   non-nil       - replace it wholesale, then normalize (built-ins → nil)
 	CardDefaults *board.CardDefaults
+	// POC uses pointer-presence semantics:
+	//   nil pointer   - preserve the existing flag (MCP update_project never sets it)
+	//   non-nil       - set it
+	POC *bool
 }
 
 // RemoteExecutionUpdate carries per-field edits to a project's remote-execution
@@ -464,6 +468,10 @@ func (s *CardService) updateProjectLocked(
 	// here we only drop built-in values so .board.yaml stays clean.
 	if input.CardDefaults != nil {
 		cfg.CardDefaults = input.CardDefaults.Normalize()
+	}
+
+	if input.POC != nil {
+		cfg.POC = *input.POC
 	}
 
 	// SaveProject validates and persists

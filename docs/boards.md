@@ -94,6 +94,7 @@ card_defaults:                     # what a new card's Automation rail starts wi
   mob_phases: [review]
   create_pr: false                 # omit to keep the built-in true
   await_ci: true
+poc: true                          # proof of concept: lighter review and test bar for agent runs
 favorites:                         # per-tier model preferences, merged with config.yaml
   complex: [anthropic/claude-opus-4.8]
   critical:

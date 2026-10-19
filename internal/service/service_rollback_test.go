@@ -554,6 +554,36 @@ func TestUpdateProject_RollbackOnCommitFailure(t *testing.T) {
 	assert.Positive(t, calls, "failing committer should have been called")
 }
 
+// TestUpdateProject_RollbackRestoresPOC pins that the pre-update snapshot
+// (copyProjectConfig) carries poc, so a failed commit leaves the flag as it was.
+func TestUpdateProject_RollbackRestoresPOC(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	sentinel := errors.New("commit boom")
+	failing := &failingCommitter{err: sentinel}
+	failQueue := gitops.NewCommitQueueWithCommitter(failing, 0)
+
+	t.Cleanup(func() { _ = failQueue.Close(context.Background()) })
+	svc.SetCommitQueue(failQueue)
+
+	_, err := svc.UpdateProject(ctx, "test-project", pocBaseInput(new(true)))
+	require.ErrorIs(t, err, sentinel)
+
+	cached, err := svc.GetProject(ctx, "test-project")
+	require.NoError(t, err)
+	assert.False(t, cached.POC, "a failed commit must roll poc back in the cache")
+
+	fresh, err := storage.NewFilesystemStore(svc.Repos()[0].Dir)
+	require.NoError(t, err)
+
+	onDisk, err := fresh.GetProject(ctx, "test-project")
+	require.NoError(t, err)
+	assert.False(t, onDisk.POC, "a failed commit must roll poc back on disk")
+}
+
 // TestUpdateProject_HappyPathNoRollback sanity-checks that a successful
 // UpdateProject commit does not trip the rollback path.
 func TestUpdateProject_HappyPathNoRollback(t *testing.T) {
