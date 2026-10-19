@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseMarkerEntry } from './markers';
+import { isDecisionEntry, parseMarkerEntry } from './markers';
 import type { LogEntry } from '../../types';
 
 function row(content: string, kind = 'marker', type: LogEntry['type'] = 'text'): LogEntry {
@@ -35,6 +35,15 @@ describe('parseMarkerEntry', () => {
     expect(parseMarkerEntry(row('{}', 'prompt'))).toBeNull();
     const r = row(JSON.stringify({ text: 't', marker: { kind: 'stage', stage: 'intake' } }));
     expect(parseMarkerEntry(r)).toBe(parseMarkerEntry(r));
+  });
+
+  it('reads a decision the architect made itself, and tells it from other markers', () => {
+    const decided = row(JSON.stringify({ text: 'Sign-off approved automatically.', marker: { kind: 'decision', stage: 'signoff', version: 1 } }), 'marker', 'system');
+    expect(parseMarkerEntry(decided)?.marker?.kind).toBe('decision');
+    expect(isDecisionEntry(decided)).toBe(true);
+    expect(isDecisionEntry(row(JSON.stringify({ text: 't', marker: { kind: 'stage', stage: 'intake' } })))).toBe(false);
+    expect(isDecisionEntry(row(JSON.stringify({ text: 't', marker: { kind: 'decision', stage: '' } })))).toBe(false);
+    expect(isDecisionEntry(row('approve', '', 'user'))).toBe(false);
   });
 
   it('reads the slice a marker belongs to', () => {

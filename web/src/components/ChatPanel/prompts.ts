@@ -1,6 +1,7 @@
 import type { LogEntry } from '../../types';
 import { parseRound, type Round } from '../QuestionRound/parseRound';
 import { COMMAND_KIND } from '../QuestionRound/rounds';
+import { isDecisionEntry } from '../Blueprint/markers';
 
 /** One reply button on an architect prompt. A click sends `reply`; a
  *  feedback action asks for text first and sends `reply` + space + text. */
@@ -124,7 +125,8 @@ export function matchReply(prompt: ChatPrompt, content: string): PromptAction | 
 
 /**
  * Every prompt's state, keyed by its row. A later user row answers a prompt
- * when it matches an action (any row does on a free-text prompt); a later
+ * when it matches an action (any row does on a free-text prompt), and so does
+ * the architect's decision row when it decided the prompt itself; a later
  * prompt supersedes one still unanswered. Only the last unanswered prompt
  * can be open, and only while `live` (the session takes sends and the stream
  * is connected); otherwise it is paused.
@@ -143,6 +145,11 @@ export function derivePromptStates(logs: readonly LogEntry[], live: boolean): Ma
     if (env) {
       if (pending) states.set(pending.entry, { status: 'superseded' });
       pending = { entry: e, prompt: env.prompt };
+      continue;
+    }
+    if (pending && isDecisionEntry(e)) {
+      states.set(pending.entry, { status: 'answered', label: null });
+      pending = null;
       continue;
     }
     if (pending && e.type === 'user' && e.kind !== COMMAND_KIND) {

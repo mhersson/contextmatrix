@@ -605,6 +605,22 @@ describe('ChatPanel architect prompts', () => {
     expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled();
   });
 
+  it("closes a prompt the architect's decision row answers, and shows the decision line", () => {
+    const decided: LogEntry = {
+      ts: '2026-05-13T10:00:01Z',
+      card_id: '',
+      type: 'system',
+      kind: 'marker',
+      seq: 2,
+      content: JSON.stringify({ text: 'Sign-off approved automatically.', marker: { kind: 'decision', stage: 'signoff', version: 2 } }),
+    };
+    render(<ChatPanel logs={[promptRow(1), decided]} onSend={vi.fn()} sendDisabled={false} promptsLive />);
+
+    expect(screen.queryByRole('group', { name: 'Reply options' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('prompt-summary')).toBeInTheDocument();
+    expect(screen.getByText('Sign-off approved automatically.')).toBeInTheDocument();
+  });
+
   it('keeps prompts visible with the Text filter off', async () => {
     render(<ChatPanel logs={[promptRow(1)]} onSend={vi.fn()} sendDisabled={false} promptsLive />);
 

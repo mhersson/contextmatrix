@@ -157,19 +157,21 @@ board. Promote-to-autonomous lives in that tab.
   where a chat's header shows CM's estimate from its token counts. Once the
   view loads, the header's mode is the view's too, so a switch the architect
   refused never shows there. The admin Chats page lists every session's kind,
-  mode and cap as the session row holds them. The architect's questions
-  and gates show reply buttons under the message. A question's options are
-  stacked full-width buttons showing the whole option text. The question bubble
-  is tinted, with a 5px left bar and accent-bordered options in pink in the dark
+  mode and cap as the session row holds them. The architect's questions and
+  gates show reply buttons under the message. A question's options are stacked
+  full-width buttons showing the whole option text. The question bubble is
+  tinted, with a 5px left bar and accent-bordered options in pink in the dark
   themes and a dusty rose to maroon in the light ones, and the suggested option
   carries a "recommended" chip. A prompt marked as a gate keeps compact buttons
   in a row. A click sends that reply as your message, a feedback action such as
   Reject asks for text first, in a box labelled with the architect's question
   when it sends one (an approval over critical findings asks why), and typing
-  the reply works too. A prompt closes when a reply answers it or a later
-  prompt replaces it. It then shows a one-line summary instead of buttons, and
-  a closed non-gate prompt keeps its options above the summary as a smaller
-  list with the answering option marked.
+  the reply works too. A prompt closes when a reply answers it, when the
+  architect's decision line answers it (it decided the prompt itself, as at a
+  waiting sign-off after a switch to Auto + emit or Yolo), or when a later
+  prompt replaces it. It then shows a one-line summary instead of buttons, and a
+  closed non-gate prompt keeps its options above the summary as a smaller list
+  with the answering option marked.
   A closed question's list and summary render in the normal text colour on the
   tint; gates and neutral prompts keep the muted grey. The buttons are disabled
   while the session is not live or its stream is disconnected, and prompts show

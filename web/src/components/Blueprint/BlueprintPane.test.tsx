@@ -313,6 +313,19 @@ describe('BlueprintPane', () => {
     expect(screen.queryByRole('region', { name: 'Gate decision' })).not.toBeInTheDocument();
   });
 
+  it('drops the gate bar once the architect decides the gate itself, before the view catches up', () => {
+    const decided: LogEntry = {
+      ts: '2026-10-17T10:01:00Z',
+      card_id: '',
+      type: 'system',
+      kind: 'marker',
+      seq: 10,
+      content: JSON.stringify({ text: 'Design rev 2 approved automatically.', marker: { kind: 'decision', stage: 'solution_design', version: 2 } }),
+    };
+    renderPane(ready(), { logs: [gateRow, decided] });
+    expect(screen.queryByRole('region', { name: 'Gate decision' })).not.toBeInTheDocument();
+  });
+
   it('opens the artifact a finished scale-bar segment names', async () => {
     renderPane(ready());
     fireEvent.click(screen.getByRole('button', { name: /^Open Need/ }));
