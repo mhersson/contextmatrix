@@ -257,7 +257,9 @@ board. Promote-to-autonomous lives in that tab.
     Stages without an artifact are dimmed and stages the pack does not run are
     hidden. The shared decisions sheet shows the decisions every slice builds
     on as the design sheet shows a slice's, with their contracts and
-    assumptions.
+    assumptions. The design sheet heads its decisions with the projects they
+    cover; a design that holds several slices, as designs made before per-slice
+    design do, heads each slice's decisions with its id as well.
     A blueprint cut into two or more slices runs design, grounding,
     acceptance and cards once per slice: those four tabs sit between
     separators, and while one is open a row of slice tabs (each slice's id
