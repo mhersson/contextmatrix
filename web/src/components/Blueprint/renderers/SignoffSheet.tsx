@@ -2,7 +2,7 @@ import { BodyMarkdown } from '../BodyMarkdown';
 import { BasisChips, Chip, StatusChip } from '../Chips';
 import { parseSignoff, sourceTags, withoutTags, type Assumption, type ManualCheck, type SignoffCard } from '../artifactData';
 import { stageText } from '../stages';
-import { AssumptionNumber, IdPill, TextList } from './parts';
+import { AssumptionNumber, CrossTable, IdPill, TextList } from './parts';
 import { assumptionKey, numbered, type NumberedAssumption } from './rows';
 import { TableSection, type Column } from './TableSection';
 import type { RendererProps } from './types';
@@ -77,6 +77,12 @@ export function SignoffSheet({ artifact }: RendererProps) {
   );
   return (
     <>
+      <CrossTable items={data.cross} version={artifact.version} />
+      {data.overrideReason && (
+        <p className="bp-override" role="note" aria-label="Override">
+          Approved over critical findings: {data.overrideReason}
+        </p>
+      )}
       <TableSection
         title="Run order"
         sub={data.cards.length > 1 && data.title ? `as playbook ${data.title}` : undefined}

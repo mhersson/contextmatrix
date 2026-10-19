@@ -2,12 +2,14 @@ import { describe, it, expect } from 'vitest';
 import {
   assumptionChip,
   basisRefs,
+  crossFindings,
   httpUrl,
   parseAcceptance,
   parseAssumptions,
   parseBoard,
   parseCards,
   parseGrounding,
+  parseSignoff,
   parseSharedDecisions,
   parseSlices,
   refTone,
@@ -15,7 +17,7 @@ import {
   stageOutcomes,
   withoutTags,
 } from './artifactData';
-import { ACCEPTANCE_V1, BOARD_V1, CARDS_V1, GROUNDING_V1, SHARED_V1, SHARED_V2 } from '../../test-utils/blueprintFixtures';
+import { ACCEPTANCE_V1, BOARD_V1, CARDS_V1, GROUNDING_V1, SHARED_V1, SHARED_V2, SIGNOFF_V1 } from '../../test-utils/blueprintFixtures';
 
 describe('artifact data', () => {
   it("reads a criterion's and a manual check's outcomes and the slice's edge-case sweep", () => {
@@ -148,5 +150,28 @@ describe('outcomes and basis references', () => {
 
   it('tones assumptions and outcomes apart from answers and sources', () => {
     expect(['A3', 'O2', 'Q1', 'round2.A1', 'S3'].map(refTone)).toEqual(['grey', 'grey', 'blue', 'blue', 'green']);
+  });
+});
+
+describe('findings across the blueprint', () => {
+  it('reads them critical first, then major, minor and any other severity, and skips junk', () => {
+    const cross = [
+      { id: 'X1', severity: 'minor', text: 'A3 and A7 say the same thing.', refs: ['A3', 'A7', 4] },
+      { id: 'X2', severity: 'constructor', text: 'Odd.' },
+      { id: 'X3', severity: 'critical', text: 'DEC2 keeps field order but D3 sorts keys.', refs: ['DEC2', 'D3'] },
+      { id: 'X4', severity: 'major', text: 'No criterion proves O2.', refs: ['O2'] },
+      { id: 'X5', severity: 'major' },
+    ];
+    const found = crossFindings({ cross });
+    expect(found.map((f) => f.id)).toEqual(['X3', 'X4', 'X1', 'X2']);
+    expect(found[2].refs).toEqual(['A3', 'A7']);
+    expect(crossFindings({ cards: [] })).toEqual([]);
+    expect(crossFindings('nope')).toEqual([]);
+  });
+
+  it("reads the sign-off's findings and override reason, none on an older sign-off", () => {
+    const data = { ...(SIGNOFF_V1.data as object), cross: [{ id: 'X1', severity: 'critical', text: 'T.' }], override_reason: 'False positive.' };
+    expect(parseSignoff(data)).toMatchObject({ overrideReason: 'False positive.', cross: [{ id: 'X1', severity: 'critical', text: 'T.', refs: [] }] });
+    expect(parseSignoff(SIGNOFF_V1.data)).toMatchObject({ overrideReason: '', cross: [] });
   });
 });

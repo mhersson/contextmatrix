@@ -261,14 +261,20 @@ board. Promote-to-autonomous lives in that tab.
     (and their outcomes when any check names one), and each slice's edge cases
     with the criteria or checks that settle each or why it does not apply; the
     cards sheet's manual checks outside the playbook order with the checks
-    they cover; and on the sign-off the run order, the assumptions (your
-    answer, status, basis and source chips, and the stage that stated each)
-    and the manual checks after the run. Below 520px of sheet width each table
-    row stacks into a block; the sign-off's assumptions, with more columns,
-    stack below 720px. A basis chips what it rests on: answers (Q1, round2.A1)
-    blue, sources (S1) green, and stated assumptions (A3) and outcomes (O1)
-    grey. Tabs follow the current stage until you pick one; a pick holds until
-    the current stage, or the slice it runs for, changes. Stages without an
+    they cover; on the readiness sheet the problems found across the blueprint
+    (between decisions, contracts, cards and assumptions), each with its id,
+    severity, finding and the ids it names, critical first, above the cards; and
+    on the sign-off the same table at the top, a note with your reason when you
+    approved over a critical finding, the run order, the assumptions (your
+    answer, status, basis and source chips, and the stage that stated each) and
+    the manual checks after the run. A version stored before the architect
+    recorded outcomes, edge cases or findings across the blueprint shows none of
+    those tables or columns. Below 520px of sheet width each table row stacks
+    into a block; the sign-off's assumptions, with more columns, stack below
+    720px. A basis chips what it rests on: answers (Q1, round2.A1) blue, sources
+    (S1) green, and stated assumptions (A3) and outcomes (O1) grey. Tabs follow
+    the current stage until you pick one; a pick holds until the current
+    stage, or the slice it runs for, changes. Stages without an
     artifact are dimmed and stages the pack does not run are hidden. The
     shared decisions sheet shows the decisions every slice builds on as the
     design sheet shows a slice's, with their contracts and assumptions. The

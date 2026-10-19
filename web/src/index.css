@@ -7515,7 +7515,8 @@ button.bp-seg-hit {
     opacity: 0;
   }
 }
-.bp-refused {
+.bp-refused,
+.bp-override {
   padding: 6px 10px;
   border-radius: 4px;
   background: var(--bg-red);

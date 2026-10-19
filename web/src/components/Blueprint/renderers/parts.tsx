@@ -1,6 +1,7 @@
 import { Fragment } from 'react';
 import { BasisChips } from '../Chips';
-import type { Assumption, Outcome } from '../artifactData';
+import type { Assumption, CrossFinding, Outcome } from '../artifactData';
+import { severityOf } from '../ledger';
 import { changedById } from '../revisions';
 import { assumptionKey, changedAssumptions, numbered, type NumberedAssumption } from './rows';
 import { TableSection, type Column } from './TableSection';
@@ -91,6 +92,39 @@ export function OutcomesTable({ items, previous, version }: OutcomesTableProps) 
       rows={items}
       rowKey={(o, i) => o.id || `#${i}`}
       changed={previous ? changedById(previous, items) : undefined}
+      version={version}
+    />
+  );
+}
+
+function SeverityPill({ severity }: { severity: string }) {
+  const s = severityOf({ severity, text: '' });
+  return s && <span className={`bp-sev${s.level ? ` bp-sev--${s.level}` : ''}`}>{s.label}</span>;
+}
+
+const CROSS_COLUMNS: Column<CrossFinding>[] = [
+  { label: 'Id', kind: 'id', cell: (f) => (f.id ? <IdPill id={f.id} /> : null) },
+  { label: 'Severity', kind: 'status', cell: (f) => <SeverityPill severity={f.severity} /> },
+  { label: 'Finding', kind: 'long', cell: (f) => f.text },
+  { label: 'Refs', kind: 'list', cell: (f) => (f.refs.length > 0 ? <IdList ids={f.refs} /> : null) },
+];
+
+interface CrossTableProps {
+  items: CrossFinding[];
+  /** Ids of the findings new or changed since the previous version, when its changes are clouded. */
+  changed?: ReadonlySet<string>;
+  version: number;
+}
+
+/** Problems between artifacts, critical first; nothing for a version stored before readiness judged the whole blueprint. */
+export function CrossTable({ items, changed, version }: CrossTableProps) {
+  return (
+    <TableSection
+      title="Across the blueprint"
+      columns={CROSS_COLUMNS}
+      rows={items}
+      rowKey={(f, i) => f.id || `#${i}`}
+      changed={changed}
       version={version}
     />
   );

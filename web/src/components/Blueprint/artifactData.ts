@@ -346,6 +346,33 @@ export function parseReadiness(data: unknown): ReadinessCard[] | null {
   return records(data.cards).map((c) => ({ id: str(c.id), ready: c.ready === true, findings: strs(c.findings) }));
 }
 
+export interface CrossFinding {
+  id: string;
+  /** critical, major or minor; any other value shows neutrally. */
+  severity: string;
+  text: string;
+  /** The ids the finding names: decisions, criteria, cards, assumptions, outcomes or slices. */
+  refs: string[];
+}
+
+// A Map, so a severity named after an Object prototype key still ranks last.
+const SEVERITY_RANK = new Map([
+  ['critical', 0],
+  ['major', 1],
+  ['minor', 2],
+]);
+
+/** Problems between artifacts, critical first; none on a version stored before readiness judged the whole blueprint. */
+export function crossFindings(data: unknown): CrossFinding[] {
+  if (!isRecord(data)) return [];
+  const rank = (f: CrossFinding) => SEVERITY_RANK.get(f.severity) ?? SEVERITY_RANK.size;
+  return records(data.cross)
+    .flatMap((f): CrossFinding[] =>
+      str(f.text) ? [{ id: str(f.id), severity: str(f.severity), text: str(f.text), refs: strs(f.refs) }] : [],
+    )
+    .sort((a, b) => rank(a) - rank(b));
+}
+
 export interface SignoffCard {
   id: string;
   project: string;
@@ -370,6 +397,10 @@ export interface SignoffData {
   assumptionsProse: string;
   /** Set only when the preflight could not run. */
   preflightError: string;
+  /** The judged readiness version's findings across the blueprint, critical first. */
+  cross: CrossFinding[];
+  /** Your reason for approving over a critical finding; set once approved. */
+  overrideReason: string;
 }
 
 export function parseSignoff(data: unknown): SignoffData | null {
@@ -393,6 +424,8 @@ export function parseSignoff(data: unknown): SignoffData | null {
     assumptions: parseAssumptions(data.assumptions),
     assumptionsProse: str(data.assumptions),
     preflightError: str(data.preflight_error),
+    cross: crossFindings(data),
+    overrideReason: str(data.override_reason),
   };
 }
 

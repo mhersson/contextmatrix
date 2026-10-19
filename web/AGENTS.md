@@ -100,7 +100,7 @@ keeps the hamburger and a way back to the board.
   (`.bp-pill--<type|priority>`): `--fg` text on the tone's `--bg-<tone>`
   tint with a ring in the tone (grey chip: `--bg2`, no ring); tone-coloured
   text misses 4.5:1 on the tints in the light palettes and Everforest dark.
-- Review finding severity (blueprint review popover and gate bar):
+- Review finding severity (blueprint review popover, gate bar, and the readiness and sign-off findings across the blueprint):
   critical = a `--red` ring, major = an `--orange` ring, both around `--fg`
   text; minor = `--blueprint-quiet-strong` text (`--fg` in the gate bar) in a
   `--grey1` ring; a critical finding not yet fixed sits on `--bg-red` with a
