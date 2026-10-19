@@ -814,7 +814,7 @@ declare the model for spawned sub-agents. Haiku is not used.
 | Planning         | `opus`                                                                       | `plan-draft` sub-agent                                   | Decomposition is decision work; isolation pays the drafting tokens once                         |
 | Subtask creation | Orchestrator                                                                 | Inline `create_card` calls                               | Trivial work; a sub-agent costs more than it saves                                              |
 | Execution        | `sonnet`                                                                     | Sub-agent per subtask                                    | Fresh context per task and parallel execution                                                   |
-| Review           | Orchestrator synthesizes; specialists `sonnet`, `opus` for large change sets | Inline via `start_review`; three `Agent` specialists     | Only the top-level session can spawn the specialists; findings stay in context for the decision |
+| Review           | Orchestrator synthesizes; specialists `sonnet`, `opus` for large change sets | Inline via `start_review`; `Agent` specialists           | Only the top-level session can spawn the specialists; findings stay in context for the decision |
 | Documentation    | `sonnet`                                                                     | Sub-agent                                                | Context isolation late in the run                                                               |
 
 `create-plan` declares `sonnet`, so `get_skill` returns `inline: true` for a

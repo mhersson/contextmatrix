@@ -147,9 +147,9 @@ after a switch-off gets the full workflow.
   unfiltered fix requests. Its test scope still follows the flag.
 - **Unchanged.** Both verify gates, models and tiers, budget, turn limits,
   the review attempts cap, PR gates, the document phase and Best-of-N.
-- **Local runs.** `run-autonomous` and `create-plan` read `poc` from
-  `get_task_context`; `review-task` then runs one generic reviewer on the same
-  bar unless the card has mob review.
+- **Local runs.** `review-task`, which `run-autonomous` and `create-plan` run
+  inline, reads `poc` from `get_task_context` and runs one generic reviewer on
+  the same bar unless the card has mob review.
 
 ## PR gates
 

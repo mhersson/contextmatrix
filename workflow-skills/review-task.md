@@ -123,12 +123,14 @@ Specialist hard constraints:
 - No `claim_card`, `release_card`, `update_card`, or `transition_card`.
 - No `REVIEW_FINDINGS` print.
 - Stay strictly within your topic. Do not opine outside your specialty - the
-  synthesizer handles cross-cutting concerns.
+  synthesizer handles cross-cutting concerns (POC mode: Specialist P owns
+  them).
 - Commit status is not a review concern; do not flag uncommitted files.
 - Every finding must cite a file in the change set.
 - Severity must follow the 4-tier scale below. Use Nits sparingly - only for
   pure polish (spelling, formatting, naming preference) with no functional or
-  design impact. When uncertain between Minor and Nit, choose Minor.
+  design impact. When uncertain between Minor and Nit, choose Minor. (POC mode:
+  Specialist P's Nit list overrides this.)
 - Never run a command that discards or rewrites working-tree state -
   `git checkout --`, `git restore`, `git stash`, `git reset`, `git clean`. The
   tree holds uncommitted work from every sub-agent in the round.
@@ -359,6 +361,7 @@ Do **not** call `release_card`. Do **not** call `transition_card`.
 - MCP tools only - never curl, wget, or HTTP.
 - Categorize severity honestly. Critical = broken or unsafe. Important = real
   design or correctness defect with non-trivial impact. Minor = a real defect
-  with limited blast radius. Nits = pure polish only. Not everything is
-  Critical, and not everything below Critical is a Nit.
+  with limited blast radius. Nits = pure polish only (POC mode: Specialist P's
+  Nit list overrides). Not everything is Critical, and not everything below
+  Critical is a Nit.
 - Commit status is never a review issue. Pass this into every specialist prompt.
