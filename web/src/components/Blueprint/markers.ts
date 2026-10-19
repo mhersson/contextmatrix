@@ -9,7 +9,7 @@ export interface MarkerRow {
 
 const rows = new WeakMap<LogEntry, MarkerRow>();
 
-const KINDS: ReadonlySet<unknown> = new Set(['stage', 'artifact', 'review']);
+const KINDS: ReadonlySet<unknown> = new Set(['stage', 'artifact', 'review', 'decision']);
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -49,4 +49,9 @@ function parseEnvelope(content: string): MarkerRow {
       note: typeof m.note === 'string' && m.note !== '' ? m.note : undefined,
     },
   };
+}
+
+/** A row logged when the architect decided an open prompt itself, as at a sign-off after a mode switch; it answers that prompt. */
+export function isDecisionEntry(entry: LogEntry): boolean {
+  return parseMarkerEntry(entry)?.marker?.kind === 'decision';
 }

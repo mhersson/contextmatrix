@@ -929,3 +929,28 @@ func TestUpdateSessionCostCap_WritesOnlyTheCap(t *testing.T) {
 
 	require.ErrorIs(t, s.UpdateSessionCostCap(ctx, "missing", 1), chat.ErrSessionNotFound)
 }
+
+func TestUpdateSessionMode_WritesOnlyTheMode(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	sess := chat.Session{
+		ID: chat.NewID(), Title: "keep", Kind: chat.KindArchitect, Status: chat.StatusCold,
+		Mode: "default", CostCapUSD: 2, CreatedAt: now, LastActive: now, CreatedBy: "human:web-abc",
+	}
+	require.NoError(t, s.CreateSession(ctx, sess))
+
+	require.NoError(t, s.UpdateSessionMode(ctx, sess.ID, "auto+emit"))
+
+	got, err := s.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "auto+emit", got.Mode)
+	assert.Equal(t, "keep", got.Title)
+	assert.InDelta(t, 2.0, got.CostCapUSD, 1e-9)
+	assert.Equal(t, chat.StatusCold, got.Status)
+
+	require.ErrorIs(t, s.UpdateSessionMode(ctx, "missing", "auto"), chat.ErrSessionNotFound)
+}

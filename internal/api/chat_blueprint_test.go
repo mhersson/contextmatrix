@@ -555,6 +555,43 @@ func TestRouter_WiresTheCostCapRoute(t *testing.T) {
 	assert.InDelta(t, 4.0, got.CostCapUSD, 1e-9)
 }
 
+func TestRouter_WiresTheModeRoute(t *testing.T) {
+	_, mgr := newChatFixture(t, blueprintFixtureOpts("http://architect:9094"))
+
+	bp, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	server := httptest.NewServer(NewRouter(RouterConfig{
+		ChatManager: mgr, ChatHub: chat.NewSSEHub(8),
+		ArchitectBackendCfg: blueprintFixtureOpts("http://architect:9094").architectBackendCfg,
+	}))
+	t.Cleanup(server.Close)
+
+	post := func(body string) *http.Response {
+		req, err := http.NewRequest(http.MethodPost, server.URL+"/api/chats/"+bp.ID+"/mode", strings.NewReader(body))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Requested-With", "contextmatrix")
+		req.Header.Set("X-Agent-ID", "human:web-x")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		t.Cleanup(func() { closeBody(t, resp.Body) })
+
+		return resp
+	}
+
+	assert.Equal(t, http.StatusBadRequest, post(`{}`).StatusCode, "the handler answers a missing field")
+
+	resp := post(`{"mode":"auto"}`)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var got chat.Session
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	assert.Equal(t, "auto", got.Mode)
+}
+
 func TestBlueprintArtifact_ForwardsTheSlice(t *testing.T) {
 	fa := newFakeArchitect(t, map[string]http.HandlerFunc{
 		"GET /blueprints/{id}/artifacts/{stage}/{version}": func(w http.ResponseWriter, r *http.Request) {

@@ -239,6 +239,49 @@ describe('derivePromptStates', () => {
   });
 });
 
+describe('derivePromptStates with a decision row', () => {
+  const decision = (seq: number, stage = 'signoff'): LogEntry => ({
+    ts: '2026-10-16T10:00:00Z',
+    card_id: '',
+    type: 'system',
+    kind: 'marker',
+    seq,
+    content: JSON.stringify({ text: 'Decided automatically.', marker: { kind: 'decision', stage } }),
+  });
+  const cases: { name: string; logs: LogEntry[]; want: (PromptState | undefined)[] }[] = [
+    {
+      name: 'a decision answers the open prompt',
+      logs: [prompt(1, GATE), decision(2)],
+      want: [{ status: 'answered', label: null }, undefined],
+    },
+    {
+      name: 'a decision after a reply changes nothing',
+      logs: [prompt(1, GATE), user(2, 'approve'), decision(3)],
+      want: [{ status: 'answered', label: 'Approve' }, undefined, undefined],
+    },
+    {
+      name: 'a decision before a prompt does not answer it',
+      logs: [decision(1), prompt(2, GATE)],
+      want: [undefined, { status: 'open' }],
+    },
+    {
+      name: 'a superseded prompt stays superseded and the decision answers the newer one',
+      logs: [prompt(1, GATE), prompt(2, GATE), decision(3)],
+      want: [{ status: 'superseded' }, { status: 'answered', label: null }, undefined],
+    },
+    {
+      name: 'an unreadable decision row answers nothing',
+      logs: [prompt(1, GATE), decision(2, '')],
+      want: [{ status: 'open' }, undefined],
+    },
+  ];
+
+  it.each(cases)('$name', ({ logs, want }) => {
+    const states = derivePromptStates(logs, true);
+    expect(logs.map((e) => states.get(e))).toEqual(want);
+  });
+});
+
 describe('round prompts', () => {
   it('parses a round only on a kind "round" prompt with an id', () => {
     expect(parsePromptEntry(roundEntry(1, 'round:1', rawRound()))?.prompt.round?.questions).toHaveLength(3);

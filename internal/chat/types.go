@@ -65,10 +65,10 @@ type Session struct {
 	Project string      `json:"project,omitempty"`
 	Kind    SessionKind `json:"kind"`
 	// Mode is the architect autonomy mode (protocol.ArchitectMode*); empty
-	// for chat sessions. Fixed at creation.
+	// for chat sessions. Set at creation and by SetMode; every start sends it.
 	Mode string `json:"mode,omitempty"`
 	// CostCapUSD bounds the architect's spend for this blueprint; zero means
-	// the architect's own default. Fixed at creation.
+	// the architect's own default. Set at creation and by SetCostCap.
 	CostCapUSD             float64   `json:"cost_cap_usd,omitempty"`
 	Status                 Status    `json:"status"`
 	CreatedAt              time.Time `json:"created_at"`

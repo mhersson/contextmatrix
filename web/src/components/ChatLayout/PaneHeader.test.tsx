@@ -306,6 +306,15 @@ describe('PaneHeader blueprint details', () => {
     render(<PaneHeader {...baseProps} chat={activeChat()} />);
     expect(screen.queryByText(/Blueprint/)).not.toBeInTheDocument();
   });
+
+  it("shows the blueprint view's mode over the session row's once the view publishes one", () => {
+    render(<PaneHeader {...baseProps} chat={{ ...activeChat(), kind: 'architect', mode: 'auto' }} />);
+    const meta = screen.getByText(/Blueprint/);
+    expect(meta).toHaveTextContent('auto');
+    act(() => setChatLiveData('chat-1', { blueprintMode: 'default' }));
+    expect(meta).toHaveTextContent('default');
+    expect(meta).not.toHaveTextContent('auto');
+  });
 });
 
 describe('PaneHeader sheet button', () => {

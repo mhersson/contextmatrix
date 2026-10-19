@@ -604,6 +604,14 @@ class APIClient {
     });
   }
 
+  /** Switches a blueprint session's mode; the architect's republished view carries the new mode. */
+  async setChatMode(id: string, mode: string): Promise<ChatSession> {
+    return this.request<ChatSession>(`/chats/${encodeURIComponent(id)}/mode`, {
+      method: 'POST',
+      body: JSON.stringify({ mode }),
+    });
+  }
+
   async listChatMessages(
     id: string,
     sinceSeq: number,

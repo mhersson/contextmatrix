@@ -154,20 +154,24 @@ board. Promote-to-autonomous lives in that tab.
   session. The sidebar marks blueprint sessions with an aqua drafting-compass
   icon. The pane header shows a blueprint's mode and cost cap, and the
   architect's spend from the blueprint view (the figure the scale bar shows)
-  where a chat's header shows CM's estimate from its token counts; and the admin
-  Chats page lists every session's kind, mode and cap. The architect's questions
-  and gates show reply buttons under the message. A question's options are
-  stacked full-width buttons showing the whole option text. The question bubble
-  is tinted, with a 5px left bar and accent-bordered options in pink in the dark
+  where a chat's header shows CM's estimate from its token counts. Once the
+  view loads, the header's mode is the view's too, so a switch the architect
+  refused never shows there. The admin Chats page lists every session's kind,
+  mode and cap as the session row holds them. The architect's questions and
+  gates show reply buttons under the message. A question's options are stacked
+  full-width buttons showing the whole option text. The question bubble is
+  tinted, with a 5px left bar and accent-bordered options in pink in the dark
   themes and a dusty rose to maroon in the light ones, and the suggested option
   carries a "recommended" chip. A prompt marked as a gate keeps compact buttons
   in a row. A click sends that reply as your message, a feedback action such as
   Reject asks for text first, in a box labelled with the architect's question
   when it sends one (an approval over critical findings asks why), and typing
-  the reply works too. A prompt closes when a reply answers it or a later
-  prompt replaces it. It then shows a one-line summary instead of buttons, and
-  a closed non-gate prompt keeps its options above the summary as a smaller
-  list with the answering option marked.
+  the reply works too. A prompt closes when a reply answers it, when the
+  architect's decision line answers it (it decided the prompt itself, as at a
+  waiting sign-off after a switch to Auto + emit or Yolo), or when a later
+  prompt replaces it. It then shows a one-line summary instead of buttons, and a
+  closed non-gate prompt keeps its options above the summary as a smaller list
+  with the answering option marked.
   A closed question's list and summary render in the normal text colour on the
   tint; gates and neutral prompts keep the muted grey. The buttons are disabled
   while the session is not live or its stream is disconnected, and prompts show
@@ -250,7 +254,22 @@ board. Promote-to-autonomous lives in that tab.
     `cap` command that the transcript does not show; the architect's
     confirmation line is the visible record, and the cell follows the cap the
     architect republishes; the pane header's cap follows after a successful
-    save.
+    save. Left of the spend sits the blueprint's mode over a small "Mode"
+    caption, in orange for yolo. Until the sign-off is approved or the pipeline
+    ends it is a button too, for a popover listing the new-blueprint dialog's
+    four modes with their descriptions, the current one marked; Switch sends the
+    pick, and picking Yolo turns it into an orange Switch and run, as the
+    dialog's button reads Create and run. Switching away from Default notes what
+    happens to what waits for you: a question round goes to the responder now
+    and answers you have not sent are dropped, and a waiting stage gate is
+    approved now if its review passed, unless a gate reply keeps that stage with
+    you. At a waiting sign-off, Auto + emit and Yolo note that the sign-off is
+    decided automatically unless a critical finding or a preflight warning holds
+    it, but only when switching from Default or Auto. The switch goes to the
+    architect as a `mode` command the transcript does not show, and the
+    architect's line is the visible record; the cell follows the mode the
+    architect republishes. Once the sign-off is approved or the pipeline ends
+    the caption reads "Mode locked" and the cell no longer opens.
   - The sheet renders each artifact (need, slices, shared decisions, design,
     grounding, acceptance, cards, readiness, sign-off, board) as a document.
     Long lists are tables with the row count beside each heading: the need's

@@ -120,6 +120,23 @@ describe('BlueprintPane', () => {
     clearChatLiveData('S1');
   });
 
+  it("publishes the view's mode for the pane header and follows a switch", () => {
+    clearChatLiveData('S1');
+    const pane = (view: BlueprintView) => (
+      <BlueprintPane chatId="S1" state={{ status: 'ready', view, draft: null }} onRetry={vi.fn()} logs={[]} promptsLive onReply={vi.fn()} phone={false}>
+        <div>transcript</div>
+      </BlueprintPane>
+    );
+    const { result } = renderHook(() => useChatLiveData('S1'));
+    const view = viewAtDesignGate();
+    const { rerender } = render(pane(view));
+    expect(result.current?.blueprintMode).toBe(view.mode);
+
+    rerender(pane({ ...view, seq: view.seq + 1, mode: 'auto' }));
+    expect(result.current?.blueprintMode).toBe('auto');
+    clearChatLiveData('S1');
+  });
+
   beforeEach(() => {
     paneWidth = 1000;
     broken.stage = null;
@@ -293,6 +310,19 @@ describe('BlueprintPane', () => {
   it('drops the gate bar once the gate is answered', () => {
     const answer: LogEntry = { ts: '2026-10-17T10:01:00Z', card_id: '', type: 'user', content: 'approve', seq: 10 };
     renderPane(ready(), { logs: [gateRow, answer] });
+    expect(screen.queryByRole('region', { name: 'Gate decision' })).not.toBeInTheDocument();
+  });
+
+  it('drops the gate bar once the architect decides the gate itself, before the view catches up', () => {
+    const decided: LogEntry = {
+      ts: '2026-10-17T10:01:00Z',
+      card_id: '',
+      type: 'system',
+      kind: 'marker',
+      seq: 10,
+      content: JSON.stringify({ text: 'Design rev 2 approved automatically.', marker: { kind: 'decision', stage: 'solution_design', version: 2 } }),
+    };
+    renderPane(ready(), { logs: [gateRow, decided] });
     expect(screen.queryByRole('region', { name: 'Gate decision' })).not.toBeInTheDocument();
   });
 

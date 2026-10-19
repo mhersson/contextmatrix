@@ -1,5 +1,6 @@
 import type { BlueprintPipelineStep, BlueprintView } from '../../types';
 import { CostCell } from './CostCell';
+import { ModeCell } from './ModeCell';
 import {
   artifactsFor,
   barGroups,
@@ -84,6 +85,7 @@ export function ScaleBar({ chatId, view, compact, onOpenStage }: ScaleBarProps) 
           </span>
         </div>
       )}
+      <ModeCell chatId={chatId} view={view} />
       <CostCell chatId={chatId} cost={view.cost} />
     </div>
   );

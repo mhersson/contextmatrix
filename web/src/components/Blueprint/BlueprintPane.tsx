@@ -56,9 +56,10 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
   useEffect(() => () => publishSheetButton(chatId, null), [chatId]);
   useEffect(() => registerSheetToggle(chatId, sheet.toggle), [chatId, sheet.toggle]);
   const spent = view?.cost.spent_usd;
+  const mode = view?.mode;
   useEffect(() => {
-    if (spent !== undefined) setChatLiveData(chatId, { blueprintSpentUsd: spent });
-  }, [chatId, spent]);
+    if (spent !== undefined && mode !== undefined) setChatLiveData(chatId, { blueprintSpentUsd: spent, blueprintMode: mode });
+  }, [chatId, spent, mode]);
   const divider = useSheetDivider(bodyRef);
   const openGateId = view?.open?.kind === 'gate' ? view.open.prompt_id : undefined;
   const gatePrompt = useMemo(() => gatePromptFor(logs, promptsLive, openGateId), [logs, promptsLive, openGateId]);

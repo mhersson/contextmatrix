@@ -60,6 +60,7 @@ POST   /api/chats/{id}/end                             # stop the container; fli
 POST   /api/chats/{id}/clear                           # clear worker context + mark transcript
 POST   /api/chats/{id}/messages                        # send a user message into the active container
 POST   /api/chats/{id}/cap                             # change a blueprint session's cost cap
+POST   /api/chats/{id}/mode                            # switch a blueprint session's mode
 GET    /api/chats/{id}/messages                        ?since_seq=|tail=1|before_seq=&limit=  # transcript pages
 GET    /api/chats/{id}/stream                          ?since_seq=           # SSE stream of new entries
 GET    /api/chats/{id}/blueprint                       # blueprint view, read from the architect (architect sessions only)
@@ -2428,7 +2429,7 @@ management lives under `/api/admin/chats`.
 | `id`, `title`, `status`, `created_at`, `last_active`, `created_by`                 | always    | `id` is a 26-character base32 ULID; `status` is `cold`, `active`, `warm-idle`, or `ending` |
 | `kind`                                                                             | always    | `chat` or `architect`; rows written before kinds existed read as `chat`                    |
 | `project`, `container_id`, `workspace`, `model`                                    | omitempty | `workspace` is a string list; `model` is set at creation and reused on every `/open`       |
-| `mode`, `cost_cap_usd`                                                             | omitempty | Architect sessions only; `cost_cap_usd` is set at creation and changed by `/cap`. `workspace` holds the target projects |
+| `mode`, `cost_cap_usd`                                                             | omitempty | Architect sessions only; both are set at creation, then `mode` changes through `/mode` and `cost_cap_usd` through `/cap`. `workspace` holds the target projects |
 | `context_tokens`                                                                   | omitempty | Last `input + cache_read + cache_create` reported by the model                             |
 | `context_tokens_updated_at`                                                        | always    | Zero time (`0001-01-01T00:00:00Z`) until the first usage entry                             |
 | `rehydration_active`, `rehydration_started_at`                                     | omitempty | `true` between a cold reopen and the agent's `chat_rehydration_complete` call              |
@@ -2653,6 +2654,36 @@ Response 200 is the updated session object.
 | ------ | ----------------------- | ----------------------------------------------------- |
 | 400    | `BAD_REQUEST`           | `cost_cap_usd` absent                                 |
 | 400    | `INVALID_CHAT_INPUT`    | Negative, above 1,000,000, positive but rounds to `0.00`, or not an `architect` session |
+| 404    | `CHAT_NOT_FOUND`        | Unknown or foreign session id                         |
+| 409    | `CHAT_KIND_UNAVAILABLE` | No backend configured for the kind                    |
+| 500    | `INTERNAL_ERROR`        | The architect was unreachable or refused the send; the row is unchanged |
+
+### POST /api/chats/{id}/mode
+
+Switches a blueprint (`architect`) session's mode. CM sends the architect the
+session command `mode <m>` through the same path as a message, so a `cold`
+session is opened first. Only when the send succeeds does CM record the new
+`mode` on the session row; a failed send leaves the row unchanged. Every later
+start carries the row's mode, so a reopen never reverts a switch.
+
+```json
+{ "mode": "auto" }
+```
+
+`mode` is required and is one of `default`, `auto`, `auto+emit` or `yolo`. The
+row is stored with `kind` `"command"`, which the panel never renders, and never
+titles an untitled session.
+
+CM does not compare the mode with the current one or check the blueprint's
+state. The architect refuses a switch once emission has started or the pipeline
+ended, with a transcript line, and the row then still records the refused mode.
+
+Response 200 is the updated session object.
+
+| Status | Code                    | When                                                  |
+| ------ | ----------------------- | ----------------------------------------------------- |
+| 400    | `BAD_REQUEST`           | `mode` absent                                         |
+| 400    | `INVALID_CHAT_INPUT`    | Not one of the four modes, or not an `architect` session |
 | 404    | `CHAT_NOT_FOUND`        | Unknown or foreign session id                         |
 | 409    | `CHAT_KIND_UNAVAILABLE` | No backend configured for the kind                    |
 | 500    | `INTERNAL_ERROR`        | The architect was unreachable or refused the send; the row is unchanged |

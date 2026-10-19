@@ -58,6 +58,10 @@ type Store interface {
 	// ErrSessionNotFound if no row matches.
 	UpdateSessionCostCap(ctx context.Context, sessionID string, capUSD float64) error
 
+	// UpdateSessionMode writes only the mode column. Returns
+	// ErrSessionNotFound if no row matches.
+	UpdateSessionMode(ctx context.Context, sessionID, mode string) error
+
 	AppendMessage(ctx context.Context, m Message) (int64, error)
 	ListMessages(ctx context.Context, sessionID string, sinceSeq int64, limit int) ([]Message, error)
 

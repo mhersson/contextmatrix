@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { api } from '../../api/client';
+import { api, describeApiError } from '../../api/client';
 import { notifyChatSessionsChanged, useChatSessions } from '../../hooks/useChatSessions';
 import { UNPRICED_CAP_REASON } from '../../pages/Chat/blueprintForm';
 import { useChatModels } from '../../utils/chatModels';
@@ -61,7 +61,7 @@ export function CapPopover({ chatId, cost, onClose }: CapPopoverProps) {
       notifyChatSessionsChanged();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not change the cap.');
+      setError(describeApiError(err, 'Could not change the cap.'));
       setBusy(false);
     }
   };

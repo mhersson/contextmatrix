@@ -11,6 +11,8 @@ export interface ChatLiveData {
   cacheCreationTokens?: number;
   /** A blueprint's spend as the architect recorded it (the view's cost.spent_usd); only a blueprint pane writes it. */
   blueprintSpentUsd?: number;
+  /** A blueprint's mode as the architect holds it (the view's mode); only a blueprint pane writes it. */
+  blueprintMode?: string;
 }
 
 // Module-level store. Acceptable for a small read-by-PaneHeader / written-by-
@@ -35,7 +37,8 @@ function shallowEqualLive(a: ChatLiveData | undefined, b: ChatLiveData): boolean
     a.completionTokens === b.completionTokens &&
     a.cacheReadTokens === b.cacheReadTokens &&
     a.cacheCreationTokens === b.cacheCreationTokens &&
-    a.blueprintSpentUsd === b.blueprintSpentUsd
+    a.blueprintSpentUsd === b.blueprintSpentUsd &&
+    a.blueprintMode === b.blueprintMode
   );
 }
 

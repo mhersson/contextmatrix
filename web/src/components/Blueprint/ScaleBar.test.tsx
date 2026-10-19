@@ -59,6 +59,14 @@ describe('ScaleBar', () => {
     expect(container.querySelector('.bp-cost')).toHaveClass('bp-cost--warn');
   });
 
+  it('offers the mode beside the cost until the pipeline ends', () => {
+    const { unmount } = render(<ScaleBar chatId="S1" view={viewAtDesignGate()} compact={false} onOpenStage={() => {}} />);
+    expect(screen.getByRole('button', { name: /^Mode:/ })).toBeInTheDocument();
+    unmount();
+    render(<ScaleBar chatId="S1" view={viewEndedAtSlicing()} compact={false} onOpenStage={() => {}} />);
+    expect(screen.queryByRole('button', { name: /^Mode:/ })).not.toBeInTheDocument();
+  });
+
   it('opens a finished slice step only when its own slice has the sheet', () => {
     const view = viewSliced();
     view.pipeline = view.pipeline.map((s) => (s.stage === 'grounding' && s.slice === 'SL2' ? { ...s, status: 'done' as const } : s));

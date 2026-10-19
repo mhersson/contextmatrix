@@ -271,6 +271,24 @@ func (s *Store) UpdateSessionCostCap(ctx context.Context, sessionID string, capU
 	return nil
 }
 
+// UpdateSessionMode writes only the mode column, so a concurrent status flip
+// is not overwritten by a stale row snapshot.
+func (s *Store) UpdateSessionMode(ctx context.Context, sessionID, mode string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE chat_sessions SET mode = ? WHERE id = ?`,
+		mode, sessionID)
+	if err != nil {
+		return fmt.Errorf("chat: update session mode: %w", err)
+	}
+
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return chat.ErrSessionNotFound
+	}
+
+	return nil
+}
+
 // UpdateContextTokens stamps the latest Claude usage block onto the session
 // row. Called from the worker-log consumer when a "usage" event arrives.
 func (s *Store) UpdateContextTokens(ctx context.Context, sessionID string, tokens int64, updatedAt time.Time) error {

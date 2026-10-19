@@ -1376,9 +1376,9 @@ export interface BlueprintLiveFrame {
   version?: number;
 }
 
-/** A blueprint transcript row's marker: a stage divider, a sheet reference or a reviewer's verdict on one version. */
+/** A blueprint transcript row's marker: a stage divider, a sheet reference, a reviewer's verdict on one version, or a decision the architect made itself on an open prompt. */
 export interface LogMarker {
-  kind: 'stage' | 'artifact' | 'review';
+  kind: 'stage' | 'artifact' | 'review' | 'decision';
   stage: string;
   /** The piece the stage runs for; absent for the whole blueprint. */
   slice?: string;
