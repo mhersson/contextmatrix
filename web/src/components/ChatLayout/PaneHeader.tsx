@@ -87,7 +87,7 @@ export function PaneHeader({
       {chatId && (
         <div className="chat-pane-meta">
           {chat?.kind === 'architect' && <BlueprintMeta mode={chat.mode} capUsd={chat.cost_cap_usd} />}
-          <PaneContextUsage chatId={chatId} fallbackModel={chat?.model} />
+          <PaneContextUsage chatId={chatId} fallbackModel={chat?.model} blueprint={chat?.kind === 'architect'} />
           <span
             className="chat-pane-status-dot"
             style={{ backgroundColor: connected ? 'var(--green)' : 'var(--grey0)' }}
@@ -202,9 +202,10 @@ export function PaneHeader({
  * id from the persisted session row until the first session_updated event
  * arrives. Hidden entirely when no model is known. The context window
  * denominator always comes from `GET /api/chats/models` (`useChatModels`),
- * in every source mode - config, endpoint, and openrouter alike.
+ * in every source mode - config, endpoint, and openrouter alike. A blueprint
+ * session shows the architect's spend from its view instead of the estimate.
  */
-function PaneContextUsage({ chatId, fallbackModel }: { chatId: string; fallbackModel?: string }) {
+function PaneContextUsage({ chatId, fallbackModel, blueprint }: { chatId: string; fallbackModel?: string; blueprint: boolean }) {
   const live = useChatLiveData(chatId);
   const { models } = useChatModels();
   const modelId = live?.model ?? fallbackModel;
@@ -219,7 +220,9 @@ function PaneContextUsage({ chatId, fallbackModel }: { chatId: string; fallbackM
     ? `Context: ${tokens.toLocaleString()} / ${max.toLocaleString()} tokens (${pct}%)`
     : `Context: ${tokens.toLocaleString()} tokens`;
 
-  const cost = live?.estimatedCostUsd;
+  // A blueprint shows what the architect recorded, so nothing until its view loads; never CM's token estimate.
+  const spent = live?.blueprintSpentUsd;
+  const cost = spent ?? (blueprint ? undefined : live?.estimatedCostUsd);
   const showCost = cost != null && cost > 0;
   const costTooltip = showCost
     ? formatCostTooltip({
@@ -244,7 +247,7 @@ function PaneContextUsage({ chatId, fallbackModel }: { chatId: string; fallbackM
         <span
           className="chat-pane-cost"
           style={{ color: 'var(--grey1)' }}
-          aria-label={`Estimated cost ${cost.toFixed(2)} dollars`}
+          aria-label={spent !== undefined ? `Spent ${cost.toFixed(2)} dollars` : `Estimated cost ${cost.toFixed(2)} dollars`}
           title={costTooltip || undefined}
         >${cost.toFixed(2)}</span>
       )}

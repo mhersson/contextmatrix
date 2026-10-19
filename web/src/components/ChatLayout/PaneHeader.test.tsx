@@ -126,6 +126,31 @@ describe('PaneHeader Clear context menu', () => {
 });
 
 describe('PaneContextUsage cost glyph', () => {
+  it("shows a blueprint's recorded spend, never the token estimate", () => {
+    const architect = { ...activeChat(), kind: 'architect' as const, mode: 'default' };
+    act(() => setChatLiveData('chat-1', { model: 'model-x', estimatedCostUsd: 0.02 }));
+    const { rerender } = render(<PaneHeader {...baseProps} chat={architect} />);
+    expect(screen.queryByText('$0.02')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/dollars/)).not.toBeInTheDocument();
+
+    act(() => setChatLiveData('chat-1', { blueprintSpentUsd: 0.04 }));
+    rerender(<PaneHeader {...baseProps} chat={architect} />);
+    expect(screen.getByText('$0.04')).toHaveAccessibleName('Spent 0.04 dollars');
+    expect(screen.queryByText('$0.02')).not.toBeInTheDocument();
+  });
+
+  it('shows the spend while the chat list has not loaded the session yet', () => {
+    act(() => setChatLiveData('chat-1', { model: 'model-x', estimatedCostUsd: 0.02, blueprintSpentUsd: 0.04 }));
+    render(<PaneHeader {...baseProps} />);
+    expect(screen.getByText('$0.04')).toBeInTheDocument();
+  });
+
+  it("keeps a chat's estimate", () => {
+    act(() => setChatLiveData('chat-1', { model: 'model-x', estimatedCostUsd: 0.02 }));
+    render(<PaneHeader {...baseProps} chat={activeChat()} />);
+    expect(screen.getByText('$0.02')).toHaveAccessibleName('Estimated cost 0.02 dollars');
+  });
+
   it('renders cost glyph with correct value and tooltip when estimatedCostUsd > 0', () => {
     act(() => {
       setChatLiveData('chat-1', {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, render, renderHook, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { api } from '../../api/client';
+import { clearChatLiveData, useChatLiveData } from '../../hooks/useChatLiveData';
 import { BlueprintPane } from './BlueprintPane';
 import { useBlueprintArtifacts } from './sheetContext';
 import { resetArtifactCache } from './artifactCache';
@@ -94,6 +95,31 @@ function renderPane(state: BlueprintState, over: PaneOptions = {}) {
 }
 
 describe('BlueprintPane', () => {
+  it('publishes nothing for the pane header while the view is loading', () => {
+    clearChatLiveData('S1');
+    const { result } = renderHook(() => useChatLiveData('S1'));
+    renderPane({ status: 'loading' });
+    expect(result.current?.blueprintSpentUsd).toBeUndefined();
+  });
+
+  it("publishes the view's spend for the pane header and follows a new snapshot", () => {
+    clearChatLiveData('S1');
+    const pane = (view: BlueprintView) => (
+      <BlueprintPane chatId="S1" state={{ status: 'ready', view, draft: null }} onRetry={vi.fn()} logs={[]} promptsLive onReply={vi.fn()} phone={false}>
+        <div>transcript</div>
+      </BlueprintPane>
+    );
+    const { result } = renderHook(() => useChatLiveData('S1'));
+    const view = viewAtDesignGate();
+    const { rerender } = render(pane(view));
+    expect(result.current?.blueprintSpentUsd).toBe(view.cost.spent_usd);
+
+    const later = { ...view, seq: view.seq + 1, cost: { ...view.cost, spent_usd: view.cost.spent_usd + 0.5 } };
+    rerender(pane(later));
+    expect(result.current?.blueprintSpentUsd).toBe(later.cost.spent_usd);
+    clearChatLiveData('S1');
+  });
+
   beforeEach(() => {
     paneWidth = 1000;
     broken.stage = null;
