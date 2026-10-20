@@ -1430,9 +1430,12 @@ in `multi` mode, no admin gate.
 | `build`                 | Absent when the backend is unreachable or older than protocol v0.36.0                                                           |
 | `worker_image_revision` | Agent and chat only: the default worker image's `org.opencontainers.image.revision`; absent when unknown                        |
 
-A change title drops its leading `type(scope): ` only for the types `feat`,
-`fix`, `perf`, `revert`, `ci`, `docs`, `chore`, `build`, `test`, `refactor` and
-`style`; any other `word:` prefix stays in the title and the kind is `change`.
+A title prefixed with exactly `feat`, `fix`, `perf` or `revert` (lowercase,
+optional scope, optional `!`) loses the prefix and scope. `feat` and `fix` keep
+that kind; `perf` and `revert` show as kind `change`. Titles typed `ci`,
+`docs`, `chore`, `build`, `test`, `refactor` or `style` are left out, as are
+Dependabot merges. Any other title, including one with an unknown or
+capitalized `word:` prefix, is shown as written with kind `change`.
 
 A disabled backend, or one without `url` and `api_key`, is absent. Backend
 URLs and probe errors are never returned.
