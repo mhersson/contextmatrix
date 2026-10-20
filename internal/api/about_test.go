@@ -175,30 +175,38 @@ func TestGetAbout_DisabledBackendIsAbsent(t *testing.T) {
 func TestGetAbout_HungBackendIsBoundedAndParallel(t *testing.T) {
 	svc, bus := emptyTestSetup(t)
 
-	release := make(chan struct{})
-	agentSrv, _ := newProbeServer(t, func(w http.ResponseWriter, _ *http.Request) {
-		<-release
+	hung := func() *httptest.Server {
+		release := make(chan struct{})
+		srv, _ := newProbeServer(t, func(w http.ResponseWriter, _ *http.Request) {
+			<-release
 
-		_, _ = w.Write([]byte(oldHealthBody))
-	})
-	t.Cleanup(func() { close(release) })
+			_, _ = w.Write([]byte(oldHealthBody))
+		})
+		t.Cleanup(func() { close(release) })
 
+		return srv
+	}
+
+	agentSrv, architectSrv := hung(), hung()
 	chatSrv, _ := healthServer(t, oldHealthBody)
 
 	start := time.Now()
 	raw := getAboutRaw(t, RouterConfig{
-		Service:        svc,
-		Bus:            bus,
-		Backend:        backend.NewClient(agentSrv.URL, "k"),
-		ChatBackendCfg: &config.ChatBackendConfig{URL: chatSrv.URL, APIKey: "k"},
+		Service:             svc,
+		Bus:                 bus,
+		Backend:             backend.NewClient(agentSrv.URL, "k"),
+		ChatBackendCfg:      &config.ChatBackendConfig{URL: chatSrv.URL, APIKey: "k"},
+		ArchitectBackendCfg: &config.ArchitectBackendConfig{URL: architectSrv.URL, APIKey: "k"},
 	})
 
+	// Two hung probes take ~3 s in parallel and ~6 s if run in sequence.
 	assert.Less(t, time.Since(start), 5*time.Second)
 
 	comps := decodeAbout(t, raw)
-	require.Len(t, comps, 3)
+	require.Len(t, comps, 4)
 	assert.Equal(t, "unreachable", rawString(t, comps[1]["status"]))
 	assert.Equal(t, "connected", rawString(t, comps[2]["status"]))
+	assert.Equal(t, "unreachable", rawString(t, comps[3]["status"]))
 }
 
 func TestGetAbout_MultiModeNeedsSessionNotAdmin(t *testing.T) {

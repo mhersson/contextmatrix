@@ -1410,7 +1410,7 @@ in `multi` mode, no admin gate.
     {
       "name": "agent",
       "status": "connected",
-      "build": { "version": "", "commit": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", "build_time": "2026-10-20T12:00:00Z", "changes": [] },
+      "build": { "commit": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", "build_time": "2026-10-20T12:00:00Z", "changes": [] },
       "worker_image_revision": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
     },
     { "name": "chat", "status": "connected" },
@@ -1419,16 +1419,20 @@ in `multi` mode, no admin gate.
 }
 ```
 
-| Field                   | Meaning                                                                                                                  |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `name`                  | `contextmatrix`, `agent`, `chat`, or `architect`, in that fixed order                                                    |
-| `status`                | `running` (ContextMatrix itself), `connected`, or `unreachable`                                                          |
-| `build.version`         | The exact git tag, or `""` when the build is not on a tag                                                                |
-| `build.commit`          | Full sha, or `""` when unstamped                                                                                         |
-| `build.build_time`      | RFC 3339                                                                                                                 |
-| `build.changes`         | Merged changes, newest first, at most 20; `[]` when no history was recorded                                              |
-| `build`                 | Absent when the backend is unreachable or older than protocol v0.36.0                                                    |
-| `worker_image_revision` | Agent and chat only: the default worker image's `org.opencontainers.image.revision`; absent when unknown                 |
+| Field                   | Meaning                                                                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                  | `contextmatrix`, `agent`, `chat`, or `architect`, in that fixed order                                                           |
+| `status`                | `running` (ContextMatrix itself), `connected`, or `unreachable`                                                                 |
+| `build.version`         | The exact git tag; absent when the build is not on a tag                                                                        |
+| `build.commit`          | Full sha; absent when unstamped                                                                                                 |
+| `build.build_time`      | RFC 3339 UTC; absent when unstamped                                                                                             |
+| `build.changes`         | Merged changes, newest first, at most 20; `[]` when no history was recorded (a bare `go build` sends `"build":{"changes":[]}`). |
+| `build`                 | Absent when the backend is unreachable or older than protocol v0.36.0                                                           |
+| `worker_image_revision` | Agent and chat only: the default worker image's `org.opencontainers.image.revision`; absent when unknown                        |
+
+A change title drops its leading `type(scope): ` only for the types `feat`,
+`fix`, `perf`, `revert`, `ci`, `docs`, `chore`, `build`, `test`, `refactor` and
+`style`; any other `word:` prefix stays in the title and the kind is `change`.
 
 A disabled backend, or one without `url` and `api_key`, is absent. Backend
 URLs and probe errors are never returned.

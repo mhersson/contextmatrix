@@ -112,19 +112,19 @@ backends verify independently.
 All POSTs carry `Content-Type: application/json` and go to
 `backends.agent.url`. The task backend exposes:
 
-| Method + path        | Purpose                                                          |
-| -------------------- | ---------------------------------------------------------------- |
-| `POST /trigger`      | Start a card run.                                                |
-| `POST /kill`         | Stop the container for one card. Idempotent.                     |
-| `POST /stop-all`     | Stop every container for a project.                              |
-| `POST /message`      | Deliver a human message to a running HITL card.                  |
-| `POST /promote`      | Switch a running HITL card to autonomous mode.                   |
-| `POST /end-session`  | Close a HITL container's stdin so the worker sees EOF.           |
-| `GET /containers`    | List the worker containers the backend manages.                  |
-| `GET /images`        | List node-local worker images (filtered by the backend).         |
-| `GET /logs`          | Subscribe to the live log SSE stream.                            |
-| `GET /health`        | Capacity snapshot (running containers, concurrency cap) and, from protocol v0.36.0, the build and the default worker image's revision. |
-| `GET /readyz`        | Readiness probe; flips during drain.                             |
+| Method + path       | Purpose                                                                                                                                |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /trigger`     | Start a card run.                                                                                                                      |
+| `POST /kill`        | Stop the container for one card. Idempotent.                                                                                           |
+| `POST /stop-all`    | Stop every container for a project.                                                                                                    |
+| `POST /message`     | Deliver a human message to a running HITL card.                                                                                        |
+| `POST /promote`     | Switch a running HITL card to autonomous mode.                                                                                         |
+| `POST /end-session` | Close a HITL container's stdin so the worker sees EOF.                                                                                 |
+| `GET /containers`   | List the worker containers the backend manages.                                                                                        |
+| `GET /images`       | List node-local worker images (filtered by the backend).                                                                               |
+| `GET /logs`         | Subscribe to the live log SSE stream.                                                                                                  |
+| `GET /health`       | Capacity snapshot (running containers, concurrency cap) and, from protocol v0.36.0, the build and the default worker image's revision. |
+| `GET /readyz`       | Readiness probe; flips during drain.                                                                                                   |
 
 #### POST {agent_url}/trigger
 

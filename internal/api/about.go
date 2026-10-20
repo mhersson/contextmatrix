@@ -39,7 +39,7 @@ type aboutHandlers struct {
 }
 
 // getAbout handles GET /api/about: CM's own build plus each configured
-// backend's, probed in parallel through the shared health cache. Backend URLs
+// backend's, probed in parallel through a per-backend health cache. Backend URLs
 // and raw probe errors never leave the server.
 func (h *aboutHandlers) getAbout(w http.ResponseWriter, r *http.Request) {
 	backends := make([]aboutComponent, len(h.backends))
