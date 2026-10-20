@@ -27,6 +27,8 @@ var selfContainmentPatterns = []struct {
 func LintSelfContained(text string, foreignRepos []string) []string {
 	var warnings []string
 
+	text = withoutMockupBlocks(text)
+
 	for _, p := range selfContainmentPatterns {
 		for _, m := range p.re.FindAllString(text, -1) {
 			snippet := strings.TrimSpace(m)
@@ -51,6 +53,49 @@ func LintSelfContained(text string, foreignRepos []string) []string {
 	}
 
 	return warnings
+}
+
+var mockupOpen = regexp.MustCompile("^(`{3,})mockup[ \\t]*$")
+
+// withoutMockupBlocks drops fenced mockup blocks, fences included. A mockup
+// imitates screens, so sample paths in it are not the author's environment.
+// The grammar is shared with the architect's contract check and the agent's
+// card classifier: backtick fences at column 0, closed by a backtick-only line
+// at least as long as the opening, unclosed runs to the end.
+func withoutMockupBlocks(text string) string {
+	var (
+		out     strings.Builder
+		fence   int
+		inBlock bool
+	)
+
+	for _, line := range strings.SplitAfter(text, "\n") {
+		bare := strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+
+		if !inBlock {
+			if m := mockupOpen.FindStringSubmatch(bare); m != nil {
+				inBlock, fence = true, len(m[1])
+
+				continue
+			}
+
+			out.WriteString(line)
+
+			continue
+		}
+
+		if closesMockup(bare, fence) {
+			inBlock = false
+		}
+	}
+
+	return out.String()
+}
+
+func closesMockup(line string, fence int) bool {
+	ticks := strings.TrimRight(line, " \t")
+
+	return len(ticks) >= fence && strings.Trim(ticks, "`") == ""
 }
 
 // repoMatchForms derives the matchable forms of a repo URL: the URL itself

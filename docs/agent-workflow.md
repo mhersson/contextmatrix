@@ -259,7 +259,8 @@ never blocks: the response gains a `warnings` field and a
 `self_containment_warning` activity entry records the count. The log write is
 best-effort - on a card claimed by another agent it is dropped while the
 mutation and the `warnings` field stand. The creating agent fixes the text
-with a follow-up `update_card`.
+with a follow-up `update_card`. Text inside a
+[mockup block](data-model.md#mockup-blocks) is not linted.
 
 ### Deliverable split
 
