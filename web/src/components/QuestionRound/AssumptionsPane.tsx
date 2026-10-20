@@ -1,4 +1,5 @@
 import type { Round } from './parseRound';
+import { TechnicalDetail } from '../TechnicalDetail';
 import { effectiveDecision, type RoundDraft } from './roundDraft';
 import type { RoundMode } from './roundView';
 
@@ -32,6 +33,7 @@ export function AssumptionsPane({ round, draft, mode, onDecide }: AssumptionsPan
               <span className="qb-n">{i + 1}</span>
               <span className="qb-sum">{a.text}</span>
             </div>
+            <TechnicalDetail detail={a.detail} />
             <div className="qb-assume-actions">
               <button
                 type="button"

@@ -15,8 +15,10 @@ import {
 } from './chatEntryUtils';
 import { StructuredPayload } from './StructuredPayload';
 import { PromptActions } from './PromptActions';
+import { TechnicalDetail } from '../TechnicalDetail';
 import { parsePromptEntry, type PromptState } from './prompts';
 import { parseMarkerEntry } from '../Blueprint/markers';
+import { useBlueprintSheet } from '../Blueprint/sheetContext';
 import { ReviewCard } from '../Blueprint/ReviewCard';
 import { SheetReference } from '../Blueprint/SheetReference';
 import { StageDivider } from '../Blueprint/StageDivider';
@@ -44,6 +46,7 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
   const stamp = stampHHMM !== undefined && stampTitle !== undefined
     ? { hhmm: stampHHMM, title: stampTitle }
     : null;
+  const plain = useBlueprintSheet()?.plainLanguage === true;
 
   // Entries are reference-stable ring-buffer rows, so each body parses at
   // most once per mount. A structural row (divider, prompt) is never JSON.
@@ -74,7 +77,7 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
   // superseded or the responder's.
   const round = prompt?.prompt.round;
   if (round && prompt?.prompt.id) {
-    return roundStatus === 'responder' ? (
+    return roundStatus === 'responder' && !plain ? (
       <RoundBlock promptId={prompt.prompt.id} round={round} mode="readonly" inline />
     ) : (
       <RoundSummary round={round} superseded={roundStatus === 'superseded'} />
@@ -159,6 +162,7 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
             ) : (
               <ChatMarkdown source={body} />
             )}
+            <TechnicalDetail detail={prompt?.prompt.detail} render={(d) => <ChatMarkdown source={d} />} />
             {prompt && promptStatus && (
               <PromptActions
                 prompt={prompt.prompt}

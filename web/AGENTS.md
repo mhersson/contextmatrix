@@ -37,7 +37,9 @@ Auto-loaded when working in `web/`. Backend conventions live in the root
   checkboxes; stores the set of hidden providers),
   `contextmatrix-round-drafts` (unsent question-round picks, decisions and typed
   own answers kept per session and round until sent; cleared when the round
-  closes, pruned per session, capped at 50 entries).
+  closes, pruned per session, capped at 50 entries),
+  `blueprint_plain_language:<identity>` (the Plain language switch's last choice
+  per identity).
   Adding a key means adding it here.
 - Comments explain only non-obvious decisions, constraints, safety invariants,
   or workarounds. Do not narrate what code does or record change history; git

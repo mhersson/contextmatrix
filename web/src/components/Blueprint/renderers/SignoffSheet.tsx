@@ -1,6 +1,18 @@
 import { BodyMarkdown } from '../BodyMarkdown';
 import { BasisChips, Chip, StatusChip } from '../Chips';
-import { parseSignoff, sourceTags, withoutTags, type Assumption, type ManualCheck, type SignoffCard } from '../artifactData';
+import {
+  acceptedLabel,
+  CHANGED_SINCE_ACCEPTED,
+  parseSignoff,
+  sourceTags,
+  supersededLabel,
+  withoutTags,
+  type Assumption,
+  type ManualCheck,
+  type PlainSummary as PlainSummaryData,
+  type SignoffAssumption,
+  type SignoffCard,
+} from '../artifactData';
 import { stageText } from '../stages';
 import { AssumptionNumber, CrossTable, IdPill, TextList } from './parts';
 import { assumptionKey, numbered, type NumberedAssumption } from './rows';
@@ -34,9 +46,9 @@ const MANUAL_COLUMNS: Column<ManualCheck>[] = [
 // Only a confirmed assumption rests on a human's answer; any other answer may be the responder's.
 const yourAnswer = (a: Assumption) => (a.status === 'confirmed' ? a.answer : '');
 
-const ANSWER_COLUMN: Column<NumberedAssumption> = { label: 'Your answer', kind: 'note', cell: ({ a }) => yourAnswer(a) || null };
+const ANSWER_COLUMN: Column<NumberedAssumption<SignoffAssumption>> = { label: 'Your answer', kind: 'note', cell: ({ a }) => yourAnswer(a) || null };
 
-function assumptionColumns(withAnswer: boolean): Column<NumberedAssumption>[] {
+function assumptionColumns(withAnswer: boolean): Column<NumberedAssumption<SignoffAssumption>>[] {
   return [
     { label: 'Id', kind: 'id', cell: (row) => <AssumptionNumber row={row} /> },
     {
@@ -44,13 +56,24 @@ function assumptionColumns(withAnswer: boolean): Column<NumberedAssumption>[] {
       kind: 'long',
       cell: ({ a }) => (
         <>
-          {a.text}
+          <span className={a.supersededBy ? 'bp-superseded' : undefined}>{a.text}</span>
           {a.status === 'verified' && withoutTags(a.evidence) && <span className="bp-cell-sub">{withoutTags(a.evidence)}</span>}
+          {a.consequence && <span className="bp-cell-sub bp-consequence">{a.consequence}</span>}
         </>
       ),
     },
     ...(withAnswer ? [ANSWER_COLUMN] : []),
-    { label: 'Status', kind: 'status', cell: ({ a }) => <StatusChip assumption={a} /> },
+    {
+      label: 'Status',
+      kind: 'status',
+      cell: ({ a }) => (
+        <>
+          <StatusChip assumption={a} />
+          {a.accepted && <Chip tone="grey">{acceptedLabel(a.accepted)}</Chip>}
+          {a.supersededBy && <Chip tone="grey">{supersededLabel(a.supersededBy)}</Chip>}
+        </>
+      ),
+    },
     {
       label: 'Basis',
       kind: 'list',
@@ -61,6 +84,22 @@ function assumptionColumns(withAnswer: boolean): Column<NumberedAssumption>[] {
     },
     { label: 'Stage', kind: 'short', cell: ({ a }) => (a.stage ? stageText(a.stage).name : null) },
   ];
+}
+
+const ACCEPTED_COLUMNS: Column<PlainSummaryData['accepted'][number]>[] = [
+  { label: 'Id', kind: 'id', cell: (c) => (c.id ? <IdPill id={c.id} /> : null) },
+  { label: 'Consequence', kind: 'long', cell: (c) => c.text },
+  { label: 'Status', kind: 'status', cell: (c) => (c.changed ? <Chip tone="orange">{CHANGED_SINCE_ACCEPTED}</Chip> : null) },
+];
+
+function PlainSummary({ summary }: { summary: PlainSummaryData }) {
+  return (
+    <>
+      <TextList title="What will be built" items={summary.build} />
+      <TextList title="What you can do with it" items={summary.canDo} />
+      <TableSection title="Consequences you accepted" columns={ACCEPTED_COLUMNS} rows={summary.accepted} rowKey={(c, i) => `${c.id}#${i}`} />
+    </>
+  );
 }
 
 export function SignoffSheet({ artifact }: RendererProps) {
@@ -77,6 +116,7 @@ export function SignoffSheet({ artifact }: RendererProps) {
   );
   return (
     <>
+      {data.plainSummary && <PlainSummary summary={data.plainSummary} />}
       <CrossTable items={data.cross} version={artifact.version} />
       {data.overrideReason && (
         <p className="bp-override" role="note" aria-label="Override">

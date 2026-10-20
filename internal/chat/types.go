@@ -69,7 +69,10 @@ type Session struct {
 	Mode string `json:"mode,omitempty"`
 	// CostCapUSD bounds the architect's spend for this blueprint; zero means
 	// the architect's own default. Set at creation and by SetCostCap.
-	CostCapUSD             float64   `json:"cost_cap_usd,omitempty"`
+	CostCapUSD float64 `json:"cost_cap_usd,omitempty"`
+	// PlainLanguage: architect sessions only, the blueprint runs in plain
+	// language. Set at creation; every start sends it.
+	PlainLanguage          bool      `json:"plain_language,omitempty"`
 	Status                 Status    `json:"status"`
 	CreatedAt              time.Time `json:"created_at"`
 	LastActive             time.Time `json:"last_active"`

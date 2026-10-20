@@ -869,6 +869,8 @@ export interface ChatSession {
   mode?: string;
   /** Architect cost cap in USD; architect sessions only. */
   cost_cap_usd?: number;
+  /** Fixed at creation: the blueprint asks in plain language. */
+  plain_language?: boolean;
   status: ChatStatus;
   created_at: string;
   last_active: string;
@@ -1330,10 +1332,14 @@ export interface BlueprintArtifactRef {
 export interface BlueprintView {
   id: string;
   mode: string;
+  /** The blueprint runs in plain language. */
+  plain_language?: boolean;
   /** The architect's coarse state; "ended" when the pipeline stopped before the sign-off. Unknown states render neutrally. */
   state: string;
   /** One plain line on why the pipeline ended; set only when state is "ended". */
   end_reason?: string;
+  /** The technical reason behind a plain end_reason; set only on a plain-language blueprint. */
+  end_detail?: string;
   seq: number;
   /** The newest slicing version's pieces in order; [] before slicing stores one. */
   slices: BlueprintSlice[];

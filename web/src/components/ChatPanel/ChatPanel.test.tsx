@@ -3,6 +3,7 @@ import { render, screen, fireEvent, renderHook, act, waitFor, within } from '@te
 import { ChatPanel } from './ChatPanel';
 import { useWorkerLogs } from '../../hooks/useWorkerLogs';
 import { formatHHMM, formatTitle } from '../../utils/chatTimestamp';
+import { BlueprintSheetContext } from '../Blueprint/sheetContext';
 import type { LogEntry } from '../../types';
 import { rawRound, roundChatEntry, roundEntry, roundReplyEntry } from '../../test-utils/roundFixtures';
 
@@ -576,6 +577,33 @@ describe('ChatPanel architect prompts', () => {
     await waitFor(() => expect(screen.getByPlaceholderText(/Type a message/)).toHaveFocus());
   });
 
+  it("folds a plain prompt's technical detail under its text and sends the plain actions' replies", async () => {
+    const row: LogEntry = {
+      ...promptRow(1),
+      content: JSON.stringify({
+        text: 'Fallback.',
+        prompt: {
+          id: 'gate:signoff:v3',
+          kind: 'gate',
+          text: 'The architect could not settle part of the design on its own.',
+          detail: 'X2 (critical): DEC2 keeps field order but D3 sorts keys.',
+          actions: [
+            { label: 'Continue anyway', reply: 'approve' },
+            { label: 'Stop', reply: 'reject' },
+          ],
+        },
+      }),
+    };
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    render(<ChatPanel logs={[row]} onSend={onSend} sendDisabled={false} promptsLive />);
+    const fold = screen.getByText('X2 (critical): DEC2 keeps field order but D3 sorts keys.').closest('details');
+    expect(fold).not.toBeNull();
+    expect(fold).not.toHaveAttribute('open');
+    expect(screen.getByText('The architect could not settle part of the design on its own.').closest('details')).toBeNull();
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue anyway' }));
+    expect(onSend).toHaveBeenCalledWith('approve');
+  });
+
   it('shows a summary instead of actions once a later reply answers the prompt', () => {
     const reply: LogEntry = { ts: '2026-05-13T10:00:01Z', card_id: '', type: 'user', content: 'Approve', seq: 2 };
     render(<ChatPanel logs={[promptRow(1), reply]} onSend={vi.fn()} sendDisabled={false} promptsLive />);
@@ -906,6 +934,18 @@ describe('ChatPanel question rounds', () => {
     expect(screen.getByRole('textbox', { name: 'Message' })).toBeInTheDocument();
     const block = screen.getByRole('region', { name: /3 questions from the system designer/ });
     expect(within(block).queryByRole('tab', { name: /Submit/ })).not.toBeInTheDocument();
+  });
+
+  it('folds a responder round into its card on a plain-language blueprint', () => {
+    const logs = [roundEntry(1, 'round:1', rawRound({ responder: true, answers: [{ number: 1, option: 1 }] }))];
+    render(
+      <BlueprintSheetContext.Provider value={{ openArtifact: vi.fn(), slices: [], plainLanguage: true }}>
+        <ChatPanel logs={logs} onSend={onSend} onSendRound={onSendRound} sendDisabled={false} promptsLive />
+      </BlueprintSheetContext.Provider>,
+    );
+    expect(screen.queryByRole('region', { name: /3 questions from the system designer/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /from the system designer/ })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Message' })).toBeInTheDocument();
   });
 });
 

@@ -143,22 +143,32 @@ board. Promote-to-autonomous lives in that tab.
   one it creates chats only. Both kinds take an optional title. A chat picks one
   project from a list (or Across projects, with no checkout) and a model. A
   blueprint picks one or more target projects, one of four described modes
-  (default, auto, auto + emit, yolo), a model (defaulting to the architect's
-  default, kept separate from the chat pick) and a cost cap preset ($1, $2, $5,
-  $10 or no cap), in that order, and runs on the architect backend instead of a
-  chat worker. The footer says why Create is disabled, including a cost cap on a
-  model CM cannot price; Ctrl+Enter anywhere, or Enter in the title, creates.
-  The button names the outcome (Create chat, Create blueprint, or Create and run
-  for yolo). A blueprint whose architect does not start keeps the dialog open
-  with the error, and with unchanged settings, Create then retries the same
-  session. The sidebar marks blueprint sessions with an aqua drafting-compass
-  icon. The pane header shows a blueprint's mode and cost cap, and the
-  architect's spend from the blueprint view (the figure the scale bar shows)
-  where a chat's header shows CM's estimate from its token counts. Once the
-  view loads, the header's mode is the view's too, so a switch the architect
-  refused never shows there. The admin Chats page lists every session's kind,
-  mode and cap as the session row holds them. The architect's questions and
-  gates show reply buttons under the message. A question's options are stacked
+  (default, auto, auto + emit, yolo), a Plain language switch, a model
+  (defaulting to the architect's default, kept separate from the chat pick) and
+  a cost cap preset ($1, $2, $5, $10 or no cap), in that order, and runs on the
+  architect backend instead of a chat worker. Plain language asks the person
+  only what they want and how it should look and work; the architect makes the
+  technical decisions and shows each as what it means for them. The switch opens
+  at the choice the person last created a blueprint with in this browser, kept
+  per user when CM has accounts and per browser otherwise. The footer says why
+  Create is disabled, including a cost cap on a model CM cannot price;
+  Ctrl+Enter anywhere, or Enter in the title, creates. The button names the
+  outcome (Create chat, Create blueprint, or Create and run for yolo). A
+  blueprint whose architect does not start keeps the dialog open with the error,
+  and with unchanged settings, Create then retries the same session. The sidebar
+  marks blueprint sessions with an aqua drafting-compass icon. The pane header
+  shows a blueprint's mode and cost cap, and the architect's spend from the
+  blueprint view (the figure the scale bar shows) where a chat's header shows
+  CM's estimate from its token counts. Once the view loads, the header's mode is
+  the view's too, so a switch the architect refused never shows there. A
+  blueprint created in plain language shows a Plain language badge beside the
+  pill; once the view loads the badge follows the view, so an architect that
+  does not run plain language shows none. The admin Chats page lists every
+  session's kind, mode and cap as the session row holds them. The architect's
+  questions and gates show reply buttons under the message. On a plain-language
+  blueprint a prompt reads in plain words with plain buttons (such as Continue
+  anyway and Stop) that send the architect's usual replies, and its technical
+  text is folded under a Technical detail line. A question's options are stacked
   full-width buttons showing the whole option text. The question bubble is
   tinted, with a 5px left bar and accent-bordered options in pink in the dark
   themes and a dusty rose to maroon in the light ones, and the suggested option
@@ -171,30 +181,31 @@ board. Promote-to-autonomous lives in that tab.
   waiting sign-off after a switch to Auto + emit or Yolo), or when a later
   prompt replaces it. It then shows a one-line summary instead of buttons, and a
   closed non-gate prompt keeps its options above the summary as a smaller list
-  with the answering option marked.
-  A closed question's list and summary render in the normal text colour on the
-  tint; gates and neutral prompts keep the muted grey. The buttons are disabled
-  while the session is not live or its stream is disconnected, and prompts show
-  with the Text filter off.
+  with the answering option marked. A closed question's list and summary render
+  in the normal text colour on the tint; gates and neutral prompts keep the
+  muted grey. The buttons are disabled while the session is not live or its
+  stream is disconnected, and prompts show with the Text filter off.
 - A question round from the architect docks at the bottom of the pane in place
   of the message box while it waits for you; the transcript keeps scrolling
   above it. It has one tab per question, ticked once it has an answer (stored by
-  the architect or picked here) and dotted while open, an Assumptions tab when the stage states
-  assumptions, and a Submit tab. A question tab shows the question, why it
-  matters and numbered options; the suggested one carries a Recommended chip,
-  and clicking an option selects it. An option's "pros · cons · N sources" link
-  shows them (links and code paths; with the architect's research off, its code
-  paths and "model knowledge" instead of links) and "hide" folds them; each
-  option opens on its own. The last option on every question is "Type your
-  own answer". The Assumptions tab accepts each assumption or turns it into a
-  question; "Accept all" above the list accepts every one, including those
-  turned into a question, and each can still be flipped after. The Submit tab
-  reviews every answer: "Submit all N" sends them as final, and "Send N now,
-  answer the rest later" stores the ones picked so far on the architect, so
-  they show on any device and survive leaving, and the round stays open. A
-  sent reply shows no transcript bubble: the docked block and, once closed,
-  the round's summary are its record; a reply whose round is not loaded shows
-  as a plain message. Under a dotted line on every tab, "Chat about these
+  the architect or picked here) and dotted while open, an Assumptions tab when
+  the stage states assumptions, and a Submit tab. A question tab shows the
+  question, why it matters and numbered options; the suggested one carries a
+  Recommended chip, and clicking an option selects it. An option's "pros · cons
+  · N sources" link shows them (links and code paths; with the architect's
+  research off, its code paths and "model knowledge" instead of links) and
+  "hide" folds them; each option opens on its own. The last option on every
+  question is "Type your own answer". The Assumptions tab accepts each
+  assumption or turns it into a question; on a plain-language blueprint each
+  entry is what a decision means for you, with the technical decision behind it
+  folded under Technical detail; "Accept all" above the list accepts every one,
+  including those turned into a question, and each can still be flipped after.
+  The Submit tab reviews every answer: "Submit all N" sends them as final, and
+  "Send N now, answer the rest later" stores the ones picked so far on the
+  architect, so they show on any device and survive leaving, and the round stays
+  open. A sent reply shows no transcript bubble: the docked block and, once
+  closed, the round's summary are its record; a reply whose round is not loaded
+  shows as a plain message. Under a dotted line on every tab, "Chat about these
   questions" holds the thread about the round and is the pane's only text box
   while the round is open; the thread scrolls on its own, so the box and the
   foot stay in view. What you type there reaches the architect as a plain
@@ -206,27 +217,29 @@ board. Promote-to-autonomous lives in that tab.
   assumption decisions and typed answers not yet sent are kept in this browser
   per round, so closing the pane, reloading or navigating away restores them;
   they count in "K of N answered" and the tab ticks, and a restored block opens
-  on its first unanswered tab (picking never moves you on);
-  one is dropped when the architect has since stored that question or decision,
-  or revised the option it picked, and a round's drafts are cleared when it
-  closes or a newer round replaces it. The architect republishes a round
-  whenever it changes, and only the newest version shows. A closed round (every
-  question answered and the stage resumed, or the pipeline went past it), and a
-  round a newer one replaced, collapses into a card in the style of a sheet
-  reference, titled after the asking stage's questions (or assumptions, for a
-  round of only assumptions), with how many of each, the persona and what
-  became of the round: answered or all accepted by you or the responder, how
-  many were answered, accepted, turned into questions or not decided, or no
-  longer open for a replaced round. Clicking the card, or Enter or Space on
-  it, opens it in place: each question with its number, title and text and the
-  stored answer beneath it, any question left unanswered marked "not answered",
-  then each assumption with its decision (accepted, turned into a question or
-  not decided). At the bottom of the open card a collapsed "Chat about these
-  questions (N)" opens the round's thread of N messages, when it has one. A
-  round the auto responder answered arrives closed and shows as the same card,
-  marked answered by the responder, and the message box stays. While the session
-  is not live or its stream reconnects the round stays docked with its answers
-  disabled; its chat box sends whenever the message box would.
+  on its first unanswered tab (picking never moves you on); one is dropped when
+  the architect has since stored that question or decision, or revised the
+  option it picked, and a round's drafts are cleared when it closes or a newer
+  round replaces it. The architect republishes a round whenever it changes, and
+  only the newest version shows. A closed round (every question answered and the
+  stage resumed, or the pipeline went past it), and a round a newer one
+  replaced, collapses into a card in the style of a sheet reference, titled
+  after the asking stage's questions (or assumptions, for a round of only
+  assumptions), with how many of each, the persona and what became of the round:
+  answered or all accepted by you or the responder, how many were answered,
+  accepted, turned into questions or not decided, or no longer open for a
+  replaced round. Clicking the card, or Enter or Space on it, opens it in place:
+  each question with its number, title and text and the stored answer beneath
+  it, any question left unanswered marked "not answered", then each assumption
+  with its decision (accepted, turned into a question or not decided). At the
+  bottom of the open card a collapsed "Chat about these questions (N)" opens the
+  round's thread of N messages, when it has one. A round the auto responder
+  answered arrives closed and shows as the same card, marked answered by the
+  responder, and the message box stays. On a plain-language blueprint a round
+  the responder is still answering shows as that card too, so its technical
+  questions stay folded. While the session is not live or its stream reconnects
+  the round stays docked with its answers disabled; its chat box sends whenever
+  the message box would.
 - A blueprint pane adds a scale bar, a sheet and marker rows to the chat pane:
   - The scale bar under the pane header draws one segment per pipeline step:
     done steps filled green, the current step hatched (aqua while a run works,
@@ -242,26 +255,27 @@ board. Promote-to-autonomous lives in that tab.
     the colour of its current segment. Beside the bar the current stage, with
     its slice when there are several (Solution design · SL2), says who is doing
     what; on an ended blueprint it names the stopping step and, in red, why the
-    pipeline stopped. Hover a segment for its persona, status and cost; click a
-    finished one to open its artifact. The right end shows the architect's spend
-    against the blueprint cap; the meter turns orange at 80% and red at the cap.
-    Click it (it is a button, also with no cap set) for a popover with the
-    spend, the cap, +$2 / +$5 / +$10 raises (added to the cap, or to the spend
-    with no cap), an amount field and a "No cap" choice. An amount at or below
-    the spend is refused, as is any amount on a model CM cannot price (only "No
-    cap" is offered, and only when a cap is set). Raising the cap continues a
-    blueprint that stopped on its cap. The change goes to the architect as a
-    `cap` command that the transcript does not show; the architect's
-    confirmation line is the visible record, and the cell follows the cap the
-    architect republishes; the pane header's cap follows after a successful
-    save. Left of the spend sits the blueprint's mode over a small "Mode"
-    caption, in orange for yolo. Until the sign-off is approved or the pipeline
-    ends it is a button too, for a popover listing the new-blueprint dialog's
-    four modes with their descriptions, the current one marked; Switch sends the
-    pick, and picking Yolo turns it into an orange Switch and run, as the
-    dialog's button reads Create and run. Switching away from Default notes what
-    happens to what waits for you: a question round goes to the responder now
-    and answers you have not sent are dropped, and a waiting stage gate is
+    pipeline stopped, in plain words on a plain-language blueprint with the
+    technical reason folded under it. Hover a segment for its persona, status
+    and cost; click a finished one to open its artifact. The right end shows the
+    architect's spend against the blueprint cap; the meter turns orange at 80%
+    and red at the cap. Click it (it is a button, also with no cap set) for a
+    popover with the spend, the cap, +$2 / +$5 / +$10 raises (added to the cap,
+    or to the spend with no cap), an amount field and a "No cap" choice. An
+    amount at or below the spend is refused, as is any amount on a model CM
+    cannot price (only "No cap" is offered, and only when a cap is set). Raising
+    the cap continues a blueprint that stopped on its cap. The change goes to
+    the architect as a `cap` command that the transcript does not show; the
+    architect's confirmation line is the visible record, and the cell follows
+    the cap the architect republishes; the pane header's cap follows after a
+    successful save. Left of the spend sits the blueprint's mode over a small
+    "Mode" caption, in orange for yolo. Until the sign-off is approved or the
+    pipeline ends it is a button too, for a popover listing the new-blueprint
+    dialog's four modes with their descriptions, the current one marked; Switch
+    sends the pick, and picking Yolo turns it into an orange Switch and run, as
+    the dialog's button reads Create and run. Switching away from Default notes
+    what happens to what waits for you: a question round goes to the responder
+    now and answers you have not sent are dropped, and a waiting stage gate is
     approved now if its review passed, unless a gate reply keeps that stage with
     you. At a waiting sign-off, Auto + emit and Yolo note that the sign-off is
     decided automatically unless a critical finding or a preflight warning holds
@@ -288,50 +302,56 @@ board. Promote-to-autonomous lives in that tab.
     on the sign-off the same table at the top, a note with your reason when you
     approved over a critical finding, the run order, the assumptions (your
     answer, status, basis and source chips, and the stage that stated each) and
-    the manual checks after the run. A version stored before the architect
-    recorded outcomes, edge cases or findings across the blueprint shows none of
-    those tables or columns. Below 520px of sheet width each table row stacks
-    into a block; the sign-off's assumptions, with more columns, stack below
-    720px. A basis chips what it rests on: answers (Q1, round2.A1) blue, sources
-    (S1) green, and stated assumptions (A3) and outcomes (O1) grey. Tabs follow
-    the current stage until you pick one; a pick holds until the current stage,
-    or the slice it runs for, changes. Stages without an artifact are dimmed and
-    stages the pack does not run are hidden. The shared decisions sheet shows
-    the decisions every slice builds on as the design sheet shows a slice's,
-    with their contracts and assumptions. The design sheet heads its decisions
-    with the projects they cover; a design that holds several slices, as designs
-    made before per-slice design do, heads each slice's decisions with its id as
-    well. A blueprint cut into two or more slices runs design, grounding,
-    acceptance and cards once per slice: those four tabs sit between separators,
-    and while one is open a row of slice tabs (each slice's id and title) opens
-    under it, joined to the open tab by a shared shade. The chosen slice sits on
-    the paper colour, a slice waiting for you shows in the question accent, and
-    slices without that sheet yet are dimmed. Switching stage tabs keeps the
-    chosen slice, and the sheet names the slice under its title. A blueprint
-    with one slice shows none of this and no Shared tab. The title block names
-    the sheet, its revision (a picker when there are several), who drew it, who
-    checked it and its status. Checked by gives the reviewer and score, in red
-    and ending "failed" when the shown version's own review failed (a score
-    under the pass mark or a critical finding not fixed). Click it for the
-    findings ledger: the round, the pass mark, the verdict and whether it went
-    back for a revision, then each finding's id, a severity badge (critical,
-    major or minor) and the reviewer's status (open, fixed in rev N or still
-    open in rev N); a critical finding not yet fixed sits on a red wash. Beside
-    it the builder's note shows as a claim, "rev N says: ...", or else the
-    revision the finding was sent to; only the reviewer's status says a finding
-    is fixed. An older architect's review shows no round or verdict and never
-    reads failed; its findings show as a numbered list without id, severity or
-    status. Stamps mark approved, rejected, superseded and folded versions. On
-    the newest version a dashed cloud marks what changed, and Compare strikes
-    removed words and highlights added ones. At a gate a bar above the title
-    block repeats the gate's buttons. When the version at the gate has its own
-    review, the bar also names each critical finding not yet fixed, with its id,
-    status and text, and, when it has findings, a Findings (N) toggle opens the
-    whole ledger there. While a question round waits, the asking stage's sheet
-    shows the version it owes with the status Waiting on N questions (or the
-    assumptions still undecided). While a run works the sheet shows its turns,
-    tool calls and tokens, and fills in as the model writes when the model
-    streams its draft.
+    the manual checks after the run. On a plain-language blueprint the sign-off
+    opens with a plain summary: what will be built, what you can do with it, and
+    the consequences you accepted, each marked when its decision changed since
+    you accepted it. Its assumptions show each consequence under the technical
+    decision and who accepted it, beside the status, which accepting never
+    changes; a responder answer that a re-asked question replaced stays, struck
+    through and marked with the answer that replaced it. A version stored before
+    the architect recorded outcomes, edge cases or findings across the blueprint
+    shows none of those tables or columns. Below 520px of sheet width each table
+    row stacks into a block; the sign-off's assumptions, with more columns,
+    stack below 720px. A basis chips what it rests on: answers (Q1, round2.A1)
+    blue, sources (S1) green, and stated assumptions (A3) and outcomes (O1)
+    grey. Tabs follow the current stage until you pick one; a pick holds until
+    the current stage, or the slice it runs for, changes. Stages without an
+    artifact are dimmed and stages the pack does not run are hidden. The shared
+    decisions sheet shows the decisions every slice builds on as the design
+    sheet shows a slice's, with their contracts and assumptions. The design
+    sheet heads its decisions with the projects they cover; a design that holds
+    several slices, as designs made before per-slice design do, heads each
+    slice's decisions with its id as well. A blueprint cut into two or more
+    slices runs design, grounding, acceptance and cards once per slice: those
+    four tabs sit between separators, and while one is open a row of slice tabs
+    (each slice's id and title) opens under it, joined to the open tab by a
+    shared shade. The chosen slice sits on the paper colour, a slice waiting for
+    you shows in the question accent, and slices without that sheet yet are
+    dimmed. Switching stage tabs keeps the chosen slice, and the sheet names the
+    slice under its title. A blueprint with one slice shows none of this and no
+    Shared tab. The title block names the sheet, its revision (a picker when
+    there are several), who drew it, who checked it and its status. Checked by
+    gives the reviewer and score, in red and ending "failed" when the shown
+    version's own review failed (a score under the pass mark or a critical
+    finding not fixed). Click it for the findings ledger: the round, the pass
+    mark, the verdict and whether it went back for a revision, then each
+    finding's id, a severity badge (critical, major or minor) and the reviewer's
+    status (open, fixed in rev N or still open in rev N); a critical finding not
+    yet fixed sits on a red wash. Beside it the builder's note shows as a claim,
+    "rev N says: ...", or else the revision the finding was sent to; only the
+    reviewer's status says a finding is fixed. An older architect's review shows
+    no round or verdict and never reads failed; its findings show as a numbered
+    list without id, severity or status. Stamps mark approved, rejected,
+    superseded and folded versions. On the newest version a dashed cloud marks
+    what changed, and Compare strikes removed words and highlights added ones.
+    At a gate a bar above the title block repeats the gate's buttons. When the
+    version at the gate has its own review, the bar also names each critical
+    finding not yet fixed, with its id, status and text, and, when it has
+    findings, a Findings (N) toggle opens the whole ledger there. While a
+    question round waits, the asking stage's sheet shows the version it owes
+    with the status Waiting on N questions (or the assumptions still undecided).
+    While a run works the sheet shows its turns, tool calls and tokens, and
+    fills in as the model writes when the model streams its draft.
   - From 760px pane width the sheet sits beside the transcript at 46% with a
     draggable divider (320px minimum each side). Narrower panes show an edge
     strip that opens the sheet over the transcript; on a phone a Sheet

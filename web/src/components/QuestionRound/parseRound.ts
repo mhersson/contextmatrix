@@ -30,6 +30,8 @@ export interface RoundQuestion {
 export interface RoundAssumption {
   id: string;
   text: string;
+  /** The technical decision behind a plain consequence; present only when non-blank. */
+  detail?: string;
 }
 
 export interface RoundChatMessage {
@@ -114,7 +116,7 @@ export function parseRound(raw: unknown): Round | null {
   const assumptions = list(raw.assumptions).flatMap((v): RoundAssumption[] => {
     if (!isRecord(v) || str(v.id) === '' || str(v.text).trim() === '' || ids.has(str(v.id))) return [];
     ids.add(str(v.id));
-    return [{ id: str(v.id), text: str(v.text) }];
+    return [{ id: str(v.id), text: str(v.text), ...(str(v.detail).trim() !== '' ? { detail: str(v.detail) } : {}) }];
   });
   if (questions.length === 0 && assumptions.length === 0) return null;
   return {

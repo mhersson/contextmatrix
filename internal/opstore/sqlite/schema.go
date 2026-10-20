@@ -6,9 +6,12 @@ import (
 	"fmt"
 )
 
-// schemaVersion is the current opstore schema revision. Bump it when adding
-// tables/columns: every CREATE is IF NOT EXISTS, so an older database grows
-// the new table on open and is stamped; a newer database is refused.
+// schemaVersion is the current opstore schema revision. Bump it when an older
+// binary cannot run correctly against the new schema: an image older than the
+// stamp refuses to start. A column with a default that older binaries never
+// name does not bump, so a rollback still opens the database. Every CREATE is
+// IF NOT EXISTS, so an older database grows the new table on open and is
+// stamped; a newer database is refused.
 const schemaVersion = 6
 
 // ensureSchema creates every operational table if absent. There is no
@@ -58,7 +61,8 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			estimated_cost_usd        REAL NOT NULL DEFAULT 0,
 			kind                      TEXT NOT NULL DEFAULT 'chat',
 			mode                      TEXT NOT NULL DEFAULT '',
-			cost_cap_usd              REAL NOT NULL DEFAULT 0
+			cost_cap_usd              REAL NOT NULL DEFAULT 0,
+			plain_language            INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_sessions_last_active ON chat_sessions(last_active)`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_sessions_status ON chat_sessions(status)`,
@@ -140,6 +144,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		{"kind", "TEXT NOT NULL DEFAULT 'chat'"},
 		{"mode", "TEXT NOT NULL DEFAULT ''"},
 		{"cost_cap_usd", "REAL NOT NULL DEFAULT 0"},
+		{"plain_language", "INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if err := addColumnIfMissing(ctx, db, "chat_sessions", col.name, col.decl); err != nil {
 			return err

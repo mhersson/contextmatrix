@@ -115,6 +115,21 @@ describe('ScaleBar slices', () => {
 });
 
 describe('ScaleBar on an ended blueprint', () => {
+  it('folds the technical end reason under the plain one beside the bar', () => {
+    const view = {
+      ...viewEndedAtSlicing(),
+      end_reason: 'The architect found nothing it could build on.',
+      end_detail: 'slicing stored no slices, so nothing could be designed',
+    };
+    render(<ScaleBar chatId="S3" view={view} compact={false} onOpenStage={() => {}} />);
+    const where = screen.getByRole('status');
+    expect(where.querySelector('span.bp-failed')).toHaveTextContent(view.end_reason);
+    expect(where.querySelector('span.bp-failed')).not.toHaveTextContent(view.end_detail);
+    const fold = within(where).getByText(view.end_detail).closest('details');
+    expect(fold).not.toBeNull();
+    expect(fold).not.toHaveAttribute('open');
+  });
+
   it('draws the stopping step in the failed tone and every step after it as not reached', () => {
     render(<ScaleBar chatId="S3" view={viewEndedAtSlicing()} compact={false} onOpenStage={() => {}} />);
     expect(tones()).toEqual(['done', 'failed', ...Array(7).fill('not-reached')]);

@@ -2430,6 +2430,7 @@ management lives under `/api/admin/chats`.
 | `kind`                                                                             | always    | `chat` or `architect`; rows written before kinds existed read as `chat`                    |
 | `project`, `container_id`, `workspace`, `model`                                    | omitempty | `workspace` is a string list; `model` is set at creation and reused on every `/open`       |
 | `mode`, `cost_cap_usd`                                                             | omitempty | Architect sessions only; both are set at creation, then `mode` changes through `/mode` and `cost_cap_usd` through `/cap`. `workspace` holds the target projects |
+| `plain_language`                                                                   | omitempty | Architect sessions only; set at creation and never changed. Every start sends it |
 | `context_tokens`                                                                   | omitempty | Last `input + cache_read + cache_create` reported by the model                             |
 | `context_tokens_updated_at`                                                        | always    | Zero time (`0001-01-01T00:00:00Z`) until the first usage entry                             |
 | `rehydration_active`, `rehydration_started_at`                                     | omitempty | `true` between a cold reopen and the agent's `chat_rehydration_complete` call              |
@@ -2461,18 +2462,22 @@ endpoint mode wins. With neither, the value is accepted unvalidated.
 A blueprint session on the architect backend takes its own fields:
 
 ```json
-{ "kind": "architect", "projects": ["alpha", "beta"], "mode": "auto", "cost_cap_usd": 3 }
+{ "kind": "architect", "projects": ["alpha", "beta"], "mode": "auto", "cost_cap_usd": 3, "plain_language": true }
 ```
 
 `kind` defaults to `chat`. An architect session needs at least one existing
 project in `projects`, a valid `mode` (`default`, `auto`, `auto+emit` or
 `yolo`; `default` when omitted), a non-negative `cost_cap_usd` and no
-`project`. `model` is not defaulted at create for architect sessions: the
-cold open uses `backends.architect.default_model`. A `model` equal to that
-default is accepted without catalog validation, exactly like an omitted one;
-any other model is validated against the catalog as for chat sessions. Violations are 400
-`INVALID_CHAT_INPUT` with the reason in `details`; a create with no architect
-backend configured is 409 `CHAT_KIND_UNAVAILABLE`.
+`project`. `plain_language` (default `false`) runs the blueprint in plain
+language: the person is asked only what they want and how it should look and
+work, and sees each technical decision as what it means for them. It is fixed
+at creation and ignored on a chat session. `model` is not defaulted at create
+for architect sessions: the cold open uses `backends.architect.default_model`.
+A `model` equal to that default is accepted without catalog validation,
+exactly like an omitted one; any other model is validated against the catalog
+as for chat sessions. Violations are 400 `INVALID_CHAT_INPUT` with the reason
+in `details`; a create with no architect backend configured is 409
+`CHAT_KIND_UNAVAILABLE`.
 
 **Response:** 201 with the session.
 

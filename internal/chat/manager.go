@@ -989,10 +989,11 @@ type CreateInput struct {
 	Model     string
 	// Kind selects the backend; empty means KindChat.
 	Kind SessionKind
-	// Projects, Mode and CostCapUSD apply to KindArchitect only.
-	Projects   []string
-	Mode       string
-	CostCapUSD float64
+	// Projects, Mode, CostCapUSD and PlainLanguage apply to KindArchitect only.
+	Projects      []string
+	Mode          string
+	CostCapUSD    float64
+	PlainLanguage bool
 }
 
 // CreateSession inserts a cold-state session row. The container is
@@ -1004,9 +1005,10 @@ func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, e
 	}
 
 	var (
-		workspace []string
-		mode      string
-		costCap   float64
+		workspace     []string
+		mode          string
+		costCap       float64
+		plainLanguage bool
 	)
 
 	switch kind {
@@ -1052,6 +1054,7 @@ func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, e
 		}
 
 		costCap = in.CostCapUSD
+		plainLanguage = in.PlainLanguage
 		workspace = slices.Clone(in.Projects)
 	default:
 		return Session{}, fmt.Errorf("%w: unknown session kind %q", ErrInvalidSessionInput, in.Kind)
@@ -1060,18 +1063,19 @@ func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, e
 	now := m.clk.Now().UTC().Truncate(time.Second)
 
 	sess := Session{
-		ID:         NewID(),
-		Title:      in.Title,
-		Project:    in.Project,
-		Kind:       kind,
-		Mode:       mode,
-		CostCapUSD: costCap,
-		Workspace:  workspace,
-		Status:     StatusCold,
-		CreatedAt:  now,
-		LastActive: now,
-		CreatedBy:  in.CreatedBy,
-		Model:      in.Model,
+		ID:            NewID(),
+		Title:         in.Title,
+		Project:       in.Project,
+		Kind:          kind,
+		Mode:          mode,
+		CostCapUSD:    costCap,
+		PlainLanguage: plainLanguage,
+		Workspace:     workspace,
+		Status:        StatusCold,
+		CreatedAt:     now,
+		LastActive:    now,
+		CreatedBy:     in.CreatedBy,
+		Model:         in.Model,
 	}
 	if err := m.store.CreateSession(ctx, sess); err != nil {
 		return Session{}, fmt.Errorf("chat: CreateSession: %w", err)
@@ -1759,7 +1763,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 		}
 
 		m.logger.Info("chat: opening cold blueprint session",
-			"session_id", sess.ID, "projects", sess.Workspace, "mode", sess.Mode, "model", model,
+			"session_id", sess.ID, "projects", sess.Workspace, "mode", sess.Mode, "plain_language", sess.PlainLanguage, "model", model,
 			"research", m.architectResearch != nil)
 
 		start := StartChatOpts{
@@ -1768,10 +1772,11 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 			LLMEndpoint:         m.llmEndpoint,
 			GitCredentialsToken: token,
 			Architect: &protocol.ArchitectStart{
-				Projects:   sess.Workspace,
-				Mode:       sess.Mode,
-				CostCapUSD: sess.CostCapUSD,
-				Research:   m.architectResearch,
+				Projects:      sess.Workspace,
+				Mode:          sess.Mode,
+				CostCapUSD:    sess.CostCapUSD,
+				PlainLanguage: sess.PlainLanguage,
+				Research:      m.architectResearch,
 			},
 		}
 

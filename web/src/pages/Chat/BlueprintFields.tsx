@@ -6,6 +6,7 @@ import type { ChatModelChoice } from './useChatModelChoice';
 import {
   BLUEPRINT_MODES,
   CAP_PRESETS,
+  PLAIN_LANGUAGE,
   capLabel,
   capSentence,
   type BlueprintForm,
@@ -34,6 +35,10 @@ export function BlueprintFields({ projects, value, onChange, models }: Blueprint
       <Field label="Mode">
         <ModeCards mode={value.mode} onChange={(mode) => onChange({ ...value, mode })} />
       </Field>
+      <PlainLanguageSwitch
+        on={value.plainLanguage}
+        onChange={(plainLanguage) => onChange({ ...value, plainLanguage })}
+      />
       <ChatModelPicker {...models} />
       <Field label="Cost cap">
         <CapPresets cap={value.capUSD} onChange={(capUSD) => onChange({ ...value, capUSD })} />
@@ -69,6 +74,25 @@ function ModeCards({ mode, onChange }: { mode: BlueprintMode; onChange: (mode: B
         );
       })}
     </div>
+  );
+}
+
+function PlainLanguageSwitch({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+  const descId = useId();
+  return (
+    <label className={`nd-plain${on ? ' nd-plain--on' : ''}`}>
+      <input
+        type="checkbox"
+        role="switch"
+        className="sr-only"
+        checked={on}
+        aria-label={PLAIN_LANGUAGE.label}
+        aria-describedby={descId}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <b>{PLAIN_LANGUAGE.label}</b>
+      <span id={descId}>{PLAIN_LANGUAGE.description}</span>
+    </label>
   );
 }
 

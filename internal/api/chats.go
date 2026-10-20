@@ -255,13 +255,14 @@ func (h *chatHandlers) isArchitectDefault(kind chat.SessionKind, model string) b
 
 func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Title      string   `json:"title"`
-		Project    string   `json:"project"`
-		Model      string   `json:"model"`
-		Kind       string   `json:"kind"`
-		Projects   []string `json:"projects"`
-		Mode       string   `json:"mode"`
-		CostCapUSD float64  `json:"cost_cap_usd"`
+		Title         string   `json:"title"`
+		Project       string   `json:"project"`
+		Model         string   `json:"model"`
+		Kind          string   `json:"kind"`
+		Projects      []string `json:"projects"`
+		Mode          string   `json:"mode"`
+		CostCapUSD    float64  `json:"cost_cap_usd"`
+		PlainLanguage bool     `json:"plain_language"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -313,10 +314,11 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 		CreatedBy: agentIDForChat(r),
 		Model:     model,
 
-		Kind:       kind,
-		Projects:   body.Projects,
-		Mode:       body.Mode,
-		CostCapUSD: body.CostCapUSD,
+		Kind:          kind,
+		Projects:      body.Projects,
+		Mode:          body.Mode,
+		CostCapUSD:    body.CostCapUSD,
+		PlainLanguage: body.PlainLanguage,
 	})
 	if err != nil {
 		handleChatError(w, r, err)

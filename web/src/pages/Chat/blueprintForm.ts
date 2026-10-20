@@ -1,3 +1,5 @@
+import { safeReadBool, safeWriteBool } from '../../utils/safeStorage';
+
 export type BlueprintMode = 'default' | 'auto' | 'auto+emit' | 'yolo';
 
 export interface BlueprintForm {
@@ -5,9 +7,10 @@ export interface BlueprintForm {
   mode: BlueprintMode;
   /** USD; 0 means no blueprint cap. */
   capUSD: number;
+  plainLanguage: boolean;
 }
 
-export const EMPTY_BLUEPRINT_FORM: BlueprintForm = { projects: [], mode: 'default', capUSD: 0 };
+export const EMPTY_BLUEPRINT_FORM: BlueprintForm = { projects: [], mode: 'default', capUSD: 0, plainLanguage: false };
 
 export const BLUEPRINT_MODES: { value: BlueprintMode; label: string; description: string }[] = [
   {
@@ -33,6 +36,24 @@ export const BLUEPRINT_MODES: { value: BlueprintMode; label: string; description
     description: 'The responder answers everything; the cards go on the board and start running.',
   },
 ];
+
+export const PLAIN_LANGUAGE = {
+  label: 'Plain language',
+  description:
+    'You are asked what you want and how it should look and work; the architect makes the technical decisions and tells you what they mean for you.',
+};
+
+export function plainLanguageKey(identity: string): string {
+  return `blueprint_plain_language:${identity}`;
+}
+
+export function readPlainLanguage(identity: string | null): boolean {
+  return identity ? safeReadBool(plainLanguageKey(identity)) === true : false;
+}
+
+export function rememberPlainLanguage(identity: string | null, on: boolean): void {
+  if (identity) safeWriteBool(plainLanguageKey(identity), on);
+}
 
 /** Cap presets in USD; 0 is No cap. */
 export const CAP_PRESETS: readonly number[] = [1, 2, 5, 10, 0];

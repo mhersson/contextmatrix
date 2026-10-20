@@ -25,6 +25,8 @@ export interface AvailableChat {
   mode?: string;
   /** Architect cost cap in USD; absent or zero means the architect's default. */
   cost_cap_usd?: number;
+  /** Whether the blueprint was created in plain language; blueprint sessions only. */
+  plain_language?: boolean;
 }
 
 export const EMPTY_PANES: PaneSlots = { TL: null, BL: null, TR: null, BR: null };

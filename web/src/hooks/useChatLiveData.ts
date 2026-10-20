@@ -13,6 +13,8 @@ export interface ChatLiveData {
   blueprintSpentUsd?: number;
   /** A blueprint's mode as the architect holds it (the view's mode); only a blueprint pane writes it. */
   blueprintMode?: string;
+  /** Whether a blueprint's view runs in plain language; only a blueprint pane writes it. */
+  blueprintPlainLanguage?: boolean;
 }
 
 // Module-level store. Acceptable for a small read-by-PaneHeader / written-by-
@@ -38,7 +40,8 @@ function shallowEqualLive(a: ChatLiveData | undefined, b: ChatLiveData): boolean
     a.cacheReadTokens === b.cacheReadTokens &&
     a.cacheCreationTokens === b.cacheCreationTokens &&
     a.blueprintSpentUsd === b.blueprintSpentUsd &&
-    a.blueprintMode === b.blueprintMode
+    a.blueprintMode === b.blueprintMode &&
+    a.blueprintPlainLanguage === b.blueprintPlainLanguage
   );
 }
 

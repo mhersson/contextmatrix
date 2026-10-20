@@ -3,6 +3,7 @@ import { act, render, screen, fireEvent } from '@testing-library/react';
 import { PaneHeader } from './PaneHeader';
 import type { AvailableChat } from './types';
 import { setChatLiveData, clearChatLiveData } from '../../hooks/useChatLiveData';
+import { PLAIN_LANGUAGE } from '../../pages/Chat/blueprintForm';
 import { useChatModels } from '../../utils/chatModels';
 import { publishSheetButton, registerSheetToggle } from '../Blueprint/sheetButtonStore';
 
@@ -314,6 +315,21 @@ describe('PaneHeader blueprint details', () => {
     act(() => setChatLiveData('chat-1', { blueprintMode: 'default' }));
     expect(meta).toHaveTextContent('default');
     expect(meta).not.toHaveTextContent('auto');
+  });
+
+  it('marks a blueprint created in plain language, following the view once it publishes', () => {
+    render(<PaneHeader {...baseProps} chat={{ ...activeChat(), kind: 'architect', mode: 'default', plain_language: true }} />);
+    expect(screen.getByText(PLAIN_LANGUAGE.label)).toBeInTheDocument();
+    act(() => setChatLiveData('chat-1', { blueprintPlainLanguage: false }));
+    expect(screen.queryByText(PLAIN_LANGUAGE.label)).not.toBeInTheDocument();
+  });
+
+  it('marks neither a blueprint created without it nor a chat', () => {
+    const { unmount } = render(<PaneHeader {...baseProps} chat={{ ...activeChat(), kind: 'architect', mode: 'default' }} />);
+    expect(screen.queryByText(PLAIN_LANGUAGE.label)).not.toBeInTheDocument();
+    unmount();
+    render(<PaneHeader {...baseProps} chat={{ ...activeChat(), plain_language: true }} />);
+    expect(screen.queryByText(PLAIN_LANGUAGE.label)).not.toBeInTheDocument();
   });
 });
 
