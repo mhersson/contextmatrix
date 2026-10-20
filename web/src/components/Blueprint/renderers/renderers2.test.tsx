@@ -177,6 +177,28 @@ describe('SignoffSheet', () => {
     expect(manual[3]).not.toBe('feature');
   });
 
+  it('lists each open finding of a card readiness left not ready, with the card title', () => {
+    show(signoffWith({ not_ready: ['D1: Says nothing about errors.', 'D1: Needs a test.', 'D9: not judged'] }));
+    const items = within(sectionOf(/^Cards not ready/)).getAllByRole('listitem').map((li) => li.textContent!);
+    expect(items).toHaveLength(3);
+    for (const [i, finding] of ['Says nothing about errors.', 'Needs a test.'].entries()) {
+      expect(items[i]).toContain('D1');
+      expect(items[i]).toContain('Pretty-print the GET / response');
+      expect(items[i]).toContain(finding);
+    }
+    expect(items[2]).toBe('D9: not judged');
+  });
+
+  it('has no not-ready section when none is left or the sign-off predates it', () => {
+    show(signoffWith({ not_ready: [] }));
+    expect(screen.queryByRole('heading', { name: /^Cards not ready/ })).toBeNull();
+  });
+
+  it('has no not-ready section on a sign-off stored before the key', () => {
+    show(SIGNOFF_V1);
+    expect(screen.queryByRole('heading', { name: /^Cards not ready/ })).toBeNull();
+  });
+
   it('gives each assumption a row with your answer, its status, its basis and sources, and its stage', () => {
     show(SIGNOFF_V1);
     const assumptions = sectionOf(/^Assumptions/);

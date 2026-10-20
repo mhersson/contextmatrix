@@ -102,6 +102,15 @@ function PlainSummary({ summary }: { summary: PlainSummaryData }) {
   );
 }
 
+/** Inserts the card's title after the id of an "<id>: <finding>" entry; other entries stay as written. */
+function withCardTitle(entry: string, cards: SignoffCard[]): string {
+  const at = entry.indexOf(': ');
+  if (at < 0) return entry;
+  const id = entry.slice(0, at);
+  const card = cards.find((c) => c.id === id);
+  return card ? `${id} (${card.title})${entry.slice(at)}` : entry;
+}
+
 export function SignoffSheet({ artifact }: RendererProps) {
   const data = parseSignoff(artifact.data);
   if (!data) return <BodyMarkdown body={artifact.body} mode="plain" version={artifact.version} />;
@@ -118,6 +127,7 @@ export function SignoffSheet({ artifact }: RendererProps) {
     <>
       {data.plainSummary && <PlainSummary summary={data.plainSummary} />}
       <CrossTable items={data.cross} version={artifact.version} />
+      <TextList title="Cards not ready" tone="red" items={data.notReady.map((e) => withCardTitle(e, data.cards))} />
       {data.overrideReason && (
         <p className="bp-override" role="note" aria-label="Override">
           Approved over open findings: {data.overrideReason}

@@ -450,6 +450,8 @@ export interface SignoffData {
   manual: ManualCheck[];
   blocking: string[];
   warnings: string[];
+  /** One line per open finding, "<card id>: <finding>", from the readiness that ran out of rounds; empty on an older sign-off. */
+  notReady: string[];
   steps: string[];
   /** What will happen without a step from you. */
   notices: string[];
@@ -483,6 +485,7 @@ export function parseSignoff(data: unknown): SignoffData | null {
     manual: parseManual(data.manual),
     blocking: strs(data.blocking),
     warnings: strs(data.warnings),
+    notReady: strs(data.not_ready),
     steps: strs(data.steps),
     notices: strs(data.notices),
     assumptions: parseSignoffAssumptions(data.assumptions),

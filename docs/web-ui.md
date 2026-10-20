@@ -288,11 +288,12 @@ board. Promote-to-autonomous lives in that tab.
     approved now if its review passed, unless a gate reply keeps that stage with
     you. At a waiting sign-off, Auto + emit and Yolo note that the sign-off is
     decided automatically unless a critical finding, a card not ready or a
-    preflight warning holds it, but only when switching from Default or Auto. The switch goes to the
-    architect as a `mode` command the transcript does not show, and the
-    architect's line is the visible record; the cell follows the mode the
-    architect republishes. Once the sign-off is approved or the pipeline ends
-    the caption reads "Mode locked" and the cell no longer opens.
+    preflight warning holds it, but only when switching from Default or Auto.
+    The switch goes to the architect as a `mode` command the transcript does
+    not show, and the architect's line is the visible record; the cell follows
+    the mode the architect republishes. Once the sign-off is approved or the
+    pipeline ends the caption reads "Mode locked" and the cell no longer
+    opens.
   - The sheet renders each artifact (need, slices, shared decisions, design,
     grounding, acceptance, cards, readiness, sign-off, board) as a document.
     Long lists are tables with the row count beside each heading: the need's
@@ -308,15 +309,18 @@ board. Promote-to-autonomous lives in that tab.
     they cover; on the readiness sheet the problems found across the blueprint
     (between decisions, contracts, cards and assumptions), each with its id,
     severity, finding and the ids it names, critical first, above the cards; and
-    on the sign-off the same table at the top, a note with your reason when you
-    approved over open findings (a critical finding or cards readiness left not
-    ready), the run order, the assumptions (your
-    answer, status, basis and source chips, and the stage that stated each) and
-    the manual checks after the run. The sign-off and the board show the steps
-    to take before the cards run in a yellow box, and notices (what will happen
-    without a step from you, such as the verify command an agent picks itself)
-    in a blue box. The board's cards carry their type colour and type and
-    priority chips, as on the Cards sheet. On a plain-language blueprint the
+    on the sign-off the same table at the top, a note with your reason when
+    you approved over open findings (a critical finding or cards readiness
+    left not ready), a red list below the table of each open finding with its
+    card's id and title when readiness ran out of rounds with cards still not
+    ready (the sign-off then waits for you in every mode), the run order, the
+    assumptions (your answer, status, basis and source chips, and the stage
+    that stated each) and the manual checks after the run. The sign-off and
+    the board show the steps to take before the cards run in a yellow box, and
+    notices (what will happen without a step from you, such as the verify
+    command an agent picks itself) in a blue box. The board's cards carry
+    their type colour and type and priority chips, as on the Cards sheet. On a
+    plain-language blueprint the
     sign-off opens with a plain summary: what will be built, what you can do
     with it, and the consequences you accepted, each marked when its decision
     changed since you accepted it. Its assumptions show each consequence under
