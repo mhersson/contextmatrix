@@ -64,7 +64,7 @@ export function ChangesTabs({ components, snapshot }: { components: AboutCompone
                 <span>
                   {i < fresh && (
                     <span
-                      className="rounded px-1 text-[0.65rem] ring-1 ring-[var(--green)]"
+                      className="whitespace-nowrap rounded px-1 text-[0.65rem] ring-1 ring-[var(--green)]"
                       style={{ color: 'var(--fg)', backgroundColor: 'var(--bg-green)' }}
                     >
                       NEW
@@ -72,7 +72,7 @@ export function ChangesTabs({ components, snapshot }: { components: AboutCompone
                   )}
                 </span>
                 <span className="flex min-w-0 items-baseline gap-2" style={{ color: 'var(--fg)' }}>
-                  <span className={`shrink-0 rounded px-1 text-[0.65rem] ring-1 ${k.ring}`} style={{ color: k.color }}>
+                  <span className={`shrink-0 whitespace-nowrap rounded px-1 text-[0.65rem] ring-1 ${k.ring}`} style={{ color: k.color }}>
                     {changeKind(ch.kind)}
                   </span>
                   <span className="truncate">{ch.title}</span>

@@ -4,16 +4,31 @@ import type { AboutComponent } from '../../types';
 const MISMATCH_TITLE = 'The default worker image was built from a different commit than this server.';
 const muted = { color: 'var(--blueprint-quiet-strong)' };
 
+// Offers a wrap point only at a camel-case boundary, so "ContextMatrix" splits as "Context / Matrix".
+function WrapLabel({ text }: { text: string }) {
+  const parts = text.split(/(?<=[a-z])(?=[A-Z])/);
+  return (
+    <>
+      {parts.map((part, i) => (
+        <span key={i}>
+          {i > 0 && <wbr />}
+          {part}
+        </span>
+      ))}
+    </>
+  );
+}
+
 function Image({ c }: { c: AboutComponent }) {
   if (c.name !== 'agent' && c.name !== 'chat') return null;
   if (!c.worker_image_revision) return null;
   return (
-    <div className="mt-0.5 flex items-center gap-1.5 text-xs" style={muted}>
-      <span className="font-mono">image {shortSha(c.worker_image_revision)}</span>
+    <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs" style={muted}>
+      <span className="font-mono whitespace-nowrap">image {shortSha(c.worker_image_revision)}</span>
       {imageMismatch(c) && (
         <span
           title={MISMATCH_TITLE}
-          className="rounded px-1 text-[0.65rem] ring-1 ring-[var(--orange)]"
+          className="whitespace-nowrap rounded px-1 text-[0.65rem] ring-1 ring-[var(--orange)]"
           style={{ color: 'var(--fg)', backgroundColor: 'var(--bg-orange)' }}
         >
           differs
@@ -41,7 +56,7 @@ export function RunningTable({ components }: { components: AboutComponent[] }) {
           return (
             <tr key={`${c.name}-${i}`} className="align-top" style={{ color: 'var(--fg)' }}>
               <td className="py-1.5 pr-2 [overflow-wrap:anywhere]">
-                {componentLabel(c.name)}
+                <WrapLabel text={componentLabel(c.name)} />
                 <Image c={c} />
               </td>
               <td className="py-1.5 pr-2 font-mono [overflow-wrap:anywhere]">{versionLabel(c)}</td>
