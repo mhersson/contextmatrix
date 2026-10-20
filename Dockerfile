@@ -17,8 +17,10 @@ COPY --from=frontend /build/web/dist ./web/dist
 ARG VERSION=""
 ARG GIT_COMMIT=""
 ARG BUILD_TIME=""
+ARG GIT_COMMIT_FULL=""
+ARG BUILD_TIME_RFC3339=""
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
-      -ldflags="-s -w -X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT} -X 'main.buildTime=${BUILD_TIME}'" \
+      -ldflags="-s -w -X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT} -X 'main.buildTime=${BUILD_TIME}' -X github.com/mhersson/contextmatrix/internal/buildinfo.version=${VERSION} -X github.com/mhersson/contextmatrix/internal/buildinfo.commit=${GIT_COMMIT_FULL} -X github.com/mhersson/contextmatrix/internal/buildinfo.buildTime=${BUILD_TIME_RFC3339}" \
       -o /contextmatrix ./cmd/contextmatrix
 
 # Stage 3: Minimal runtime

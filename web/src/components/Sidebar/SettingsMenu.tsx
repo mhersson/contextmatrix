@@ -1,6 +1,9 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { useAbout } from '../../hooks/useAbout';
 import { useMenuDismiss } from '../../hooks/useMenuDismiss';
+import { AboutDialog } from '../About/AboutDialog';
+import { NewDot } from '../About/NewDot';
 import { AppearanceMenuItems } from './AppearanceMenuItems';
 
 /**
@@ -13,6 +16,8 @@ import { AppearanceMenuItems } from './AppearanceMenuItems';
 export function SettingsMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const { hasUnseen } = useAbout();
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -35,8 +40,9 @@ export function SettingsMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
         className="w-full flex items-center gap-2 rounded px-2 py-1.5 text-sm"
         style={{ color: 'var(--grey2)', backgroundColor: open ? 'var(--bg2)' : 'transparent' }}
       >
-        <span className="w-5 h-5 flex items-center justify-center" style={{ color: 'var(--grey1)' }} aria-hidden="true">
+        <span className="relative w-5 h-5 flex items-center justify-center" style={{ color: 'var(--grey1)' }}>
           <svg
+            aria-hidden="true"
             width="16"
             height="16"
             viewBox="0 0 24 24"
@@ -49,6 +55,11 @@ export function SettingsMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
             <circle cx="12" cy="12" r="3" />
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
+          {hasUnseen && (
+            <span className="absolute -top-0.5 -right-0.5">
+              <NewDot label="(new changes)" />
+            </span>
+          )}
         </span>
         <span className="truncate">Settings</span>
       </button>
@@ -78,8 +89,25 @@ export function SettingsMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
           ))}
           <div className="border-t my-1" style={{ borderColor: 'var(--bg3)' }} aria-hidden="true" />
           <AppearanceMenuItems />
+          <div className="border-t my-1" style={{ borderColor: 'var(--bg3)' }} aria-hidden="true" />
+          <button
+            role="menuitem"
+            onClick={() => {
+              // The item unmounts with the menu; focus the trigger so the dialog's focus trap restores to it.
+              triggerRef.current?.focus();
+              setOpen(false);
+              setAboutOpen(true);
+            }}
+            className="w-full flex items-center gap-2 text-left px-3 py-1.5 text-sm hover:opacity-80"
+            style={{ color: 'var(--fg)' }}
+          >
+            About ContextMatrix
+            {hasUnseen && <NewDot label="(new changes)" />}
+          </button>
         </div>
       )}
+
+      <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
     </div>
   );
 }

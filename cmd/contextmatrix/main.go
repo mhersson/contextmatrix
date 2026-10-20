@@ -29,6 +29,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/auth"
 	"github.com/mhersson/contextmatrix/internal/authstore"
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/buildinfo"
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/config"
@@ -707,6 +708,7 @@ func main() {
 		BoardsRepos:            boardsRepoInfos(cfg.Boards),
 		Theme:                  cfg.Theme,
 		Version:                buildVersion(),
+		Build:                  buildinfo.Info(),
 		MCPHandler:             mcpHandler,
 		ChatManager:            chatMgr,
 		ChatHub:                chatHub,

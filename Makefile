@@ -1,11 +1,15 @@
-.PHONY: build run test test-race fmt lint build-frontend test-frontend lint-frontend install-frontend install docker-build clean test-integration
+.PHONY: build run test test-race fmt lint build-frontend test-frontend lint-frontend install-frontend install docker-build clean test-integration history
 
 VERSION ?= $(shell git describe --tags --exact-match 2>/dev/null)
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD)
 BUILD_TIME ?= $(shell date -u "+%Y-%m-%d %H:%M")
-LDFLAGS := -s -w -X main.version=$(VERSION) -X main.gitCommit=$(GIT_COMMIT) -X 'main.buildTime=$(BUILD_TIME)'
+GIT_COMMIT_FULL ?= $(shell git rev-parse HEAD 2>/dev/null)
+BUILD_TIME_RFC3339 ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+BUILDINFO_PKG := github.com/mhersson/contextmatrix/internal/buildinfo
+HISTORY_FILE := internal/buildinfo/history/merges.log
+LDFLAGS := -s -w -X main.version=$(VERSION) -X main.gitCommit=$(GIT_COMMIT) -X 'main.buildTime=$(BUILD_TIME)' -X $(BUILDINFO_PKG).version=$(VERSION) -X $(BUILDINFO_PKG).commit=$(GIT_COMMIT_FULL) -X $(BUILDINFO_PKG).buildTime=$(BUILD_TIME_RFC3339)
 
-build: build-frontend
+build: build-frontend history
 	go build -trimpath -ldflags="$(LDFLAGS)" -o contextmatrix ./cmd/contextmatrix
 
 run: build
@@ -43,14 +47,21 @@ install-frontend:
 build-frontend:
 	cd web && npm run build
 
-install: build-frontend
+install: build-frontend history
 	go install -ldflags="$(LDFLAGS)" ./cmd/contextmatrix
 
-docker-build:
+# The arguments equal changelog.GitLogArgs; TestHistoryCommands_MatchGitLogArgs
+# keeps the two in step. A checkout without git records no history and still builds.
+history:
+	git log --no-show-signature --first-parent --merges -n 100 '--format=%cI%x1f%s%x1f%b%x1e' > $(HISTORY_FILE) 2>/dev/null || true
+
+docker-build: history
 	docker build \
 		--build-arg VERSION="$(VERSION)" \
 		--build-arg GIT_COMMIT="$(GIT_COMMIT)" \
 		--build-arg BUILD_TIME="$(BUILD_TIME)" \
+		--build-arg GIT_COMMIT_FULL="$(GIT_COMMIT_FULL)" \
+		--build-arg BUILD_TIME_RFC3339="$(BUILD_TIME_RFC3339)" \
 		-t contextmatrix .
 
 clean:

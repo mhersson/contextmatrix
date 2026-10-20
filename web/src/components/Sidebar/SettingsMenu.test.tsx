@@ -18,7 +18,27 @@ vi.mock('../../hooks/useTheme', () => ({
   useTheme: () => themeState,
 }));
 
+
+const aboutState = vi.hoisted(() => ({
+  hasUnseen: false,
+  about: null,
+  seen: {},
+  unseen: {},
+  refresh: vi.fn().mockResolvedValue(null),
+  markSeen: vi.fn(),
+}));
+vi.mock('../../hooks/useAbout', () => ({ useAbout: () => aboutState }));
+vi.mock('../About/AboutDialog', () => ({
+  AboutDialog: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
+    open ? (
+      <div role="dialog" aria-label="About ContextMatrix">
+        <button onClick={onClose}>Close about</button>
+      </div>
+    ) : null,
+}));
+
 beforeEach(() => {
+  aboutState.hasUnseen = false;
   vi.clearAllMocks();
 });
 
@@ -118,5 +138,45 @@ describe('SettingsMenu', () => {
     fireEvent.mouseDown(screen.getByText('outside'));
     expect(screen.queryByRole('menu')).toBeNull();
     expect(document.activeElement).toBe(chip);
+  });
+});
+
+describe('SettingsMenu About ContextMatrix', () => {
+  it('offers About ContextMatrix as the last item', () => {
+    render(<SettingsMenu />);
+    openMenu();
+    const items = screen.getAllByRole('menuitem');
+    expect(items[items.length - 1]).toHaveTextContent('About ContextMatrix');
+  });
+
+  it('returns focus to the trigger once the dialog closes', () => {
+    render(<SettingsMenu />);
+    const trigger = openMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: /About ContextMatrix/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close about' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('opens the dialog and closes the menu', () => {
+    render(<SettingsMenu />);
+    openMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: /About ContextMatrix/ }));
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'About ContextMatrix' })).toBeInTheDocument();
+  });
+
+  it('shows the dot on the gear and the item when there is news', () => {
+    aboutState.hasUnseen = true;
+    render(<SettingsMenu />);
+    const chip = openMenu();
+    expect(chip).toHaveTextContent('(new changes)');
+    expect(screen.getByRole('menuitem', { name: /About ContextMatrix/ })).toHaveTextContent('(new changes)');
+  });
+
+  it('shows no dot without news', () => {
+    render(<SettingsMenu />);
+    openMenu();
+    expect(screen.queryByText('(new changes)')).toBeNull();
   });
 });

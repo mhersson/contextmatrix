@@ -39,7 +39,9 @@ Auto-loaded when working in `web/`. Backend conventions live in the root
   own answers kept per session and round until sent; cleared when the round
   closes, pruned per session, capped at 50 entries),
   `blueprint_plain_language:<identity>` (the Plain language switch's last choice
-  per identity).
+  per identity),
+  `contextmatrix-about-seen` (About ContextMatrix: the newest change shown per
+  component, `{number, merged_at}`).
   Adding a key means adding it here.
 - Comments explain only non-obvious decisions, constraints, safety invariants,
   or workarounds. Do not narrate what code does or record change history; git

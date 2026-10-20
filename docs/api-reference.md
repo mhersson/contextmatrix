@@ -42,6 +42,7 @@ GET    /api/agent/task-skills-source                   # task-skills {git_remote
 GET    /api/chat/task-skills-source                    # same shape for the chat backend (HMAC-signed; chat-backend required)
 GET    /api/agent/git-credentials  ?project=&card_id=  # mid-run project git-token refresh (HMAC-signed; task-backend required)
 GET    /api/backend/health                             # proxied backend /health (capacity meter; 2s cached; fixed path)
+GET    /api/about                                      # build and recent changes of CM and each configured backend (any session in multi mode; backend probes 2s cached, 3s bound)
 GET    /api/backends/{backend}/images                  # proxied backend /images (worker-image picker; agent|chat; 30s cached; admin-gated in multi mode)
 GET    /api/worker/logs  ?project=&card_id=            # SSE log stream (card-scoped or project-scoped; fixed path; task-backend required)
 GET    /api/v1/cards/{project}/{id}/autonomous         # backend autonomous-flag read (HMAC-signed; task-backend required)
@@ -1383,6 +1384,64 @@ struct with exactly `theme`, `version`, and `auth_mode`:
 ```bash
 curl http://localhost:8080/api/app/config
 # → {"theme":"everforest","version":"v0.42.0","auth_mode":"none","task_backend":"agent","best_of_n_max":5,"best_of_n_default":3,"chat_enabled":false}
+```
+
+### GET /api/about
+
+Build and recent changes of ContextMatrix and each configured backend. Feeds
+the About ContextMatrix popup and its dot. Always registered; needs a session
+in `multi` mode, no admin gate.
+
+```json
+{
+  "components": [
+    {
+      "name": "contextmatrix",
+      "status": "running",
+      "build": {
+        "version": "v0.42.0",
+        "commit": "3f9a2c1d5e7b9a0c2d4e6f8a1b3c5d7e9f0a2b4c",
+        "build_time": "2026-10-21T08:00:00Z",
+        "changes": [
+          { "number": 516, "kind": "fix", "title": "show the cards readiness left not ready on the sign-off", "merged_at": "2026-10-20T19:10:00Z" }
+        ]
+      }
+    },
+    {
+      "name": "agent",
+      "status": "connected",
+      "build": { "commit": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", "build_time": "2026-10-20T12:00:00Z", "changes": [] },
+      "worker_image_revision": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+    },
+    { "name": "chat", "status": "connected" },
+    { "name": "architect", "status": "unreachable" }
+  ]
+}
+```
+
+| Field                   | Meaning                                                                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                  | `contextmatrix`, `agent`, `chat`, or `architect`, in that fixed order                                                           |
+| `status`                | `running` (ContextMatrix itself), `connected`, or `unreachable`                                                                 |
+| `build.version`         | The exact git tag; absent when the build is not on a tag                                                                        |
+| `build.commit`          | Full sha; absent when unstamped                                                                                                 |
+| `build.build_time`      | RFC 3339 UTC; absent when unstamped                                                                                             |
+| `build.changes`         | Merged changes, newest first, at most 20; `[]` when no history was recorded (a bare `go build` sends `"build":{"changes":[]}`). |
+| `build`                 | Absent when the backend is unreachable or older than protocol v0.36.0                                                           |
+| `worker_image_revision` | Agent and chat only: the default worker image's `org.opencontainers.image.revision`; absent when unknown                        |
+
+A title prefixed with exactly `feat`, `fix`, `perf` or `revert` (lowercase,
+optional scope, optional `!`) loses the prefix and scope. `feat` and `fix` keep
+that kind; `perf` and `revert` show as kind `change`. Titles typed `ci`,
+`docs`, `chore`, `build`, `test`, `refactor` or `style` are left out, as are
+Dependabot merges. Any other title, including one with an unknown or
+capitalized `word:` prefix, is shown as written with kind `change`.
+
+A disabled backend, or one without `url` and `api_key`, is absent. Backend
+URLs and probe errors are never returned.
+
+```bash
+curl -H 'X-Requested-With: contextmatrix' http://localhost:8080/api/about
 ```
 
 ### GET /api/models
