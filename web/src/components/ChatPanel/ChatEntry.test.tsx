@@ -201,6 +201,29 @@ describe('ChatEntry prompt rows', () => {
     expect(container.querySelector('[data-prompt-kind="question"]')).not.toBeNull();
   });
 
+  it('leads a gate prompt with the gate icon', () => {
+    const gate = JSON.stringify({
+      text: 'Approve the design?',
+      prompt: { id: 'gate:design:v2', kind: 'gate', actions: [{ label: 'Approve', reply: 'approve' }] },
+    });
+    render(<ChatEntry entry={{ ...makeEntry(1, 'text', gate), kind: 'prompt' }} promptStatus="open" />);
+    expect(screen.getByTestId('gate-icon')).toBeInTheDocument();
+  });
+
+  it('shows no gate icon on a question or a neutral prompt', () => {
+    const question = JSON.stringify({
+      text: 'Which?',
+      prompt: { id: 'Q1', kind: 'question', actions: [{ label: 'A', reply: '1' }] },
+    });
+    const { unmount } = render(
+      <ChatEntry entry={{ ...makeEntry(1, 'text', question), kind: 'prompt' }} promptStatus="open" />,
+    );
+    expect(screen.queryByTestId('gate-icon')).toBeNull();
+    unmount();
+    render(<ChatEntry entry={{ ...makeEntry(1, 'text', content), kind: 'prompt' }} promptStatus="open" />);
+    expect(screen.queryByTestId('gate-icon')).toBeNull();
+  });
+
   it('renders an older envelope without the new fields, with working buttons', () => {
     const onReply = vi.fn();
     const { container } = render(
@@ -307,5 +330,51 @@ describe('ChatEntry blueprint markers', () => {
       </BlueprintSheetContext.Provider>,
     );
     expect(screen.getByRole('separator', { name: 'Grounding, Senior developer' })).toBeInTheDocument();
+  });
+});
+
+describe('ChatEntry mockup offer', () => {
+  const offer = (extra: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      text: 'Want a mockup?',
+      prompt: {
+        id: 'mockup:offer',
+        kind: 'gate',
+        ...extra,
+        actions: [
+          { label: 'Show mockup', reply: 'show mockup', recommended: true },
+          { label: 'Skip mockup', reply: 'skip mockup' },
+        ],
+      },
+    });
+  const row = (content: string) => ({ ...makeEntry(1, 'text', content), kind: 'prompt' as const });
+
+  it('renders the offer in its own frame with the primary Show mockup and no gate icon', () => {
+    const { container } = render(
+      <ChatEntry entry={row(offer())} promptStatus="open" onReply={vi.fn().mockResolvedValue(undefined)} />,
+    );
+    expect(container.querySelector('.chat-offer[data-prompt-id="mockup:offer"]')).not.toBeNull();
+    expect(screen.queryByTestId('gate-icon')).toBeNull();
+    expect(screen.getByRole('button', { name: /Show mockup/ })).toHaveClass('bf-btn-primary');
+  });
+
+  it('keeps the frame once the offer is answered', () => {
+    const { container } = render(
+      <ChatEntry entry={row(offer())} promptStatus="answered" promptAnswer="Show mockup" />,
+    );
+    expect(container.querySelector('.chat-offer')).not.toBeNull();
+    expect(screen.getByTestId('prompt-summary')).toHaveTextContent('Answered: Show mockup');
+  });
+
+  it('folds a technical detail inside the frame', () => {
+    const { container } = render(
+      <ChatEntry
+        entry={row(offer({ detail: 'The designer runs the mockup stage.' }))}
+        promptStatus="open"
+        onReply={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+    const frame = container.querySelector('.chat-offer') as HTMLElement;
+    expect(frame.textContent).toContain('Technical detail');
   });
 });

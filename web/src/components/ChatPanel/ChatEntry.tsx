@@ -16,7 +16,8 @@ import {
 import { StructuredPayload } from './StructuredPayload';
 import { PromptActions } from './PromptActions';
 import { TechnicalDetail } from '../TechnicalDetail';
-import { parsePromptEntry, type PromptState } from './prompts';
+import { MOCKUP_OFFER_ID, parsePromptEntry, type PromptState } from './prompts';
+import { BarrierIcon, MockupIcon } from '../Blueprint/icons';
 import { parseMarkerEntry } from '../Blueprint/markers';
 import { useBlueprintSheet } from '../Blueprint/sheetContext';
 import { ReviewCard } from '../Blueprint/ReviewCard';
@@ -130,48 +131,78 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
 
   if (entry.type === 'text') {
     const body = prompt ? (prompt.prompt.text ?? prompt.text) : entry.content;
+    const isOffer = prompt?.prompt.id === MOCKUP_OFFER_ID;
+    const inner = (
+      <>
+        {structured ? (
+          <StructuredPayload pretty={structured} />
+        ) : body.length > TEXT_CLAMP_CHAR_THRESHOLD ||
+          countNewlines(body, TEXT_CLAMP_LINE_THRESHOLD) > TEXT_CLAMP_LINE_THRESHOLD ? (
+          <ClampedMarkdown source={body} />
+        ) : (
+          <ChatMarkdown source={body} />
+        )}
+        <TechnicalDetail detail={prompt?.prompt.detail} render={(d) => <ChatMarkdown source={d} />} />
+        {prompt && promptStatus && (
+          <PromptActions
+            prompt={prompt.prompt}
+            status={promptStatus}
+            answer={promptAnswer}
+            onReply={onReply}
+            recommendedPrimary={isOffer}
+          />
+        )}
+      </>
+    );
+    const frame = isOffer && (
+      <div className="chat-offer" data-prompt-id={prompt?.prompt.id} data-prompt-kind={prompt?.prompt.kind}>
+        <span className="chat-offer-reg chat-offer-reg--tl" aria-hidden="true" />
+        <span className="chat-offer-reg chat-offer-reg--tr" aria-hidden="true" />
+        <span className="chat-offer-reg chat-offer-reg--bl" aria-hidden="true" />
+        <span className="chat-offer-reg chat-offer-reg--br" aria-hidden="true" />
+        <span className="chat-offer-tile">
+          <MockupIcon />
+        </span>
+        <div className="min-w-0">{inner}</div>
+      </div>
+    );
     return (
       <div className="flex justify-start">
         <div className="flex flex-col items-start max-w-[85%] min-w-0">
           {stamp && <TimestampLabel hhmm={stamp.hhmm} title={stamp.title} dateTime={entry.ts} />}
           {entry.agent && <SpeakerChip author={entry.agent} model={entry.model} />}
-          {/* The bubble is a shrink-to-fit flex item, so its width follows its
-              min-content size. `wrap-anywhere` (not `break-words`, which the
-              spec excludes from min-content sizing) keeps a long identifier
-              from dictating that width; `max-w-full` is the hard clamp. */}
-          <div
-            className="rounded-lg px-3 py-2 text-sm wrap-anywhere max-w-full"
-            style={{
-              backgroundColor:
-                prompt?.prompt.kind === 'question' ? 'var(--prompt-question-bg)' : 'var(--chat-assistant-bg)',
-              // The bar and the accent ring ride the same inset shadow as the plain ring.
-              boxShadow:
-                prompt?.prompt.kind === 'question'
-                  ? 'inset 5px 0 0 0 var(--prompt-question-accent), inset 0 0 0 1px var(--prompt-question-ring)'
-                  : 'inset 0 0 0 1px var(--chat-assistant-ring)',
-              color: 'var(--fg)',
-            }}
-            data-prompt-id={prompt?.prompt.id}
-            data-prompt-kind={prompt?.prompt.kind}
-          >
-            {structured ? (
-              <StructuredPayload pretty={structured} />
-            ) : body.length > TEXT_CLAMP_CHAR_THRESHOLD ||
-              countNewlines(body, TEXT_CLAMP_LINE_THRESHOLD) > TEXT_CLAMP_LINE_THRESHOLD ? (
-              <ClampedMarkdown source={body} />
-            ) : (
-              <ChatMarkdown source={body} />
-            )}
-            <TechnicalDetail detail={prompt?.prompt.detail} render={(d) => <ChatMarkdown source={d} />} />
-            {prompt && promptStatus && (
-              <PromptActions
-                prompt={prompt.prompt}
-                status={promptStatus}
-                answer={promptAnswer}
-                onReply={onReply}
-              />
-            )}
-          </div>
+          {isOffer ? (
+            frame
+          ) : (
+            // The bubble is a shrink-to-fit flex item, so its width follows its
+            // min-content size. `wrap-anywhere` (not `break-words`, which the
+            // spec excludes from min-content sizing) keeps a long identifier
+            // from dictating that width; `max-w-full` is the hard clamp.
+            <div
+              className="rounded-lg px-3 py-2 text-sm wrap-anywhere max-w-full"
+              style={{
+                backgroundColor:
+                  prompt?.prompt.kind === 'question' ? 'var(--prompt-question-bg)' : 'var(--chat-assistant-bg)',
+                // The bar and the accent ring ride the same inset shadow as the plain ring.
+                boxShadow:
+                  prompt?.prompt.kind === 'question'
+                    ? 'inset 5px 0 0 0 var(--prompt-question-accent), inset 0 0 0 1px var(--prompt-question-ring)'
+                    : 'inset 0 0 0 1px var(--chat-assistant-ring)',
+                color: 'var(--fg)',
+              }}
+              data-prompt-id={prompt?.prompt.id}
+              data-prompt-kind={prompt?.prompt.kind}
+            >
+              {prompt?.prompt.kind === 'gate' ? (
+                <div className="chat-prompt-lead">
+                  <BarrierIcon />
+                  <div className="min-w-0">{inner}</div>
+                </div>
+              ) : (
+                inner
+              )}
+            </div>
+          )}
         </div>
       </div>
     );

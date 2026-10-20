@@ -9,6 +9,8 @@ interface PromptActionsProps {
   answer?: string | null;
   /** Sends a reply as the user's message; set only on the open prompt. */
   onReply?: (text: string) => Promise<void> | void;
+  /** Draws a recommended action as the primary button, with no visible chip. */
+  recommendedPrimary?: boolean;
 }
 
 /**
@@ -16,7 +18,7 @@ interface PromptActionsProps {
  * closed. A click sends the action's reply through the normal send path; the
  * prompt closes when that user row reaches the transcript.
  */
-export function PromptActions({ prompt, status, answer, onReply }: PromptActionsProps) {
+export function PromptActions({ prompt, status, answer, onReply, recommendedPrimary }: PromptActionsProps) {
   const [phase, setPhase] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [feedbackFor, setFeedbackFor] = useState<PromptAction | null>(null);
@@ -126,25 +128,32 @@ export function PromptActions({ prompt, status, answer, onReply }: PromptActions
         data-layout={stacked ? 'stacked' : 'compact'}
         className={stacked ? 'flex flex-col gap-2' : 'flex flex-wrap gap-2'}
       >
-        {prompt.actions.map((a, i) => (
-          <button
-            key={`${i}:${a.label}`}
-            type="button"
-            className={stacked ? 'chat-prompt-option' : 'bf-btn-ghost bf-btn-sm'}
-            disabled={disabled}
-            onClick={(e) => choose(a, e.currentTarget)}
-          >
-            {a.label}
-            {a.recommended && (
-              <>
-                <span className="sr-only">, recommended</span>
-                <span className="chat-prompt-chip" aria-hidden="true">
-                  recommended
-                </span>
-              </>
-            )}
-          </button>
-        ))}
+        {prompt.actions.map((a, i) => {
+          const primary = recommendedPrimary && a.recommended && !stacked;
+          return (
+            <button
+              key={`${i}:${a.label}`}
+              type="button"
+              className={
+                stacked ? 'chat-prompt-option' : primary ? 'bf-btn-primary bf-btn-sm' : 'bf-btn-ghost bf-btn-sm'
+              }
+              disabled={disabled}
+              onClick={(e) => choose(a, e.currentTarget)}
+            >
+              {a.label}
+              {a.recommended && (
+                <>
+                  <span className="sr-only">, recommended</span>
+                  {!primary && (
+                    <span className="chat-prompt-chip" aria-hidden="true">
+                      recommended
+                    </span>
+                  )}
+                </>
+              )}
+            </button>
+          );
+        })}
       </div>
       {feedbackFor && (
         <div className="flex flex-col gap-1.5">

@@ -1139,6 +1139,83 @@ textarea {
   font-size: 11.5px;
 }
 
+.bf-btn-primary.bf-btn-sm {
+  padding: 5px 10px;
+  font-size: 11.5px;
+}
+
+/* The mockup offer: a drawing frame with registration marks at its corners. */
+.chat-offer {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  max-width: 100%;
+  padding: 11px 13px 12px 11px;
+  border: 1px solid color-mix(in oklab, var(--blue) 45%, var(--bg3));
+  border-radius: 2px;
+  background: var(--bg0);
+  color: var(--fg);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.chat-offer-reg {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border: 0 solid var(--blueprint-ink-blue);
+}
+.chat-offer-reg--tl {
+  top: -5px;
+  left: -5px;
+  border-top-width: 1.5px;
+  border-left-width: 1.5px;
+}
+.chat-offer-reg--tr {
+  top: -5px;
+  right: -5px;
+  border-top-width: 1.5px;
+  border-right-width: 1.5px;
+}
+.chat-offer-reg--bl {
+  bottom: -5px;
+  left: -5px;
+  border-bottom-width: 1.5px;
+  border-left-width: 1.5px;
+}
+.chat-offer-reg--br {
+  bottom: -5px;
+  right: -5px;
+  border-bottom-width: 1.5px;
+  border-right-width: 1.5px;
+}
+.chat-offer-tile {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 4px;
+  background: var(--bg-blue);
+  color: var(--blueprint-ink-blue);
+}
+.chat-offer-tile svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* A gate prompt's barrier icon beside its text. */
+.chat-prompt-lead {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.chat-prompt-lead > svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--blueprint-quiet-strong);
+}
+
 /* Stacked architect reply option: full-width, the whole label wraps. */
 .chat-prompt-option {
   display: flex;
@@ -7456,6 +7533,48 @@ button.bp-seg-hit {
   color: var(--blueprint-ink-orange);
 }
 
+.bp-callout {
+  margin: 14px 0;
+  padding: 8px 12px 9px;
+  border-left: 3px solid var(--callout-tone);
+  border-radius: 4px;
+  background: var(--callout-wash);
+  overflow-wrap: anywhere;
+}
+
+.bp-callout--steps {
+  --callout-tone: var(--yellow);
+  --callout-ink: var(--blueprint-ink-orange);
+  --callout-wash: var(--bg-yellow);
+}
+
+.bp-callout--notices {
+  --callout-tone: var(--blue);
+  --callout-ink: var(--blueprint-ink-blue);
+  --callout-wash: var(--bg-blue);
+}
+
+.bp-paper .bp-callout h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 4px;
+}
+
+.bp-callout h3 svg {
+  flex: none;
+  color: var(--callout-ink);
+}
+
+.bp-callout .bp-list {
+  margin: 0;
+  list-style: disc;
+}
+
+.bp-paper .bp-callout code {
+  background: color-mix(in oklab, var(--bg0) 50%, transparent);
+}
+
 /* Blueprint sheet: paper, stamps and live writing. */
 .bp-paper {
   position: relative;
@@ -7972,12 +8091,24 @@ button.bp-mode:hover > span {
   background: var(--prompt-question-bg);
   color: var(--fg);
 }
+.bp-gatebar > svg {
+  flex: none;
+  color: var(--blueprint-quiet-strong);
+}
 .bp-gatebar > span {
   flex: 1 1 200px;
   font-size: 12px;
 }
 .bp-gatebar > div {
   margin-top: 0;
+}
+/* The accent border clears 3:1 on the question wash in every palette, where --bg4 does not. */
+.bp-gatebar .bf-btn-ghost {
+  border-color: var(--prompt-question-accent);
+}
+.bp-gatebar .bf-btn-ghost:hover:not(:disabled) {
+  border-color: var(--prompt-question-accent);
+  background: var(--prompt-question-hover-bg);
 }
 .bp-gate-ledger {
   /* Only --fg clears 4.5:1 on the question wash, so the ledger's muted and tone text take it. */

@@ -1,6 +1,7 @@
-import { Fragment } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { BasisChips } from '../Chips';
 import type { Assumption, CrossFinding, Outcome } from '../artifactData';
+import { NoticeIcon, StepsIcon } from '../icons';
 import { severityOf } from '../ledger';
 import { changedById } from '../revisions';
 import { assumptionKey, changedAssumptions, numbered, type NumberedAssumption } from './rows';
@@ -64,6 +65,30 @@ export function TextList({ title, items, tone }: { title: string; items: string[
       <ul className={tone ? `bp-list bp-list--${tone}` : 'bp-list'}>
         {items.map((t, i) => (
           <li key={i}>{t}</li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Text with each non-empty backtick pair as a code element; anything unpaired stays as written. */
+// eslint-disable-next-line react-refresh/only-export-components
+export function codeSpans(text: string): ReactNode[] {
+  return text.split(/`([^`]+)`/).map((part, i) => (i % 2 === 1 ? <code key={i}>{part}</code> : part));
+}
+
+/** A tinted box for the steps to take (yellow) or the notices to read (blue). */
+export function Callout({ title, items, tone }: { title: string; items: string[]; tone: 'steps' | 'notices' }) {
+  if (items.length === 0) return null;
+  return (
+    <section className={`bp-callout bp-callout--${tone}`}>
+      <h3>
+        {tone === 'steps' ? <StepsIcon /> : <NoticeIcon />}
+        {title}
+      </h3>
+      <ul className="bp-list">
+        {items.map((t, i) => (
+          <li key={i}>{codeSpans(t)}</li>
         ))}
       </ul>
     </section>

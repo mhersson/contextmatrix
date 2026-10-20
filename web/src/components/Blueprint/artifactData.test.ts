@@ -111,6 +111,13 @@ describe('artifact data', () => {
     expect(httpUrl(board.cards[1].pr)).toBeNull();
   });
 
+  it('reads a board card type and priority, empty on an older board', () => {
+    const data = BOARD_V1.data as { cards: object[] };
+    const typed = parseBoard({ ...data, cards: [{ ...data.cards[0], type: 'bug', priority: 'high' }, ...data.cards.slice(1)] })!;
+    expect(typed.cards[0]).toMatchObject({ type: 'bug', priority: 'high' });
+    for (const c of parseBoard(BOARD_V1.data)!.cards) expect(c).toMatchObject({ type: '', priority: '' });
+  });
+
   it('returns null for data that is not an object', () => {
     expect(parseCards('nope')).toBeNull();
     expect(parseBoard(undefined)).toBeNull();
@@ -221,5 +228,15 @@ describe('a plain-language sign-off', () => {
     expect(acceptedLabel({ by: 'human', round: 2 })).not.toContain('human');
     expect(acceptedLabel({ by: 'ops-team', round: 2 })).toContain('ops-team');
     expect(acceptedLabel({ by: 'human', round: 2 })).not.toBe(acceptedLabel({ by: 'human', round: 3 }));
+  });
+});
+
+describe('notices', () => {
+  it('reads notices on the sign-off and the board, empty when absent or null', () => {
+    expect(parseSignoff({ ...(SIGNOFF_V1.data as object), notices: ['N.'] })!.notices).toEqual(['N.']);
+    expect(parseBoard(BOARD_V1.data)!.notices).toEqual([]);
+    const nulled = parseSignoff({ ...(SIGNOFF_V1.data as object), notices: null, steps: null })!;
+    expect(nulled.notices).toEqual([]);
+    expect(nulled.steps).toEqual([]);
   });
 });

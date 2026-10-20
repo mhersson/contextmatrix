@@ -8,6 +8,17 @@ export function SheetIcon() {
   );
 }
 
+/** A striped boom barrier: a gate that waits for your decision. */
+export function BarrierIcon() {
+  return (
+    <svg data-testid="gate-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.3} aria-hidden="true">
+      <path d="M3.2 7.4v7.1M1.6 14.5h3.2" strokeLinecap="round" />
+      <rect x="2" y="4.2" width="12.3" height="3.2" rx=".5" />
+      <path d="M6.1 4.2 4.6 7.4M9.3 4.2 7.8 7.4M12.5 4.2 11 7.4" />
+    </svg>
+  );
+}
+
 /** Two overlapping speech bubbles: a question round's dialogue. */
 export function DialogueIcon() {
   return (
@@ -38,6 +49,40 @@ export function ChevronIcon({ className }: { className: string }) {
   return (
     <svg className={className} width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth={1.4} aria-hidden="true">
       <path d="M3.5 1.5 7 5 3.5 8.5" />
+    </svg>
+  );
+}
+
+/** A screen wireframe: the mockup the designer offers to draw. */
+export function MockupIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.3} aria-hidden="true">
+      <rect x="1.5" y="2.5" width="13" height="11" />
+      <path d="M1.5 5.3h13" />
+      <path d="M3.8 7.6h4v3.6h-4z" />
+      <path d="M10 7.8h2.4M10 9.6h2.4M10 11.4h1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** A clipboard: steps to take before the cards run. */
+export function StepsIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.3} aria-hidden="true">
+      <rect x="3" y="2.6" width="10" height="11.9" rx=".6" />
+      <path d="M6 2.6V1.5h4v1.1" />
+      <path d="M5.6 6.6h4.8M5.6 9.1h4.8M5.6 11.6h2.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** An info mark: what will happen without a step from the reader. */
+export function NoticeIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.3} aria-hidden="true">
+      <circle cx="8" cy="8" r="6.2" />
+      <path d="M8 7.2v4.1" strokeLinecap="round" />
+      <path d="M8 4.7v.1" strokeLinecap="round" strokeWidth={1.7} />
     </svg>
   );
 }

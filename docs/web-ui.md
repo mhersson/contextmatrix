@@ -178,10 +178,13 @@ board. Promote-to-autonomous lives in that tab.
   full-width buttons showing the whole option text. The question bubble is
   tinted, with a 5px left bar and accent-bordered options in pink in the dark
   themes and a dusty rose to maroon in the light ones, and the suggested option
-  carries a "recommended" chip. A prompt marked as a gate keeps compact buttons
-  in a row. A click sends that reply as your message, a feedback action such as
-  Reject asks for text first, in a box labelled with the architect's question
-  when it sends one (an approval over critical findings asks why), and typing
+  carries a "recommended" chip. A prompt marked as a gate carries a barrier icon
+  beside its text and keeps compact buttons in a row. The offer of a mockup
+  shows instead in its own framed card with a mockup icon, Show mockup as the
+  main button (no chip) and Skip mockup beside it. A click sends that reply as
+  your message, a feedback action such as Reject asks for text first, in a box
+  labelled with the architect's question when it sends one (an approval over
+  critical findings asks why), and typing
   the reply works too. A prompt closes when a reply answers it, when the
   architect's decision line answers it (it decided the prompt itself, as at a
   waiting sign-off after a switch to Auto + emit or Yolo), or when a later
@@ -308,10 +311,15 @@ board. Promote-to-autonomous lives in that tab.
     on the sign-off the same table at the top, a note with your reason when you
     approved over a critical finding, the run order, the assumptions (your
     answer, status, basis and source chips, and the stage that stated each) and
-    the manual checks after the run. On a plain-language blueprint the sign-off
-    opens with a plain summary: what will be built, what you can do with it, and
-    the consequences you accepted, each marked when its decision changed since
-    you accepted it. Its assumptions show each consequence under the technical
+    the manual checks after the run. The sign-off and the board show the steps
+    to take before the cards run in a yellow box, and notices (what will happen
+    without a step from you, such as the verify command an agent picks itself)
+    in a blue box. The board's cards carry their type colour and type and
+    priority chips, as on the Cards sheet. On a plain-language blueprint the
+    sign-off opens with a plain summary: what will be built, what you can do
+    with it, and the consequences you accepted, each marked when its decision
+    changed since you accepted it. Its assumptions show each consequence under
+    the technical
     decision and who accepted it, beside the status, which accepting never
     changes; a responder answer that a re-asked question replaced stays, struck
     through and marked with the answer that replaced it. A version stored before
@@ -350,10 +358,11 @@ board. Promote-to-autonomous lives in that tab.
     list without id, severity or status. Stamps mark approved, rejected,
     superseded and folded versions. On the newest version a dashed cloud marks
     what changed, and Compare strikes removed words and highlights added ones.
-    At a gate a bar above the title block repeats the gate's buttons. When the
-    version at the gate has its own review, the bar also names each critical
-    finding not yet fixed, with its id, status and text, and, when it has
-    findings, a Findings (N) toggle opens the whole ledger there. While a
+    At a gate a bar above the title block, opening with the same barrier icon,
+    repeats the gate's buttons. When the version at the gate has its own review,
+    the bar also names each critical finding not yet fixed, with its id, status
+    and text, and, when it has findings, a Findings (N) toggle opens the whole
+    ledger there. While a
     question round waits, the asking stage's sheet shows the version it owes
     with the status Waiting on N questions (or the assumptions still undecided).
     While a run works the sheet shows its turns, tool calls and tokens, and

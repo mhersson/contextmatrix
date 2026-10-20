@@ -1,5 +1,6 @@
 import { BLUEPRINT_MODES, type BlueprintMode } from '../../pages/Chat/blueprintForm';
 import type { BlueprintView } from '../../types';
+import { MOCKUP_OFFER_ID } from '../ChatPanel/prompts';
 
 // The architect refuses a switch from emission on; done follows emitted.
 const EMISSION_STARTED: ReadonlySet<string> = new Set(['emitting', 'emitted', 'done']);
@@ -36,7 +37,7 @@ export function switchNote(view: BlueprintView, next: BlueprintMode): string | n
   if (fromDefault && view.open?.kind === 'mockup') {
     return 'The mockup waiting for you goes to the responder now; it starts from the settings you last sent.';
   }
-  if (fromDefault && view.open?.kind === 'gate' && view.open.prompt_id === 'mockup:offer') {
+  if (fromDefault && view.open?.kind === 'gate' && view.open.prompt_id === MOCKUP_OFFER_ID) {
     return 'The offer of a mockup goes to the responder now.';
   }
   const atSignoff =

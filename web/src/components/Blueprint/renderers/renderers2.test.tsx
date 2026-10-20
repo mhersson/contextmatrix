@@ -310,6 +310,26 @@ describe('SignoffSheet', () => {
   });
 });
 
+describe('SignoffSheet callouts', () => {
+  const signoffWith = (over: object) => ({ ...SIGNOFF_V1, data: { ...(SIGNOFF_V1.data as object), ...over } });
+
+  it('boxes the steps and the notices apart, with code spans as code', () => {
+    show(signoffWith({ steps: ['Set verify command `npm test` on project shop.'], notices: ['The agent picks a verify command.'] }));
+    const steps = sectionOf(/^Before the cards run/);
+    expect(steps).toHaveClass('bp-callout--steps');
+    expect(within(steps).getByText('npm test').tagName).toBe('CODE');
+    const notices = sectionOf(/^Notices/);
+    expect(notices).toHaveClass('bp-callout--notices');
+    expect(within(notices).getByText('The agent picks a verify command.')).toBeInTheDocument();
+    expect(within(steps).queryByText('The agent picks a verify command.')).not.toBeInTheDocument();
+  });
+
+  it('shows no notices box without notices', () => {
+    show(SIGNOFF_V1);
+    expect(screen.queryByRole('heading', { name: /^Notices/ })).not.toBeInTheDocument();
+  });
+});
+
 describe('BoardSheet', () => {
   it('lists the created cards, links only safe URLs and shows the total cost', () => {
     show(BOARD_V1);
@@ -325,6 +345,27 @@ describe('BoardSheet', () => {
     expect(within(unseen).getByText('not seen yet')).toBeInTheDocument();
     const manual = sectionOf(/^Manual checks after the run/);
     expect(within(manual).getByText('curl prints one key per line.')).toBeInTheDocument();
+  });
+
+  it('boxes the setup steps and the notices', () => {
+    show({ ...BOARD_V1, data: { ...(BOARD_V1.data as object), steps: ['Push an initial commit.'], notices: ['N.'] } });
+    expect(sectionOf(/^Setup steps/)).toHaveClass('bp-callout--steps');
+    expect(sectionOf(/^Notices/)).toHaveClass('bp-callout--notices');
+  });
+
+  it('colours a card by its type and shows its type and priority', () => {
+    const data = BOARD_V1.data as { cards: object[] };
+    const cards = [{ ...data.cards[0], type: 'bug', priority: 'high' }, ...data.cards.slice(1)];
+    show({ ...BOARD_V1, data: { ...data, cards } });
+    const article = screen.getAllByRole('article')[0];
+    expect(article).toHaveClass('bp-card--bug');
+    expect(within(article).getByText('bug')).toHaveClass('bp-pill--bug');
+    expect(within(article).getByText('high')).toHaveClass('bp-pill--high');
+  });
+
+  it('renders a card from an older board without a type modifier', () => {
+    show(BOARD_V1);
+    for (const a of screen.getAllByRole('article')) expect(a.className).toBe('bp-card');
   });
 
   it('says when some runs were unpriced', () => {
