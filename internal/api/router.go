@@ -181,11 +181,12 @@ type RouterConfig struct {
 	// for the app-config payload, so the UI can group projects and offer
 	// the repo at creation time.
 	BoardsRepos []BoardsRepoInfo
-	Theme       string        // active color palette ("everforest", "catppuccin", "github", or "ayu")
-	Version     string        // build version string for display
-	MCPHandler  http.Handler  // optional; registered at POST/GET/DELETE /mcp when set
-	ChatManager *chat.Manager // optional; enables /api/chats routes
-	ChatHub     *chat.SSEHub  // optional; required when ChatManager is set
+	Theme       string             // active color palette ("everforest", "catppuccin", "github", or "ayu")
+	Version     string             // build version string for display
+	Build       protocol.BuildInfo // this binary's build: the contextmatrix entry of GET /api/about
+	MCPHandler  http.Handler       // optional; registered at POST/GET/DELETE /mcp when set
+	ChatManager *chat.Manager      // optional; enables /api/chats routes
+	ChatHub     *chat.SSEHub       // optional; required when ChatManager is set
 	// ChatBackendCfg is the dedicated "chat" backend entry. Its HMAC key
 	// authenticates GET /api/chat/task-skills-source (the chat service's
 	// pointer fetch). nil when no dedicated chat backend is configured.
@@ -380,6 +381,25 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	architectBackendConfigured := cfg.ArchitectBackendCfg.IsEnabled() && cfg.ArchitectBackendCfg.APIKey != "" && cfg.ArchitectBackendCfg.URL != ""
 
+	abh := &aboutHandlers{build: cfg.Build}
+	if cfg.Backend != nil {
+		abh.backends = append(abh.backends, &aboutBackend{name: config.BackendNameAgent, prober: cfg.Backend})
+	}
+
+	if chatBackendConfigured {
+		abh.backends = append(abh.backends, &aboutBackend{
+			name:   config.BackendNameChat,
+			prober: backend.NewClient(cfg.ChatBackendCfg.URL, cfg.ChatBackendCfg.APIKey),
+		})
+	}
+
+	if architectBackendConfigured {
+		abh.backends = append(abh.backends, &aboutBackend{
+			name:   config.BackendNameArchitect,
+			prober: backend.NewClient(cfg.ArchitectBackendCfg.URL, cfg.ArchitectBackendCfg.APIKey),
+		})
+	}
+
 	ach := &appConfigHandlers{
 		theme:                  cfg.Theme,
 		version:                cfg.Version,
@@ -477,6 +497,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// App config
 	mux.HandleFunc("GET /api/app/config", ach.getAppConfig)
+	mux.HandleFunc("GET /api/about", abh.getAbout)
 
 	// Jira status and import: always registered so the web can learn Jira is off.
 	jiraH := &jiraHandlers{client: cfg.Jira, info: cfg.JiraInfo, writeback: cfg.JiraWriteback}

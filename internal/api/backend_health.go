@@ -10,6 +10,12 @@ import (
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 )
 
+// healthProber is the one capability a /health probe needs; TaskBackend and
+// *backend.Client both satisfy it.
+type healthProber interface {
+	Health(ctx context.Context) (backend.HealthInfo, error)
+}
+
 // backendHealthResponse is the wire shape for GET /api/backend/health.
 type backendHealthResponse struct {
 	OK                bool `json:"ok"`
@@ -65,7 +71,7 @@ func (h *backendHandlers) getBackendHealth(w http.ResponseWriter, r *http.Reques
 // `ctx` is only consulted to abandon the wait when the caller goes
 // away; the in-flight probe continues so the result still lands in
 // the cache for the next caller.
-func (c *healthProbeCache) get(ctx context.Context, client TaskBackend) (backend.HealthInfo, error) {
+func (c *healthProbeCache) get(ctx context.Context, client healthProber) (backend.HealthInfo, error) {
 	c.mu.Lock()
 	if time.Now().Before(c.expires) {
 		info, err := c.info, c.err

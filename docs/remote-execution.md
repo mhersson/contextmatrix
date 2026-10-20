@@ -123,7 +123,7 @@ All POSTs carry `Content-Type: application/json` and go to
 | `GET /containers`    | List the worker containers the backend manages.                  |
 | `GET /images`        | List node-local worker images (filtered by the backend).         |
 | `GET /logs`          | Subscribe to the live log SSE stream.                            |
-| `GET /health`        | Capacity snapshot: running containers and the concurrency cap.   |
+| `GET /health`        | Capacity snapshot (running containers, concurrency cap) and, from protocol v0.36.0, the build and the default worker image's revision. |
 | `GET /readyz`        | Readiness probe; flips during drain.                             |
 
 #### POST {agent_url}/trigger
@@ -1038,6 +1038,14 @@ backend outage never storm the backend. The route is registered only
 when a task backend is configured (404 otherwise) and returns `502
 BACKEND_UNAVAILABLE` when the probe fails; callers fail soft and hide the
 meter.
+
+### Build and changes: GET /api/about
+
+`GET /api/about` probes the `/health` of each configured, enabled backend
+(agent, chat, architect) in parallel, with the same 2 second cache and 3
+second bound as the capacity meter but a separate cache. A backend whose
+response carries no `build` is treated as an older build and reported without
+one; a failed probe reports `unreachable`.
 
 ### Backend worker images: GET /api/backends/{backend}/images
 
