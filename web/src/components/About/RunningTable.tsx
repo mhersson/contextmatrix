@@ -40,15 +40,15 @@ export function RunningTable({ components }: { components: AboutComponent[] }) {
           const up = c.status === 'unreachable';
           return (
             <tr key={`${c.name}-${i}`} className="align-top" style={{ color: 'var(--fg)' }}>
-              <td className="py-1.5 pr-2">
+              <td className="py-1.5 pr-2 [overflow-wrap:anywhere]">
                 {componentLabel(c.name)}
                 <Image c={c} />
               </td>
-              <td className="py-1.5 pr-2 font-mono">{versionLabel(c)}</td>
-              <td className="py-1.5 pr-2" style={muted}>
+              <td className="py-1.5 pr-2 font-mono [overflow-wrap:anywhere]">{versionLabel(c)}</td>
+              <td className="py-1.5 pr-2 [overflow-wrap:anywhere]" style={muted}>
                 {formatBuilt(c.build?.build_time)}
               </td>
-              <td className="py-1.5" style={{ color: up ? 'var(--blueprint-ink-red)' : 'var(--blueprint-ink-green)' }}>
+              <td className="py-1.5 [overflow-wrap:anywhere]" style={{ color: up ? 'var(--blueprint-ink-red)' : 'var(--blueprint-ink-green)' }}>
                 <span aria-hidden="true" style={{ color: up ? 'var(--red)' : 'var(--green)' }}>
                   ●
                 </span>{' '}

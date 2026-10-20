@@ -44,10 +44,11 @@ export function ChangesTabs({ components, snapshot }: { components: AboutCompone
               aria-selected={on}
               aria-controls="about-panel"
               onClick={() => setActive(i)}
-              className="flex items-center gap-1.5 border-b-2 px-1 py-1.5 text-left text-sm"
+              title={componentLabel(c.name)}
+              className="flex min-w-0 items-center gap-1.5 border-b-2 px-1 py-1.5 text-left text-sm"
               style={{ color: on ? 'var(--fg)' : 'var(--blueprint-quiet-strong)', borderColor: on ? 'var(--green)' : 'var(--bg3)' }}
             >
-              {componentLabel(c.name)}
+              <span className="truncate">{componentLabel(c.name)}</span>
               {dot && <NewDot label="(new changes)" />}
             </button>
           );
