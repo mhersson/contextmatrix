@@ -8102,6 +8102,14 @@ button.bp-mode:hover > span {
 .bp-gatebar > div {
   margin-top: 0;
 }
+/* The accent border clears 3:1 on the question wash in every palette, where --bg4 does not. */
+.bp-gatebar .bf-btn-ghost {
+  border-color: var(--prompt-question-accent);
+}
+.bp-gatebar .bf-btn-ghost:hover:not(:disabled) {
+  border-color: var(--prompt-question-accent);
+  background: var(--prompt-question-hover-bg);
+}
 .bp-gate-ledger {
   /* Only --fg clears 4.5:1 on the question wash, so the ledger's muted and tone text take it. */
   --blueprint-quiet-strong: var(--fg);
