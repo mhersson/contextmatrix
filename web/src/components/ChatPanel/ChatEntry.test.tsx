@@ -201,6 +201,29 @@ describe('ChatEntry prompt rows', () => {
     expect(container.querySelector('[data-prompt-kind="question"]')).not.toBeNull();
   });
 
+  it('leads a gate prompt with the gate icon', () => {
+    const gate = JSON.stringify({
+      text: 'Approve the design?',
+      prompt: { id: 'gate:design:v2', kind: 'gate', actions: [{ label: 'Approve', reply: 'approve' }] },
+    });
+    render(<ChatEntry entry={{ ...makeEntry(1, 'text', gate), kind: 'prompt' }} promptStatus="open" />);
+    expect(screen.getByTestId('gate-icon')).toBeInTheDocument();
+  });
+
+  it('shows no gate icon on a question or a neutral prompt', () => {
+    const question = JSON.stringify({
+      text: 'Which?',
+      prompt: { id: 'Q1', kind: 'question', actions: [{ label: 'A', reply: '1' }] },
+    });
+    const { unmount } = render(
+      <ChatEntry entry={{ ...makeEntry(1, 'text', question), kind: 'prompt' }} promptStatus="open" />,
+    );
+    expect(screen.queryByTestId('gate-icon')).toBeNull();
+    unmount();
+    render(<ChatEntry entry={{ ...makeEntry(1, 'text', content), kind: 'prompt' }} promptStatus="open" />);
+    expect(screen.queryByTestId('gate-icon')).toBeNull();
+  });
+
   it('renders an older envelope without the new fields, with working buttons', () => {
     const onReply = vi.fn();
     const { container } = render(

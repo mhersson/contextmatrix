@@ -17,6 +17,7 @@ import { StructuredPayload } from './StructuredPayload';
 import { PromptActions } from './PromptActions';
 import { TechnicalDetail } from '../TechnicalDetail';
 import { parsePromptEntry, type PromptState } from './prompts';
+import { BarrierIcon } from '../Blueprint/icons';
 import { parseMarkerEntry } from '../Blueprint/markers';
 import { useBlueprintSheet } from '../Blueprint/sheetContext';
 import { ReviewCard } from '../Blueprint/ReviewCard';
@@ -130,6 +131,27 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
 
   if (entry.type === 'text') {
     const body = prompt ? (prompt.prompt.text ?? prompt.text) : entry.content;
+    const bubble = (
+      <>
+        {structured ? (
+          <StructuredPayload pretty={structured} />
+        ) : body.length > TEXT_CLAMP_CHAR_THRESHOLD ||
+          countNewlines(body, TEXT_CLAMP_LINE_THRESHOLD) > TEXT_CLAMP_LINE_THRESHOLD ? (
+          <ClampedMarkdown source={body} />
+        ) : (
+          <ChatMarkdown source={body} />
+        )}
+        <TechnicalDetail detail={prompt?.prompt.detail} render={(d) => <ChatMarkdown source={d} />} />
+        {prompt && promptStatus && (
+          <PromptActions
+            prompt={prompt.prompt}
+            status={promptStatus}
+            answer={promptAnswer}
+            onReply={onReply}
+          />
+        )}
+      </>
+    );
     return (
       <div className="flex justify-start">
         <div className="flex flex-col items-start max-w-[85%] min-w-0">
@@ -154,22 +176,13 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
             data-prompt-id={prompt?.prompt.id}
             data-prompt-kind={prompt?.prompt.kind}
           >
-            {structured ? (
-              <StructuredPayload pretty={structured} />
-            ) : body.length > TEXT_CLAMP_CHAR_THRESHOLD ||
-              countNewlines(body, TEXT_CLAMP_LINE_THRESHOLD) > TEXT_CLAMP_LINE_THRESHOLD ? (
-              <ClampedMarkdown source={body} />
+            {prompt?.prompt.kind === 'gate' ? (
+              <div className="chat-prompt-lead">
+                <BarrierIcon />
+                <div className="min-w-0">{bubble}</div>
+              </div>
             ) : (
-              <ChatMarkdown source={body} />
-            )}
-            <TechnicalDetail detail={prompt?.prompt.detail} render={(d) => <ChatMarkdown source={d} />} />
-            {prompt && promptStatus && (
-              <PromptActions
-                prompt={prompt.prompt}
-                status={promptStatus}
-                answer={promptAnswer}
-                onReply={onReply}
-              />
+              bubble
             )}
           </div>
         </div>

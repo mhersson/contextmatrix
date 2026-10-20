@@ -24,6 +24,11 @@ describe('GateBar', () => {
     await waitFor(() => expect(onReply).toHaveBeenCalledWith('approve'));
   });
 
+  it('leads the bar with the gate icon', () => {
+    render(<GateBar stage="solution_design" version={2} prompt={prompt} status="open" review={null} onReply={vi.fn()} />);
+    expect(within(screen.getByRole('region', { name: 'Gate decision' })).getByTestId('gate-icon')).toBeInTheDocument();
+  });
+
   it('asks for feedback before a reject', async () => {
     const onReply = vi.fn().mockResolvedValue(undefined);
     render(<GateBar stage="solution_design" version={2} prompt={prompt} status="open" review={null} onReply={onReply} />);

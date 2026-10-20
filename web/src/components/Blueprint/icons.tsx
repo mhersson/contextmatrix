@@ -8,6 +8,17 @@ export function SheetIcon() {
   );
 }
 
+/** A striped boom barrier: a gate that waits for your decision. */
+export function BarrierIcon() {
+  return (
+    <svg data-testid="gate-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.3} aria-hidden="true">
+      <path d="M3.2 7.4v7.1M1.6 14.5h3.2" strokeLinecap="round" />
+      <rect x="2" y="4.2" width="12.3" height="3.2" rx=".5" />
+      <path d="M6.1 4.2 4.6 7.4M9.3 4.2 7.8 7.4M12.5 4.2 11 7.4" />
+    </svg>
+  );
+}
+
 /** Two overlapping speech bubbles: a question round's dialogue. */
 export function DialogueIcon() {
   return (

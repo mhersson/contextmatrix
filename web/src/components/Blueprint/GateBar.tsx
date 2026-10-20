@@ -1,6 +1,7 @@
 import { useId, useState } from 'react';
 import { PromptActions } from '../ChatPanel/PromptActions';
 import type { ChatPrompt } from '../ChatPanel/prompts';
+import { BarrierIcon } from './icons';
 import { FindingList } from './FindingList';
 import { blockingFindings, findingStatus } from './ledger';
 import type { GatePrompt, ShownReview } from './sheetModel';
@@ -20,6 +21,7 @@ interface GateBarProps {
 export function GateBar({ stage, version, prompt, status, review, onReply }: GateBarProps) {
   return (
     <div className="bp-gatebar" role="region" aria-label="Gate decision">
+      <BarrierIcon />
       <span>
         <b>
           {stageText(stage).tab} rev {version}
