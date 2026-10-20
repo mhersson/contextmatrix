@@ -1438,6 +1438,87 @@ func TestSendMessage_RoundChatOnAChatSessionIsRefused(t *testing.T) {
 	assert.Empty(t, backend.sentPayloads())
 }
 
+func TestSendMessage_MockupReplyReachesTheArchitect(t *testing.T) {
+	var arch *chatStubBackend
+
+	opts := architectFixtureOpts()
+	opts.onArchitect = func(s *chatStubBackend) { arch = s }
+	mux, mgr := newChatFixture(t, opts)
+
+	bp, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	body := `{"content":"Use this design (rev 2)","mockup":{"prompt_id":"mockup:1","revision":2,` +
+		`"action":"use","settings":{"layout":"cards","group":"on"}}}`
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats/"+bp.ID+"/messages", body))
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+
+	sent := arch.sentPayloads()
+	require.Len(t, sent, 1)
+	assert.Equal(t, &protocol.MockupReply{
+		PromptID: "mockup:1", Revision: 2, Action: protocol.MockupUse,
+		Settings: map[string]string{"layout": "cards", "group": "on"},
+	}, sent[0].Mockup)
+	assert.Nil(t, sent[0].Round)
+}
+
+func TestSendMessage_MalformedMockupIsRefusedBeforeSending(t *testing.T) {
+	var arch *chatStubBackend
+
+	opts := architectFixtureOpts()
+	opts.onArchitect = func(s *chatStubBackend) { arch = s }
+	mux, mgr := newChatFixture(t, opts)
+
+	bp, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	thirteen := make([]string, 0, 13)
+	for i := range 13 {
+		thirteen = append(thirteen, fmt.Sprintf(`"s%d":"on"`, i))
+	}
+
+	valid := `{"prompt_id":"mockup:1","revision":2,"action":"use"}`
+
+	cases := map[string]string{
+		"no prompt id":        `{"content":"x","mockup":{"revision":2,"action":"use"}}`,
+		"blank prompt id":     `{"content":"x","mockup":{"prompt_id":"  ","revision":2,"action":"use"}}`,
+		"zero revision":       `{"content":"x","mockup":{"prompt_id":"mockup:1","revision":0,"action":"use"}}`,
+		"unknown action":      `{"content":"x","mockup":{"prompt_id":"mockup:1","revision":2,"action":"approve"}}`,
+		"skip with settings":  `{"content":"x","mockup":{"prompt_id":"mockup:1","revision":2,"action":"skip","settings":{"layout":"rows"}}}`,
+		"bad setting id":      `{"content":"x","mockup":{"prompt_id":"mockup:1","revision":2,"action":"use","settings":{"Layout":"rows"}}}`,
+		"bad setting value":   `{"content":"x","mockup":{"prompt_id":"mockup:1","revision":2,"action":"use","settings":{"layout":"Rows!"}}}`,
+		"thirteen settings":   `{"content":"x","mockup":{"prompt_id":"mockup:1","revision":2,"action":"use","settings":{` + strings.Join(thirteen, ",") + `}}}`,
+		"beside a round":      `{"content":"x","mockup":` + valid + `,"round":{"prompt_id":"round:1"}}`,
+		"beside a round chat": `{"content":"x","mockup":` + valid + `,"round_chat":"round:1"}`,
+	}
+
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats/"+bp.ID+"/messages", body))
+			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		})
+	}
+
+	assert.Empty(t, arch.sentPayloads())
+}
+
+func TestSendMessage_MockupOnAChatSessionIsRefused(t *testing.T) {
+	mux, mgr, backend := newChatFixtureWithBackend(t, defaultFixtureOpts())
+
+	sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats/"+sess.ID+"/messages",
+		`{"content":"x","mockup":{"prompt_id":"mockup:1","revision":1,"action":"chat"}}`))
+	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	assert.Empty(t, backend.sentPayloads())
+}
+
 func TestSetCostCap_SendsTheCommandAndReturnsTheSession(t *testing.T) {
 	var arch *chatStubBackend
 

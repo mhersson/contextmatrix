@@ -2461,6 +2461,12 @@ func (m *Manager) SendRoundReply(ctx context.Context, sessionID, content string,
 	return m.sendMessage(ctx, sessionID, content, userSend{round: &round})
 }
 
+// SendMockupReply forwards the person's reply to the waiting mockup to a
+// blueprint session unchanged; the stored row is an ordinary user message.
+func (m *Manager) SendMockupReply(ctx context.Context, sessionID, content string, reply protocol.MockupReply) (string, error) {
+	return m.sendMessage(ctx, sessionID, content, userSend{mockup: &reply})
+}
+
 // SendRoundChat forwards a message about the open question round promptID to
 // a blueprint session's architect as a plain message, and stores it as a
 // round chat row.
@@ -2531,11 +2537,12 @@ func (m *Manager) SetMode(ctx context.Context, sessionID, mode string) (Session,
 }
 
 // userSend is what a send carries beside its content: a round reply's
-// answers, the prompt id of the round a chat message is about, or a session
-// command.
+// answers, the prompt id of the round a chat message is about, a mockup
+// reply, or a session command.
 type userSend struct {
 	round     *protocol.RoundReply
 	roundChat string
+	mockup    *protocol.MockupReply
 	command   bool
 }
 
@@ -2551,6 +2558,8 @@ func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us
 			return "", fmt.Errorf("%w: round replies go to blueprint sessions only", ErrInvalidSessionInput)
 		case us.roundChat != "":
 			return "", fmt.Errorf("%w: round chat goes to blueprint sessions only", ErrInvalidSessionInput)
+		case us.mockup != nil:
+			return "", fmt.Errorf("%w: mockup replies go to blueprint sessions only", ErrInvalidSessionInput)
 		case us.command:
 			return "", fmt.Errorf("%w: session commands go to blueprint sessions only", ErrInvalidSessionInput)
 		}
@@ -2582,7 +2591,7 @@ func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us
 	}
 
 	msgID := NewID()
-	payload := protocol.MessagePayload{SessionID: sessionID, Content: content, MessageID: msgID, Round: us.round}
+	payload := protocol.MessagePayload{SessionID: sessionID, Content: content, MessageID: msgID, Round: us.round, Mockup: us.mockup}
 
 	logAttrs := []any{"session_id", sessionID, "message_id", msgID, "content_len", len(content)}
 	if us.roundChat != "" {

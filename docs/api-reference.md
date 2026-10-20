@@ -2622,13 +2622,34 @@ ordinary message when no round waits any more):
 { "content": "Why not Helm?", "round_chat": "round:1" }
 ```
 
+A reply to the mockup waiting for the person carries `mockup`: `prompt_id`
+from the view's open prompt, `revision`, `action` (`use`, `skip` or `chat`) and
+`settings`, mapping suggestion ids to values (never on `skip`). `content` is the
+typed message on `chat` and a readable summary otherwise. CM forwards the reply
+unchanged and stores an ordinary user row:
+
+```json
+{
+  "content": "Use this design (rev 2)",
+  "mockup": {
+    "prompt_id": "mockup:1",
+    "revision": 2,
+    "action": "use",
+    "settings": { "layout": "cards", "group": "on" }
+  }
+}
+```
+
 **Response:** 202 with `{ "ok": true, "message_id": "<26-char id>" }`.
 400 `BAD_REQUEST` for empty or whitespace `content`, a `round_chat` beside a
 `round` or not of the form `round:<n>` (n from 1, no leading zero), or a
 `round` without `prompt_id`, with an answer `number` below 1, a negative
 `option`, an `option` of 0 without `text`, a `text` above 32 KiB or a decision
-without `id`; 400 `INVALID_CHAT_INPUT` for a `round` or `round_chat` on a chat
-session; 413 `CONTENT_TOO_LARGE` above 8 KiB.
+without `id`; a `mockup` beside `round` or `round_chat`, without `prompt_id`,
+with a `revision` below 1, an unknown `action`, `settings` on `skip`, more than
+12 settings, or a setting id (`^[a-z][a-z0-9_]{0,31}$`) or value
+(`^[a-z0-9_-]{1,32}$`) outside those forms; 400 `INVALID_CHAT_INPUT` for a
+`round`, `round_chat` or `mockup` on a chat session; 413 `CONTENT_TOO_LARGE` above 8 KiB.
 
 ### POST /api/chats/{id}/cap
 
