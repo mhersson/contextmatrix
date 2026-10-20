@@ -782,6 +782,9 @@ contract check and the agent's card classifier:
 - An unclosed block runs to the end of the body.
 - Tilde fences, indented fences and other info strings are not mockup blocks.
 
+The web UI shows every fenced block whose language is `mockup` (any CommonMark
+fence) as a Show mockup button that runs it in a sealed frame.
+
 ## Playbooks
 
 A playbook is a cross-project ordered list of steps: card references, manual

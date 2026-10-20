@@ -9,7 +9,7 @@ import { ErrorBoundary } from '../ErrorBoundary';
 // chunk fetch instead of blanking behind a single transcript-level boundary.
 const MarkdownPreview = lazy(() => import('../Markdown/SafeMarkdownPreview'));
 
-function ChatMarkdownImpl({ source, className }: { source: string; className?: string }) {
+function ChatMarkdownImpl({ source, className, mockups }: { source: string; className?: string; mockups?: boolean }) {
   const plainText = <div className="whitespace-pre-wrap break-words text-sm">{source}</div>;
   // The ErrorBoundary keeps a rejected markdown-chunk import (or a
   // pathological message) contained to this one bubble as plain text instead
@@ -20,7 +20,7 @@ function ChatMarkdownImpl({ source, className }: { source: string; className?: s
     <div className={className ? `bf-chat-markdown ${className}` : 'bf-chat-markdown'}>
       <ErrorBoundary fallback={plainText}>
         <Suspense fallback={plainText}>
-          <MarkdownPreview source={source} />
+          <MarkdownPreview source={source} mockups={mockups} />
         </Suspense>
       </ErrorBoundary>
     </div>

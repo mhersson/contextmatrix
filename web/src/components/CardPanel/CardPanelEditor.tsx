@@ -25,7 +25,7 @@ const CardBodyPreview = memo(function CardBodyPreview({ body }: { body: string }
   return (
     <ErrorBoundary fallback={previewFallback}>
       <Suspense fallback={previewFallback}>
-        <MarkdownPreview source={body} className="bf-markdown" />
+        <MarkdownPreview source={body} className="bf-markdown" mockups />
       </Suspense>
     </ErrorBoundary>
   );

@@ -35,11 +35,17 @@ Every view updates live from one Server-Sent Events stream per tab
   an allowlist sanitizer. Allowlisted HTML renders (images over http, https
   or a relative path, `<details>`/`<summary>`, `<br>`, `<kbd>`,
   `<sub>`/`<sup>`, `<s>`/`<ins>`, definition lists, tables); scripts, styles,
-  event handlers, forms and frames never become live. Other tags and comments
-  show as literal text, except CM's own line-start `<!-- cm:meta ... -->`
-  machine markers (and the legacy `<!-- cm:tier=... -->`), which the agent
-  strips before a model reads the body. Attribute values the allowlist drops
-  are not shown. Bodies arrive from agents and from GitHub and Jira imports.
+  event handlers, forms and frames never become live, except that a fenced
+  code block whose language is `mockup` is the exception on a card (the card
+  panel and the blueprint's Cards sheet): it shows as a Show mockup button that
+  runs the HTML in the sealed frame the blueprint's mockups use, with no
+  network and no access to CM (see
+  [architecture](architecture.md#model-written-mockups)); chat and the
+  editor's preview show its source. Other tags and comments show as literal
+  text, except CM's own line-start `<!-- cm:meta ... -->` machine markers (and
+  the legacy `<!-- cm:tier=... -->`), which the agent strips before a model
+  reads the body. Attribute values the allowlist drops are not shown. Bodies
+  arrive from agents and from GitHub and Jira imports.
 - **Models used** (Info tab) answers what a card cost and where it went: the
   total including subtasks; a cost bar and legend split by role (review,
   execute, plan, judge, document, gates = pr_gates + integrate, plus a hatched

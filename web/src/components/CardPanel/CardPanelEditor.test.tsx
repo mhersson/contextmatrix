@@ -9,6 +9,7 @@ import {
   expectRawHtmlInert,
   expectRichHtmlRendered,
 } from '../../test-utils/markdownSafety';
+import { MOCKUP_LABELS } from '../Mockup/labels';
 
 vi.mock('../../hooks/useTheme', () => ({
   useTheme: () => ({ theme: 'dark' }),
@@ -53,6 +54,21 @@ describe('CardPanelEditor read-only view', () => {
 
   it('renders allowlisted HTML', async () => {
     expectRichHtmlRendered(await renderReadOnly(RICH_HTML_BODY));
+  });
+});
+
+const MOCKUP_BODY = 'Intro\n\n```mockup\n<p>hi</p>\n```\n';
+
+describe('CardPanelEditor mockup blocks', () => {
+  it('shows a mockup block behind Show mockup in the read-only view', async () => {
+    await renderReadOnly(MOCKUP_BODY);
+    expect(screen.getByRole('button', { name: MOCKUP_LABELS.show })).toBeInTheDocument();
+  });
+
+  it('shows a mockup block as its source in the editor preview', async () => {
+    const root = await renderEditorPreview(MOCKUP_BODY);
+    expect(screen.queryByRole('button', { name: MOCKUP_LABELS.show })).toBeNull();
+    expect(root.querySelector('code.language-mockup')).not.toBeNull();
   });
 });
 
