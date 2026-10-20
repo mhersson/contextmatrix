@@ -462,7 +462,7 @@ export interface SignoffData {
   preflightError: string;
   /** The judged readiness version's findings across the blueprint, critical first. */
   cross: CrossFinding[];
-  /** Your reason for approving over a critical finding; set once approved. */
+  /** Your reason for approving over open findings (a critical finding or a card readiness left not ready); set once approved. */
   overrideReason: string;
 }
 

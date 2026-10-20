@@ -120,7 +120,7 @@ export function SignoffSheet({ artifact }: RendererProps) {
       <CrossTable items={data.cross} version={artifact.version} />
       {data.overrideReason && (
         <p className="bp-override" role="note" aria-label="Override">
-          Approved over critical findings: {data.overrideReason}
+          Approved over open findings: {data.overrideReason}
         </p>
       )}
       <TableSection
