@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { MockupPaneContext } from '../Mockup/mockupPane';
+import { publishWaitingMockup } from '../Mockup/mockupStore';
 import { setChatLiveData } from '../../hooks/useChatLiveData';
-import type { BlueprintArtifactRef, BlueprintSlice, LogEntry } from '../../types';
+import type { BlueprintArtifactRef, BlueprintSlice, LogEntry, MockupReply } from '../../types';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { EdgeStrip } from './EdgeStrip';
 import { ScaleBar } from './ScaleBar';
@@ -9,7 +11,7 @@ import { Sheet } from './Sheet';
 import { publishSheetButton, registerSheetToggle } from './sheetButtonStore';
 import { BlueprintArtifactsContext, BlueprintSheetContext } from './sheetContext';
 import { gatePromptFor, resolveShown } from './sheetModel';
-import { stageText } from './stages';
+import { latestArtifact, stageText } from './stages';
 import type { BlueprintState } from './state';
 import { usePaneWidth } from './usePaneWidth';
 import { useSheetDivider } from './useSheetDivider';
@@ -29,13 +31,14 @@ interface BlueprintPaneProps {
   /** The session takes sends and its stream is connected, as for transcript prompts. */
   promptsLive: boolean;
   onReply: (text: string) => Promise<void>;
+  onSendMockup?: (content: string, reply: MockupReply) => Promise<void>;
   /** Phone layout: a pane header button toggles a full-pane sheet. */
   phone: boolean;
   /** The transcript. */
   children: ReactNode;
 }
 
-export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onReply, phone, children }: BlueprintPaneProps) {
+export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onReply, onSendMockup, phone, children }: BlueprintPaneProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const width = usePaneWidth(rootRef);
@@ -89,6 +92,20 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
     [show, slices, plain],
   );
 
+  const mockupPromptId = view?.open?.kind === 'mockup' ? view.open.prompt_id : null;
+  const mockupRevision = view ? (latestArtifact(view, 'mockup', '')?.version ?? null) : null;
+  const mockupPane = useMemo(
+    () => ({ chatId, live: promptsLive, promptId: mockupPromptId, send: onSendMockup }),
+    [chatId, promptsLive, mockupPromptId, onSendMockup],
+  );
+  useEffect(() => {
+    publishWaitingMockup(
+      chatId,
+      mockupPromptId !== null && mockupRevision !== null ? { promptId: mockupPromptId, revision: mockupRevision } : null,
+    );
+  }, [chatId, mockupPromptId, mockupRevision]);
+  useEffect(() => () => publishWaitingMockup(chatId, null), [chatId]);
+
   const hasSheet = layout !== null && (state.status === 'ready' || state.status === 'unreachable');
   const overlayOpen = hasSheet && layout !== 'split' && sheet.open;
   useEffect(() => {
@@ -130,43 +147,45 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
   );
 
   return (
-    <BlueprintSheetContext.Provider value={view ? actions : null}>
-      <BlueprintArtifactsContext.Provider value={view?.artifacts ?? NO_ARTIFACTS}>
-        <div ref={rootRef} className="bp-pane">
-          {view && (
-            <ErrorBoundary fallback={null}>
-              <ScaleBar chatId={chatId} view={view} compact={width !== null && width < LABEL_MIN_WIDTH} onOpenStage={(stage, slice) => show(stage, slice, null)} />
-            </ErrorBoundary>
-          )}
-          <div ref={bodyRef} className="bp-body-row">
-            <div className="bp-transcript">{children}</div>
-            {hasSheet && layout === 'split' && sheet.open && (
-              <>
-                <div className="bp-divider" {...divider.separatorProps} />
-                <div ref={hostRef} className="bp-sheet-slot" style={{ flexBasis: `${divider.percent}%` }}>
+    <MockupPaneContext.Provider value={mockupPane}>
+      <BlueprintSheetContext.Provider value={view ? actions : null}>
+        <BlueprintArtifactsContext.Provider value={view?.artifacts ?? NO_ARTIFACTS}>
+          <div ref={rootRef} className="bp-pane">
+            {view && (
+              <ErrorBoundary fallback={null}>
+                <ScaleBar chatId={chatId} view={view} compact={width !== null && width < LABEL_MIN_WIDTH} onOpenStage={(stage, slice) => show(stage, slice, null)} />
+              </ErrorBoundary>
+            )}
+            <div ref={bodyRef} className="bp-body-row">
+              <div className="bp-transcript">{children}</div>
+              {hasSheet && layout === 'split' && sheet.open && (
+                <>
+                  <div className="bp-divider" {...divider.separatorProps} />
+                  <div ref={hostRef} className="bp-sheet-slot" style={{ flexBasis: `${divider.percent}%` }}>
+                    {sheetEl}
+                  </div>
+                </>
+              )}
+              {hasSheet && layout !== 'phone' && !sheet.open && (
+                <EdgeStrip label={stripLabel} hasNew={sheet.hasNew} onOpen={sheet.openSheet} buttonRef={stripRef} />
+              )}
+              {overlayOpen && (
+                <div
+                  ref={hostRef}
+                  tabIndex={-1}
+                  className={`bp-overlay${layout === 'phone' ? ' bp-overlay--phone' : ''}`}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape' && !e.defaultPrevented) closeSheet();
+                  }}
+                >
                   {sheetEl}
                 </div>
-              </>
-            )}
-            {hasSheet && layout !== 'phone' && !sheet.open && (
-              <EdgeStrip label={stripLabel} hasNew={sheet.hasNew} onOpen={sheet.openSheet} buttonRef={stripRef} />
-            )}
-            {overlayOpen && (
-              <div
-                ref={hostRef}
-                tabIndex={-1}
-                className={`bp-overlay${layout === 'phone' ? ' bp-overlay--phone' : ''}`}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape' && !e.defaultPrevented) closeSheet();
-                }}
-              >
-                {sheetEl}
-              </div>
-            )}
+              )}
+            </div>
           </div>
-        </div>
-      </BlueprintArtifactsContext.Provider>
-    </BlueprintSheetContext.Provider>
+        </BlueprintArtifactsContext.Provider>
+      </BlueprintSheetContext.Provider>
+    </MockupPaneContext.Provider>
   );
 }
 

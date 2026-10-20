@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { api } from '../../api/client';
-import { viewAtDesignGate } from '../../test-utils/blueprintFixtures';
+import { resetMockupStore, useMockupSettings } from '../../components/Mockup/mockupStore';
+import { viewAtDesignGate, viewAtMockup } from '../../test-utils/blueprintFixtures';
 import type { ChatSession } from '../../types';
 import { rawRound, roundEntry } from '../../test-utils/roundFixtures';
 import { useChatLiveData } from '../../hooks/useChatLiveData';
@@ -51,6 +52,7 @@ const emit = (event: object) => act(() => MockEventSource.instances[0].onmessage
 
 describe('ChatThread on an architect session', () => {
   beforeEach(() => {
+    resetMockupStore();
     MockEventSource.instances = [];
     vi.stubGlobal('EventSource', MockEventSource);
     vi.mocked(api.getChat).mockResolvedValue(session);
@@ -135,5 +137,30 @@ describe('ChatThread on an architect session', () => {
     fireEvent.change(box, { target: { value: 'Why not Helm?' } });
     fireEvent.keyDown(box, { key: 'Enter' });
     await waitFor(() => expect(api.sendChatMessage).toHaveBeenCalledWith('S1', 'Why not Helm?', { round_chat: 'round:2' }));
+  });
+
+  it('a message typed while the mockup waits carries the settings you are looking at', async () => {
+    vi.mocked(api.sendChatMessage).mockClear().mockResolvedValue({ ok: true, message_id: 'm1' });
+    render(<ChatThread sessionID="S1" embedded />);
+    await waitFor(() => expect(MockEventSource.instances).toHaveLength(1));
+    act(() => MockEventSource.instances[0].onopen?.());
+    emit({ seq: 0, role: '', content: JSON.stringify({ type: 'snapshot', view: viewAtMockup() }), kind: 'blueprint' });
+    await screen.findByRole('list', { name: 'Blueprint stages' });
+    const opening = { layout: 'rows', group: 'off', tick: 'strike' };
+    const flip = renderHook(() => useMockupSettings('S1', 2, opening, false));
+    act(() => flip.result.current[1]('group', 'on'));
+    const box = await screen.findByRole('textbox');
+    fireEvent.change(box, { target: { value: 'Can you add tabs for different shops?' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() =>
+      expect(api.sendChatMessage).toHaveBeenCalledWith('S1', 'Can you add tabs for different shops?', {
+        mockup: {
+          prompt_id: 'mockup:1',
+          revision: 2,
+          action: 'chat',
+          settings: { layout: 'rows', group: 'on', tick: 'strike' },
+        },
+      }),
+    );
   });
 });

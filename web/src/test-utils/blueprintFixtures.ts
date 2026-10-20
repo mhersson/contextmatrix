@@ -582,7 +582,82 @@ export const SHARED_V2: BlueprintArtifact = {
   },
 };
 
+const MOCKUP_DATA = {
+  revision: 1,
+  screens: [{ id: 'list', title: 'The list' }],
+  suggestions: [
+    {
+      id: 'layout',
+      title: 'List style',
+      kind: 'choice',
+      why: 'Rows fit more on screen; cards are easier to tap.',
+      default: 'rows',
+      options: [
+        { value: 'rows', label: 'Rows' },
+        { value: 'cards', label: 'Cards' },
+      ],
+    },
+    { id: 'group', title: 'Group by aisle', kind: 'switch', why: 'Walk the shop once.', default: 'off' },
+    {
+      id: 'tick',
+      title: 'Ticked items',
+      kind: 'choice',
+      why: 'Where bought items go.',
+      default: 'strike',
+      options: [
+        { value: 'strike', label: 'Strike through' },
+        { value: 'bottom', label: 'Move to bottom' },
+        { value: 'hide', label: 'Hide' },
+      ],
+    },
+  ],
+  settings: { layout: 'rows', group: 'off', tick: 'strike' },
+  source:
+    '<!doctype html><ul id="l"></ul><script>const s=window.mockupSettings;document.getElementById("l").textContent=s.layout</script>',
+};
+
+export const MOCKUP_V1: BlueprintArtifact = {
+  stage: 'mockup',
+  version: 1,
+  body: 'A first try at the list.',
+  data: MOCKUP_DATA,
+};
+
+export const MOCKUP_V2: BlueprintArtifact = {
+  stage: 'mockup',
+  version: 2,
+  body: 'The list with the ticked items moved.',
+  data: { ...MOCKUP_DATA, revision: 2, source: MOCKUP_DATA.source.replace('<ul', '<ol').replace('</ul>', '</ol>') },
+};
+
+/** The designer's mockup rev 2 waits for the person; rev 1 was superseded. */
+export function viewAtMockup(): BlueprintView {
+  return {
+    id: 'S1',
+    mode: 'default',
+    state: 'waiting',
+    seq: 20,
+    slices: [],
+    pipeline: [
+      step('intake', 'product_owner', 'done', { latest_version: 1 }),
+      step('mockup', 'designer', 'waiting', { latest_version: 2 }),
+      step('solution_design', 'system_designer', 'pending', { gate: true, policy: 'human' }),
+      step('grounding', 'senior_developer', 'pending'),
+      step('acceptance', 'senior_developer', 'pending', { gate: true, policy: 'auto' }),
+      step('decomposition', 'senior_developer', 'pending'),
+      step('readiness', 'reviewer', 'pending', { max_rounds: 3 }),
+      step('signoff', 'you', 'pending', { gate: true }),
+      step('emission', 'architect', 'pending'),
+    ],
+    open: { prompt_id: 'mockup:1', kind: 'mockup' },
+    cost: { spent_usd: 0.1, run_spent_usd: 0, cap_usd: 2, run_cap_usd: 0.5, priced: true },
+    artifacts: [ref('intake', 1, 'current'), ref('mockup', 1, 'superseded'), ref('mockup', 2, 'current')],
+  };
+}
+
 const ALL = [
+  MOCKUP_V1,
+  MOCKUP_V2,
   NEED_V1,
   SLICES_V1,
   DESIGN_V1,

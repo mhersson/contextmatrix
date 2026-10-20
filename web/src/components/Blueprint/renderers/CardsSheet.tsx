@@ -75,7 +75,7 @@ function CardBlock({ card: c, version }: { card: CardPreview; version: number })
       {c.body && (
         <details>
           <summary>Card body</summary>
-          <BodyMarkdown body={c.body} mode="plain" version={version} />
+          <BodyMarkdown body={c.body} mode="plain" version={version} mockups />
         </details>
       )}
     </article>

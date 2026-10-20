@@ -13,17 +13,19 @@ interface BodyMarkdownProps {
   mode: RevisionMode;
   /** Numbers each cloud's triangle. */
   version: number;
+  /** Cards' bodies run their fenced mockup blocks behind a button. */
+  mockups?: boolean;
 }
 
 /** Artifact markdown rendered block by block, so changed paragraphs can be clouded or diffed. */
-export function BodyMarkdown({ body, previous, mode, version }: BodyMarkdownProps) {
+export function BodyMarkdown({ body, previous, mode, version, mockups }: BodyMarkdownProps) {
   const blocks = useMemo(() => splitBlocks(body), [body]);
   const before = useMemo(() => (previous === undefined ? null : splitBlocks(previous)), [previous]);
   if (mode === 'compare' && before) {
     return (
       <div className="bp-body">
         {compareBlocks(before, blocks).map((part, i) => (
-          <ComparePart key={i} part={part} />
+          <ComparePart key={i} part={part} mockups={mockups} />
         ))}
       </div>
     );
@@ -34,7 +36,7 @@ export function BodyMarkdown({ body, previous, mode, version }: BodyMarkdownProp
   if (!changed || changed.size === 0) {
     return (
       <div className="bp-body">
-        <Block text={body} />
+        <Block text={body} mockups={mockups} />
       </div>
     );
   }
@@ -43,24 +45,24 @@ export function BodyMarkdown({ body, previous, mode, version }: BodyMarkdownProp
       {blocks.map((text, i) =>
         changed.has(i) ? (
           <RevisionCloud key={i} version={version}>
-            <Block text={text} />
+            <Block text={text} mockups={mockups} />
           </RevisionCloud>
         ) : (
-          <Block key={i} text={text} />
+          <Block key={i} text={text} mockups={mockups} />
         ),
       )}
     </div>
   );
 }
 
-export const Block = memo(function Block({ text }: { text: string }) {
-  return <ChatMarkdown source={text} className="bp-markdown" />;
+export const Block = memo(function Block({ text, mockups }: { text: string; mockups?: boolean }) {
+  return <ChatMarkdown source={text} className="bp-markdown" mockups={mockups} />;
 });
 
-function ComparePart({ part }: { part: BlockPart }) {
+function ComparePart({ part, mockups }: { part: BlockPart; mockups?: boolean }) {
   switch (part.kind) {
     case 'same':
-      return <Block text={part.text} />;
+      return <Block text={part.text} mockups={mockups} />;
     case 'added':
       return (
         <p className="bp-diff">

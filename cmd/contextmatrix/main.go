@@ -1071,8 +1071,16 @@ func newAdminMux() http.Handler {
 
 // spaContentSecurityPolicy backstops the markdown renderer: card bodies come
 // from agents and external imports, so the page never runs inline script,
-// loads frames or plugins, gets framed, or submits a form off-site.
-const spaContentSecurityPolicy = "script-src 'self'; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'"
+// loads plugins, gets framed, or submits a form off-site. Frames stay on CM's
+// origin, where only the self-sealing mockup shell can be framed.
+const spaContentSecurityPolicy = "script-src 'self'; object-src 'none'; frame-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'"
+
+// mockupFramePath is the static shell that runs model-written mockups.
+const mockupFramePath = "/mockup-frame.html"
+
+// mockupFrameContentSecurityPolicy seals the shell in its own response: an
+// opaque origin and no fetch, subresource or framed-URL load, however framed.
+const mockupFrameContentSecurityPolicy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'; frame-ancestors 'self'; sandbox allow-scripts"
 
 // newSPAHandler wraps the API handler with static file serving and SPA fallback.
 // API and health check routes are forwarded to the API handler. All other requests
@@ -1084,6 +1092,16 @@ func newSPAHandler(apiHandler http.Handler, fsys fs.FS) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/healthz" || r.URL.Path == "/readyz" || r.URL.Path == "/mcp" {
 			apiHandler.ServeHTTP(w, r)
+
+			return
+		}
+
+		if r.URL.Path == mockupFramePath {
+			w.Header().Set("Content-Security-Policy", mockupFrameContentSecurityPolicy)
+			w.Header().Set("Referrer-Policy", "no-referrer")
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("X-DNS-Prefetch-Control", "off")
+			fileServer.ServeHTTP(w, r)
 
 			return
 		}

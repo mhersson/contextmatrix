@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta http-equiv="x-dns-prefetch-control" content="off"><title>Mockup</title></head>
+<body>
+<script>
+(function () {
+  var rendered = false;
+  function onSettings(e) {
+    if (e.source !== window.parent || !e.data || e.data.type !== 'cm-mockup-settings') return;
+    window.mockupSettings = e.data.settings;
+    window.dispatchEvent(new CustomEvent('mockup:settings', { detail: e.data.settings }));
+  }
+  function onRender(e) {
+    if (rendered || e.source !== window.parent || !e.data || e.data.type !== 'cm-mockup-render' || typeof e.data.source !== 'string') return;
+    rendered = true;
+    window.removeEventListener('message', onRender);
+    if (e.data.settings) window.mockupSettings = e.data.settings;
+    // CSP does not govern WebRTC, so the shell takes its constructors away before the source runs.
+    ['RTCPeerConnection', 'webkitRTCPeerConnection', 'mozRTCPeerConnection', 'RTCDataChannel', 'RTCSessionDescription', 'RTCIceCandidate'].forEach(function (n) {
+      delete window[n];
+      if (window[n] === undefined) return;
+      try { Object.defineProperty(window, n, { value: undefined }); } catch (_) {}
+    });
+    document.open();
+    document.write(e.data.source);
+    document.close();
+    // document.open() erased this window's listeners; the settings channel comes back after it.
+    window.addEventListener('message', onSettings);
+  }
+  window.addEventListener('message', onRender);
+})();
+</script>
+</body>
+</html>

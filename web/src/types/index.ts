@@ -590,7 +590,15 @@ export interface RoundReply {
 }
 
 /** What a chat send carries beside its content: a round's answers, or the prompt id of the open round a message is about. */
-export type ChatSendExtra = { round: RoundReply } | { round_chat: string };
+export type ChatSendExtra = { round: RoundReply } | { round_chat: string } | { mockup: MockupReply };
+
+/** A reply to the mockup that waits for the person; settings are never sent on a skip. */
+export interface MockupReply {
+  prompt_id: string;
+  revision: number;
+  action: 'use' | 'skip' | 'chat';
+  settings?: Record<string, string>;
+}
 
 export type AuthMode = 'multi' | 'none';
 
@@ -1253,9 +1261,9 @@ export interface BlueprintCurrentRun {
 }
 
 export interface BlueprintOpenPrompt {
-  /** "Q<n>", "gate:<stage>:v<n>", a slice's "gate:<stage>:<slice>:v<n>", "gate:signoff:v<n>" or "emission:v<n>" (kind gate, an emission resume); matched by equality only. */
+  /** "Q<n>", "gate:<stage>:v<n>", a slice's "gate:<stage>:<slice>:v<n>", "gate:signoff:v<n>" or "emission:v<n>" (kind gate, an emission resume), "mockup:<n>" (kind mockup while a revision waits for the person; <n> is opaque and the same across one mockup's revisions) or "mockup:offer" (kind gate); matched by equality only. */
   prompt_id: string;
-  kind: 'question' | 'gate' | 'round';
+  kind: 'question' | 'gate' | 'round' | 'mockup';
 }
 
 export interface BlueprintCost {

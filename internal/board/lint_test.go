@@ -34,6 +34,17 @@ func TestLintSelfContained(t *testing.T) {
 		{name: "linux home path at line start", text: "/home/alice/docs/design.md", repos: foreign, wantN: 1},
 		{name: "linux home path mid-sentence", text: "Follow this: /home/alice/docs/design.md", repos: foreign, wantN: 1},
 		{name: "bare last segment of foreign repo no false positive", text: "See other-project for details", repos: foreign, wantN: 0},
+		{name: "path inside a mockup block", text: "```mockup\n<p>x</p>\n/home/anna/Documents\n```\n", repos: foreign, wantN: 0},
+		{name: "path after the block closes", text: "```mockup\n<p>x</p>\n```\nSee /home/a/x.md", repos: foreign, wantN: 1},
+		{name: "unclosed block runs to the end", text: "```mockup\n<p>x</p>\n/home/a/x.md", repos: foreign, wantN: 0},
+		{name: "tilde fence is not a mockup block", text: "~~~mockup\n/home/a/x.md\n~~~\n", repos: foreign, wantN: 1},
+		{name: "indented fence is not a mockup block", text: " ```mockup\n/home/a/x.md\n ```\n", repos: foreign, wantN: 1},
+		{name: "an info string beyond mockup is not one", text: "```mockup extra\n/home/a/x.md\n```\n", repos: foreign, wantN: 1},
+		{name: "a shorter fence does not close it", text: "````mockup\n/home/a\n```\n~/b\n````\nok", repos: foreign, wantN: 0},
+		{name: "a longer fence closes it", text: "```mockup\n/home/a\n`````\nSee ~/b", repos: foreign, wantN: 1},
+		{name: "closing fence with trailing spaces", text: "```mockup\n/home/a\n```  \t\nSee ~/b", repos: foreign, wantN: 1},
+		{name: "foreign repo inside the block", text: "```mockup\nmhersson/other-project\n```\n", repos: foreign, wantN: 0},
+		{name: "CRLF body", text: "```mockup\r\n/home/a\r\n```\r\nSee ~/b", repos: foreign, wantN: 1},
 	}
 
 	for _, tt := range tests {

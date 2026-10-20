@@ -158,6 +158,32 @@ describe('ModeCell', () => {
     expect(screen.queryByRole('note')).not.toBeInTheDocument();
   });
 
+  it('notes that a waiting mockup goes to the responder, only when leaving Default', () => {
+    open(at({ open: { prompt_id: 'mockup:1', kind: 'mockup' } }));
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    pick(modeLabel('auto'));
+    expect(screen.getByRole('note')).toBeInTheDocument();
+    pick(modeLabel('default'));
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+  });
+
+  it('notes the waiting mockup offer differently from an ordinary gate', () => {
+    const gate = at({ open: { prompt_id: 'gate:1', kind: 'gate' } });
+    open(gate);
+    pick(modeLabel('auto'));
+    const ordinary = screen.getByRole('note').textContent;
+    cleanup();
+    open(at({ open: { prompt_id: 'mockup:offer', kind: 'gate' } }));
+    pick(modeLabel('auto'));
+    expect(screen.getByRole('note').textContent).not.toBe(ordinary);
+  });
+
+  it('notes no handover for a waiting mockup once past Default', () => {
+    open(at({ mode: 'auto', open: { prompt_id: 'mockup:1', kind: 'mockup' } }));
+    pick(modeLabel('yolo'));
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+  });
+
   it('notes that a waiting sign-off is decided automatically only for the emitting modes', () => {
     open(atSignoff());
     pick(modeLabel('auto'));

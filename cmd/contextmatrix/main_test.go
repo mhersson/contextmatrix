@@ -53,7 +53,7 @@ func TestSPAHandler_SecurityHeaders(t *testing.T) {
 	})
 	handler := newSPAHandler(apiHandler, dist)
 
-	for _, path := range []string{"/", "/projects/demo", "/projects/demo?card=DEMO-001", "/assets/index-abc.js"} {
+	for _, path := range []string{"/", "/projects/demo", "/projects/demo?card=DEMO-001", "/assets/index-abc.js", "/mockup-frame.html/x", "/projects/demo/mockup-frame.html"} {
 		t.Run(path, func(t *testing.T) {
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
@@ -62,14 +62,56 @@ func TestSPAHandler_SecurityHeaders(t *testing.T) {
 
 			csp := cspDirectives(t, rec.Header().Get("Content-Security-Policy"))
 			assert.Equal(t, "'self'", csp["script-src"])
-			assert.Equal(t, "'none'", csp["frame-src"])
+			assert.Equal(t, "'self'", csp["frame-src"])
 			assert.Equal(t, "'none'", csp["object-src"])
 			assert.Equal(t, "'self'", csp["base-uri"])
 			assert.Equal(t, "'none'", csp["frame-ancestors"])
 			assert.Equal(t, "'self'", csp["form-action"])
 			assert.Equal(t, "no-referrer", rec.Header().Get("Referrer-Policy"))
+			assert.Empty(t, rec.Header().Get("X-DNS-Prefetch-Control"), "the prefetch header is the shell's alone")
 		})
 	}
+}
+
+// The shell seals itself: an iframe that frames it without a sandbox attribute
+// (an injected one, or a caller that forgot it) still gets an opaque origin and
+// no fetch, subresource or framed-URL load.
+func TestSPAHandler_MockupFrameIsSealed(t *testing.T) {
+	shell := []byte("<!doctype html><script>/* shell */</script>")
+	handler := newSPAHandler(http.NotFoundHandler(), fstest.MapFS{
+		"index.html":        {Data: []byte("<!doctype html>")},
+		"mockup-frame.html": {Data: shell},
+	})
+
+	for _, target := range []string{"/mockup-frame.html", "/mockup-frame.html?source=%3Cscript%3Ealert(1)%3C/script%3E"} {
+		t.Run(target, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, shell, rec.Body.Bytes(), "the shell reads nothing from the request")
+			assert.Equal(t, map[string]string{
+				"default-src":     "'none'",
+				"script-src":      "'unsafe-inline'",
+				"style-src":       "'unsafe-inline'",
+				"img-src":         "data:",
+				"form-action":     "'none'",
+				"base-uri":        "'none'",
+				"frame-ancestors": "'self'",
+				"sandbox":         "allow-scripts",
+			}, cspDirectives(t, rec.Header().Get("Content-Security-Policy")))
+			assert.Equal(t, "no-referrer", rec.Header().Get("Referrer-Policy"))
+			assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+			assert.Equal(t, "off", rec.Header().Get("X-DNS-Prefetch-Control"))
+			assert.Empty(t, rec.Header().Get("X-Frame-Options"))
+		})
+	}
+}
+
+// A structural check: the path the handler seals is the file the frontend ships.
+func TestMockupFramePath_NamesTheShippedShell(t *testing.T) {
+	_, err := os.Stat(filepath.Join("..", "..", "web", "public", strings.TrimPrefix(mockupFramePath, "/")))
+	require.NoError(t, err)
 }
 
 func TestDirHasGit_PresentAbsent(t *testing.T) {

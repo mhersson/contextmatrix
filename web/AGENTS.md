@@ -191,6 +191,10 @@ interactions.
   which scrolls on its own above the chat box, until a newer frame of the
   round arrives. A closed round's summary keeps the thread behind a collapsed
   toggle.
+  The mockup sheet's "Use this design" and "Skip mockups" are reply buttons
+  too, driven by `view.open.kind === 'mockup'` with no `LogPrompt` behind
+  them; they send a structured `mockup` reply, and the composer adds
+  `mockupChatExtra` to its messages while a mockup waits.
   Whether a prompt is open is derived in the browser (`derivePromptStates`),
   never stored. Agent and chat backends never emit a prompt:
   `AskUserQuestion` stays denied at the MCP gate, and there is no

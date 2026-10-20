@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { BlueprintView } from '../../types';
 import { formatHHMM } from '../../utils/chatTimestamp';
-import { LEDGER_REVIEW_V1, LEDGER_REVIEW_V2, THREE_SLICES, ref, step, viewAtDesignGate, viewEndedAtSlicing, viewEndedInSlice, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
+import { LEDGER_REVIEW_V1, viewAtMockup, LEDGER_REVIEW_V2, THREE_SLICES, ref, step, viewAtDesignGate, viewEndedAtSlicing, viewEndedInSlice, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
 import {
   artifactsFor,
   barGroups,
@@ -132,6 +132,13 @@ describe('describeCurrent', () => {
 });
 
 describe('stepStatusText', () => {
+  it('does not ask for the person while the mockup is between the responder\'s turns', () => {
+    const between = { ...viewAtMockup(), open: undefined };
+    const generic = stepStatusText(step('solution_design', 'system_designer', 'waiting'), between);
+    expect(stepStatusText(between.pipeline[1], between)).not.toBe(generic);
+    expect(stepStatusText(between.pipeline[1], viewAtMockup())).toBe(generic);
+  });
+
   it('says who approved a gate and when', () => {
     const view = at({
       artifacts: [ref('solution_design', 2, 'approved', { decided_by: 'you', decided_at: '2026-10-17T10:17:00Z' })],
@@ -260,5 +267,33 @@ describe('an ended blueprint', () => {
     const view = viewEndedAtSlicing();
     const texts = [step('grounding', 'senior_developer', 'pending'), view.pipeline[1], view.pipeline[2]].map((s) => stepStatusText(s, view));
     expect(new Set(texts).size).toBe(3);
+  });
+});
+
+describe('describeCurrent on the mockup step', () => {
+  const responder = (stage: string) =>
+    ({ ...viewAtMockup(), open: undefined, current: { kind: 'responder', stage, persona: 'designer' } }) as unknown as BlueprintView;
+
+  it('names the open mockup apart from the generic waiting line', () => {
+    const open = describeCurrent(viewAtMockup())!;
+    // A gate with no artifact at it takes the generic "waiting for you" line.
+    const generic = describeCurrent({ ...viewAtMockup(), open: { prompt_id: 'gate:x', kind: 'gate' } })!;
+    expect(open.tone).toBe('waiting');
+    expect(generic.tone).toBe('waiting');
+    expect(open.line).not.toBe(generic.line);
+  });
+
+  it('says the mockup is with the responder between its turns, not that you are waited on', () => {
+    const between = describeCurrent({ ...viewAtMockup(), open: undefined })!;
+    const waiting = describeCurrent(viewAtMockup())!;
+    expect(between.tone).toBe('running');
+    expect(between.line).not.toBe(waiting.line);
+  });
+
+  it('says the responder is trying the mockup, not answering a question', () => {
+    const mockup = describeCurrent(responder('mockup'))!;
+    const question = describeCurrent(responder('solution_design'))!;
+    expect(mockup.tone).toBe('running');
+    expect(mockup.line).not.toBe(question.line);
   });
 });

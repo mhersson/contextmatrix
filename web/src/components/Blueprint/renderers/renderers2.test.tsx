@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import { ArtifactRenderer } from './ArtifactRenderer';
 import { BOARD_V1, CARDS_V1, READINESS_V2, SIGNOFF_V1, ref, viewAtDesignGate } from '../../../test-utils/blueprintFixtures';
 import type { BlueprintArtifact } from '../../../types';
@@ -7,7 +7,11 @@ import { acceptedLabel, assumptionChip, CHANGED_SINCE_ACCEPTED, supersededLabel 
 import { stageText } from '../stages';
 
 vi.mock('../../ChatPanel/ChatMarkdown', () => ({
-  ChatMarkdown: ({ source }: { source: string }) => <div data-testid="md">{source}</div>,
+  ChatMarkdown: ({ source, mockups }: { source: string; mockups?: boolean }) => (
+    <div data-testid="md" data-mockups={mockups ? 'on' : undefined}>
+      {source}
+    </div>
+  ),
 }));
 
 const view = viewAtDesignGate();
@@ -47,6 +51,13 @@ describe('CardsSheet', () => {
     expect(within(d1).getByText('Card body')).toBeInTheDocument();
     const d3 = screen.getByRole('article', { name: 'D3 Document both endpoints' });
     expect(within(d3).getByText('after D1, D2')).toBeInTheDocument();
+  });
+
+  it("renders the mockup blocks in each card's body", () => {
+    show(CARDS_V1);
+    const d1 = screen.getByRole('article', { name: 'D1 Pretty-print the GET / response' });
+    fireEvent.click(within(d1).getByText('Card body'));
+    expect(within(d1).getByTestId('md')).toHaveAttribute('data-mockups', 'on');
   });
 
   it('adds the playbook order for several cards', () => {

@@ -76,13 +76,14 @@ export interface ShownStatus {
 }
 
 /** What the stage waits on: the open question, or the open round and what it still lacks (null when not loaded). */
-export type Waiting = { kind: 'question'; id: string } | { kind: 'round'; left: RoundLeft | null };
+export type Waiting = { kind: 'question'; id: string } | { kind: 'round'; left: RoundLeft | null } | { kind: 'mockup' };
 
 export function waitingOn(view: BlueprintView, stage: string, slice: string, roundLeft: RoundLeft | null): Waiting | null {
   const cur = currentStep(view);
   if (cur?.stage !== stage || sliceOf(cur) !== slice) return null;
   if (view.open?.kind === 'question') return { kind: 'question', id: view.open.prompt_id };
   if (view.open?.kind === 'round') return { kind: 'round', left: roundLeft };
+  if (view.open?.kind === 'mockup') return { kind: 'mockup' };
   return null;
 }
 
@@ -91,6 +92,7 @@ const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 /** "Q4", "3 questions", "2 assumptions", or "your answers" once only the submit is missing. */
 export function waitingLabel(w: Waiting): string {
   if (w.kind === 'question') return w.id;
+  if (w.kind === 'mockup') return 'your choice';
   if (w.left && w.left.questions > 0) return count(w.left.questions, 'question');
   if (w.left && w.left.assumptions > 0) return count(w.left.assumptions, 'assumption');
   return 'your answers';
@@ -122,6 +124,10 @@ export function shownStatus(
     stored.version === latestArtifact(view, stage, slice)?.version &&
     (stored.status === 'current' || stored.status === 'reviewing');
   if (newestOpen && stepStatus === 'failed') return { text: stored.review ? 'Failed' : 'Review failed', tone: 'bad' };
+  // Between the responder's turns the newest revision is not done; the person's choice is not open either.
+  if (stage === 'mockup' && newestOpen && stored.status === 'current' && (stepStatus === 'running' || stepStatus === 'waiting')) {
+    return { text: 'In progress', tone: 'running' };
+  }
   if (newestOpen && stepStatus === 'stopped') return { text: 'Stopped', tone: 'bad' };
   switch (stored.status) {
     case 'reviewing':
@@ -175,6 +181,8 @@ export function writingVersion(
   stage: string,
   slice: string,
 ): number | null {
+  // The mockup has no draft frames, and a run on it may judge or answer without a new revision.
+  if (stage === 'mockup') return null;
   const stored = artifactsFor(view, stage, slice);
   const next = (stored[stored.length - 1]?.version ?? 0) + 1;
   if (draft && draft.stage === stage && draft.slice === slice && !stored.some((r) => r.version === draft.version)) {

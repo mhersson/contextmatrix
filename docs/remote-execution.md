@@ -480,6 +480,9 @@ a plain message without `round`; CM stores its row with kind `round_chat` so
 the panel shows it in the waiting round's thread instead of the transcript (as
 an ordinary message when no round waits any more).
 
+A reply to a waiting mockup carries `mockup` on `/message`; CM forwards it
+unchanged and stores its row as an ordinary user message.
+
 A blueprint's cost cap changes through a session command sent to `/message` as
 plain content: `cap <usd>` (for example `cap 4`, `cap 4.5`) or `cap off`. CM
 stores its row with kind `command`, which the panel never renders. The

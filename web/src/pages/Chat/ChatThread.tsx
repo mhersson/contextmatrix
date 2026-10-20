@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, isAPIError } from '../../api/client';
-import type { ChatSendExtra, ChatSession, RoundReply } from '../../types';
+import type { ChatSendExtra, ChatSession, MockupReply, RoundReply } from '../../types';
 import { ChatPanel } from '../../components/ChatPanel';
 import { BlueprintSession } from '../../components/Blueprint/BlueprintSession';
+import { mockupChatExtra } from '../../components/Mockup/mockupStore';
 import { useChatStream } from '../../hooks/useChatStream';
 import { useWorkingState } from '../../hooks/useWorkingState';
 import { CHAT_SESSIONS_CHANGED_EVENT, notifyChatSessionsChanged } from '../../hooks/useChatSessions';
@@ -22,6 +23,8 @@ interface ChatThreadProps {
   // Phone layout: a blueprint's sheet then opens from the pane header.
   phone?: boolean;
 }
+
+type PostFn = (content: string, extra: ChatSendExtra | undefined, failure: string) => Promise<void>;
 
 export function ChatThread({ sessionID, embedded = false, isFocused = true, phone = false }: ChatThreadProps) {
   const [session, setSession] = useState<ChatSession | null>(null);
@@ -202,18 +205,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
     setUserHasSent(false);
   }
 
-  if (error) {
-    return (
-      <div className="p-4 text-sm" style={{ color: 'var(--red)' }}>{error}</div>
-    );
-  }
-  if (!merged) {
-    return (
-      <div className="p-4 text-sm" style={{ color: 'var(--grey1)' }}>Loading…</div>
-    );
-  }
-  const view = merged;
-
+  const postRef = useRef<PostFn | null>(null);
   // Arms the indicator before the POST: an architect may end its turn before the send returns.
   const post = async (content: string, extra: ChatSendExtra | undefined, failure: string) => {
     armOptimistic();
@@ -226,7 +218,28 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
       throw new Error(msg, { cause: e });
     }
   };
-  const handleSend = (content: string) => post(content, undefined, 'Failed to send message');
+  const handleSend = (content: string) => post(content, mockupChatExtra(sessionID), 'Failed to send message');
+  useEffect(() => {
+    postRef.current = post;
+  });
+  // A stable handler keeps the blueprint pane's mockup context from changing on every render.
+  const handleSendMockup = useCallback(
+    (content: string, reply: MockupReply) => postRef.current!(content, { mockup: reply }, 'Failed to send your choice'),
+    [],
+  );
+
+  if (error) {
+    return (
+      <div className="p-4 text-sm" style={{ color: 'var(--red)' }}>{error}</div>
+    );
+  }
+  if (!merged) {
+    return (
+      <div className="p-4 text-sm" style={{ color: 'var(--grey1)' }}>Loading…</div>
+    );
+  }
+  const view = merged;
+
   const handleSendRound = (content: string, reply: RoundReply) => post(content, { round: reply }, 'Failed to send answers');
   const handleSendRoundChat = (content: string, promptId: string) =>
     post(content, { round_chat: promptId }, 'Failed to send message');
@@ -295,6 +308,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
             logs={logs}
             promptsLive={connected && !sendDisabled}
             onReply={handleSend}
+            onSendMockup={handleSendMockup}
             phone={phone}
           >
             {panel}

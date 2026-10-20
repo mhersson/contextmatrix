@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { formatHHMM } from '../../utils/chatTimestamp';
-import { DESIGN_REVIEW, ref, step, viewAtDesignGate, viewEndedAtSlicing, viewEndedInSlice, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
+import { DESIGN_REVIEW, viewAtMockup, ref, step, viewAtDesignGate, viewEndedAtSlicing, viewEndedInSlice, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
 import type { BlueprintView } from '../../types';
 import { holdDraft } from './draft';
 import { defaultShown, resolveShown, reviewFor, reviewingPersona, sheetTabs, sliceForTab, sliceSubtitle, sliceTabs, shownStatus, stampFor, versionOptions, waitingOn, writingVersion } from './sheetModel';
@@ -339,5 +339,57 @@ describe('an ended blueprint', () => {
     const view = viewEndedInSlice();
     expect(sheetTabs(view, null).filter((t) => t.current).map((t) => t.stage)).toEqual(['decomposition']);
     expect(defaultShown(view, null)).toEqual({ stage: 'decomposition', slice: 'SL2', version: 1 });
+  });
+});
+
+describe('shownStatus on the mockup sheet', () => {
+  const view = viewAtMockup();
+  it('waits on the newest revision and marks the older one old', () => {
+    expect(shownStatus(view, 'mockup', '', view.artifacts[2], false).tone).toBe('waiting');
+    expect(shownStatus(view, 'mockup', '', view.artifacts[1], false).tone).toBe('old');
+  });
+});
+
+describe('shownStatus on the mockup sheet between the responder\'s turns', () => {
+  const between = (status: 'running' | 'waiting') => {
+    const v = viewAtMockup();
+    v.open = undefined;
+    v.pipeline = v.pipeline.map((s) => (s.stage === 'mockup' ? { ...s, status } : s));
+    return v;
+  };
+  it.each(['running', 'waiting'] as const)('shows the newest revision in progress while the step is %s', (status) => {
+    const v = between(status);
+    expect(shownStatus(v, 'mockup', '', v.artifacts[2], false)).toEqual({ text: 'In progress', tone: 'running' });
+    expect(shownStatus(v, 'mockup', '', v.artifacts[1], false).tone).toBe('old');
+  });
+  it('still waits on the choice while a mockup prompt is open', () => {
+    const v = viewAtMockup();
+    expect(shownStatus(v, 'mockup', '', v.artifacts[2], false).tone).toBe('waiting');
+  });
+  it('leaves other stages and a done mockup step alone', () => {
+    const v = between('waiting');
+    v.pipeline = v.pipeline.map((s) => (s.stage === 'mockup' ? { ...s, status: 'done' as const } : s));
+    expect(shownStatus(v, 'mockup', '', v.artifacts[2], false).tone).toBe('ok');
+  });
+});
+
+describe('the mockup step never writes a next revision', () => {
+  const run = (kind: 'responder' | 'stage') => {
+    const v = viewAtMockup();
+    v.open = undefined;
+    v.current = { stage: 'mockup', kind, persona: 'designer', model: 'm', started_at: '', turns: 1, tool_calls: 0, tokens: 0 };
+    return v;
+  };
+  it.each(['responder', 'stage'] as const)('keeps the sheet on the newest revision during a %s run', (kind) => {
+    const v = run(kind);
+    expect(writingVersion(v, null, 'mockup', '')).toBeNull();
+    expect(defaultShown(v, null)).toEqual({ stage: 'mockup', slice: '', version: 2 });
+    expect(resolveShown(v, null, { stage: 'mockup', slice: '', version: null })).toEqual({ stage: 'mockup', slice: '', version: 2 });
+    expect(shownStatus(v, 'mockup', '', v.artifacts[2], false).tone).toBe('running');
+  });
+  it('still writes the next version for another stage', () => {
+    const v = viewAtDesignGate();
+    v.current = { stage: 'solution_design', kind: 'stage', persona: 'system_designer', model: 'm', started_at: '', turns: 1, tool_calls: 0, tokens: 0 };
+    expect(writingVersion(v, null, 'solution_design', '')).not.toBeNull();
   });
 });

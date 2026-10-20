@@ -618,11 +618,57 @@ func validateRoundChat(promptID string, round *protocol.RoundReply) error {
 	return nil
 }
 
+const maxMockupSettings = 12
+
+// The wire contract's suggestion id and option value forms.
+var (
+	mockupSettingIDPattern    = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
+	mockupSettingValuePattern = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
+)
+
+// validateMockupReply refuses a mockup reply the architect could not act on.
+func validateMockupReply(m *protocol.MockupReply) error {
+	if strings.TrimSpace(m.PromptID) == "" {
+		return errors.New("mockup prompt_id is required")
+	}
+
+	if m.Revision < 1 {
+		return errors.New("mockup revision must be at least 1")
+	}
+
+	switch m.Action {
+	case protocol.MockupUse, protocol.MockupSkip, protocol.MockupChat:
+	default:
+		return fmt.Errorf("mockup action %q is not use, skip or chat", m.Action)
+	}
+
+	if m.Action == protocol.MockupSkip && len(m.Settings) > 0 {
+		return errors.New("mockup settings are not allowed on skip")
+	}
+
+	if len(m.Settings) > maxMockupSettings {
+		return fmt.Errorf("mockup carries more than %d settings", maxMockupSettings)
+	}
+
+	for id, value := range m.Settings {
+		if !mockupSettingIDPattern.MatchString(id) {
+			return fmt.Errorf("mockup setting id %q is not a suggestion id", id)
+		}
+
+		if !mockupSettingValuePattern.MatchString(value) {
+			return fmt.Errorf("mockup setting %q has an invalid value", id)
+		}
+	}
+
+	return nil
+}
+
 func (h *chatHandlers) sendMessage(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Content   string               `json:"content"`
-		Round     *protocol.RoundReply `json:"round"`
-		RoundChat string               `json:"round_chat"`
+		Content   string                `json:"content"`
+		Round     *protocol.RoundReply  `json:"round"`
+		RoundChat string                `json:"round_chat"`
+		Mockup    *protocol.MockupReply `json:"mockup"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -648,6 +694,19 @@ func (h *chatHandlers) sendMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if body.Mockup != nil {
+		err := validateMockupReply(body.Mockup)
+		if err == nil && (body.Round != nil || body.RoundChat != "") {
+			err = errors.New("mockup is exclusive with round and round_chat")
+		}
+
+		if err != nil {
+			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid mockup reply", err.Error())
+
+			return
+		}
+	}
+
 	if body.Round != nil {
 		if err := validateRoundReply(body.Round); err != nil {
 			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid round reply", err.Error())
@@ -668,6 +727,8 @@ func (h *chatHandlers) sendMessage(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case body.Round != nil:
 		msgID, err = h.mgr.SendRoundReply(r.Context(), r.PathValue("id"), body.Content, *body.Round)
+	case body.Mockup != nil:
+		msgID, err = h.mgr.SendMockupReply(r.Context(), r.PathValue("id"), body.Content, *body.Mockup)
 	case body.RoundChat != "":
 		msgID, err = h.mgr.SendRoundChat(r.Context(), r.PathValue("id"), body.Content, body.RoundChat)
 	default:

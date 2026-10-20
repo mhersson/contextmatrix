@@ -64,6 +64,7 @@ type stubBackend struct {
 type sendArg struct {
 	Content, MessageID string
 	Round              *protocol.RoundReply
+	Mockup             *protocol.MockupReply
 }
 
 func (s *stubBackend) StartChat(ctx context.Context, opts chat.StartChatOpts) (string, error) {
@@ -95,7 +96,7 @@ func (s *stubBackend) SendChatMessage(ctx context.Context, msg protocol.MessageP
 	idx := s.sendCalls.Add(1) - 1
 
 	s.mu.Lock()
-	s.sendArgs = append(s.sendArgs, sendArg{Content: msg.Content, MessageID: msg.MessageID, Round: msg.Round})
+	s.sendArgs = append(s.sendArgs, sendArg{Content: msg.Content, MessageID: msg.MessageID, Round: msg.Round, Mockup: msg.Mockup})
 	seq := s.sendErrSeq
 	s.mu.Unlock()
 
@@ -6254,6 +6255,70 @@ func TestManager_SendRoundChat_RefusesAChatSession(t *testing.T) {
 	_, err = mgr.SendRoundChat(context.Background(), sess.ID, "x", "round:1")
 	require.ErrorIs(t, err, chat.ErrInvalidSessionInput)
 	assert.Zero(t, chatStub.sendCalls.Load(), "nothing reaches a backend")
+}
+
+func TestManager_SendMockupReply_ForwardsTheReplyAsAnOrdinaryUserRow(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	bp := openArchitect(t, mgr)
+
+	reply := protocol.MockupReply{
+		PromptID: "mockup:1", Revision: 2, Action: protocol.MockupChat,
+		Settings: map[string]string{"layout": "cards", "group": "on"},
+	}
+
+	_, err := mgr.SendMockupReply(context.Background(), bp.ID, "Can you add tabs for different shops?", reply)
+	require.NoError(t, err)
+
+	arch.mu.Lock()
+	sent := append([]sendArg(nil), arch.sendArgs...)
+	arch.mu.Unlock()
+
+	require.Len(t, sent, 1)
+	assert.Equal(t, "Can you add tabs for different shops?", sent[0].Content)
+	assert.Equal(t, &reply, sent[0].Mockup)
+	assert.Nil(t, sent[0].Round)
+
+	msgs, err := mgr.ListMessages(context.Background(), bp.ID, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, chat.RoleUser, msgs[0].Role)
+	assert.Equal(t, "Can you add tabs for different shops?", msgs[0].Content)
+	assert.Empty(t, msgs[0].Kind, "the transcript shows it as an ordinary message")
+}
+
+func TestManager_SendMockupReply_RefusesAChatSession(t *testing.T) {
+	mgr, chatStub, _ := newManagerWithArchitectStub(t)
+
+	sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{CreatedBy: "human:web"})
+	require.NoError(t, err)
+
+	_, err = mgr.SendMockupReply(context.Background(), sess.ID, "x", protocol.MockupReply{PromptID: "mockup:1"})
+	require.ErrorIs(t, err, chat.ErrInvalidSessionInput)
+	assert.Zero(t, chatStub.sendCalls.Load(), "nothing reaches a backend")
+}
+
+func TestManager_SendMockupReply_ResendsTheReplyAfterAnArchitectRestart(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	bp := openArchitect(t, mgr)
+
+	arch.mu.Lock()
+	arch.sendErrSeq = []error{errSessionUnknown(), nil}
+	arch.mu.Unlock()
+
+	reply := protocol.MockupReply{
+		PromptID: "mockup:1", Revision: 3, Action: protocol.MockupUse,
+		Settings: map[string]string{"layout": "rows"},
+	}
+
+	_, err := mgr.SendMockupReply(context.Background(), bp.ID, "Use this design (rev 3)", reply)
+	require.NoError(t, err)
+
+	arch.mu.Lock()
+	defer arch.mu.Unlock()
+
+	require.Len(t, arch.sendArgs, 2)
+	assert.Equal(t, &reply, arch.sendArgs[1].Mockup)
+	assert.Equal(t, arch.sendArgs[0].MessageID, arch.sendArgs[1].MessageID)
 }
 
 func bigRound(questions, chatMessages, chatBytes int) *protocol.LogRound {
