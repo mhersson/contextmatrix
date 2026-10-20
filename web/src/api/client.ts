@@ -24,6 +24,7 @@ import type {
   ChatModelList,
   ModelCatalogResponse,
   ActivityFeedResponse,
+  AboutResponse,
   BackendHealth,
   BackendImagesResponse,
   SessionUser,
@@ -290,6 +291,10 @@ class APIClient {
 
   async getBackendHealth(signal?: AbortSignal): Promise<BackendHealth> {
     return this.request<BackendHealth>(`/backend/health`, { signal });
+  }
+
+  async getAbout(signal?: AbortSignal): Promise<AboutResponse> {
+    return this.request<AboutResponse>(`/about`, { signal });
   }
 
   async getBackendImages(

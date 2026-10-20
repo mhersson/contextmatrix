@@ -433,6 +433,35 @@ export interface ActivityFeedResponse {
   items: ActivityFeedEntry[];
 }
 
+export type AboutComponentName = 'contextmatrix' | 'agent' | 'chat' | 'architect';
+export type AboutStatus = 'running' | 'connected' | 'unreachable';
+
+export interface BuildChange {
+  number: number;
+  kind: string;
+  title: string;
+  merged_at: string;
+}
+
+export interface BuildInfo {
+  version?: string;
+  commit?: string;
+  build_time?: string;
+  changes: BuildChange[] | null;
+}
+
+export interface AboutComponent {
+  name: AboutComponentName;
+  status: AboutStatus;
+  build?: BuildInfo;
+  worker_image_revision?: string;
+}
+
+/** GET /api/about. */
+export interface AboutResponse {
+  components: AboutComponent[];
+}
+
 export interface BackendHealth {
   ok: boolean;
   running_containers: number;

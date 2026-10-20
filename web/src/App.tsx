@@ -5,6 +5,7 @@ import { SyncProvider } from './hooks/useSync';
 import { ProjectsProvider } from './hooks/useProjects';
 import { ProjectSummariesProvider } from './hooks/ProjectSummariesProvider';
 import { ThemeProvider } from './hooks/useTheme';
+import { AboutProvider } from './hooks/useAbout';
 import { AuthProvider } from './hooks/useAuth';
 import { ToastContext, useToastState } from './hooks/useToast';
 import { MobileSidebarProvider, useMobileSidebar } from './context/MobileSidebarContext';
@@ -83,6 +84,7 @@ function AppInner() {
         <SyncProvider>
           <ProjectsProvider>
             <ProjectSummariesProvider>
+              <AboutProvider>
               <div className="h-screen flex flex-row" style={{ backgroundColor: 'var(--bg-dim)' }}>
                 <Sidebar
                   onNewProject={() => setNewProjectOpen(true)}
@@ -123,6 +125,7 @@ function AppInner() {
 
                 <ToastContainer />
               </div>
+              </AboutProvider>
             </ProjectSummariesProvider>
           </ProjectsProvider>
         </SyncProvider>
