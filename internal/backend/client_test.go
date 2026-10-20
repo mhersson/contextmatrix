@@ -881,3 +881,39 @@ func TestClient_Kill_NoCorrelationIDHeader(t *testing.T) {
 	c := NewClient(srv.URL, "key")
 	require.NoError(t, c.Kill(context.Background(), KillPayload{CardID: "TEST-001", Project: "p"}))
 }
+
+func TestClientHealth_ReadsBuildAndWorkerImage(t *testing.T) {
+	commit := strings.Repeat("a", 40)
+	image := strings.Repeat("b", 40)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"ok":true,"running_containers":1,"max_concurrent":4,`+
+			`"build":{"commit":"`+commit+`","build_time":"2026-10-20T19:02:00Z","changes":[`+
+			`{"number":9,"kind":"feat","title":"x","merged_at":"2026-10-20T10:00:00Z"}]},`+
+			`"worker_image_revision":"`+image+`"}`)
+	}))
+	defer srv.Close()
+
+	info, err := NewClient(srv.URL, "test-key").Health(context.Background())
+	require.NoError(t, err)
+
+	assert.Equal(t, 4, info.MaxConcurrent)
+	require.NotNil(t, info.Build)
+	assert.Equal(t, commit, info.Build.Commit)
+	require.Len(t, info.Build.Changes, 1)
+	assert.Equal(t, 9, info.Build.Changes[0].Number)
+	assert.Equal(t, image, info.WorkerImageRevision)
+}
+
+func TestClientHealth_OlderBackendHasNoBuild(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"ok":true,"running_containers":0,"max_concurrent":2}`)
+	}))
+	defer srv.Close()
+
+	info, err := NewClient(srv.URL, "test-key").Health(context.Background())
+	require.NoError(t, err)
+
+	assert.Nil(t, info.Build)
+	assert.Empty(t, info.WorkerImageRevision)
+}

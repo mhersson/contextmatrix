@@ -46,6 +46,10 @@ type (
 	PromotePayload    = protocol.PromotePayload
 	EndSessionPayload = protocol.EndSessionPayload
 	StopAllPayload    = protocol.StopAllPayload
+
+	// HealthInfo is the parsed /health response; Build is nil from a backend
+	// older than protocol v0.36.0.
+	HealthInfo = protocol.HealthResponse
 )
 
 // ContainerInfo is a decoded entry from GET /containers. The agent backend
@@ -120,13 +124,6 @@ func (c *Client) EndSession(ctx context.Context, p EndSessionPayload) error {
 	return c.send(ctx, c.baseURL+"/end-session", p, nil)
 }
 
-// HealthInfo is the parsed shape of the backend's /health response.
-type HealthInfo struct {
-	OK                bool
-	RunningContainers int
-	MaxConcurrent     int
-}
-
 // Health queries the backend's /health endpoint. The backend exposes
 // max_concurrent (its global capacity cap) and the live container count.
 // /health is unauthenticated on the backend side; we still sign so the
@@ -142,7 +139,7 @@ func (c *Client) Health(ctx context.Context) (HealthInfo, error) {
 		return HealthInfo{}, fmt.Errorf("parse /health response: %w", err)
 	}
 
-	return HealthInfo(parsed), nil
+	return parsed, nil
 }
 
 // ListContainers queries the backend's /containers endpoint for every worker
