@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { LogEntry } from '../../types';
+import type { LogEntry, MockupReply } from '../../types';
 import { BlueprintPane } from './BlueprintPane';
 import { useBlueprintView, type FrameSource } from './useBlueprintView';
 
@@ -12,6 +12,7 @@ interface BlueprintSessionProps {
   logs: readonly LogEntry[];
   promptsLive: boolean;
   onReply: (text: string) => Promise<void>;
+  onSendMockup?: (content: string, reply: MockupReply) => Promise<void>;
   phone: boolean;
   /** The transcript. */
   children: ReactNode;

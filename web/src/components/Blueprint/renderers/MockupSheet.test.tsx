@@ -1,10 +1,11 @@
-import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi, type Mock } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MOCKUP_V1, MOCKUP_V2, ref, viewAtMockup } from '../../../test-utils/blueprintFixtures';
-import type { BlueprintArtifact, BlueprintView } from '../../../types';
+import type { BlueprintArtifact, BlueprintView, MockupReply } from '../../../types';
+import { mockupUseContent, parseMockup } from '../../Mockup/mockupData';
 import { RENDER_MESSAGE, SETTINGS_MESSAGE } from '../../Mockup/frameProtocol';
 import { MOCKUP_LABELS } from '../../Mockup/labels';
-import { MockupPaneContext } from '../../Mockup/mockupPane';
+import { MockupPaneContext, type MockupPane } from '../../Mockup/mockupPane';
 import { resetMockupStore } from '../../Mockup/mockupStore';
 import { api } from '../../../api/client';
 import { resetArtifactCache, useBlueprintArtifact } from '../artifactCache';
@@ -25,6 +26,7 @@ const data = MOCKUP_V2.data as {
 const opening = { layout: 'rows', group: 'off', tick: 'strike' };
 const byId = (id: string) => data.suggestions.find((s) => s.id === id)!;
 
+const QUIET: MockupPane = { chatId: 'S1', live: true, promptId: null };
 let posts: unknown[] = [];
 
 beforeEach(() => {
@@ -37,9 +39,9 @@ afterEach(() => {
   cleanup();
 });
 
-function show(artifact: BlueprintArtifact, view: BlueprintView = viewAtMockup()) {
+function show(artifact: BlueprintArtifact, view: BlueprintView = viewAtMockup(), pane: MockupPane = QUIET) {
   const out = render(
-    <MockupPaneContext.Provider value={{ chatId: 'S1' }}>
+    <MockupPaneContext.Provider value={pane}>
       <ArtifactRenderer artifact={artifact} previous={null} mode="plain" view={view} />
     </MockupPaneContext.Provider>,
   );
@@ -119,7 +121,7 @@ describe('MockupSheet', () => {
     const view = viewAtMockup();
     const { rerender } = show(MOCKUP_V2, view);
     const again = (
-      <MockupPaneContext.Provider value={{ chatId: 'S1' }}>
+      <MockupPaneContext.Provider value={QUIET}>
         <ArtifactRenderer artifact={MOCKUP_V2} previous={null} mode="plain" view={{ ...view }} />
       </MockupPaneContext.Provider>
     );
@@ -143,7 +145,7 @@ describe('MockupSheet when a design is chosen live', () => {
     const entry = useBlueprintArtifact('S1', 'mockup', '', 2);
     if (entry?.status !== 'ready') return null;
     return (
-      <MockupPaneContext.Provider value={{ chatId: 'S1' }}>
+      <MockupPaneContext.Provider value={QUIET}>
         <ArtifactRenderer artifact={entry.artifact} previous={null} mode="plain" view={view} />
       </MockupPaneContext.Provider>
     );
@@ -194,5 +196,127 @@ describe('MockupSheet when a design is chosen live', () => {
     out.rerender(<Live view={{ ...approved() }} />);
     await act(async () => {});
     expect(get).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('MockupSheet choice', () => {
+  let send: Mock<(content: string, reply: MockupReply) => Promise<void>>;
+  let pane: MockupPane;
+  beforeEach(() => {
+    send = vi.fn().mockResolvedValue(undefined);
+    pane = { chatId: 'S1', live: true, promptId: 'mockup:1', send };
+  });
+  const use = () => screen.getByRole('button', { name: MOCKUP_LABELS.use });
+  const skip = () => screen.getByRole('button', { name: MOCKUP_LABELS.skip });
+  const noChoice = () => {
+    expect(screen.queryByRole('button', { name: MOCKUP_LABELS.use })).toBeNull();
+    expect(screen.queryByRole('button', { name: MOCKUP_LABELS.skip })).toBeNull();
+  };
+
+  it('Use this design sends every setting you see as your answers', async () => {
+    show(MOCKUP_V2, viewAtMockup(), pane);
+    fireEvent.click(screen.getByRole('switch', { name: byId('group').title }));
+    fireEvent.click(use());
+    const settings = { layout: 'rows', group: 'on', tick: 'strike' };
+    const mockup = parseMockup(MOCKUP_V2.data)!;
+    await waitFor(() =>
+      expect(send).toHaveBeenCalledWith(mockupUseContent(2, mockup.suggestions, settings), {
+        prompt_id: 'mockup:1',
+        revision: 2,
+        action: 'use',
+        settings,
+      }),
+    );
+  });
+
+  it('Skip mockups sends a skip without settings', async () => {
+    show(MOCKUP_V2, viewAtMockup(), pane);
+    fireEvent.click(screen.getByRole('switch', { name: byId('group').title }));
+    fireEvent.click(skip());
+    await waitFor(() =>
+      expect(send).toHaveBeenCalledWith(MOCKUP_LABELS.skip, { prompt_id: 'mockup:1', revision: 2, action: 'skip' }),
+    );
+  });
+
+  it('flipping sends nothing', () => {
+    show(MOCKUP_V2, viewAtMockup(), pane);
+    fireEvent.click(screen.getByRole('switch', { name: byId('group').title }));
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('offers the choice only on the newest revision while it waits for you', () => {
+    show(MOCKUP_V1, viewAtMockup(), pane);
+    noChoice();
+    cleanup();
+    show(MOCKUP_V2, viewAtMockup(), { ...pane, promptId: null });
+    noChoice();
+    cleanup();
+    const decided = viewAtMockup();
+    decided.open = undefined;
+    decided.artifacts = [ref('intake', 1, 'current'), ref('mockup', 1, 'superseded'), ref('mockup', 2, 'approved')];
+    show(MOCKUP_V2, decided, pane);
+    noChoice();
+  });
+
+  it('moves the choice to a revision that lands while you look at the older one', () => {
+    const view = viewAtMockup();
+    const { rerender } = show(MOCKUP_V2, view, pane);
+    expect(use()).toBeEnabled();
+    const later = viewAtMockup();
+    later.artifacts = [
+      ref('intake', 1, 'current'),
+      ref('mockup', 1, 'superseded'),
+      ref('mockup', 2, 'superseded'),
+      ref('mockup', 3, 'current'),
+    ];
+    rerender(
+      <MockupPaneContext.Provider value={pane}>
+        <ArtifactRenderer artifact={MOCKUP_V2} previous={null} mode="plain" view={later} />
+      </MockupPaneContext.Provider>,
+    );
+    noChoice();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('keeps both buttons disabled after a choice was sent, until a new revision lands', async () => {
+    const { rerender } = show(MOCKUP_V2, viewAtMockup(), pane);
+    fireEvent.click(use());
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    await act(async () => {});
+    expect(use()).toBeDisabled();
+    expect(skip()).toBeDisabled();
+    fireEvent.click(use());
+    expect(send).toHaveBeenCalledTimes(1);
+    const later = viewAtMockup();
+    later.artifacts = [ref('intake', 1, 'current'), ref('mockup', 2, 'superseded'), ref('mockup', 3, 'current')];
+    rerender(
+      <MockupPaneContext.Provider value={pane}>
+        <ArtifactRenderer artifact={{ ...MOCKUP_V2, version: 3 }} previous={null} mode="plain" view={later} />
+      </MockupPaneContext.Provider>,
+    );
+    expect(use()).toBeEnabled();
+    expect(skip()).toBeEnabled();
+  });
+
+  it('pauses the choice while the session is not live', () => {
+    show(MOCKUP_V2, viewAtMockup(), { ...pane, live: false });
+    expect(use()).toBeDisabled();
+    expect(skip()).toBeDisabled();
+    const sw = screen.getByRole('switch', { name: byId('group').title });
+    fireEvent.click(sw);
+    expect(sw).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('holds both buttons while a choice is sent and shows a failed send', async () => {
+    let fail: (e: Error) => void = () => {};
+    send.mockReturnValueOnce(new Promise((_, reject) => { fail = reject; }));
+    show(MOCKUP_V2, viewAtMockup(), pane);
+    fireEvent.click(use());
+    expect(use()).toBeDisabled();
+    expect(skip()).toBeDisabled();
+    await act(async () => fail(new Error('architect is unreachable')));
+    expect(await screen.findByRole('alert')).toHaveTextContent('architect is unreachable');
+    expect(use()).toBeEnabled();
+    expect(skip()).toBeEnabled();
   });
 });

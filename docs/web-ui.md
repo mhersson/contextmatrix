@@ -368,8 +368,18 @@ board. Promote-to-autonomous lives in that tab.
     architect carried over. While a revision is written the sheet shows the
     run's progress. Once a design is chosen or the mockups are skipped, every
     revision's controls are fixed and the chosen revision shows the chosen
-    settings. The scale bar and the sheet say when the mockup waits for you. A
-    need without a screen shows no Mockup tab.
+    settings. The scale bar and the sheet say when the mockup waits for you.
+    While it waits, its newest revision offers Use this design, which sends
+    your settings as your answers, and Skip mockups; both pause while the
+    session is not live, and a revision that lands meanwhile takes them over.
+    A message typed in the transcript meanwhile is a change request or a
+    question about the mockup and carries the settings you are looking at, so
+    the next revision starts from them; the designer answers in the
+    transcript. A switch to an auto mode while the mockup waits hands it to
+    the responder at once, starting from the settings last sent with a
+    message. In the auto modes the responder chooses, and the transcript
+    shows its requests as it makes them. A need without a screen shows no
+    Mockup tab.
   - From 760px pane width the sheet sits beside the transcript at 46% with a
     draggable divider (320px minimum each side). Narrower panes show an edge
     strip that opens the sheet over the transcript; on a phone a Sheet

@@ -349,3 +349,26 @@ describe('shownStatus on the mockup sheet', () => {
     expect(shownStatus(view, 'mockup', '', view.artifacts[1], false).tone).toBe('old');
   });
 });
+
+describe('shownStatus on the mockup sheet between the responder\'s turns', () => {
+  const between = (status: 'running' | 'waiting') => {
+    const v = viewAtMockup();
+    v.open = undefined;
+    v.pipeline = v.pipeline.map((s) => (s.stage === 'mockup' ? { ...s, status } : s));
+    return v;
+  };
+  it.each(['running', 'waiting'] as const)('shows the newest revision in progress while the step is %s', (status) => {
+    const v = between(status);
+    expect(shownStatus(v, 'mockup', '', v.artifacts[2], false)).toEqual({ text: 'In progress', tone: 'running' });
+    expect(shownStatus(v, 'mockup', '', v.artifacts[1], false).tone).toBe('old');
+  });
+  it('still waits on the choice while a mockup prompt is open', () => {
+    const v = viewAtMockup();
+    expect(shownStatus(v, 'mockup', '', v.artifacts[2], false).tone).toBe('waiting');
+  });
+  it('leaves other stages and a done mockup step alone', () => {
+    const v = between('waiting');
+    v.pipeline = v.pipeline.map((s) => (s.stage === 'mockup' ? { ...s, status: 'done' as const } : s));
+    expect(shownStatus(v, 'mockup', '', v.artifacts[2], false).tone).toBe('ok');
+  });
+});

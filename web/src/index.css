@@ -9171,6 +9171,16 @@ button.bp-rv-head {
     align-items: start;
   }
 }
+.mk-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.mk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .mk-suggestions {
   display: flex;
   flex-direction: column;

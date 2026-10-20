@@ -1,5 +1,6 @@
 import type { BlueprintView } from '../../types';
 import type { MockupSettings } from './frameProtocol';
+import { MOCKUP_LABELS } from './labels';
 
 export interface MockupOption {
   value: string;
@@ -85,4 +86,18 @@ export function parseMockup(data: unknown): MockupRevision | null {
 /** The mockup is decided: a revision was used or the mockups were skipped. */
 export function mockupDecided(view: BlueprintView): boolean {
   return view.artifacts.some((a) => a.stage === 'mockup' && (a.status === 'approved' || a.status === 'rejected'));
+}
+
+/** The transcript line for a use: the label, the revision, then each suggestion with the value shown. */
+export function mockupUseContent(
+  revision: number,
+  suggestions: readonly MockupSuggestion[],
+  settings: MockupSettings,
+): string {
+  const lines = suggestions.map((s) => {
+    const value = settings[s.id] ?? s.default;
+    const shown = s.kind === 'switch' ? value : (s.options.find((o) => o.value === value)?.label ?? value);
+    return `${s.title}: ${shown}`;
+  });
+  return [MOCKUP_LABELS.use, `Revision ${revision}`, ...lines].join('\n');
 }

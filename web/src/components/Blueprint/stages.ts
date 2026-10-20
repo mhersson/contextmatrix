@@ -234,6 +234,10 @@ export function describeCurrent(view: BlueprintView): CurrentText | null {
     const rev = latestArtifact(view, 'mockup', '')?.version;
     return say(rev ? `Mockup rev ${rev} is waiting for you` : 'The mockup is waiting for you', 'waiting');
   }
+  // Between the responder's turns the mockup step waits with no prompt open; nobody waits on the person.
+  if (step.stage === 'mockup' && step.status === 'waiting' && !open) {
+    return say('The mockup is with the responder', 'running');
+  }
   if (open?.kind === 'gate') {
     // An emission resume is a gate with no artifact at it.
     const at = gateArtifact(view);

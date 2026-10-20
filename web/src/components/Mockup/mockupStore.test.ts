@@ -1,6 +1,6 @@
 import { beforeEach, describe, it, expect } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
-import { flippedSettings, resetMockupStore, useMockupSettings } from './mockupStore';
+import { flippedSettings, mockupChatExtra, publishWaitingMockup, resetMockupStore, useMockupSettings } from './mockupStore';
 
 const opening = { layout: 'rows', group: 'off' };
 
@@ -43,5 +43,34 @@ describe('useMockupSettings', () => {
     act(() => live.result.current[1]('group', 'on'));
     const fixed = renderHook(() => useMockupSettings('S1', 1, opening, true));
     expect(fixed.result.current[0]).toBe(opening);
+  });
+});
+
+describe('mockupChatExtra', () => {
+  const full = { layout: 'cards', group: 'on' };
+
+  it('a chat names the waiting revision and carries your flips of it', () => {
+    publishWaitingMockup('S1', { promptId: 'mockup:1', revision: 2 });
+    const { result } = renderHook(() => useMockupSettings('S1', 2, { layout: 'rows', group: 'off' }, false));
+    act(() => result.current[1]('layout', 'cards'));
+    act(() => result.current[1]('group', 'on'));
+    expect(mockupChatExtra('S1')).toEqual({
+      mockup: { prompt_id: 'mockup:1', revision: 2, action: 'chat', settings: full },
+    });
+  });
+
+  it('carries no settings when you have not flipped that revision', () => {
+    publishWaitingMockup('S1', { promptId: 'mockup:1', revision: 2 });
+    expect(mockupChatExtra('S1')).toEqual({ mockup: { prompt_id: 'mockup:1', revision: 2, action: 'chat' } });
+    const one = renderHook(() => useMockupSettings('S1', 1, opening, false));
+    act(() => one.result.current[1]('group', 'on'));
+    expect(mockupChatExtra('S1')?.mockup).not.toHaveProperty('settings');
+  });
+
+  it('is plain when no mockup waits', () => {
+    publishWaitingMockup('S1', { promptId: 'mockup:1', revision: 2 });
+    publishWaitingMockup('S1', null);
+    expect(mockupChatExtra('S1')).toBeUndefined();
+    expect(mockupChatExtra('S2')).toBeUndefined();
   });
 });

@@ -124,6 +124,10 @@ export function shownStatus(
     stored.version === latestArtifact(view, stage, slice)?.version &&
     (stored.status === 'current' || stored.status === 'reviewing');
   if (newestOpen && stepStatus === 'failed') return { text: stored.review ? 'Failed' : 'Review failed', tone: 'bad' };
+  // Between the responder's turns the newest revision is not done; the person's choice is not open either.
+  if (stage === 'mockup' && newestOpen && stored.status === 'current' && (stepStatus === 'running' || stepStatus === 'waiting')) {
+    return { text: 'In progress', tone: 'running' };
+  }
   if (newestOpen && stepStatus === 'stopped') return { text: 'Stopped', tone: 'bad' };
   switch (stored.status) {
     case 'reviewing':

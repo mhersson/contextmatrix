@@ -590,7 +590,15 @@ export interface RoundReply {
 }
 
 /** What a chat send carries beside its content: a round's answers, or the prompt id of the open round a message is about. */
-export type ChatSendExtra = { round: RoundReply } | { round_chat: string };
+export type ChatSendExtra = { round: RoundReply } | { round_chat: string } | { mockup: MockupReply };
+
+/** A reply to the mockup that waits for the person; settings are never sent on a skip. */
+export interface MockupReply {
+  prompt_id: string;
+  revision: number;
+  action: 'use' | 'skip' | 'chat';
+  settings?: Record<string, string>;
+}
 
 export type AuthMode = 'multi' | 'none';
 

@@ -33,6 +33,9 @@ export function switchNote(view: BlueprintView, next: BlueprintMode): string | n
   if (fromDefault && view.open?.kind === 'round') {
     return 'The questions waiting for you go to the responder now; answers you have not sent are dropped.';
   }
+  if (fromDefault && view.open?.kind === 'mockup') {
+    return 'The mockup waiting for you goes to the responder now; it starts from the settings you last sent.';
+  }
   const atSignoff =
     view.open?.kind === 'gate' && view.pipeline.some((s) => s.stage === 'signoff' && s.status === 'waiting');
   if (atSignoff && (next === 'auto+emit' || next === 'yolo') && view.mode !== 'auto+emit' && view.mode !== 'yolo') {

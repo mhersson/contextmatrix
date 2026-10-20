@@ -269,10 +269,18 @@ describe('describeCurrent on the mockup step', () => {
 
   it('names the open mockup apart from the generic waiting line', () => {
     const open = describeCurrent(viewAtMockup())!;
-    const fallback = describeCurrent({ ...viewAtMockup(), open: undefined })!;
+    // A gate with no artifact at it takes the generic "waiting for you" line.
+    const generic = describeCurrent({ ...viewAtMockup(), open: { prompt_id: 'gate:x', kind: 'gate' } })!;
     expect(open.tone).toBe('waiting');
-    expect(fallback.tone).toBe('waiting');
-    expect(open.line).not.toBe(fallback.line);
+    expect(generic.tone).toBe('waiting');
+    expect(open.line).not.toBe(generic.line);
+  });
+
+  it('says the mockup is with the responder between its turns, not that you are waited on', () => {
+    const between = describeCurrent({ ...viewAtMockup(), open: undefined })!;
+    const waiting = describeCurrent(viewAtMockup())!;
+    expect(between.tone).toBe('running');
+    expect(between.line).not.toBe(waiting.line);
   });
 
   it('says the responder is trying the mockup, not answering a question', () => {

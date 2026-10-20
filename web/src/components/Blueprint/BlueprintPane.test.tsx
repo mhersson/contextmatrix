@@ -7,7 +7,8 @@ import { useBlueprintArtifacts, useBlueprintSheet } from './sheetContext';
 import { resetArtifactCache } from './artifactCache';
 import { toggleSheet, useSheetButton } from './sheetButtonStore';
 import type { BlueprintState } from './state';
-import { findArtifact, step, viewAtDesignGate } from '../../test-utils/blueprintFixtures';
+import { mockupChatExtra, resetMockupStore } from '../Mockup/mockupStore';
+import { findArtifact, step, viewAtDesignGate, viewAtMockup } from '../../test-utils/blueprintFixtures';
 import { rawRound, roundEntry } from '../../test-utils/roundFixtures';
 import type { BlueprintView, LogEntry } from '../../types';
 
@@ -399,5 +400,22 @@ describe('BlueprintPane on a phone', () => {
     expect(screen.getAllByText('Waiting on 2 questions').length).toBeGreaterThan(0);
     const title = within(screen.getByRole('group', { name: 'Title block' }));
     expect(title.getByText('Waiting on 2 questions')).toHaveAttribute('title', 'Waiting on 2 questions');
+  });
+
+  it('tells the composer which mockup waits for you, and stops when it no longer does', () => {
+    resetMockupStore();
+    const pane = (view: BlueprintView) => (
+      <BlueprintPane chatId="S1" state={{ status: 'ready', view, draft: null }} onRetry={vi.fn()} logs={[]} promptsLive onReply={vi.fn()} phone={false}>
+        <div>transcript</div>
+      </BlueprintPane>
+    );
+    const { rerender, unmount } = render(pane(viewAtMockup()));
+    expect(mockupChatExtra('S1')?.mockup).toMatchObject({ prompt_id: 'mockup:1', revision: 2 });
+    rerender(pane({ ...viewAtMockup(), open: undefined }));
+    expect(mockupChatExtra('S1')).toBeUndefined();
+    rerender(pane(viewAtMockup()));
+    expect(mockupChatExtra('S1')).toBeDefined();
+    unmount();
+    expect(mockupChatExtra('S1')).toBeUndefined();
   });
 });

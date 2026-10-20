@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from 'react';
+import type { MockupReply } from '../../types';
 import type { MockupSettings } from './frameProtocol';
 
 // Module-level so flips survive the sheet closing and reopening, not a reload.
@@ -22,6 +23,7 @@ export function flippedSettings(chatId: string, revision: number): MockupSetting
 /** Empties the store; tests start from it. */
 export function resetMockupStore(): void {
   flips.clear();
+  waiting.clear();
   listeners.forEach((l) => l());
 }
 
@@ -46,3 +48,26 @@ export function useMockupSettings(
 }
 
 function noop(): void {}
+
+export interface WaitingMockup {
+  promptId: string;
+  revision: number;
+}
+
+const waiting = new Map<string, WaitingMockup>();
+
+/** Names the mockup that waits for the person in a chat; null once nothing waits. */
+export function publishWaitingMockup(chatId: string, next: WaitingMockup | null): void {
+  if (next) waiting.set(chatId, next);
+  else waiting.delete(chatId);
+}
+
+/** What a composer message carries while a mockup waits: the revision and the person's flips of it. */
+export function mockupChatExtra(chatId: string): { mockup: MockupReply } | undefined {
+  const w = waiting.get(chatId);
+  if (!w) return undefined;
+  const settings = flippedSettings(chatId, w.revision);
+  const mockup: MockupReply = { prompt_id: w.promptId, revision: w.revision, action: 'chat' };
+  if (settings) mockup.settings = settings;
+  return { mockup };
+}

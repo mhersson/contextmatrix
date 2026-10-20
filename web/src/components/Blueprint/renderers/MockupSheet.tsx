@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef } from 'react';
+import { MockupChoice } from '../../Mockup/MockupChoice';
 import { MockupFrame } from '../../Mockup/MockupFrame';
 import { MOCKUP_LABELS } from '../../Mockup/labels';
 import { mockupDecided, parseMockup, type MockupSuggestion } from '../../Mockup/mockupData';
@@ -6,7 +7,7 @@ import { useMockupPane } from '../../Mockup/mockupPane';
 import { useMockupSettings } from '../../Mockup/mockupStore';
 import { refreshArtifact } from '../artifactCache';
 import { BodyMarkdown } from '../BodyMarkdown';
-import { stageText } from '../stages';
+import { latestArtifact, stageText } from '../stages';
 import type { RendererProps } from './types';
 
 export function MockupSheet({ artifact, previous, mode, view }: RendererProps) {
@@ -14,6 +15,12 @@ export function MockupSheet({ artifact, previous, mode, view }: RendererProps) {
   const mockup = useMemo(() => parseMockup(artifact.data), [artifact.data]);
   const decided = mockupDecided(view);
   const chatId = pane?.chatId ?? '';
+  // Newest comes from the live view on every render, so a revision that lands moves the choice at once.
+  const choosable =
+    pane?.send !== undefined &&
+    pane.promptId !== null &&
+    !decided &&
+    latestArtifact(view, 'mockup', '')?.version === artifact.version;
   const approved = view.artifacts.some((a) => a.stage === 'mockup' && a.version === artifact.version && a.status === 'approved');
   // The choice sends no artifact_stored frame, and the architect adds `chosen` to the stored version on read.
   const awaitingChosen = approved && mockup !== null && mockup.chosen === null;
@@ -41,18 +48,31 @@ export function MockupSheet({ artifact, previous, mode, view }: RendererProps) {
             settings={settings}
             title={`${stageText('mockup').tab} rev ${artifact.version}`}
           />
-          {mockup.suggestions.length > 0 && (
-            <section className="mk-suggestions" aria-label={MOCKUP_LABELS.suggestions}>
-              {mockup.suggestions.map((s) => (
-                <Suggestion
-                  key={s.id}
-                  suggestion={s}
-                  value={settings[s.id] ?? s.default}
-                  disabled={decided}
-                  onFlip={flip}
-                />
-              ))}
-            </section>
+          {(mockup.suggestions.length > 0 || (choosable && pane)) && (
+          <div className="mk-side">
+            {mockup.suggestions.length > 0 && (
+              <section className="mk-suggestions" aria-label={MOCKUP_LABELS.suggestions}>
+                {mockup.suggestions.map((s) => (
+                  <Suggestion
+                    key={s.id}
+                    suggestion={s}
+                    value={settings[s.id] ?? s.default}
+                    disabled={decided}
+                    onFlip={flip}
+                  />
+                ))}
+              </section>
+            )}
+            {choosable && pane && (
+              <MockupChoice
+                key={`${pane.promptId}/${artifact.version}`}
+                revision={artifact.version}
+                suggestions={mockup.suggestions}
+                settings={settings}
+                pane={pane}
+              />
+            )}
+          </div>
           )}
         </div>
       )}
