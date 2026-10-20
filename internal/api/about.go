@@ -50,7 +50,10 @@ func (h *aboutHandlers) getAbout(w http.ResponseWriter, r *http.Request) {
 		wg.Go(func() {
 			info, err := b.cache.get(r.Context(), b.prober)
 			if err != nil {
-				ctxlog.Logger(r.Context()).Warn("about: backend health probe failed", "backend", b.name, "error", err)
+				// A client abort cancels every in-flight probe; that is not a backend fault.
+				if r.Context().Err() == nil {
+					ctxlog.Logger(r.Context()).Warn("about: backend health probe failed", "backend", b.name, "error", err)
+				}
 
 				backends[i] = aboutComponent{Name: b.name, Status: aboutStatusUnreachable}
 
