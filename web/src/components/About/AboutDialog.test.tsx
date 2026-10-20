@@ -169,4 +169,29 @@ describe('AboutDialog', () => {
     await openDialog();
     expect(screen.getByText('Could not load what runs here. Try again later.')).toBeInTheDocument();
   });
+
+  it('Escape closes the dialog without reaching page-level key handlers', async () => {
+    const page = vi.fn();
+    document.addEventListener('keydown', page);
+    try {
+      const { onClose } = await openDialog();
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(page).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('keydown', page);
+    }
+  });
+
+  it('keeps other keys pressed inside the dialog from the page shortcuts', async () => {
+    const page = vi.fn();
+    document.addEventListener('keydown', page);
+    try {
+      await openDialog();
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'n' });
+      expect(page).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('keydown', page);
+    }
+  });
 });
