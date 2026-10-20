@@ -223,3 +223,13 @@ describe('a plain-language sign-off', () => {
     expect(acceptedLabel({ by: 'human', round: 2 })).not.toBe(acceptedLabel({ by: 'human', round: 3 }));
   });
 });
+
+describe('notices', () => {
+  it('reads notices on the sign-off and the board, empty when absent or null', () => {
+    expect(parseSignoff({ ...(SIGNOFF_V1.data as object), notices: ['N.'] })!.notices).toEqual(['N.']);
+    expect(parseBoard(BOARD_V1.data)!.notices).toEqual([]);
+    const nulled = parseSignoff({ ...(SIGNOFF_V1.data as object), notices: null, steps: null })!;
+    expect(nulled.notices).toEqual([]);
+    expect(nulled.steps).toEqual([]);
+  });
+});

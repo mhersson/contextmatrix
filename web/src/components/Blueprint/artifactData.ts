@@ -451,6 +451,8 @@ export interface SignoffData {
   blocking: string[];
   warnings: string[];
   steps: string[];
+  /** What will happen without a step from you. */
+  notices: string[];
   assumptions: SignoffAssumption[];
   /** The plain-language summary the sign-off opens with; null on a blueprint without one. */
   plainSummary: PlainSummary | null;
@@ -482,6 +484,7 @@ export function parseSignoff(data: unknown): SignoffData | null {
     blocking: strs(data.blocking),
     warnings: strs(data.warnings),
     steps: strs(data.steps),
+    notices: strs(data.notices),
     assumptions: parseSignoffAssumptions(data.assumptions),
     plainSummary: parsePlainSummary(data.plain_summary),
     assumptionsProse: str(data.assumptions),
@@ -511,6 +514,8 @@ export interface BoardData {
   repos: { project: string; compareUrl: string }[];
   manual: string[];
   steps: string[];
+  /** What will happen without a step from you. */
+  notices: string[];
   costUsd: number | null;
   /** False when any architect run was unpriced. */
   priced: boolean;
@@ -531,6 +536,7 @@ export function parseBoard(data: unknown): BoardData | null {
     repos: records(data.repos).map((r) => ({ project: str(r.project), compareUrl: str(r.compare_url) })),
     manual: strs(data.manual),
     steps: strs(data.steps),
+    notices: strs(data.notices),
     costUsd: typeof data.cost_usd === 'number' ? data.cost_usd : null,
     priced: data.priced !== false,
   };

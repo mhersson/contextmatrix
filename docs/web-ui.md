@@ -310,7 +310,10 @@ board. Promote-to-autonomous lives in that tab.
     on the sign-off the same table at the top, a note with your reason when you
     approved over a critical finding, the run order, the assumptions (your
     answer, status, basis and source chips, and the stage that stated each) and
-    the manual checks after the run. On a plain-language blueprint the sign-off
+    the manual checks after the run. The sign-off and the board show the steps
+    to take before the cards run in a yellow box, and notices (what will happen
+    without a step from you, such as the verify command an agent picks itself)
+    in a blue box. On a plain-language blueprint the sign-off
     opens with a plain summary: what will be built, what you can do with it, and
     the consequences you accepted, each marked when its decision changed since
     you accepted it. Its assumptions show each consequence under the technical

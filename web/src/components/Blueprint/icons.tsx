@@ -64,3 +64,25 @@ export function MockupIcon() {
     </svg>
   );
 }
+
+/** A clipboard: steps to take before the cards run. */
+export function StepsIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.3} aria-hidden="true">
+      <rect x="3" y="2.6" width="10" height="11.9" rx=".6" />
+      <path d="M6 2.6V1.5h4v1.1" />
+      <path d="M5.6 6.6h4.8M5.6 9.1h4.8M5.6 11.6h2.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** An info mark: what will happen without a step from the reader. */
+export function NoticeIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.3} aria-hidden="true">
+      <circle cx="8" cy="8" r="6.2" />
+      <path d="M8 7.2v4.1" strokeLinecap="round" />
+      <path d="M8 4.7v.1" strokeLinecap="round" strokeWidth={1.7} />
+    </svg>
+  );
+}

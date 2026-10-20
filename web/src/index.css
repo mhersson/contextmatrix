@@ -7533,6 +7533,47 @@ button.bp-seg-hit {
   color: var(--blueprint-ink-orange);
 }
 
+.bp-callout {
+  margin: 14px 0;
+  padding: 8px 12px 9px;
+  border-left: 3px solid var(--callout-tone);
+  border-radius: 4px;
+  background: var(--callout-wash);
+  overflow-wrap: anywhere;
+}
+
+.bp-callout--steps {
+  --callout-tone: var(--yellow);
+  --callout-ink: var(--blueprint-ink-orange);
+  --callout-wash: var(--bg-yellow);
+}
+
+.bp-callout--notices {
+  --callout-tone: var(--blue);
+  --callout-ink: var(--blueprint-ink-blue);
+  --callout-wash: var(--bg-blue);
+}
+
+.bp-paper .bp-callout h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 4px;
+}
+
+.bp-callout h3 svg {
+  flex: none;
+  color: var(--callout-ink);
+}
+
+.bp-callout .bp-list {
+  margin: 0;
+}
+
+.bp-paper .bp-callout code {
+  background: color-mix(in oklab, var(--fg) 10%, transparent);
+}
+
 /* Blueprint sheet: paper, stamps and live writing. */
 .bp-paper {
   position: relative;

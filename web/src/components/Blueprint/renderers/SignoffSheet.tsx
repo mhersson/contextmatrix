@@ -14,7 +14,7 @@ import {
   type SignoffCard,
 } from '../artifactData';
 import { stageText } from '../stages';
-import { AssumptionNumber, CrossTable, IdPill, TextList } from './parts';
+import { AssumptionNumber, Callout, CrossTable, IdPill, TextList } from './parts';
 import { assumptionKey, numbered, type NumberedAssumption } from './rows';
 import { TableSection, type Column } from './TableSection';
 import type { RendererProps } from './types';
@@ -156,7 +156,8 @@ export function SignoffSheet({ artifact }: RendererProps) {
         </section>
       )}
       <TableSection title="Manual checks after the run" columns={MANUAL_COLUMNS} rows={data.manual} rowKey={(m) => m.id} />
-      <TextList title="Before the cards run" items={data.steps} />
+      <Callout tone="steps" title="Before the cards run" items={data.steps} />
+      <Callout tone="notices" title="Notices" items={data.notices} />
       {artifact.body && <BodyMarkdown body={artifact.body} mode="plain" version={artifact.version} />}
     </>
   );
