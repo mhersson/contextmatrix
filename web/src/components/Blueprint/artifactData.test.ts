@@ -111,6 +111,13 @@ describe('artifact data', () => {
     expect(httpUrl(board.cards[1].pr)).toBeNull();
   });
 
+  it('reads a board card type and priority, empty on an older board', () => {
+    const data = BOARD_V1.data as { cards: object[] };
+    const typed = parseBoard({ ...data, cards: [{ ...data.cards[0], type: 'bug', priority: 'high' }, ...data.cards.slice(1)] })!;
+    expect(typed.cards[0]).toMatchObject({ type: 'bug', priority: 'high' });
+    for (const c of parseBoard(BOARD_V1.data)!.cards) expect(c).toMatchObject({ type: '', priority: '' });
+  });
+
   it('returns null for data that is not an object', () => {
     expect(parseCards('nope')).toBeNull();
     expect(parseBoard(undefined)).toBeNull();

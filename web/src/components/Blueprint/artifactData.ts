@@ -504,6 +504,9 @@ export interface BoardCard {
   /** Empty until the watch has seen the card. */
   state: string;
   pr: string;
+  /** Empty on a board written before cards carried a type. */
+  type: string;
+  priority: string;
 }
 
 export interface BoardData {
@@ -532,6 +535,8 @@ export function parseBoard(data: unknown): BoardData | null {
       title: str(c.title),
       state: str(c.state),
       pr: str(c.pr),
+      type: str(c.type),
+      priority: str(c.priority),
     })),
     repos: records(data.repos).map((r) => ({ project: str(r.project), compareUrl: str(r.compare_url) })),
     manual: strs(data.manual),

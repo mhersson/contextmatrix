@@ -353,6 +353,21 @@ describe('BoardSheet', () => {
     expect(sectionOf(/^Notices/)).toHaveClass('bp-callout--notices');
   });
 
+  it('colours a card by its type and shows its type and priority', () => {
+    const data = BOARD_V1.data as { cards: object[] };
+    const cards = [{ ...data.cards[0], type: 'bug', priority: 'high' }, ...data.cards.slice(1)];
+    show({ ...BOARD_V1, data: { ...data, cards } });
+    const article = screen.getAllByRole('article')[0];
+    expect(article).toHaveClass('bp-card--bug');
+    expect(within(article).getByText('bug')).toHaveClass('bp-pill--bug');
+    expect(within(article).getByText('high')).toHaveClass('bp-pill--high');
+  });
+
+  it('renders a card from an older board without a type modifier', () => {
+    show(BOARD_V1);
+    for (const a of screen.getAllByRole('article')) expect(a.className).toBe('bp-card');
+  });
+
   it('says when some runs were unpriced', () => {
     show({ ...BOARD_V1, data: { ...(BOARD_V1.data as object), priced: false } });
     expect(screen.getByText(/some runs unpriced/)).toBeInTheDocument();
