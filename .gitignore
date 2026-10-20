@@ -3,3 +3,4 @@ boards/
 config.yaml
 .superpowers/
 .worktrees
+/internal/buildinfo/history/merges.log

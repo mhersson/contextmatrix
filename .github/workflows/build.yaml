@@ -251,6 +251,12 @@ jobs:
           echo "BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M')" >> "$GITHUB_ENV"
           VERSION=$(git describe --tags --exact-match 2>/dev/null || true)
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "BUILD_TIME_RFC3339=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+
+      # The arguments equal changelog.GitLogArgs and a test keeps them in step.
+      # No fallback: a missing git must fail the job, not ship an image without history.
+      - name: Record change history
+        run: git log --no-show-signature --first-parent --merges -n 100 '--format=%cI%x1f%s%x1f%b%x1e' > internal/buildinfo/history/merges.log
 
       - name: Build image
         run: |
@@ -262,6 +268,8 @@ jobs:
             --build-arg VERSION="${VERSION}" \
             --build-arg GIT_COMMIT="${SHORT_SHA}" \
             --build-arg BUILD_TIME="${BUILD_TIME}" \
+            --build-arg GIT_COMMIT_FULL="${GITHUB_SHA}" \
+            --build-arg BUILD_TIME_RFC3339="${BUILD_TIME_RFC3339}" \
             ${TAGS} \
             .
 

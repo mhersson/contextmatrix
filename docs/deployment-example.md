@@ -91,7 +91,7 @@ validator rejects any non-`https://` `boards.git_remote_url` or
 
 ```bash
 docker build -t contextmatrix:latest .
-# or, with version metadata stamped into the binary:
+# or, with version metadata and the change history stamped into the binary:
 make docker-build
 ```
 
