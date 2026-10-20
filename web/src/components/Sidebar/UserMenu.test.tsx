@@ -25,6 +25,21 @@ vi.mock('../../hooks/useTheme', () => ({
   useTheme: () => themeState,
 }));
 
+
+const aboutState = vi.hoisted(() => ({
+  hasUnseen: false,
+  about: null,
+  seen: {},
+  unseen: {},
+  refresh: vi.fn().mockResolvedValue(null),
+  markSeen: vi.fn(),
+}));
+vi.mock('../../hooks/useAbout', () => ({ useAbout: () => aboutState }));
+vi.mock('../About/AboutDialog', () => ({
+  AboutDialog: ({ open }: { open: boolean }) =>
+    open ? <div role="dialog" aria-label="About ContextMatrix" /> : null,
+}));
+
 function setAuth(isAdmin: boolean) {
   authState.current = {
     mode: 'multi',
@@ -35,6 +50,7 @@ function setAuth(isAdmin: boolean) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  aboutState.hasUnseen = false;
 });
 
 describe('UserMenu admin section', () => {
@@ -103,5 +119,43 @@ describe('UserMenu appearance section', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('menu')).toBeNull();
     expect(document.activeElement).toBe(chip);
+  });
+});
+
+describe('UserMenu About ContextMatrix', () => {
+  it.each([true, false])('puts About ContextMatrix directly above Change password (admin=%s)', (isAdmin) => {
+    setAuth(isAdmin);
+    render(<UserMenu />);
+    fireEvent.click(screen.getByRole('button', { name: /Root/ }));
+    const names = screen.getAllByRole('menuitem').map((el) => el.textContent?.trim());
+    const about = names.findIndex((n) => n?.startsWith('About ContextMatrix'));
+    expect(about).toBeGreaterThan(-1);
+    expect(names[about + 1]).toBe('Change password');
+  });
+
+  it('opens the dialog and closes the menu', () => {
+    setAuth(false);
+    render(<UserMenu />);
+    fireEvent.click(screen.getByRole('button', { name: /Root/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /About ContextMatrix/ }));
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'About ContextMatrix' })).toBeInTheDocument();
+  });
+
+  it('shows the dot on the avatar and the item when there is news', () => {
+    setAuth(false);
+    aboutState.hasUnseen = true;
+    render(<UserMenu />);
+    const trigger = screen.getByRole('button', { name: /Root/ });
+    expect(trigger).toHaveTextContent('(new changes)');
+    fireEvent.click(trigger);
+    expect(screen.getByRole('menuitem', { name: /About ContextMatrix/ })).toHaveTextContent('(new changes)');
+  });
+
+  it('shows no dot without news', () => {
+    setAuth(false);
+    render(<UserMenu />);
+    fireEvent.click(screen.getByRole('button', { name: /Root/ }));
+    expect(screen.queryByText('(new changes)')).toBeNull();
   });
 });

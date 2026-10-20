@@ -1,7 +1,10 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { useAbout } from '../../hooks/useAbout';
 import { useOptionalAuth } from '../../hooks/useAuth';
 import { useMenuDismiss } from '../../hooks/useMenuDismiss';
+import { AboutDialog } from '../About/AboutDialog';
+import { NewDot } from '../About/NewDot';
 import { ChangePasswordModal } from '../Auth/ChangePasswordModal';
 import { AppearanceMenuItems } from './AppearanceMenuItems';
 
@@ -21,6 +24,8 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [changeOpen, setChangeOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const { hasUnseen } = useAbout();
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -50,11 +55,15 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
         title={`Signed in as ${user.username}${user.is_admin ? ' (admin)' : ''}`}
       >
         <span
-          className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold"
+          className="relative w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold"
           style={{ backgroundColor: 'var(--bg-blue)', color: 'var(--aqua)' }}
-          aria-hidden="true"
         >
-          {label.slice(0, 1).toUpperCase()}
+          <span aria-hidden="true">{label.slice(0, 1).toUpperCase()}</span>
+          {hasUnseen && (
+            <span className="absolute -top-0.5 -right-0.5">
+              <NewDot label="(new changes)" />
+            </span>
+          )}
         </span>
         <span className="truncate">{label}</span>
       </button>
@@ -98,6 +107,18 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
             role="menuitem"
             onClick={() => {
               setOpen(false);
+              setAboutOpen(true);
+            }}
+            className="w-full flex items-center gap-2 text-left px-3 py-1.5 text-sm hover:opacity-80"
+            style={{ color: 'var(--fg)' }}
+          >
+            About ContextMatrix
+            {hasUnseen && <NewDot label="(new changes)" />}
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
               setChangeOpen(true);
             }}
             className="w-full text-left px-3 py-1.5 text-sm hover:opacity-80"
@@ -116,6 +137,7 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
         </div>
       )}
 
+      <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
       <ChangePasswordModal open={changeOpen} onClose={() => setChangeOpen(false)} />
     </div>
   );
