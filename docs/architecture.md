@@ -173,6 +173,35 @@ accept it and is admin-gated in multi mode.
 "UI = human" holds in both modes: a convention behind the CSRF gate in none
 mode, a proof in multi mode.
 
+### Model-written mockups
+
+- A blueprint's mockup is HTML and script a model wrote, and any card body can
+  carry the same in a fenced `mockup` block (anyone who can edit a card can
+  write one). CM treats both as untrusted and runs them only sealed.
+- CM's origin never serves either as a document: the artifact arrives as JSON
+  through the blueprint proxy, and a card's block is body text.
+- The seal is the frame document itself. `/mockup-frame.html`, a static CM
+  file, is served with `sandbox allow-scripts` and the policy
+  `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline';
+  img-src data:; form-action 'none'; base-uri 'none'; frame-ancestors 'self';
+  sandbox allow-scripts`. Whatever frames it, with or without a `sandbox`
+  attribute, gets an opaque origin with no cookies, storage or DOM of CM's
+  page, and no forms, popups, modals or top navigation. The policy blocks
+  fetch, XHR, WebSocket, EventSource, external script, style, font and image,
+  nested frames and eval. CM's own iframe repeats `sandbox="allow-scripts"`.
+- The page's `frame-src 'self'` keeps frames on CM's origin, and every other
+  response there refuses to be framed (SPA pages send `frame-ancestors
+  'none'`, API responses `X-Frame-Options: DENY`). A frame, injected or
+  navigating itself, can only ever hold the sealed shell or a refused page.
+- The page posts the source and the settings into the frame and listens to
+  nothing it posts, so a mockup sees only its own source and settings.
+- Residual: a mockup can draw anything inside its box, a fake form included,
+  and keep a CPU busy. CSP does not govern WebRTC or DNS prefetch, so those
+  can still signal off-site, and a frame can navigate itself to any
+  same-origin GET. A mockup holds only its own source and settings, so it has
+  nothing of CM's or the viewer's to carry beyond the fact of a view, as an
+  external image in a card body already reveals.
+
 ### Reviewing auth code
 
 - **none mode:** "missing `X-Agent-ID`" or "`human:web` is spoofable"
@@ -189,6 +218,12 @@ mode, a proof in multi mode.
   MCP cannot write it, and its REST `HUMAN_ONLY_FIELD` gate forks like every
   other identity check.
 - Review `githubauth` token handling strictly.
+- A mockup shell response losing `sandbox allow-scripts` or gaining a network
+  source (any directive beyond the policy above), CM's iframe gaining `allow-same-origin` or another sandbox token, a
+  page listener for frame messages, a `frame-src` wider than `'self'`, or a
+  new same-origin response that can be framed (outside the router's
+  `X-Frame-Options` and the SPA's `frame-ancestors 'none'`) is a finding.
+  Script running inside the sealed frame is the design.
 
 ## Data flow
 
@@ -208,9 +243,13 @@ flowchart LR
 | `bodyLimit`       | 5 MB cap; `bodyLimitOverrides` raises `POST /api/images` to 11 MB (10 MiB image plus multipart headroom).                                    |
 | `csrfGuard`       | Rejects state-changing requests without `X-Requested-With: contextmatrix`. Exempt: GET/HEAD/OPTIONS, `/healthz`, `/readyz`, `/api/agent/*`, `/api/chat/*`, `/mcp`. |
 
-The SPA itself (`index.html`, static assets, the client-route fallback) is served
-by `newSPAHandler` outside this chain, so it sends its own headers. Card bodies
-are attacker-controlled, so the page carries a CSP of `script-src 'self'; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'` and `Referrer-Policy: no-referrer`.
+The SPA itself (`index.html`, static assets, the client-route fallback) is
+served by `newSPAHandler` outside this chain, so it sends its own headers.
+Card bodies are attacker-controlled, so the page carries a CSP of
+`script-src 'self'; object-src 'none'; frame-src 'self'; frame-ancestors
+'none'; form-action 'self'; base-uri 'self'` and `Referrer-Policy:
+no-referrer`. The one document it may frame is the sealed mockup shell; see
+[Model-written mockups](#model-written-mockups).
 
 Card mutations follow one pipeline through the service layer:
 

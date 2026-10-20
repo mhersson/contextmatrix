@@ -228,6 +228,11 @@ Developer traps in this codebase. Each entry names the code it describes.
   prefix includes dotfiles under `dist/`; a plain glob would miss them. Build
   the frontend before the Go binary (`make test` stubs `web/dist` for test
   builds).
+- **The mockup frame is sealed in Go, not in the frontend:** `newSPAHandler`
+  serves `web/public/mockup-frame.html` with its sandbox policy. `npm run dev`
+  serves page and shell from Vite with neither header, so a mockup there
+  still runs in the sandboxed iframe but can reach the network. Check sealing
+  against a Go-served build.
 - **404 handling is React Router's job:** `newSPAHandler` returns
   `index.html` for every path that is not `/api/`, `/healthz`, `/readyz`,
   `/mcp`, or a real static file. Unknown routes are caught by
