@@ -4,6 +4,7 @@ import { CardsSheet } from './CardsSheet';
 import { DesignSheet } from './DesignSheet';
 import { GenericSheet } from './GenericSheet';
 import { GroundingSheet } from './GroundingSheet';
+import { MockupSheet } from './MockupSheet';
 import { NeedSheet } from './NeedSheet';
 import { ReadinessSheet } from './ReadinessSheet';
 import { SharedDecisionsSheet } from './SharedDecisionsSheet';
@@ -31,6 +32,8 @@ export function ArtifactRenderer(props: RendererProps) {
       return <ReadinessSheet {...props} />;
     case 'signoff':
       return <SignoffSheet {...props} />;
+    case 'mockup':
+      return <MockupSheet {...props} />;
     case 'emission':
       return <BoardSheet {...props} />;
     default:

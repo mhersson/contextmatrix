@@ -59,6 +59,7 @@ const STAGES: Record<string, StageText> = {
   decomposition: { tab: 'Cards', name: 'Decomposition', title: 'Cards', noun: 'cards', doing: 'working on the cards' },
   readiness: { tab: 'Readiness', name: 'Readiness', title: 'Readiness', noun: 'readiness', doing: 'checking the cards' },
   signoff: { tab: 'Sign-off', name: 'Sign-off', title: 'Sign-off', noun: 'sign-off', doing: 'preparing the sign-off' },
+  mockup: { tab: 'Mockup', name: 'Mockup', title: 'Mockup', noun: 'mockup', doing: 'drawing the mockup' },
   emission: {
     tab: 'Board',
     name: 'Emission',
@@ -221,12 +222,17 @@ export function describeCurrent(view: BlueprintView): CurrentText | null {
     const detail = view.end_detail?.trim();
     return detail ? { ...text, detail } : text;
   }
-  // The responder only answers questions; under an auto policy the question has no open prompt.
+  // The responder answers questions (under an auto policy with no open prompt) and tries the mockup.
+  if (run?.kind === 'responder' && run.stage === 'mockup') return say('The responder is trying the mockup', 'running');
   if (run?.kind === 'responder') {
     return say(
       open?.kind === 'question' ? `The responder is answering ${open.prompt_id}` : 'The responder is answering a question',
       'running',
     );
+  }
+  if (open?.kind === 'mockup') {
+    const rev = latestArtifact(view, 'mockup', '')?.version;
+    return say(rev ? `Mockup rev ${rev} is waiting for you` : 'The mockup is waiting for you', 'waiting');
   }
   if (open?.kind === 'gate') {
     // An emission resume is a gate with no artifact at it.

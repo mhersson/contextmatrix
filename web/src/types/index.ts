@@ -1253,9 +1253,9 @@ export interface BlueprintCurrentRun {
 }
 
 export interface BlueprintOpenPrompt {
-  /** "Q<n>", "gate:<stage>:v<n>", a slice's "gate:<stage>:<slice>:v<n>", "gate:signoff:v<n>" or "emission:v<n>" (kind gate, an emission resume); matched by equality only. */
+  /** "Q<n>", "gate:<stage>:v<n>", a slice's "gate:<stage>:<slice>:v<n>", "gate:signoff:v<n>" or "emission:v<n>" (kind gate, an emission resume), "mockup:<n>" (kind mockup while a revision waits for the person; <n> is opaque and the same across one mockup's revisions) or "mockup:offer" (kind gate); matched by equality only. */
   prompt_id: string;
-  kind: 'question' | 'gate' | 'round';
+  kind: 'question' | 'gate' | 'round' | 'mockup';
 }
 
 export interface BlueprintCost {

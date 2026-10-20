@@ -358,6 +358,18 @@ board. Promote-to-autonomous lives in that tab.
     with the status Waiting on N questions (or the assumptions still undecided).
     While a run works the sheet shows its turns, tool calls and tokens, and
     fills in as the model writes when the model streams its draft.
+  - When the need has a screen, the Mockup tab shows the designer's live
+    mockup, one revision per version (the version picker): the designer's
+    notes, the mockup running in the [sealed
+    frame](architecture.md#model-written-mockups) and its suggestions, each a
+    switch or a choice of two to four values with a line on why. Flipping one
+    redraws the mockup at once with no model run; flips are kept per revision
+    while the page is open, and each revision opens with the settings the
+    architect carried over. While a revision is written the sheet shows the
+    run's progress. Once a design is chosen or the mockups are skipped, every
+    revision's controls are fixed and the chosen revision shows the chosen
+    settings. The scale bar and the sheet say when the mockup waits for you. A
+    need without a screen shows no Mockup tab.
   - From 760px pane width the sheet sits beside the transcript at 46% with a
     draggable divider (320px minimum each side). Narrower panes show an edge
     strip that opens the sheet over the transcript; on a phone a Sheet

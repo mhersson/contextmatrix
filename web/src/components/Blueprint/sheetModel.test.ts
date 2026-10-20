@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { formatHHMM } from '../../utils/chatTimestamp';
-import { DESIGN_REVIEW, ref, step, viewAtDesignGate, viewEndedAtSlicing, viewEndedInSlice, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
+import { DESIGN_REVIEW, viewAtMockup, ref, step, viewAtDesignGate, viewEndedAtSlicing, viewEndedInSlice, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
 import type { BlueprintView } from '../../types';
 import { holdDraft } from './draft';
 import { defaultShown, resolveShown, reviewFor, reviewingPersona, sheetTabs, sliceForTab, sliceSubtitle, sliceTabs, shownStatus, stampFor, versionOptions, waitingOn, writingVersion } from './sheetModel';
@@ -339,5 +339,13 @@ describe('an ended blueprint', () => {
     const view = viewEndedInSlice();
     expect(sheetTabs(view, null).filter((t) => t.current).map((t) => t.stage)).toEqual(['decomposition']);
     expect(defaultShown(view, null)).toEqual({ stage: 'decomposition', slice: 'SL2', version: 1 });
+  });
+});
+
+describe('shownStatus on the mockup sheet', () => {
+  const view = viewAtMockup();
+  it('waits on the newest revision and marks the older one old', () => {
+    expect(shownStatus(view, 'mockup', '', view.artifacts[2], false).tone).toBe('waiting');
+    expect(shownStatus(view, 'mockup', '', view.artifacts[1], false).tone).toBe('old');
   });
 });

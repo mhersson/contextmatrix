@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { BlueprintView } from '../../types';
 import { formatHHMM } from '../../utils/chatTimestamp';
-import { LEDGER_REVIEW_V1, LEDGER_REVIEW_V2, THREE_SLICES, ref, step, viewAtDesignGate, viewEndedAtSlicing, viewEndedInSlice, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
+import { LEDGER_REVIEW_V1, viewAtMockup, LEDGER_REVIEW_V2, THREE_SLICES, ref, step, viewAtDesignGate, viewEndedAtSlicing, viewEndedInSlice, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
 import {
   artifactsFor,
   barGroups,
@@ -260,5 +260,25 @@ describe('an ended blueprint', () => {
     const view = viewEndedAtSlicing();
     const texts = [step('grounding', 'senior_developer', 'pending'), view.pipeline[1], view.pipeline[2]].map((s) => stepStatusText(s, view));
     expect(new Set(texts).size).toBe(3);
+  });
+});
+
+describe('describeCurrent on the mockup step', () => {
+  const responder = (stage: string) =>
+    ({ ...viewAtMockup(), open: undefined, current: { kind: 'responder', stage, persona: 'designer' } }) as unknown as BlueprintView;
+
+  it('names the open mockup apart from the generic waiting line', () => {
+    const open = describeCurrent(viewAtMockup())!;
+    const fallback = describeCurrent({ ...viewAtMockup(), open: undefined })!;
+    expect(open.tone).toBe('waiting');
+    expect(fallback.tone).toBe('waiting');
+    expect(open.line).not.toBe(fallback.line);
+  });
+
+  it('says the responder is trying the mockup, not answering a question', () => {
+    const mockup = describeCurrent(responder('mockup'))!;
+    const question = describeCurrent(responder('solution_design'))!;
+    expect(mockup.tone).toBe('running');
+    expect(mockup.line).not.toBe(question.line);
   });
 });

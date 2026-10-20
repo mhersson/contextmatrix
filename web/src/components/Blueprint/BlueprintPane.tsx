@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { MockupPaneContext } from '../Mockup/mockupPane';
 import { setChatLiveData } from '../../hooks/useChatLiveData';
 import type { BlueprintArtifactRef, BlueprintSlice, LogEntry } from '../../types';
 import { ErrorBoundary } from '../ErrorBoundary';
@@ -89,6 +90,8 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
     [show, slices, plain],
   );
 
+  const mockupPane = useMemo(() => ({ chatId }), [chatId]);
+
   const hasSheet = layout !== null && (state.status === 'ready' || state.status === 'unreachable');
   const overlayOpen = hasSheet && layout !== 'split' && sheet.open;
   useEffect(() => {
@@ -130,43 +133,45 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
   );
 
   return (
-    <BlueprintSheetContext.Provider value={view ? actions : null}>
-      <BlueprintArtifactsContext.Provider value={view?.artifacts ?? NO_ARTIFACTS}>
-        <div ref={rootRef} className="bp-pane">
-          {view && (
-            <ErrorBoundary fallback={null}>
-              <ScaleBar chatId={chatId} view={view} compact={width !== null && width < LABEL_MIN_WIDTH} onOpenStage={(stage, slice) => show(stage, slice, null)} />
-            </ErrorBoundary>
-          )}
-          <div ref={bodyRef} className="bp-body-row">
-            <div className="bp-transcript">{children}</div>
-            {hasSheet && layout === 'split' && sheet.open && (
-              <>
-                <div className="bp-divider" {...divider.separatorProps} />
-                <div ref={hostRef} className="bp-sheet-slot" style={{ flexBasis: `${divider.percent}%` }}>
+    <MockupPaneContext.Provider value={mockupPane}>
+      <BlueprintSheetContext.Provider value={view ? actions : null}>
+        <BlueprintArtifactsContext.Provider value={view?.artifacts ?? NO_ARTIFACTS}>
+          <div ref={rootRef} className="bp-pane">
+            {view && (
+              <ErrorBoundary fallback={null}>
+                <ScaleBar chatId={chatId} view={view} compact={width !== null && width < LABEL_MIN_WIDTH} onOpenStage={(stage, slice) => show(stage, slice, null)} />
+              </ErrorBoundary>
+            )}
+            <div ref={bodyRef} className="bp-body-row">
+              <div className="bp-transcript">{children}</div>
+              {hasSheet && layout === 'split' && sheet.open && (
+                <>
+                  <div className="bp-divider" {...divider.separatorProps} />
+                  <div ref={hostRef} className="bp-sheet-slot" style={{ flexBasis: `${divider.percent}%` }}>
+                    {sheetEl}
+                  </div>
+                </>
+              )}
+              {hasSheet && layout !== 'phone' && !sheet.open && (
+                <EdgeStrip label={stripLabel} hasNew={sheet.hasNew} onOpen={sheet.openSheet} buttonRef={stripRef} />
+              )}
+              {overlayOpen && (
+                <div
+                  ref={hostRef}
+                  tabIndex={-1}
+                  className={`bp-overlay${layout === 'phone' ? ' bp-overlay--phone' : ''}`}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape' && !e.defaultPrevented) closeSheet();
+                  }}
+                >
                   {sheetEl}
                 </div>
-              </>
-            )}
-            {hasSheet && layout !== 'phone' && !sheet.open && (
-              <EdgeStrip label={stripLabel} hasNew={sheet.hasNew} onOpen={sheet.openSheet} buttonRef={stripRef} />
-            )}
-            {overlayOpen && (
-              <div
-                ref={hostRef}
-                tabIndex={-1}
-                className={`bp-overlay${layout === 'phone' ? ' bp-overlay--phone' : ''}`}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape' && !e.defaultPrevented) closeSheet();
-                }}
-              >
-                {sheetEl}
-              </div>
-            )}
+              )}
+            </div>
           </div>
-        </div>
-      </BlueprintArtifactsContext.Provider>
-    </BlueprintSheetContext.Provider>
+        </BlueprintArtifactsContext.Provider>
+      </BlueprintSheetContext.Provider>
+    </MockupPaneContext.Provider>
   );
 }
 
