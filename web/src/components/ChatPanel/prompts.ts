@@ -3,6 +3,9 @@ import { parseRound, type Round } from '../QuestionRound/parseRound';
 import { COMMAND_KIND } from '../QuestionRound/rounds';
 import { isDecisionEntry } from '../Blueprint/markers';
 
+/** The prompt id of the architect's offer of a mockup. */
+export const MOCKUP_OFFER_ID = 'mockup:offer';
+
 /** One reply button on an architect prompt. A click sends `reply`; a
  *  feedback action asks for text first and sends `reply` + space + text. */
 export interface PromptAction {

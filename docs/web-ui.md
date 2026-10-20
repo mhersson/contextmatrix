@@ -179,7 +179,9 @@ board. Promote-to-autonomous lives in that tab.
   tinted, with a 5px left bar and accent-bordered options in pink in the dark
   themes and a dusty rose to maroon in the light ones, and the suggested option
   carries a "recommended" chip. A prompt marked as a gate carries a barrier icon beside its text and keeps
-  compact buttons in a row. A click sends that reply as your message, a feedback action such as
+  compact buttons in a row. The offer of a mockup shows instead in its own
+  framed card with a mockup icon, Show mockup as the main button and Skip
+  mockup beside it. A click sends that reply as your message, a feedback action such as
   Reject asks for text first, in a box labelled with the architect's question
   when it sends one (an approval over critical findings asks why), and typing
   the reply works too. A prompt closes when a reply answers it, when the

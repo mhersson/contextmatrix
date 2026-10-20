@@ -52,3 +52,15 @@ export function ChevronIcon({ className }: { className: string }) {
     </svg>
   );
 }
+
+/** A screen wireframe: the mockup the designer offers to draw. */
+export function MockupIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.3} aria-hidden="true">
+      <rect x="1.5" y="2.5" width="13" height="11" />
+      <path d="M1.5 5.3h13" />
+      <path d="M3.8 7.6h4v3.6h-4z" />
+      <path d="M10 7.8h2.4M10 9.6h2.4M10 11.4h1.4" strokeLinecap="round" />
+    </svg>
+  );
+}

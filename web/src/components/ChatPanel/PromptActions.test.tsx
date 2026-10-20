@@ -187,6 +187,43 @@ describe('PromptActions', () => {
       expect(screen.getByRole('group', { name: 'Reply options' })).toHaveAttribute('data-layout', 'stacked');
     });
 
+    describe('recommended primary', () => {
+      const offer: ChatPrompt = {
+        id: 'mockup:offer',
+        kind: 'gate',
+        freeText: false,
+        actions: [
+          { label: 'Show mockup', reply: 'show mockup', feedback: false, recommended: true },
+          { label: 'Skip mockup', reply: 'skip mockup', feedback: false, recommended: false },
+        ],
+      };
+
+      it('renders the recommended action as the primary button when asked, keeping recommended for screen readers', async () => {
+        const onReply = vi.fn().mockResolvedValue(undefined);
+        render(<PromptActions prompt={offer} status="open" onReply={onReply} recommendedPrimary />);
+        const show = screen.getByRole('button', { name: 'Show mockup, recommended' });
+        expect(show).toHaveClass('bf-btn-primary');
+        expect(screen.getByRole('button', { name: 'Skip mockup' })).toHaveClass('bf-btn-ghost');
+        expect(screen.queryByText('recommended')).toBeNull();
+        await act(async () => {
+          fireEvent.click(show);
+        });
+        expect(onReply).toHaveBeenCalledWith('show mockup');
+      });
+
+      it('keeps the recommended chip and ghost buttons without recommendedPrimary', () => {
+        render(<PromptActions prompt={offer} status="open" onReply={vi.fn()} />);
+        expect(screen.getByRole('button', { name: 'Show mockup, recommended' })).toHaveClass('bf-btn-ghost');
+        expect(screen.getByText('recommended')).toBeInTheDocument();
+      });
+
+      it('disables the primary action while paused', () => {
+        render(<PromptActions prompt={offer} status="paused" onReply={vi.fn()} recommendedPrimary />);
+        expect(screen.getByRole('button', { name: 'Show mockup, recommended' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Skip mockup' })).toBeDisabled();
+      });
+    });
+
     it('keeps a gate as the compact row', () => {
       render(<PromptActions prompt={{ ...gate, kind: 'gate' }} status="open" onReply={vi.fn()} />);
       expect(screen.getByRole('group', { name: 'Reply options' })).toHaveAttribute('data-layout', 'compact');
