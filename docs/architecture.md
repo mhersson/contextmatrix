@@ -188,7 +188,13 @@ mode, a proof in multi mode.
   attribute, gets an opaque origin with no cookies, storage or DOM of CM's
   page, and no forms, popups, modals or top navigation. The policy blocks
   fetch, XHR, WebSocket, EventSource, external script, style, font and image,
-  nested frames and eval. CM's own iframe repeats `sandbox="allow-scripts"`.
+  nested frames that load a URL, and eval. CM's own iframe repeats
+  `sandbox="allow-scripts"`.
+- CSP governs neither WebRTC nor DNS prefetch, so the shell narrows both
+  itself: its response sends `X-DNS-Prefetch-Control: off` (its head repeats
+  it as a meta), and before the source runs it deletes `RTCPeerConnection`,
+  `webkitRTCPeerConnection`, `mozRTCPeerConnection`, `RTCDataChannel`,
+  `RTCSessionDescription` and `RTCIceCandidate` from its window.
 - The page's `frame-src 'self'` keeps frames on CM's origin, and every other
   response there refuses to be framed (SPA pages send `frame-ancestors
   'none'`, API responses `X-Frame-Options: DENY`). A frame, injected or
@@ -196,11 +202,18 @@ mode, a proof in multi mode.
 - The page posts the source and the settings into the frame and listens to
   nothing it posts, so a mockup sees only its own source and settings.
 - Residual: a mockup can draw anything inside its box, a fake form included,
-  and keep a CPU busy. CSP does not govern WebRTC or DNS prefetch, so those
-  can still signal off-site, and a frame can navigate itself to any
-  same-origin GET. A mockup holds only its own source and settings, so it has
-  nothing of CM's or the viewer's to carry beyond the fact of a view, as an
-  external image in a card body already reveals.
+  and keep a CPU busy, and a frame can navigate itself to any same-origin
+  GET. A probe in headless Firefox 158 found two ways out: a `srcdoc` frame
+  the mockup writes runs its own script with a fresh `RTCPeerConnection` and
+  sent STUN binding requests, and a `<link rel="preconnect">` made Firefox
+  resolve the host it names (no connection was seen). Everything else it
+  tried held: the six names the shell deletes were absent from its window, a
+  blank nested frame was cross-origin to the mockup, anchors and
+  `dns-prefetch` hints resolved nothing, and an off-site self-navigation was
+  refused by the page's `frame-src 'self'`, sent no request, and left the
+  frame on its document. A mockup holds only its own source and settings, so
+  it has nothing of CM's or the viewer's to carry beyond the fact of a view,
+  as an external image in a card body already reveals.
 
 ### Reviewing auth code
 
@@ -218,12 +231,14 @@ mode, a proof in multi mode.
   MCP cannot write it, and its REST `HUMAN_ONLY_FIELD` gate forks like every
   other identity check.
 - Review `githubauth` token handling strictly.
-- A mockup shell response losing `sandbox allow-scripts` or gaining a network
-  source (any directive beyond the policy above), CM's iframe gaining `allow-same-origin` or another sandbox token, a
-  page listener for frame messages, a `frame-src` wider than `'self'`, or a
-  new same-origin response that can be framed (outside the router's
-  `X-Frame-Options` and the SPA's `frame-ancestors 'none'`) is a finding.
-  Script running inside the sealed frame is the design.
+- A mockup shell response losing `sandbox allow-scripts` or
+  `X-DNS-Prefetch-Control: off`, or gaining a network source (any directive
+  beyond the policy above), the shell writing a source before it deletes the
+  WebRTC constructors, CM's iframe gaining `allow-same-origin` or another
+  sandbox token, a page listener for frame messages, a `frame-src` wider than
+  `'self'`, or a new same-origin response that can be framed (outside the
+  router's `X-Frame-Options` and the SPA's `frame-ancestors 'none'`) is a
+  finding. Script running inside the sealed frame is the design.
 
 ## Data flow
 

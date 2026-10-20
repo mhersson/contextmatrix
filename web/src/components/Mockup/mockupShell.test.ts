@@ -9,10 +9,20 @@ const script = /<script>([\s\S]*)<\/script>/.exec(html)![1];
 
 type Listener = (e: { data: unknown; source: unknown }) => void;
 
-function loadShell() {
+const RTC_NAMES = [
+  'RTCPeerConnection',
+  'webkitRTCPeerConnection',
+  'mozRTCPeerConnection',
+  'RTCDataChannel',
+  'RTCSessionDescription',
+  'RTCIceCandidate',
+];
+
+function loadShell(prepare: (win: Record<string, unknown>) => void = () => {}) {
   const parent = {};
   let listeners: Listener[] = [];
   const written: { html: string; settings: unknown }[] = [];
+  const rtcAtWrite: string[][] = [];
   const events: { type: string; detail: unknown }[] = [];
   const win: Record<string, unknown> = {
     parent,
@@ -20,9 +30,14 @@ function loadShell() {
     removeEventListener: (_type: string, fn: Listener) => (listeners = listeners.filter((l) => l !== fn)),
     dispatchEvent: (e: { type: string; detail: unknown }) => events.push(e),
   };
+  for (const n of RTC_NAMES) win[n] = function FakeRTC() {};
+  prepare(win);
   const doc = {
     open: () => (listeners = []),
-    write: (h: string) => written.push({ html: h, settings: win.mockupSettings }),
+    write: (h: string) => {
+      written.push({ html: h, settings: win.mockupSettings });
+      rtcAtWrite.push(RTC_NAMES.filter((n) => win[n] !== undefined));
+    },
     close: () => {},
   };
   class FakeCustomEvent {
@@ -35,7 +50,7 @@ function loadShell() {
   }
   new Function('window', 'document', 'CustomEvent', script)(win, doc, FakeCustomEvent);
   const post = (data: unknown, source: unknown = parent) => [...listeners].forEach((l) => l({ data, source }));
-  return { win, written, events, post };
+  return { win, written, rtcAtWrite, events, post };
 }
 
 describe('mockup frame shell', () => {
@@ -99,5 +114,20 @@ describe('mockup frame shell', () => {
     post({ type: SETTINGS_MESSAGE, settings: { layout: 'rows' } });
     expect(win.mockupSettings).toBeUndefined();
     expect(events).toEqual([]);
+  });
+
+  it('takes the WebRTC constructors away before the source runs', () => {
+    const { rtcAtWrite, post } = loadShell();
+    post({ type: RENDER_MESSAGE, source: '<p>x</p>' });
+    expect(rtcAtWrite).toEqual([[]]);
+  });
+
+  it('takes away a constructor it cannot delete, and passes over one that is missing', () => {
+    const { rtcAtWrite, post } = loadShell((win) => {
+      Object.defineProperty(win, 'RTCPeerConnection', { value: function FakeRTC() {}, writable: true, configurable: false });
+      delete win.mozRTCPeerConnection;
+    });
+    post({ type: RENDER_MESSAGE, source: '<p>x</p>' });
+    expect(rtcAtWrite).toEqual([[]]);
   });
 });

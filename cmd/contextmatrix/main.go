@@ -1079,7 +1079,7 @@ const spaContentSecurityPolicy = "script-src 'self'; object-src 'none'; frame-sr
 const mockupFramePath = "/mockup-frame.html"
 
 // mockupFrameContentSecurityPolicy seals the shell in its own response: an
-// opaque origin and no network, however it is framed.
+// opaque origin and no fetch, subresource or framed-URL load, however framed.
 const mockupFrameContentSecurityPolicy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'; frame-ancestors 'self'; sandbox allow-scripts"
 
 // newSPAHandler wraps the API handler with static file serving and SPA fallback.
@@ -1100,6 +1100,7 @@ func newSPAHandler(apiHandler http.Handler, fsys fs.FS) http.Handler {
 			w.Header().Set("Content-Security-Policy", mockupFrameContentSecurityPolicy)
 			w.Header().Set("Referrer-Policy", "no-referrer")
 			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("X-DNS-Prefetch-Control", "off")
 			fileServer.ServeHTTP(w, r)
 
 			return

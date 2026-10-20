@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>Mockup</title></head>
+<head><meta charset="utf-8"><meta http-equiv="x-dns-prefetch-control" content="off"><title>Mockup</title></head>
 <body>
 <script>
 (function () {
@@ -15,6 +15,12 @@
     rendered = true;
     window.removeEventListener('message', onRender);
     if (e.data.settings) window.mockupSettings = e.data.settings;
+    // CSP does not govern WebRTC, so the shell takes its constructors away before the source runs.
+    ['RTCPeerConnection', 'webkitRTCPeerConnection', 'mozRTCPeerConnection', 'RTCDataChannel', 'RTCSessionDescription', 'RTCIceCandidate'].forEach(function (n) {
+      delete window[n];
+      if (window[n] === undefined) return;
+      try { Object.defineProperty(window, n, { value: undefined }); } catch (_) {}
+    });
     document.open();
     document.write(e.data.source);
     document.close();

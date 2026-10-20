@@ -68,6 +68,7 @@ func TestSPAHandler_SecurityHeaders(t *testing.T) {
 			assert.Equal(t, "'none'", csp["frame-ancestors"])
 			assert.Equal(t, "'self'", csp["form-action"])
 			assert.Equal(t, "no-referrer", rec.Header().Get("Referrer-Policy"))
+			assert.Empty(t, rec.Header().Get("X-DNS-Prefetch-Control"), "the prefetch header is the shell's alone")
 		})
 	}
 }
@@ -100,6 +101,7 @@ func TestSPAHandler_MockupFrameIsSealed(t *testing.T) {
 			}, cspDirectives(t, rec.Header().Get("Content-Security-Policy")))
 			assert.Equal(t, "no-referrer", rec.Header().Get("Referrer-Policy"))
 			assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+			assert.Equal(t, "off", rec.Header().Get("X-DNS-Prefetch-Control"))
 			assert.Empty(t, rec.Header().Get("X-Frame-Options"))
 		})
 	}
