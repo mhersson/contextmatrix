@@ -254,11 +254,12 @@ board. Promote-to-autonomous lives in that tab.
     done steps filled green, the current step hatched (aqua while a run works,
     the question accent while the blueprint waits for you), pending steps
     outlined, a failed step outlined red and folded slicing as a narrow segment;
-    gates carry a notch. When the pipeline ended before the sign-off (a stage
-    left nothing to build on, or the readiness rounds ran out), the step that
-    stopped it is outlined red and opens the version that stopped it, every step
-    it never reached is dashed and opens nothing, and the stopping step's newest
-    version reads Stopped on the sheet unless a gate decided it. A blueprint cut
+    gates carry a notch. When the pipeline ended before the sign-off (such as
+    a stage that left nothing to build on, or cards that still failed their
+    contract checks), the step that stopped it is outlined red and opens the
+    version that stopped it, every step it never reached is dashed and opens
+    nothing, and the stopping step's newest version reads Stopped on the sheet
+    unless a gate decided it. A blueprint cut
     into two or more slices draws each slice's steps together, bracketed under
     the bar with the slice's id; the slice in progress also shows its title, in
     the colour of its current segment. Beside the bar the current stage, with
@@ -287,12 +288,13 @@ board. Promote-to-autonomous lives in that tab.
     now and answers you have not sent are dropped, and a waiting stage gate is
     approved now if its review passed, unless a gate reply keeps that stage with
     you. At a waiting sign-off, Auto + emit and Yolo note that the sign-off is
-    decided automatically unless a critical finding or a preflight warning holds
-    it, but only when switching from Default or Auto. The switch goes to the
-    architect as a `mode` command the transcript does not show, and the
-    architect's line is the visible record; the cell follows the mode the
-    architect republishes. Once the sign-off is approved or the pipeline ends
-    the caption reads "Mode locked" and the cell no longer opens.
+    decided automatically unless a critical finding, a card not ready or a
+    preflight warning holds it, but only when switching from Default or Auto.
+    The switch goes to the architect as a `mode` command the transcript does
+    not show, and the architect's line is the visible record; the cell follows
+    the mode the architect republishes. Once the sign-off is approved or the
+    pipeline ends the caption reads "Mode locked" and the cell no longer
+    opens.
   - The sheet renders each artifact (need, slices, shared decisions, design,
     grounding, acceptance, cards, readiness, sign-off, board) as a document.
     Long lists are tables with the row count beside each heading: the need's
@@ -308,19 +310,22 @@ board. Promote-to-autonomous lives in that tab.
     they cover; on the readiness sheet the problems found across the blueprint
     (between decisions, contracts, cards and assumptions), each with its id,
     severity, finding and the ids it names, critical first, above the cards; and
-    on the sign-off the same table at the top, a note with your reason when you
-    approved over a critical finding, the run order, the assumptions (your
-    answer, status, basis and source chips, and the stage that stated each) and
-    the manual checks after the run. The sign-off and the board show the steps
-    to take before the cards run in a yellow box, and notices (what will happen
-    without a step from you, such as the verify command an agent picks itself)
-    in a blue box. The board's cards carry their type colour and type and
-    priority chips, as on the Cards sheet. On a plain-language blueprint the
-    sign-off opens with a plain summary: what will be built, what you can do
-    with it, and the consequences you accepted, each marked when its decision
-    changed since you accepted it. Its assumptions show each consequence under
-    the technical
-    decision and who accepted it, beside the status, which accepting never
+    on the sign-off the same table at the top, then, when readiness ran out of
+    rounds with cards still not ready (the sign-off then waits for you in
+    every mode), a red list of each open finding with its card's id and title,
+    a note with your reason when you approved over open findings (a critical
+    finding or cards readiness left not ready), the run order, the assumptions
+    (your answer, status, basis and source chips, and the stage that stated
+    each) and the manual checks after the run. The sign-off and the board show
+    the steps to take before the cards run in a yellow box, and notices (what
+    will happen without a step from you, such as the verify command an agent
+    picks itself) in a blue box. The board's cards carry their type colour and
+    type and priority chips, as on the Cards sheet. On a plain-language
+    blueprint the sign-off opens with a plain summary: what will be built,
+    what you can do with it, and the consequences you accepted, each marked
+    when its decision changed since you accepted it. Its assumptions show each
+    consequence under the technical decision and who accepted it, beside the
+    status, which accepting never
     changes; a responder answer that a re-asked question replaced stays, struck
     through and marked with the answer that replaced it. A version stored before
     the architect recorded outcomes, edge cases or findings across the blueprint

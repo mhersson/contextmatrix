@@ -43,7 +43,7 @@ export function switchNote(view: BlueprintView, next: BlueprintMode): string | n
   const atSignoff =
     view.open?.kind === 'gate' && view.pipeline.some((s) => s.stage === 'signoff' && s.status === 'waiting');
   if (atSignoff && (next === 'auto+emit' || next === 'yolo') && view.mode !== 'auto+emit' && view.mode !== 'yolo') {
-    return 'The sign-off waiting for you is decided automatically now; a critical finding or a preflight warning still leaves it to you.';
+    return 'The sign-off waiting for you is decided automatically now; a critical finding, a card not ready or a preflight warning still leaves it to you.';
   }
   if (fromDefault && view.open?.kind === 'gate' && !atSignoff) {
     return 'The gate waiting for you is approved now if its review passed, unless a gate reply keeps that stage with you.';

@@ -450,6 +450,8 @@ export interface SignoffData {
   manual: ManualCheck[];
   blocking: string[];
   warnings: string[];
+  /** One line per open finding, "<card id>: <finding>", from the readiness that ran out of rounds; empty on an older sign-off. */
+  notReady: string[];
   steps: string[];
   /** What will happen without a step from you. */
   notices: string[];
@@ -462,7 +464,7 @@ export interface SignoffData {
   preflightError: string;
   /** The judged readiness version's findings across the blueprint, critical first. */
   cross: CrossFinding[];
-  /** Your reason for approving over a critical finding; set once approved. */
+  /** Your reason for approving over open findings (a critical finding or a card readiness left not ready); set once approved. */
   overrideReason: string;
 }
 
@@ -483,6 +485,7 @@ export function parseSignoff(data: unknown): SignoffData | null {
     manual: parseManual(data.manual),
     blocking: strs(data.blocking),
     warnings: strs(data.warnings),
+    notReady: strs(data.not_ready),
     steps: strs(data.steps),
     notices: strs(data.notices),
     assumptions: parseSignoffAssumptions(data.assumptions),

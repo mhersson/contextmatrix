@@ -184,6 +184,15 @@ describe('findings across the blueprint', () => {
   });
 });
 
+describe('cards left not ready', () => {
+  it('reads not_ready as given, empty when absent, dropping non-strings', () => {
+    const entries = ['D3: Finding.', 'D6: not ready'];
+    expect(parseSignoff({ ...(SIGNOFF_V1.data as object), not_ready: entries })!.notReady).toEqual(entries);
+    expect(parseSignoff(SIGNOFF_V1.data)!.notReady).toEqual([]);
+    expect(parseSignoff({ ...(SIGNOFF_V1.data as object), not_ready: ['D3: F.', 7, null] })!.notReady).toEqual(['D3: F.']);
+  });
+});
+
 describe('a plain-language sign-off', () => {
   it('reads consequences, acceptances, superseded answers and the summary, skipping junk', () => {
     const data = parseSignoff({
