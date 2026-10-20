@@ -36,8 +36,12 @@ const aboutState = vi.hoisted(() => ({
 }));
 vi.mock('../../hooks/useAbout', () => ({ useAbout: () => aboutState }));
 vi.mock('../About/AboutDialog', () => ({
-  AboutDialog: ({ open }: { open: boolean }) =>
-    open ? <div role="dialog" aria-label="About ContextMatrix" /> : null,
+  AboutDialog: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
+    open ? (
+      <div role="dialog" aria-label="About ContextMatrix">
+        <button onClick={onClose}>Close about</button>
+      </div>
+    ) : null,
 }));
 
 function setAuth(isAdmin: boolean) {
@@ -140,6 +144,17 @@ describe('UserMenu About ContextMatrix', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /About ContextMatrix/ }));
     expect(screen.queryByRole('menu')).toBeNull();
     expect(screen.getByRole('dialog', { name: 'About ContextMatrix' })).toBeInTheDocument();
+  });
+
+  it('returns focus to the trigger once the dialog closes', () => {
+    setAuth(false);
+    render(<UserMenu />);
+    const trigger = screen.getByRole('button', { name: /Root/ });
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('menuitem', { name: /About ContextMatrix/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close about' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 
   it('shows the dot on the avatar and the item when there is news', () => {

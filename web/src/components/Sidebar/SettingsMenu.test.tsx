@@ -29,8 +29,12 @@ const aboutState = vi.hoisted(() => ({
 }));
 vi.mock('../../hooks/useAbout', () => ({ useAbout: () => aboutState }));
 vi.mock('../About/AboutDialog', () => ({
-  AboutDialog: ({ open }: { open: boolean }) =>
-    open ? <div role="dialog" aria-label="About ContextMatrix" /> : null,
+  AboutDialog: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
+    open ? (
+      <div role="dialog" aria-label="About ContextMatrix">
+        <button onClick={onClose}>Close about</button>
+      </div>
+    ) : null,
 }));
 
 beforeEach(() => {
@@ -143,6 +147,15 @@ describe('SettingsMenu About ContextMatrix', () => {
     openMenu();
     const items = screen.getAllByRole('menuitem');
     expect(items[items.length - 1]).toHaveTextContent('About ContextMatrix');
+  });
+
+  it('returns focus to the trigger once the dialog closes', () => {
+    render(<SettingsMenu />);
+    const trigger = openMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: /About ContextMatrix/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close about' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 
   it('opens the dialog and closes the menu', () => {

@@ -93,6 +93,8 @@ export function SettingsMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
           <button
             role="menuitem"
             onClick={() => {
+              // The item unmounts with the menu; focus the trigger so the dialog's focus trap restores to it.
+              triggerRef.current?.focus();
               setOpen(false);
               setAboutOpen(true);
             }}
