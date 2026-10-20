@@ -85,46 +85,46 @@ function AppInner() {
           <ProjectsProvider>
             <ProjectSummariesProvider>
               <AboutProvider>
-              <div className="h-screen flex flex-row" style={{ backgroundColor: 'var(--bg-dim)' }}>
-                <Sidebar
-                  onNewProject={() => setNewProjectOpen(true)}
-                  onNewChat={() => navigate('/chat?new=1')}
-                  mobileOpen={mobileOpen}
-                  onMobileClose={onMobileClose}
-                />
+                <div className="h-screen flex flex-row" style={{ backgroundColor: 'var(--bg-dim)' }}>
+                  <Sidebar
+                    onNewProject={() => setNewProjectOpen(true)}
+                    onNewChat={() => navigate('/chat?new=1')}
+                    mobileOpen={mobileOpen}
+                    onMobileClose={onMobileClose}
+                  />
 
-                <div className="flex-1 flex flex-col min-w-0">
-                  <ErrorBoundary>
-                    <Suspense fallback={<AppShellSkeleton />}>
-                      <Routes>
-                        <Route index element={<AllProjectsDashboard onNewProject={() => setNewProjectOpen(true)} />} />
-                        <Route path="projects/:project/*" element={<ProjectShell />} />
-                        <Route path="all" element={<AllProjectsDashboard onNewProject={() => setNewProjectOpen(true)} />} />
-                        <Route path="chat" element={<ChatPage />} />
-                        <Route path="chat/:id" element={<ChatPage />} />
-                        <Route path="playbooks" element={<PlaybooksPage />} />
-                        <Route path="playbooks/:id" element={<PlaybookDetailPage />} />
-                        <Route path="admin/users" element={<AdminGuard><AdminUsersPage /></AdminGuard>} />
-                        <Route path="admin/credentials" element={<AdminGuard><AdminCredentialsPage /></AdminGuard>} />
-                        <Route path="admin/chats" element={<AdminGuard><AdminChatsPage /></AdminGuard>} />
-                        <Route path="admin/model-selection" element={<AdminGuard><AdminModelSelectionPage /></AdminGuard>} />
-                        <Route path="*" element={<NotFound />} />
-                      </Routes>
+                  <div className="flex-1 flex flex-col min-w-0">
+                    <ErrorBoundary>
+                      <Suspense fallback={<AppShellSkeleton />}>
+                        <Routes>
+                          <Route index element={<AllProjectsDashboard onNewProject={() => setNewProjectOpen(true)} />} />
+                          <Route path="projects/:project/*" element={<ProjectShell />} />
+                          <Route path="all" element={<AllProjectsDashboard onNewProject={() => setNewProjectOpen(true)} />} />
+                          <Route path="chat" element={<ChatPage />} />
+                          <Route path="chat/:id" element={<ChatPage />} />
+                          <Route path="playbooks" element={<PlaybooksPage />} />
+                          <Route path="playbooks/:id" element={<PlaybookDetailPage />} />
+                          <Route path="admin/users" element={<AdminGuard><AdminUsersPage /></AdminGuard>} />
+                          <Route path="admin/credentials" element={<AdminGuard><AdminCredentialsPage /></AdminGuard>} />
+                          <Route path="admin/chats" element={<AdminGuard><AdminChatsPage /></AdminGuard>} />
+                          <Route path="admin/model-selection" element={<AdminGuard><AdminModelSelectionPage /></AdminGuard>} />
+                          <Route path="*" element={<NotFound />} />
+                        </Routes>
+                      </Suspense>
+                    </ErrorBoundary>
+                  </div>
+
+                  {newProjectOpen && (
+                    <Suspense fallback={null}>
+                      <NewProjectWizard
+                        onClose={() => setNewProjectOpen(false)}
+                        onCreated={handleProjectCreated}
+                      />
                     </Suspense>
-                  </ErrorBoundary>
+                  )}
+
+                  <ToastContainer />
                 </div>
-
-                {newProjectOpen && (
-                  <Suspense fallback={null}>
-                    <NewProjectWizard
-                      onClose={() => setNewProjectOpen(false)}
-                      onCreated={handleProjectCreated}
-                    />
-                  </Suspense>
-                )}
-
-                <ToastContainer />
-              </div>
               </AboutProvider>
             </ProjectSummariesProvider>
           </ProjectsProvider>
