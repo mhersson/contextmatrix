@@ -74,7 +74,8 @@ func TestSPAHandler_SecurityHeaders(t *testing.T) {
 }
 
 // The shell seals itself: an iframe that frames it without a sandbox attribute
-// (an injected one, or a caller that forgot it) still gets an opaque origin and no network.
+// (an injected one, or a caller that forgot it) still gets an opaque origin and
+// no fetch, subresource or framed-URL load.
 func TestSPAHandler_MockupFrameIsSealed(t *testing.T) {
 	shell := []byte("<!doctype html><script>/* shell */</script>")
 	handler := newSPAHandler(http.NotFoundHandler(), fstest.MapFS{

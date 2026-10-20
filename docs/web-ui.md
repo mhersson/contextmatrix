@@ -35,17 +35,17 @@ Every view updates live from one Server-Sent Events stream per tab
   an allowlist sanitizer. Allowlisted HTML renders (images over http, https
   or a relative path, `<details>`/`<summary>`, `<br>`, `<kbd>`,
   `<sub>`/`<sup>`, `<s>`/`<ins>`, definition lists, tables); scripts, styles,
-  event handlers, forms and frames never become live, except that a fenced
-  code block whose language is `mockup` is the exception on a card (the card
-  panel and the blueprint's Cards sheet): it shows as a Show mockup button that
-  runs the HTML in the sealed frame the blueprint's mockups use, with no
-  network and no access to CM (see
-  [architecture](architecture.md#model-written-mockups)); chat and the
-  editor's preview show its source. Other tags and comments show as literal
-  text, except CM's own line-start `<!-- cm:meta ... -->` machine markers (and
-  the legacy `<!-- cm:tier=... -->`), which the agent strips before a model
-  reads the body. Attribute values the allowlist drops are not shown. Bodies
-  arrive from agents and from GitHub and Jira imports.
+  event handlers, forms and frames never become live. The one exception on a
+  card (the card panel and the blueprint's Cards sheet) is a fenced code block
+  whose language is `mockup`: it shows as a Show mockup button that runs the
+  HTML in the sealed frame the blueprint's mockups use, sealed off from CM and
+  from ordinary network access (see
+  [architecture](architecture.md#model-written-mockups) for what remains); chat
+  and the editor's preview show its source. Other tags and comments show as
+  literal text, except CM's own line-start `<!-- cm:meta ... -->` machine
+  markers (and the legacy `<!-- cm:tier=... -->`), which the agent strips before
+  a model reads the body. Attribute values the allowlist drops are not shown.
+  Bodies arrive from agents and from GitHub and Jira imports.
 - **Models used** (Info tab) answers what a card cost and where it went: the
   total including subtasks; a cost bar and legend split by role (review,
   execute, plan, judge, document, gates = pr_gates + integrate, plus a hatched
@@ -365,10 +365,11 @@ board. Promote-to-autonomous lives in that tab.
     switch or a choice of two to four values with a line on why. Flipping one
     redraws the mockup at once with no model run; flips are kept per revision
     while the page is open, and each revision opens with the settings the
-    architect carried over. While a revision is written the sheet shows the
-    run's progress. Once a design is chosen or the mockups are skipped, every
-    revision's controls are fixed and the chosen revision shows the chosen
-    settings. The scale bar and the sheet say when the mockup waits for you.
+    architect carried over. While the designer or the responder works, the sheet
+    stays on the newest revision and shows it as in progress. Once a design is
+    chosen or the mockups are skipped, every revision's controls are fixed and
+    the chosen revision shows the chosen settings. The scale bar and the sheet
+    say when the mockup waits for you.
     While it waits, its newest revision offers Use this design, which sends
     your settings as your answers, and Skip mockups; both pause while the
     session is not live, and a revision that lands meanwhile takes them over.

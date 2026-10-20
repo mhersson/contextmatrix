@@ -768,8 +768,8 @@ Accepting a template clears the dirty flag.
 
 A card body may carry a mockup: a fenced code block whose info string is
 `mockup`, holding a complete HTML document. The blueprint architect writes one
-under a `## Mockup` section on every card that builds a screen of an approved
-mockup.
+under a `## Mockup` section on every card of a slice whose cards build or
+change a screen of the approved mockup, that slice's other cards included.
 
 The self-containment lint skips a mockup block's content, so sample paths a
 mockup shows raise no warning. The grammar is shared with the architect's
@@ -782,8 +782,9 @@ contract check and the agent's card classifier:
 - An unclosed block runs to the end of the body.
 - Tilde fences, indented fences and other info strings are not mockup blocks.
 
-The web UI shows every fenced block whose language is `mockup` (any CommonMark
-fence) as a Show mockup button that runs it in a sealed frame.
+Only the card panel and the blueprint's Cards sheet show every fenced block
+whose language is `mockup` (any CommonMark fence) as a Show mockup button that
+runs it in a sealed frame; chat and the editor's preview show its source.
 
 ## Playbooks
 
