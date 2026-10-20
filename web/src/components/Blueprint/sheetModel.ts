@@ -181,6 +181,8 @@ export function writingVersion(
   stage: string,
   slice: string,
 ): number | null {
+  // The mockup has no draft frames, and a run on it may judge or answer without a new revision.
+  if (stage === 'mockup') return null;
   const stored = artifactsFor(view, stage, slice);
   const next = (stored[stored.length - 1]?.version ?? 0) + 1;
   if (draft && draft.stage === stage && draft.slice === slice && !stored.some((r) => r.version === draft.version)) {

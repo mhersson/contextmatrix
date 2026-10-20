@@ -132,6 +132,13 @@ describe('describeCurrent', () => {
 });
 
 describe('stepStatusText', () => {
+  it('does not ask for the person while the mockup is between the responder\'s turns', () => {
+    const between = { ...viewAtMockup(), open: undefined };
+    const generic = stepStatusText(step('solution_design', 'system_designer', 'waiting'), between);
+    expect(stepStatusText(between.pipeline[1], between)).not.toBe(generic);
+    expect(stepStatusText(between.pipeline[1], viewAtMockup())).toBe(generic);
+  });
+
   it('says who approved a gate and when', () => {
     const view = at({
       artifacts: [ref('solution_design', 2, 'approved', { decided_by: 'you', decided_at: '2026-10-17T10:17:00Z' })],

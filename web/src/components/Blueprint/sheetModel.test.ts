@@ -372,3 +372,24 @@ describe('shownStatus on the mockup sheet between the responder\'s turns', () =>
     expect(shownStatus(v, 'mockup', '', v.artifacts[2], false).tone).toBe('ok');
   });
 });
+
+describe('the mockup step never writes a next revision', () => {
+  const run = (kind: 'responder' | 'stage') => {
+    const v = viewAtMockup();
+    v.open = undefined;
+    v.current = { stage: 'mockup', kind, persona: 'designer', model: 'm', started_at: '', turns: 1, tool_calls: 0, tokens: 0 };
+    return v;
+  };
+  it.each(['responder', 'stage'] as const)('keeps the sheet on the newest revision during a %s run', (kind) => {
+    const v = run(kind);
+    expect(writingVersion(v, null, 'mockup', '')).toBeNull();
+    expect(defaultShown(v, null)).toEqual({ stage: 'mockup', slice: '', version: 2 });
+    expect(resolveShown(v, null, { stage: 'mockup', slice: '', version: null })).toEqual({ stage: 'mockup', slice: '', version: 2 });
+    expect(shownStatus(v, 'mockup', '', v.artifacts[2], false).tone).toBe('running');
+  });
+  it('still writes the next version for another stage', () => {
+    const v = viewAtDesignGate();
+    v.current = { stage: 'solution_design', kind: 'stage', persona: 'system_designer', model: 'm', started_at: '', turns: 1, tool_calls: 0, tokens: 0 };
+    expect(writingVersion(v, null, 'solution_design', '')).not.toBeNull();
+  });
+});

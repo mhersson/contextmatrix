@@ -295,6 +295,8 @@ export function stepStatusText(step: BlueprintPipelineStep, view: BlueprintView)
     case 'revising':
       return 'Revising';
     case 'waiting':
+      // Between the responder's turns the mockup step waits with no prompt open.
+      if (step.stage === 'mockup' && !view.open) return 'With the responder';
       return 'Waiting for you';
     case 'failed':
       return 'Failed';

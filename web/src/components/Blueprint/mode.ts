@@ -36,6 +36,9 @@ export function switchNote(view: BlueprintView, next: BlueprintMode): string | n
   if (fromDefault && view.open?.kind === 'mockup') {
     return 'The mockup waiting for you goes to the responder now; it starts from the settings you last sent.';
   }
+  if (fromDefault && view.open?.kind === 'gate' && view.open.prompt_id === 'mockup:offer') {
+    return 'The offer of a mockup goes to the responder now.';
+  }
   const atSignoff =
     view.open?.kind === 'gate' && view.pipeline.some((s) => s.stage === 'signoff' && s.status === 'waiting');
   if (atSignoff && (next === 'auto+emit' || next === 'yolo') && view.mode !== 'auto+emit' && view.mode !== 'yolo') {

@@ -49,30 +49,30 @@ export function MockupSheet({ artifact, previous, mode, view }: RendererProps) {
             title={`${stageText('mockup').tab} rev ${artifact.version}`}
           />
           {(mockup.suggestions.length > 0 || (choosable && pane)) && (
-          <div className="mk-side">
-            {mockup.suggestions.length > 0 && (
-              <section className="mk-suggestions" aria-label={MOCKUP_LABELS.suggestions}>
-                {mockup.suggestions.map((s) => (
-                  <Suggestion
-                    key={s.id}
-                    suggestion={s}
-                    value={settings[s.id] ?? s.default}
-                    disabled={decided}
-                    onFlip={flip}
-                  />
-                ))}
-              </section>
-            )}
-            {choosable && pane && (
-              <MockupChoice
-                key={`${pane.promptId}/${artifact.version}`}
-                revision={artifact.version}
-                suggestions={mockup.suggestions}
-                settings={settings}
-                pane={pane}
-              />
-            )}
-          </div>
+            <div className="mk-side">
+              {mockup.suggestions.length > 0 && (
+                <section className="mk-suggestions" aria-label={MOCKUP_LABELS.suggestions}>
+                  {mockup.suggestions.map((s) => (
+                    <Suggestion
+                      key={s.id}
+                      suggestion={s}
+                      value={settings[s.id] ?? s.default}
+                      disabled={decided}
+                      onFlip={flip}
+                    />
+                  ))}
+                </section>
+              )}
+              {choosable && pane && (
+                <MockupChoice
+                  key={`${pane.promptId}/${artifact.version}`}
+                  revision={artifact.version}
+                  suggestions={mockup.suggestions}
+                  settings={settings}
+                  pane={pane}
+                />
+              )}
+            </div>
           )}
         </div>
       )}

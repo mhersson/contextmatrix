@@ -34,7 +34,7 @@ func TestLintSelfContained(t *testing.T) {
 		{name: "linux home path at line start", text: "/home/alice/docs/design.md", repos: foreign, wantN: 1},
 		{name: "linux home path mid-sentence", text: "Follow this: /home/alice/docs/design.md", repos: foreign, wantN: 1},
 		{name: "bare last segment of foreign repo no false positive", text: "See other-project for details", repos: foreign, wantN: 0},
-		{name: "path inside a mockup block", text: "```mockup\n<p>/home/anna/Documents</p>\n```\n", repos: foreign, wantN: 0},
+		{name: "path inside a mockup block", text: "```mockup\n<p>x</p>\n/home/anna/Documents\n```\n", repos: foreign, wantN: 0},
 		{name: "path after the block closes", text: "```mockup\n<p>x</p>\n```\nSee /home/a/x.md", repos: foreign, wantN: 1},
 		{name: "unclosed block runs to the end", text: "```mockup\n<p>x</p>\n/home/a/x.md", repos: foreign, wantN: 0},
 		{name: "tilde fence is not a mockup block", text: "~~~mockup\n/home/a/x.md\n~~~\n", repos: foreign, wantN: 1},
