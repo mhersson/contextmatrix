@@ -132,7 +132,7 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
   if (entry.type === 'text') {
     const body = prompt ? (prompt.prompt.text ?? prompt.text) : entry.content;
     const isOffer = prompt?.prompt.id === MOCKUP_OFFER_ID;
-    const bubble = (
+    const inner = (
       <>
         {structured ? (
           <StructuredPayload pretty={structured} />
@@ -154,7 +154,7 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
         )}
       </>
     );
-    const frame = (
+    const frame = isOffer && (
       <div className="chat-offer" data-prompt-id={prompt?.prompt.id} data-prompt-kind={prompt?.prompt.kind}>
         <span className="chat-offer-reg chat-offer-reg--tl" aria-hidden="true" />
         <span className="chat-offer-reg chat-offer-reg--tr" aria-hidden="true" />
@@ -163,7 +163,7 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
         <span className="chat-offer-tile">
           <MockupIcon />
         </span>
-        <div className="min-w-0">{bubble}</div>
+        <div className="min-w-0">{inner}</div>
       </div>
     );
     return (
@@ -171,14 +171,13 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
         <div className="flex flex-col items-start max-w-[85%] min-w-0">
           {stamp && <TimestampLabel hhmm={stamp.hhmm} title={stamp.title} dateTime={entry.ts} />}
           {entry.agent && <SpeakerChip author={entry.agent} model={entry.model} />}
-          {/* The bubble is a shrink-to-fit flex item, so its width follows its
-              min-content size. `wrap-anywhere` (not `break-words`, which the
-              spec excludes from min-content sizing) keeps a long identifier
-              from dictating that width; `max-w-full` is the hard clamp. */}
-
           {isOffer ? (
             frame
           ) : (
+            // The bubble is a shrink-to-fit flex item, so its width follows its
+            // min-content size. `wrap-anywhere` (not `break-words`, which the
+            // spec excludes from min-content sizing) keeps a long identifier
+            // from dictating that width; `max-w-full` is the hard clamp.
             <div
               className="rounded-lg px-3 py-2 text-sm wrap-anywhere max-w-full"
               style={{
@@ -197,10 +196,10 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
               {prompt?.prompt.kind === 'gate' ? (
                 <div className="chat-prompt-lead">
                   <BarrierIcon />
-                  <div className="min-w-0">{bubble}</div>
+                  <div className="min-w-0">{inner}</div>
                 </div>
               ) : (
-                bubble
+                inner
               )}
             </div>
           )}

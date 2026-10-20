@@ -7568,10 +7568,11 @@ button.bp-seg-hit {
 
 .bp-callout .bp-list {
   margin: 0;
+  list-style: disc;
 }
 
 .bp-paper .bp-callout code {
-  background: color-mix(in oklab, var(--fg) 10%, transparent);
+  background: color-mix(in oklab, var(--bg0) 50%, transparent);
 }
 
 /* Blueprint sheet: paper, stamps and live writing. */

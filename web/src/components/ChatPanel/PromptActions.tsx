@@ -129,7 +129,7 @@ export function PromptActions({ prompt, status, answer, onReply, recommendedPrim
         className={stacked ? 'flex flex-col gap-2' : 'flex flex-wrap gap-2'}
       >
         {prompt.actions.map((a, i) => {
-          const primary = recommendedPrimary && a.recommended;
+          const primary = recommendedPrimary && a.recommended && !stacked;
           return (
             <button
               key={`${i}:${a.label}`}

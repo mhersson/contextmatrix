@@ -224,6 +224,14 @@ describe('PromptActions', () => {
       });
     });
 
+    it('keeps the stacked option button and chip for a question even with recommendedPrimary', () => {
+      render(<PromptActions prompt={question} status="open" onReply={vi.fn()} recommendedPrimary />);
+      const rec = screen.getByRole('button', { name: new RegExp(LONG) });
+      expect(rec).toHaveClass('chat-prompt-option');
+      expect(rec).not.toHaveClass('bf-btn-primary');
+      expect(screen.getByText('recommended')).toBeInTheDocument();
+    });
+
     it('keeps a gate as the compact row', () => {
       render(<PromptActions prompt={{ ...gate, kind: 'gate' }} status="open" onReply={vi.fn()} />);
       expect(screen.getByRole('group', { name: 'Reply options' })).toHaveAttribute('data-layout', 'compact');
