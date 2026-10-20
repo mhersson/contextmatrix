@@ -189,7 +189,7 @@ describe('SignoffSheet', () => {
     expect(items[2]).toBe('D9: not judged');
   });
 
-  it('has no not-ready section when none is left or the sign-off predates it', () => {
+  it('has no not-ready section when none is left', () => {
     show(signoffWith({ not_ready: [] }));
     expect(screen.queryByRole('heading', { name: /^Cards not ready/ })).toBeNull();
   });
