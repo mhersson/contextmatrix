@@ -84,14 +84,20 @@ describe('AboutDialog', () => {
     expect(row('Architect')).toHaveTextContent('unreachable');
   });
 
-  it('shows the worker image and the mismatch marker', async () => {
+  it('shows the worker image and the mismatch marker in the Image column', async () => {
     const { unmount } = await openDialog();
-    expect(row('Agent')).toHaveTextContent('image BBBBBBB');
-    expect(row('Agent')).toHaveTextContent('differs');
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Component', 'Version', 'Image', 'Built', 'Status']);
+    const image = (label: string) => within(row(label)).getAllByRole('cell')[2];
+    expect(within(row('Agent')).getAllByRole('cell')[0]).toHaveTextContent(/^Agent$/);
+    expect(image('Agent')).toHaveTextContent('BBBBBBB');
+    expect(image('Agent')).toHaveTextContent('differs');
+    expect(image('ContextMatrix')).toBeEmptyDOMElement();
+    expect(image('Chat')).toBeEmptyDOMElement();
+    expect(image('Architect')).toBeEmptyDOMElement();
     unmount();
     state.about!.components[1].worker_image_revision = A;
     await openDialog();
-    expect(row('Agent')).toHaveTextContent('image AAAAAAA');
+    expect(image('Agent')).toHaveTextContent('AAAAAAA');
     expect(row('Agent')).not.toHaveTextContent('differs');
   });
 
@@ -152,6 +158,7 @@ describe('AboutDialog', () => {
     const panel = screen.getByRole('tabpanel');
     expect(within(panel).getAllByText('fix')).toHaveLength(2);
     expect(within(panel).getByText('feat')).toBeInTheDocument();
+    expect(within(panel).getByText('Fix sign-off')).toHaveAttribute('title', 'Fix sign-off');
     fireEvent.click(screen.getByRole('tab', { name: /Agent/ }));
     expect(within(screen.getByRole('tabpanel')).getByText('change')).toBeInTheDocument();
   });

@@ -3,6 +3,8 @@ import type { AboutComponent } from '../../types';
 
 const MISMATCH_TITLE = 'The default worker image was built from a different commit than this server.';
 const muted = { color: 'var(--blueprint-quiet-strong)' };
+// The dialog sits on --bg2, so row rules take the next step up to stay visible.
+const line = 'border-b border-[var(--bg3)]';
 
 // Offers a wrap point only at a camel-case boundary, so "ContextMatrix" splits as "Context / Matrix".
 function WrapLabel({ text }: { text: string }) {
@@ -23,8 +25,8 @@ function Image({ c }: { c: AboutComponent }) {
   if (c.name !== 'agent' && c.name !== 'chat') return null;
   if (!c.worker_image_revision) return null;
   return (
-    <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs" style={muted}>
-      <span className="font-mono whitespace-nowrap">image {shortSha(c.worker_image_revision)}</span>
+    <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+      <span className="font-mono">{shortSha(c.worker_image_revision)}</span>
       {imageMismatch(c) && (
         <span
           title={MISMATCH_TITLE}
@@ -34,7 +36,7 @@ function Image({ c }: { c: AboutComponent }) {
           differs
         </span>
       )}
-    </div>
+    </span>
   );
 }
 
@@ -43,8 +45,8 @@ export function RunningTable({ components }: { components: AboutComponent[] }) {
     <table className="w-full table-fixed border-collapse text-sm">
       <thead>
         <tr className="text-left text-xs" style={muted}>
-          {['Component', 'Version', 'Built', 'Status'].map((h) => (
-            <th key={h} scope="col" className="w-1/4 pb-1 text-left font-normal">
+          {['Component', 'Version', 'Image', 'Built', 'Status'].map((h) => (
+            <th key={h} scope="col" className={`w-1/5 pb-1 text-left font-normal ${line}`}>
               {h}
             </th>
           ))}
@@ -55,15 +57,17 @@ export function RunningTable({ components }: { components: AboutComponent[] }) {
           const up = c.status === 'unreachable';
           return (
             <tr key={`${c.name}-${i}`} className="align-top" style={{ color: 'var(--fg)' }}>
-              <td className="py-1.5 pr-2 [overflow-wrap:anywhere]">
+              <td className={`py-1.5 pr-2 [overflow-wrap:anywhere] ${line}`}>
                 <WrapLabel text={componentLabel(c.name)} />
+              </td>
+              <td className={`py-1.5 pr-2 font-mono [overflow-wrap:anywhere] ${line}`}>{versionLabel(c)}</td>
+              <td className={`py-1.5 pr-2 ${line}`} style={muted}>
                 <Image c={c} />
               </td>
-              <td className="py-1.5 pr-2 font-mono [overflow-wrap:anywhere]">{versionLabel(c)}</td>
-              <td className="py-1.5 pr-2 [overflow-wrap:anywhere]" style={muted}>
+              <td className={`py-1.5 pr-2 [overflow-wrap:anywhere] ${line}`} style={muted}>
                 {formatBuilt(c.build?.build_time)}
               </td>
-              <td className="py-1.5 [overflow-wrap:anywhere]" style={{ color: up ? 'var(--blueprint-ink-red)' : 'var(--blueprint-ink-green)' }}>
+              <td className={`py-1.5 [overflow-wrap:anywhere] ${line}`} style={{ color: up ? 'var(--blueprint-ink-red)' : 'var(--blueprint-ink-green)' }}>
                 <span aria-hidden="true" style={{ color: up ? 'var(--red)' : 'var(--green)' }}>
                   ●
                 </span>{' '}

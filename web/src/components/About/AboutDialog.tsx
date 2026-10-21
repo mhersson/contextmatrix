@@ -62,7 +62,7 @@ function Body({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative z-10 flex w-[40rem] max-w-[calc(100vw-2rem)] flex-col gap-4 rounded-lg border p-5"
+        className="relative z-10 flex w-[52rem] max-w-[calc(100vw-2rem)] flex-col gap-4 rounded-lg border p-5"
         style={{ backgroundColor: 'var(--bg2)', borderColor: 'var(--bg3)' }}
         onClick={(e) => e.stopPropagation()}
         // Page shortcuts must not act behind the dialog; the focus trap listens on this element, so it still sees Tab.
