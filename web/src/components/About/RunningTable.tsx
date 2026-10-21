@@ -5,6 +5,8 @@ const MISMATCH_TITLE = 'The default worker image was built from a different comm
 const muted = { color: 'var(--blueprint-quiet-strong)' };
 // The dialog sits on --bg2, so row rules take the next step up to stay visible.
 const line = 'border-b border-[var(--bg3)]';
+// Five columns do not fit a phone-width dialog, so Built drops below sm.
+const narrowHidden = 'hidden sm:table-cell';
 
 // Offers a wrap point only at a camel-case boundary, so "ContextMatrix" splits as "Context / Matrix".
 function WrapLabel({ text }: { text: string }) {
@@ -46,7 +48,7 @@ export function RunningTable({ components }: { components: AboutComponent[] }) {
       <thead>
         <tr className="text-left text-xs" style={muted}>
           {['Component', 'Version', 'Image', 'Built', 'Status'].map((h) => (
-            <th key={h} scope="col" className={`w-1/5 pb-1 text-left font-normal ${line}`}>
+            <th key={h} scope="col" className={`w-1/4 pb-1 text-left font-normal sm:w-1/5 ${h === 'Built' ? narrowHidden : ''} ${line}`}>
               {h}
             </th>
           ))}
@@ -64,7 +66,7 @@ export function RunningTable({ components }: { components: AboutComponent[] }) {
               <td className={`py-1.5 pr-2 ${line}`} style={muted}>
                 <Image c={c} />
               </td>
-              <td className={`py-1.5 pr-2 [overflow-wrap:anywhere] ${line}`} style={muted}>
+              <td className={`py-1.5 pr-2 [overflow-wrap:anywhere] ${narrowHidden} ${line}`} style={muted}>
                 {formatBuilt(c.build?.build_time)}
               </td>
               <td className={`py-1.5 [overflow-wrap:anywhere] ${line}`} style={{ color: up ? 'var(--blueprint-ink-red)' : 'var(--blueprint-ink-green)' }}>
