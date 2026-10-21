@@ -4,6 +4,8 @@ import type { AboutComponent } from '../../types';
 import { NewDot } from './NewDot';
 
 const muted = { color: 'var(--blueprint-quiet-strong)' };
+// NEW | kind | title | #number | date; the number column drops below sm.
+const ROW_COLUMNS = 'grid-cols-[2.5rem_3.5rem_minmax(0,1fr)_3.5rem] sm:grid-cols-[3rem_3.5rem_minmax(0,1fr)_3rem_3.5rem]';
 const KIND_STYLE = {
   feat: { color: 'var(--blueprint-ink-blue)', ring: 'ring-[var(--blue)]' },
   fix: { color: 'var(--blueprint-ink-orange)', ring: 'ring-[var(--orange)]' },
@@ -31,7 +33,7 @@ export function ChangesTabs({ components, snapshot }: { components: AboutCompone
 
   return (
     <div>
-      <div role="tablist" aria-label="Changes by component" className="grid grid-cols-4">
+      <div role="tablist" aria-label="Changes by component" className="grid" style={{ gridTemplateColumns: `repeat(${components.length}, minmax(0, 1fr))` }}>
         {components.map((c, i) => {
           const on = i === active;
           const dot = c.status !== 'unreachable' && newCount(changesOf(c), snapshot[c.name]) > 0;
@@ -45,7 +47,7 @@ export function ChangesTabs({ components, snapshot }: { components: AboutCompone
               aria-controls="about-panel"
               onClick={() => setActive(i)}
               title={componentLabel(c.name)}
-              className="flex min-w-0 items-center gap-1.5 border-b-2 px-1 py-1.5 text-left text-sm"
+              className="flex min-w-0 items-center justify-center gap-1.5 border-b-2 px-1 py-1.5 text-sm"
               style={{ color: on ? 'var(--fg)' : 'var(--blueprint-quiet-strong)', borderColor: on ? 'var(--green)' : 'var(--bg3)' }}
             >
               <span className="truncate">{componentLabel(c.name)}</span>
@@ -60,7 +62,7 @@ export function ChangesTabs({ components, snapshot }: { components: AboutCompone
           {changes.map((ch, i) => {
             const k = KIND_STYLE[changeKind(ch.kind)];
             return (
-              <li key={ch.number} className="grid grid-cols-[3rem_1fr_auto] items-center gap-2 py-1.5 text-sm">
+              <li key={ch.number} className={`grid items-center gap-2 border-t border-[var(--bg3)] py-1.5 text-sm first:border-t-0 ${ROW_COLUMNS}`}>
                 <span>
                   {i < fresh && (
                     <span
@@ -71,16 +73,16 @@ export function ChangesTabs({ components, snapshot }: { components: AboutCompone
                     </span>
                   )}
                 </span>
-                <span className="flex min-w-0 items-baseline gap-2" style={{ color: 'var(--fg)' }}>
-                  <span className={`shrink-0 whitespace-nowrap rounded px-1 text-[0.65rem] ring-1 ${k.ring}`} style={{ color: k.color }}>
-                    {changeKind(ch.kind)}
-                  </span>
-                  <span className="truncate">{ch.title}</span>
-                  <span className="font-mono text-xs" style={muted}>
-                    #{ch.number}
-                  </span>
+                <span className={`justify-self-center whitespace-nowrap rounded px-1 text-[0.65rem] ring-1 ${k.ring}`} style={{ color: k.color }}>
+                  {changeKind(ch.kind)}
                 </span>
-                <span className="text-xs" style={muted}>
+                <span className="truncate" title={ch.title} style={{ color: 'var(--fg)' }}>
+                  {ch.title}
+                </span>
+                <span className="hidden font-mono text-xs sm:block" style={muted}>
+                  #{ch.number}
+                </span>
+                <span className="text-right text-xs" style={muted}>
                   {formatMergedDate(ch.merged_at)}
                 </span>
               </li>

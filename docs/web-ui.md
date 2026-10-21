@@ -461,24 +461,26 @@ sets Light or Dark and the palette: Everforest, Catppuccin, GitHub or Ayu.
 Every signed-in user has it: in `multi` mode it sits in the user menu directly
 above Change password, in `none` mode it is the last item of the Settings menu.
 
-The **Running** table has one row per component with the columns Component,
-Version, Built and Status. The rows are ContextMatrix and each configured,
-enabled backend (agent, chat, architect). Status is `running` for ContextMatrix,
-`connected` for a backend that answered and `unreachable` for one that did not.
-A backend older than protocol v0.36.0 does not report a build and shows
-`version unknown`; a build without stamped version or commit shows
-`unknown build`. The agent and chat rows add an `image <sha>` line with the
-revision their default worker image was built from, and a `differs` marker when
-that is a different commit than the server's own.
+The **Running** table has one row per component with five equal columns:
+Component, Version, Image, Built and Status (Built is left out at phone width).
+The rows are ContextMatrix and each configured, enabled backend (agent, chat,
+architect). Status is `running` for ContextMatrix, `connected` for a backend
+that answered and `unreachable` for one that did not. A backend older than
+protocol v0.36.0 does not report a build and shows `version unknown`; a build
+without stamped version or commit shows `unknown build`. In the agent and chat
+rows, Image holds the short revision their default worker image was built from,
+with a `differs` marker when that is a different commit than the backend's own;
+it is empty for ContextMatrix, the architect, and a backend that does not report
+the revision.
 
 The **Changes** tabs, one per component, list up to 20 merged PRs from the
 build's last 100 merges, newest first. Dependabot merges and PRs titled with
 the `ci`, `docs`, `chore`, `build`, `test`, `refactor` or `style` types are left
-out. Each row shows the kind (`feat`, `fix` or `change`), the title, the PR
-number and the merge date. A tab for an unreachable component says it is not
-reachable right now; a component without build info says its version is
-unknown and the build does not report its changes; a build with an empty list
-says no change history was recorded.
+out. Each row shows, in aligned columns, the kind (`feat`, `fix` or `change`),
+the title, the PR number (left out at phone width) and the merge date. A tab
+for an unreachable component says it is not reachable right now; a component
+without build info says its version is unknown and the build does not report
+its changes; a build with an empty list says no change history was recorded.
 
 Changes newer than what a browser last saw carry a **NEW** marker. A green dot
 on the user avatar or the Settings gear, on the About item and on the
