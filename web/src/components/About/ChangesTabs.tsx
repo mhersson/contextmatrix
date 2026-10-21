@@ -4,7 +4,7 @@ import type { AboutComponent } from '../../types';
 import { NewDot } from './NewDot';
 
 const muted = { color: 'var(--blueprint-quiet-strong)' };
-// NEW | kind | title | #number | date; the number column drops below sm so titles keep room on phones.
+// NEW | kind | title | #number | date; the number column drops below sm.
 const ROW_COLUMNS = 'grid-cols-[2.5rem_3.5rem_minmax(0,1fr)_3.5rem] sm:grid-cols-[3rem_3.5rem_minmax(0,1fr)_3rem_3.5rem]';
 const KIND_STYLE = {
   feat: { color: 'var(--blueprint-ink-blue)', ring: 'ring-[var(--blue)]' },
@@ -62,7 +62,7 @@ export function ChangesTabs({ components, snapshot }: { components: AboutCompone
           {changes.map((ch, i) => {
             const k = KIND_STYLE[changeKind(ch.kind)];
             return (
-              <li key={ch.number} className={`grid items-center gap-2 border-t border-[var(--bg3)] py-1.5 text-sm ${ROW_COLUMNS}`}>
+              <li key={ch.number} className={`grid items-center gap-2 border-t border-[var(--bg3)] py-1.5 text-sm first:border-t-0 ${ROW_COLUMNS}`}>
                 <span>
                   {i < fresh && (
                     <span

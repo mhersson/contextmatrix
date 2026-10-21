@@ -465,12 +465,13 @@ The **Running** table has one row per component with five equal columns:
 Component, Version, Image, Built and Status (Built is left out at phone width).
 The rows are ContextMatrix and each configured, enabled backend (agent, chat,
 architect). Status is `running` for ContextMatrix, `connected` for a backend
-that answered and `unreachable` for one that did not. A backend older than protocol v0.36.0 does not report a build and
-shows `version unknown`; a build without stamped version or commit shows
-`unknown build`. In the agent and chat rows, Image holds the short revision
-their default worker image was built from, with a `differs` marker when that is
-a different commit than the backend's own; it is empty for ContextMatrix, the
-architect, and a backend that does not report the revision.
+that answered and `unreachable` for one that did not. A backend older than
+protocol v0.36.0 does not report a build and shows `version unknown`; a build
+without stamped version or commit shows `unknown build`. In the agent and chat
+rows, Image holds the short revision their default worker image was built from,
+with a `differs` marker when that is a different commit than the backend's own;
+it is empty for ContextMatrix, the architect, and a backend that does not report
+the revision.
 
 The **Changes** tabs, one per component, list up to 20 merged PRs from the
 build's last 100 merges, newest first. Dependabot merges and PRs titled with
