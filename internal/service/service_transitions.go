@@ -60,11 +60,22 @@ func clearStaleWorkerFailure(card *board.Card) {
 
 // applyTerminalInvariants is enforceTerminalStateInvariants plus the lease
 // bookkeeping that belongs with it: a cancelled card carries no claim, so the
-// live beat and confirmation stamp this instance kept for it go too.
-func (s *CardService) applyTerminalInvariants(project string, card *board.Card, stateChanged bool) {
+// live beat and confirmation stamp this instance kept for it go too. from is
+// the card's state before the change.
+//
+// Leaving done also clears the phase and the PR URL. The agent re-enters a run
+// at its persisted phase and gates the recorded PR, so a reopened card would
+// otherwise replay only the finished run's done phase, or gate its old PR.
+func (s *CardService) applyTerminalInvariants(project string, card *board.Card, from string) {
 	r := s.repoOf(project)
+	stateChanged := card.State != from
 
 	enforceTerminalStateInvariants(card, stateChanged, r.sharedClaims())
+
+	if stateChanged && from == board.StateDone {
+		card.Phase = ""
+		card.PRUrl = ""
+	}
 
 	if stateChanged && card.State == board.StateNotPlanned {
 		r.Lock.ClearBeat(project, card.ID)
@@ -219,9 +230,8 @@ func (s *CardService) transitionParentDirect(
 		// applyCardMutation). "system" - auto-transitions carry no agent.
 		appendStateChangeLog(parent, oldState, state, "system", parent.Updated)
 
-		// State-change invariants: release claim on not_planned, clear
-		// worker_status on terminal states.
-		s.applyTerminalInvariants(parent.Project, parent, true)
+		// State-change invariants: see applyTerminalInvariants.
+		s.applyTerminalInvariants(parent.Project, parent, oldState)
 
 		if err := s.store.UpdateCard(ctx, parent.Project, parent); err != nil {
 			return fmt.Errorf("persist parent card: %w", err)

@@ -520,10 +520,8 @@ func (s *CardService) transitionStep(
 
 	appendStateChangeLog(card, oldState, state, "", card.Updated)
 
-	// State-change invariants: release claim on not_planned, clear
-	// worker_status on terminal states. Each step in the path is a state
-	// change, so pass stateChanged=true.
-	s.applyTerminalInvariants(project, card, true)
+	// State-change invariants: see applyTerminalInvariants.
+	s.applyTerminalInvariants(project, card, oldState)
 
 	if err := s.validator.ValidateCard(cfg, card); err != nil {
 		return nil, fmt.Errorf("validate card: %w", err)

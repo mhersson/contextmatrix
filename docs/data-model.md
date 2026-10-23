@@ -602,7 +602,10 @@ one of `plan`, `execute`, `judge`, `document`, `review`, `integrate`,
 run to pick a winner before `document`. `pr_gates` waits on the PR's CI and
 Copilot review when `await_ci` / `await_copilot_review` are set. Enum
 validated; the empty string clears it. Settable via `update_card` and REST
-`PATCH`.
+`PATCH`. Any move out of `done` clears it and `pr_url`, so a reopened card's
+next run starts fresh and never gates the finished run's PR (the activity log
+keeps that PR's link); every other state change keeps both, which is how the
+agent resumes a relaunched failed, parked or stalled card.
 
 **Section upsert**: the MCP `update_card` tool accepts
 `upsert_section_heading` plus `upsert_section_content` (both or neither).
