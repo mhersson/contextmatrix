@@ -18,9 +18,11 @@ interface BlueprintFieldsProps {
   value: BlueprintForm;
   onChange: (next: BlueprintForm) => void;
   models: ChatModelChoice;
+  /** Projects a hand-off named that CM no longer has. */
+  leftOut?: readonly string[];
 }
 
-export function BlueprintFields({ projects, value, onChange, models }: BlueprintFieldsProps) {
+export function BlueprintFields({ projects, value, onChange, models, leftOut = [] }: BlueprintFieldsProps) {
   const picked = value.projects.length;
   return (
     <>
@@ -31,6 +33,7 @@ export function BlueprintFields({ projects, value, onChange, models }: Blueprint
           selected={value.projects}
           onChange={(next) => onChange({ ...value, projects: next })}
         />
+        {leftOut.length > 0 && <p className="nd-note">Left out, no longer in ContextMatrix: {leftOut.join(', ')}</p>}
       </Field>
       <Field label="Mode">
         <ModeCards mode={value.mode} onChange={(mode) => onChange({ ...value, mode })} />

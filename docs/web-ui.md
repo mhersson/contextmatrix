@@ -172,7 +172,16 @@ board. Promote-to-autonomous lives in that tab.
   Ctrl+Enter anywhere, or Enter in the title, creates. The button names the
   outcome (Create chat, Create blueprint, or Create and run for yolo). A
   blueprint whose architect does not start keeps the dialog open with the error,
-  and with unchanged settings, Create then retries the same session. The sidebar
+  and with unchanged settings, Create then retries the same session. Opened from
+  a chat's hand-off, the dialog is a New blueprint dialog without the tiles: a
+  banner names the chat, the title is the hand-off's, an editable Need field
+  shows its size against 64 KiB (Create is disabled while it is empty or over),
+  and the hand-off's projects are ticked; a project no longer in CM is left out
+  and named in a note. The mode, Plain language, model and cost cap start as
+  usual. Create makes the blueprint, opens its pane and posts the need as its
+  first message. A failed post keeps the dialog open, and Create retries it on
+  the same blueprint. A second blueprint from the same hand-off, or one from a
+  hand-off a newer one replaced, is refused with a message. The sidebar
   marks blueprint sessions with an aqua drafting-compass icon. The pane header
   shows a blueprint's mode and cost cap, and the architect's spend from the
   blueprint view (the figure the scale bar shows) where a chat's header shows

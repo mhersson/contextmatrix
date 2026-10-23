@@ -3,9 +3,11 @@ import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useIdentity } from '../../hooks/useIdentity';
 import { useProjects } from '../../hooks/useProjects';
 import { useTheme } from '../../hooks/useTheme';
+import type { HandoffPrefill } from '../../components/ChatPanel/handoff';
 import { BlueprintFields } from './BlueprintFields';
 import { ChatModelPicker } from './ChatModelPicker';
 import { Field } from './Field';
+import { HandoffBanner, NeedField } from './HandoffFields';
 import { KindTiles } from './KindTiles';
 import { NewChatFooter } from './NewChatFooter';
 import { ProjectList } from './ProjectList';
@@ -13,6 +15,7 @@ import {
   EMPTY_BLUEPRINT_FORM,
   createLabel,
   disabledReason,
+  needReason,
   readPlainLanguage,
   rememberPlainLanguage,
   type BlueprintForm,
@@ -23,26 +26,43 @@ import { useCreateSession } from './useCreateSession';
 interface NewChatDialogProps {
   open: boolean;
   onClose: () => void;
+  /** Opens a New blueprint dialog pre-filled from a chat's hand-off. */
+  handoff?: HandoffPrefill;
 }
 
 // The model pick lives out here so it persists between opens; the body
 // remounts on every open, so everything else starts fresh.
-export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
+export function NewChatDialog({ open, onClose, handoff }: NewChatDialogProps) {
   const choices = useChatModelChoice();
   if (!open) return null;
-  return <NewChatDialogBody onClose={onClose} choices={choices} />;
+  return <NewChatDialogBody onClose={onClose} choices={choices} handoff={handoff} />;
 }
 
-function NewChatDialogBody({ onClose, choices }: { onClose: () => void; choices: ChatModelChoices }) {
-  const { projects } = useProjects();
+interface NewChatDialogBodyProps {
+  onClose: () => void;
+  choices: ChatModelChoices;
+  handoff?: HandoffPrefill;
+}
+
+function NewChatDialogBody({ onClose, choices, handoff }: NewChatDialogBodyProps) {
+  const { projects, loading } = useProjects();
   const { architectEnabled } = useTheme();
   const { identity } = useIdentity();
-  const [blueprint, setBlueprint] = useState(false);
+  const [blueprint, setBlueprint] = useState(handoff !== undefined);
   const [form, setForm] = useState<BlueprintForm>(() => ({
     ...EMPTY_BLUEPRINT_FORM,
+    projects: handoff?.projects ?? [],
     plainLanguage: readPlainLanguage(identity),
   }));
-  const [title, setTitle] = useState('');
+  const [title, setTitle] = useState(handoff?.title ?? '');
+  const [need, setNeed] = useState(handoff?.need ?? '');
+  // Null until the project list has loaded; a name missing before then may only be loading.
+  const [leftOut, setLeftOut] = useState<string[] | null>(null);
+  if (handoff && !loading && leftOut === null) {
+    const known = new Set(projects.map((p) => p.name));
+    setLeftOut(handoff.projects.filter((name) => !known.has(name)));
+    setForm((f) => ({ ...f, projects: f.projects.filter((name) => known.has(name)) }));
+  }
   const [project, setProject] = useState('');
   const { create, creating, error, clearError } = useCreateSession(onClose);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -62,7 +82,7 @@ function NewChatDialogBody({ onClose, choices }: { onClose: () => void; choices:
 
   const picked = choices.blueprint;
   const modelUnpriced = picked.models.some((m) => m.id === picked.model && m.unpriced === true);
-  const reason = disabledReason(blueprint, form, modelUnpriced);
+  const reason = disabledReason(blueprint, form, modelUnpriced) ?? (handoff ? needReason(need) : null);
   const canCreate = !creating && reason === null;
 
   const submit = () => {
@@ -79,8 +99,10 @@ function NewChatDialogBody({ onClose, choices }: { onClose: () => void; choices:
             mode: form.mode,
             cost_cap_usd: form.capUSD > 0 ? form.capUSD : undefined,
             ...(form.plainLanguage ? { plain_language: true } : {}),
+            ...(handoff ? { origin_chat: handoff.chatId, origin_seq: handoff.seq } : {}),
           }
         : { title: name, project: project || undefined, model: choices.chat.model || undefined },
+      handoff ? need : undefined,
     );
   };
 
@@ -104,11 +126,19 @@ function NewChatDialogBody({ onClose, choices }: { onClose: () => void; choices:
       >
         <div className="nd-head">
           <h2 id={headingId}>{blueprint ? 'New blueprint' : 'New chat'}</h2>
-          {architectEnabled && <KindTiles blueprint={blueprint} onChange={(next) => {
-                setBlueprint(next);
-                clearError();
-              }}
-            />}
+          {handoff ? (
+            <HandoffBanner chatTitle={handoff.chatTitle} />
+          ) : (
+            architectEnabled && (
+              <KindTiles
+                blueprint={blueprint}
+                onChange={(next) => {
+                  setBlueprint(next);
+                  clearError();
+                }}
+              />
+            )
+          )}
         </div>
         <div className="nd-body">
           <Field label="Title" hint="Optional" htmlFor={titleFieldId}>
@@ -127,8 +157,15 @@ function NewChatDialogBody({ onClose, choices }: { onClose: () => void; choices:
               placeholder="Named from your first message if blank"
             />
           </Field>
+          {handoff && <NeedField value={need} onChange={setNeed} />}
           {blueprint ? (
-            <BlueprintFields projects={projects} value={form} onChange={setForm} models={picked} />
+            <BlueprintFields
+              projects={projects}
+              value={form}
+              onChange={setForm}
+              models={picked}
+              leftOut={leftOut ?? undefined}
+            />
           ) : (
             <>
               <Field label="Project" hint={project ? 'The chat gets a checkout of its repo' : 'No checkout'}>

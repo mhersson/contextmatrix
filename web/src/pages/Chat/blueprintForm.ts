@@ -1,3 +1,4 @@
+import { BLUEPRINT_MESSAGE_MAX_BYTES, formatBytes, utf8Length } from '../../components/ChatPanel/chatEntryUtils';
 import { safeReadBool, safeWriteBool } from '../../utils/safeStorage';
 
 export type BlueprintMode = 'default' | 'auto' | 'auto+emit' | 'yolo';
@@ -80,6 +81,15 @@ export function disabledReason(blueprint: boolean, form: BlueprintForm, modelUnp
   if (form.projects.length === 0) return 'Pick at least one project to create the blueprint.';
   if (form.capUSD > 0 && modelUnpriced) {
     return UNPRICED_CAP_REASON;
+  }
+  return null;
+}
+
+/** Why a handed-over need cannot be posted as the blueprint's first message, or null when it can. */
+export function needReason(need: string): string | null {
+  if (need.trim() === '') return 'Write the need to create the blueprint.';
+  if (utf8Length(need) > BLUEPRINT_MESSAGE_MAX_BYTES) {
+    return `The need is over ${formatBytes(BLUEPRINT_MESSAGE_MAX_BYTES)}; shorten it to create the blueprint.`;
   }
   return null;
 }

@@ -10,6 +10,8 @@ import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { api, isAPIError } from '../../api/client';
 import { safeRemove } from '../../utils/safeStorage';
 import { ConfirmModal } from '../../components/ConfirmModal/ConfirmModal';
+import type { HandoffPrefill } from '../../components/ChatPanel/handoff';
+import { HandoffContext, type HandoffContextValue } from '../../components/ChatPanel/handoffContext';
 import {
   CHAT_DRAG_START_EVENT,
   CHAT_DRAG_END_EVENT,
@@ -34,6 +36,7 @@ export function ChatPage() {
   const [params, setParams] = useSearchParams();
   const wantsNew = params.get('new') === '1';
   const [dialogOpen, setDialogOpen] = useState(wantsNew);
+  const [handoff, setHandoff] = useState<HandoffPrefill | null>(null);
 
   const { sessions } = useChatSessions();
   const isDesktop = useMediaQuery('(min-width: 768px)');
@@ -127,8 +130,15 @@ export function ChatPage() {
     if (wantsNew) setDialogOpen(true);
   }
 
+  const openHandoff = useCallback((prefill: HandoffPrefill) => {
+    setHandoff(prefill);
+    setDialogOpen(true);
+  }, []);
+  const handoffValue = useMemo<HandoffContextValue>(() => ({ sessions, openHandoff }), [sessions, openHandoff]);
+
   const closeDialog = () => {
     setDialogOpen(false);
+    setHandoff(null);
     if (params.get('new')) {
       const next = new URLSearchParams(params);
       next.delete('new');
@@ -257,28 +267,30 @@ export function ChatPage() {
           />
         )}
         <div className="flex-1 min-h-0">
-          <ChatLayout
-            panes={layout.state.panes}
-            focused={layout.state.focused}
-            sizes={layout.state.sizes}
-            availableChats={availableChats}
-            draggingChatId={layout.draggingChatId}
-            isMobile={isMobile}
-            onFocus={layout.focus}
-            onClose={layout.closePane}
-            onSplit={layout.splitFromPane}
-            onResize={handleResize}
-            onDropChatOnPane={handleDropChatOnPane}
-            onMovePane={handleMovePane}
-            onPickEmptyPane={layout.swapPaneChat}
-            onCancelEmpty={layout.cancelEmptyPane}
-            onNewChat={() => setDialogOpen(true)}
-            onEndSession={handleEndSession}
-            onClearContext={requestClearContext}
-            onReopenChat={handleReopenChat}
-            onDeleteChat={requestDeleteChat}
-            renderPaneBody={renderPaneBody}
-          />
+          <HandoffContext.Provider value={handoffValue}>
+            <ChatLayout
+              panes={layout.state.panes}
+              focused={layout.state.focused}
+              sizes={layout.state.sizes}
+              availableChats={availableChats}
+              draggingChatId={layout.draggingChatId}
+              isMobile={isMobile}
+              onFocus={layout.focus}
+              onClose={layout.closePane}
+              onSplit={layout.splitFromPane}
+              onResize={handleResize}
+              onDropChatOnPane={handleDropChatOnPane}
+              onMovePane={handleMovePane}
+              onPickEmptyPane={layout.swapPaneChat}
+              onCancelEmpty={layout.cancelEmptyPane}
+              onNewChat={() => setDialogOpen(true)}
+              onEndSession={handleEndSession}
+              onClearContext={requestClearContext}
+              onReopenChat={handleReopenChat}
+              onDeleteChat={requestDeleteChat}
+              renderPaneBody={renderPaneBody}
+            />
+          </HandoffContext.Provider>
         </div>
       </div>
       {evictToast && (
@@ -315,7 +327,7 @@ export function ChatPage() {
           >×</button>
         </div>
       )}
-      <NewChatDialog open={dialogOpen} onClose={closeDialog} />
+      <NewChatDialog open={dialogOpen} onClose={closeDialog} handoff={handoff ?? undefined} />
       <ConfirmModal
         open={pendingClear !== null}
         title="Clear context"

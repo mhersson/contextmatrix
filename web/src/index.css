@@ -6663,6 +6663,30 @@ textarea {
   font-size: 11.5px;
   color: var(--grey1);
 }
+.nd-note--over {
+  color: var(--red);
+}
+.nd-banner {
+  margin: 0 0 2px;
+  padding: 8px 11px;
+  border: 1px solid var(--bg3);
+  border-left: 3px solid var(--aqua);
+  border-radius: 8px;
+  background: var(--bg0);
+  font-size: 12.5px;
+  color: var(--grey1);
+}
+.nd-banner b {
+  font-weight: 600;
+  color: var(--fg);
+}
+.nd-need {
+  min-height: 140px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
 @media (max-width: 480px) {
   .nd-kinds,
   .nd-modes {
