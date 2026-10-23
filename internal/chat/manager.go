@@ -994,6 +994,10 @@ type CreateInput struct {
 	Mode          string
 	CostCapUSD    float64
 	PlainLanguage bool
+	// OriginChat and OriginSeq name the chat and its handoff row this
+	// blueprint starts from; KindArchitect only.
+	OriginChat string
+	OriginSeq  int64
 }
 
 // CreateSession inserts a cold-state session row. The container is
@@ -1060,6 +1064,10 @@ func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, e
 		return Session{}, fmt.Errorf("%w: unknown session kind %q", ErrInvalidSessionInput, in.Kind)
 	}
 
+	if err := m.checkOrigin(ctx, kind, in); err != nil {
+		return Session{}, err
+	}
+
 	now := m.clk.Now().UTC().Truncate(time.Second)
 
 	sess := Session{
@@ -1076,6 +1084,8 @@ func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, e
 		LastActive:    now,
 		CreatedBy:     in.CreatedBy,
 		Model:         in.Model,
+		OriginChat:    in.OriginChat,
+		OriginSeq:     in.OriginSeq,
 	}
 	if err := m.store.CreateSession(ctx, sess); err != nil {
 		return Session{}, fmt.Errorf("chat: CreateSession: %w", err)

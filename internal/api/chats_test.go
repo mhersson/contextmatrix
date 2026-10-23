@@ -1832,3 +1832,67 @@ func TestSendMessage_BlueprintTakes64KiB(t *testing.T) {
 	assert.Equal(t, ErrCodeContentTooLarge, recorderErrorCode(t, rec))
 	assert.Len(t, arch.sentPayloads(), 1)
 }
+
+func TestCreateChat_FromAHandoff(t *testing.T) {
+	mux, mgr := newChatFixture(t, architectFixtureOpts())
+	origin := seedSession(t, mgr, "human:web")
+
+	row, err := mgr.PostHandoff(t.Context(), origin.ID, chat.Handoff{
+		Title: "Budgets", Need: "need", Projects: []string{"alpha"},
+	})
+	require.NoError(t, err)
+
+	body := fmt.Sprintf(`{"kind":"architect","projects":["alpha"],"origin_chat":%q,"origin_seq":%d}`, origin.ID, row.Seq)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats", body))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+	var sess chat.Session
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sess))
+	assert.Equal(t, origin.ID, sess.OriginChat)
+	assert.Equal(t, row.Seq, sess.OriginSeq)
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats", body))
+	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	assert.Equal(t, ErrCodeHandoffTaken, recorderErrorCode(t, rec))
+}
+
+func TestCreateChat_ReplacedHandoffIsConflict(t *testing.T) {
+	mux, mgr := newChatFixture(t, architectFixtureOpts())
+	origin := seedSession(t, mgr, "human:web")
+	h := chat.Handoff{Title: "Budgets", Need: "need", Projects: []string{"alpha"}}
+
+	first, err := mgr.PostHandoff(t.Context(), origin.ID, h)
+	require.NoError(t, err)
+	_, err = mgr.PostHandoff(t.Context(), origin.ID, h)
+	require.NoError(t, err)
+
+	body := fmt.Sprintf(`{"kind":"architect","projects":["alpha"],"origin_chat":%q,"origin_seq":%d}`, origin.ID, first.Seq)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats", body))
+	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	assert.Equal(t, ErrCodeHandoffReplaced, recorderErrorCode(t, rec))
+}
+
+func TestCreateChat_ForeignOriginIsNotFound(t *testing.T) {
+	mux, mgr := newChatFixture(t, architectFixtureOpts())
+	origin := seedSession(t, mgr, "human:alice")
+
+	row, err := mgr.PostHandoff(t.Context(), origin.ID, chat.Handoff{
+		Title: "Budgets", Need: "need", Projects: []string{"alpha"},
+	})
+	require.NoError(t, err)
+
+	body := fmt.Sprintf(`{"kind":"architect","projects":["alpha"],"origin_chat":%q,"origin_seq":%d}`, origin.ID, row.Seq)
+
+	rec := httptest.NewRecorder()
+	asUser(mux, "bob", false).ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats", body))
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+	assert.Equal(t, ErrCodeChatNotFound, recorderErrorCode(t, rec))
+
+	list, err := mgr.ListSessions(t.Context(), chat.SessionFilter{Kind: chat.KindArchitect})
+	require.NoError(t, err)
+	assert.Empty(t, list)
+}

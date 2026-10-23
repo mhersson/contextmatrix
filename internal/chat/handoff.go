@@ -23,6 +23,9 @@ const (
 // maxHandoffRowBytes bounds the stored envelope; JSON escapes one byte to at most six.
 const maxHandoffRowBytes = 6*(MaxBlueprintMessageBytes+MaxHandoffTitleBytes) + 16*1024
 
+// ErrHandoffReplaced reports a create from a hand-off a newer one superseded.
+var ErrHandoffReplaced = errors.New("chat: a newer hand-off replaced this one")
+
 // Handoff is the content of a handoff row.
 type Handoff struct {
 	Title    string   `json:"title"`
@@ -126,4 +129,50 @@ func (m *Manager) PostHandoff(ctx context.Context, sessionID string, h Handoff) 
 	}
 
 	return msg, nil
+}
+
+// checkOrigin validates the hand-off a blueprint create names, if any.
+func (m *Manager) checkOrigin(ctx context.Context, kind SessionKind, in CreateInput) error {
+	if in.OriginChat == "" {
+		if in.OriginSeq != 0 {
+			return fmt.Errorf("%w: origin_seq needs origin_chat", ErrInvalidSessionInput)
+		}
+
+		return nil
+	}
+
+	if kind != KindArchitect {
+		return fmt.Errorf("%w: only a blueprint session starts from a hand-off", ErrInvalidSessionInput)
+	}
+
+	if in.OriginSeq <= 0 {
+		return fmt.Errorf("%w: origin_seq must name the hand-off row", ErrInvalidSessionInput)
+	}
+
+	origin, err := m.store.GetSession(ctx, in.OriginChat)
+	if err != nil {
+		if errors.Is(err, ErrSessionNotFound) {
+			return fmt.Errorf("%w: unknown origin chat", ErrInvalidSessionInput)
+		}
+
+		return fmt.Errorf("chat: CreateSession: origin chat: %w", err)
+	}
+
+	if origin.Kind != KindChat {
+		return fmt.Errorf("%w: the origin must be a plain chat", ErrInvalidSessionInput)
+	}
+
+	newest, err := m.store.LastSeqOfKind(ctx, origin.ID, EventKindHandoff)
+	if err != nil {
+		return fmt.Errorf("chat: CreateSession: newest hand-off: %w", err)
+	}
+
+	switch {
+	case newest == 0:
+		return fmt.Errorf("%w: the origin chat has no hand-off", ErrInvalidSessionInput)
+	case newest != in.OriginSeq:
+		return ErrHandoffReplaced
+	}
+
+	return nil
 }

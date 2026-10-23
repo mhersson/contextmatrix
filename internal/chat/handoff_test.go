@@ -152,3 +152,106 @@ func TestPostHandoff_OnlyFromAPlainChatWithAnArchitect(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, rows)
 }
+
+func architectFromHandoff(chatID string, seq int64) chat.CreateInput {
+	return chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web",
+		OriginChat: chatID, OriginSeq: seq,
+	}
+}
+
+func TestCreateSession_FromAHandoff(t *testing.T) {
+	ctx := context.Background()
+	mgr, origin, _ := newHandoffManager(t)
+
+	row, err := mgr.PostHandoff(ctx, origin.ID, validHandoff())
+	require.NoError(t, err)
+
+	sess, err := mgr.CreateSession(ctx, architectFromHandoff(origin.ID, row.Seq))
+	require.NoError(t, err)
+	assert.Equal(t, origin.ID, sess.OriginChat)
+	assert.Equal(t, row.Seq, sess.OriginSeq)
+
+	got, err := mgr.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, origin.ID, got.OriginChat)
+	assert.Equal(t, row.Seq, got.OriginSeq)
+}
+
+func TestCreateSession_OriginTakenOnce(t *testing.T) {
+	ctx := context.Background()
+	mgr, origin, _ := newHandoffManager(t)
+
+	row, err := mgr.PostHandoff(ctx, origin.ID, validHandoff())
+	require.NoError(t, err)
+
+	first, err := mgr.CreateSession(ctx, architectFromHandoff(origin.ID, row.Seq))
+	require.NoError(t, err)
+
+	_, err = mgr.CreateSession(ctx, architectFromHandoff(origin.ID, row.Seq))
+	require.ErrorIs(t, err, chat.ErrHandoffTaken)
+
+	require.NoError(t, mgr.DeleteSession(ctx, first.ID))
+
+	_, err = mgr.CreateSession(ctx, architectFromHandoff(origin.ID, row.Seq))
+	require.NoError(t, err)
+}
+
+func TestCreateSession_ReplacedHandoffRefused(t *testing.T) {
+	ctx := context.Background()
+	mgr, origin, _ := newHandoffManager(t)
+
+	s1, err := mgr.PostHandoff(ctx, origin.ID, validHandoff())
+	require.NoError(t, err)
+	s2, err := mgr.PostHandoff(ctx, origin.ID, validHandoff())
+	require.NoError(t, err)
+	require.Greater(t, s2.Seq, s1.Seq)
+
+	_, err = mgr.CreateSession(ctx, architectFromHandoff(origin.ID, s1.Seq))
+	require.ErrorIs(t, err, chat.ErrHandoffReplaced)
+
+	_, err = mgr.CreateSession(ctx, architectFromHandoff(origin.ID, s2.Seq))
+	require.NoError(t, err)
+}
+
+func TestCreateSession_InvalidOrigin(t *testing.T) {
+	ctx := context.Background()
+	mgr, origin, _ := newHandoffManager(t)
+
+	row, err := mgr.PostHandoff(ctx, origin.ID, validHandoff())
+	require.NoError(t, err)
+
+	arch, err := mgr.CreateSession(ctx, chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web",
+	})
+	require.NoError(t, err)
+
+	bare, err := mgr.CreateSession(ctx, chat.CreateInput{CreatedBy: "human:web"})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		in   chat.CreateInput
+	}{
+		{"origin on a chat-kind create", chat.CreateInput{CreatedBy: "human:web", OriginChat: origin.ID, OriginSeq: row.Seq}},
+		{"unknown origin", architectFromHandoff("missing", row.Seq)},
+		{"origin is an architect session", architectFromHandoff(arch.ID, row.Seq)},
+		{"origin has no handoff row", architectFromHandoff(bare.ID, 1)},
+		{"zero seq", architectFromHandoff(origin.ID, 0)},
+		{"seq without origin", architectFromHandoff("", row.Seq)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			before, err := mgr.ListSessions(ctx, chat.SessionFilter{})
+			require.NoError(t, err)
+
+			_, err = mgr.CreateSession(ctx, tt.in)
+			require.ErrorIs(t, err, chat.ErrInvalidSessionInput)
+
+			after, err := mgr.ListSessions(ctx, chat.SessionFilter{})
+			require.NoError(t, err)
+			assert.Len(t, after, len(before))
+		})
+	}
+}

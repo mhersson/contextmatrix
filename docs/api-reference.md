@@ -271,6 +271,8 @@ the request's `request_id`.
 | `PROTECTED_BRANCH`            | 403     | MCP `report_push` targeted `main` / `master`                                                                                                                                               |
 | `REVIEW_ATTEMPTS_CAPPED`      | 409     | Review attempts limit reached                                                                                                                                                              |
 | `CHAT_NOT_FOUND`              | 404     | Chat session ID does not exist (or belongs to another user in multi mode)                                                                                                                  |
+| `HANDOFF_TAKEN`               | 409     | A blueprint was already started from this hand-off                                                                                                                                         |
+| `HANDOFF_REPLACED`            | 409     | A newer hand-off in the chat replaced the one named                                                                                                                                        |
 | `CHAT_KIND_UNAVAILABLE`       | 409     | No backend is configured for the chat session's kind (for example no architect backend for a blueprint)                                                                                    |
 | `BLUEPRINT_NOT_FOUND`         | 404     | Chat session is not a blueprint, or the architect answered 404 for the blueprint, artifact or route                                                                                        |
 | `INVALID_MODEL`               | 400     | Chat `model` not in the active model source                                                                                                                                                |
@@ -2538,6 +2540,14 @@ exactly like an omitted one; any other model is validated against the catalog
 as for chat sessions. Violations are 400 `INVALID_CHAT_INPUT` with the reason
 in `details`; a create with no architect backend configured is 409
 `CHAT_KIND_UNAVAILABLE`.
+
+`origin_chat` and `origin_seq` start a blueprint from a hand-off: `origin_chat`
+must be the caller's own plain chat and `origin_seq` the seq of its newest
+`handoff` row. At most one blueprint exists per hand-off: 409 `HANDOFF_TAKEN`
+when one does (deleting it frees the hand-off), 409 `HANDOFF_REPLACED` when a
+newer hand-off exists. A foreign or missing origin chat is 404
+`CHAT_NOT_FOUND`; any other origin error is 400 `INVALID_CHAT_INPUT`. The
+session response carries `origin_chat` and `origin_seq`.
 
 **Response:** 201 with the session.
 

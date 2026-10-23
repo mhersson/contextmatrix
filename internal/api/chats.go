@@ -26,6 +26,8 @@ const (
 
 	ErrCodeInvalidChatInput    = "INVALID_CHAT_INPUT"
 	ErrCodeChatKindUnavailable = "CHAT_KIND_UNAVAILABLE"
+	ErrCodeHandoffTaken        = "HANDOFF_TAKEN"
+	ErrCodeHandoffReplaced     = "HANDOFF_REPLACED"
 	ErrCodeInvalidModel        = "INVALID_MODEL"
 )
 
@@ -263,9 +265,27 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 		Mode          string   `json:"mode"`
 		CostCapUSD    float64  `json:"cost_cap_usd"`
 		PlainLanguage bool     `json:"plain_language"`
+		OriginChat    string   `json:"origin_chat"`
+		OriginSeq     int64    `json:"origin_seq"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
+	}
+
+	// A foreign or missing origin chat is a 404 before anything is created.
+	if body.OriginChat != "" {
+		origin, err := h.mgr.GetSession(r.Context(), body.OriginChat)
+		if err != nil {
+			handleChatError(w, r, err)
+
+			return
+		}
+
+		if id, ok := sessionIdentity(r.Context()); ok && origin.CreatedBy != id {
+			handleChatError(w, r, chat.ErrSessionNotFound)
+
+			return
+		}
 	}
 
 	kind := chat.SessionKind(body.Kind)
@@ -319,6 +339,8 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 		Mode:          body.Mode,
 		CostCapUSD:    body.CostCapUSD,
 		PlainLanguage: body.PlainLanguage,
+		OriginChat:    body.OriginChat,
+		OriginSeq:     body.OriginSeq,
 	})
 	if err != nil {
 		handleChatError(w, r, err)
@@ -1085,6 +1107,12 @@ func handleChatError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, chat.ErrKindUnavailable):
 		logger.Warn("chat error", "error", err)
 		writeError(w, http.StatusConflict, ErrCodeChatKindUnavailable, "no backend configured for this session kind", "")
+	case errors.Is(err, chat.ErrHandoffTaken):
+		logger.Warn("chat error", "error", err)
+		writeError(w, http.StatusConflict, ErrCodeHandoffTaken, "a blueprint was already started from this hand-off", "")
+	case errors.Is(err, chat.ErrHandoffReplaced):
+		logger.Warn("chat error", "error", err)
+		writeError(w, http.StatusConflict, ErrCodeHandoffReplaced, "a newer hand-off replaced this one", "")
 	default:
 		logger.Error("chat error", "error", err)
 		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "internal error", "")
