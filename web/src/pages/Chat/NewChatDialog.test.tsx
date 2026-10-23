@@ -1,13 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { NewChatDialog } from './NewChatDialog';
-import { PLAIN_LANGUAGE } from './blueprintForm';
+import { PLAIN_LANGUAGE, needReason } from './blueprintForm';
+import { HANDOFF_REFUSALS, NEED_NOT_POSTED } from './useCreateSession';
+import { BLUEPRINT_MESSAGE_MAX_BYTES, formatBytes, utf8Length } from '../../components/ChatPanel/chatEntryUtils';
+import type { HandoffPrefill } from '../../components/ChatPanel/handoff';
 
 const navigate = vi.fn();
 vi.mock('react-router', () => ({ useNavigate: () => navigate }));
 
 const createChat = vi.fn();
 const openChat = vi.fn();
+const sendChatMessage = vi.fn();
 vi.mock('../../api/client', () => {
   const isAPIError = (e: unknown): e is { error: string; code?: string } =>
     typeof e === 'object' && e !== null && typeof (e as { error?: unknown }).error === 'string';
@@ -15,6 +19,7 @@ vi.mock('../../api/client', () => {
     api: {
       createChat: (...args: unknown[]) => createChat(...args),
       openChat: (...args: unknown[]) => openChat(...args),
+      sendChatMessage: (...args: unknown[]) => sendChatMessage(...args),
       listChatModels: () =>
         Promise.resolve({
           source: modelSource,
@@ -28,9 +33,16 @@ vi.mock('../../api/client', () => {
   };
 });
 
+let projectsLoading = false;
+let projectsError: string | null = null;
 vi.mock('../../hooks/useProjects', () => ({
   useProjects: () => ({
-    projects: [{ name: 'alpha', display_name: 'Alpha', repo: 'git@github.com:example/alpha.git' }, { name: 'beta' }],
+    projects:
+      projectsLoading || projectsError
+        ? []
+        : [{ name: 'alpha', display_name: 'Alpha', repo: 'git@github.com:example/alpha.git' }, { name: 'beta' }],
+    loading: projectsLoading,
+    error: projectsError,
   }),
 }));
 vi.mock('../../hooks/useChatSessions', () => ({ notifyChatSessionsChanged: vi.fn() }));
@@ -63,12 +75,16 @@ describe('NewChatDialog', () => {
     identity = 'human:web-abc';
     createChat.mockReset();
     openChat.mockReset();
+    sendChatMessage.mockReset();
     navigate.mockReset();
     architectEnabled = true;
+    projectsLoading = false;
+    projectsError = null;
     modelSource = 'endpoint';
     modelList = baseModels;
     createChat.mockResolvedValue({ id: 'S1', title: '', status: 'cold' });
     openChat.mockResolvedValue({ id: 'S1', title: '', status: 'active' });
+    sendChatMessage.mockResolvedValue({ ok: true, message_id: 'M1' });
   });
 
   it('offers no kind switch when no architect backend is configured', () => {
@@ -308,5 +324,176 @@ describe('NewChatDialog', () => {
     expect(plainSwitch()).not.toBeChecked();
     await createAlpha();
     expect(createChat.mock.calls[0][0]).not.toHaveProperty('plain_language');
+  });
+  describe('from a hand-off', () => {
+    const prefill: HandoffPrefill = {
+      chatId: 'C',
+      chatTitle: 'Card budgets',
+      seq: 4,
+      title: 'Card time budgets',
+      need: '## Need\nx',
+      projects: ['alpha', 'gone'],
+    };
+    const openHandoff = () => render(<NewChatDialog open onClose={() => {}} handoff={prefill} />);
+    const createButton = () => screen.getByRole('button', { name: 'Create blueprint' });
+
+    it('opens pre-filled from a hand-off', () => {
+      openHandoff();
+      expect(screen.getByRole('heading', { name: 'New blueprint' })).toBeInTheDocument();
+      expect(screen.getByRole('note')).toHaveTextContent(prefill.chatTitle);
+      expect(screen.getByLabelText('Title')).toHaveValue(prefill.title);
+      expect(screen.getByLabelText('Need')).toHaveValue(prefill.need);
+      expect(screen.getByRole('checkbox', { name: 'Alpha' })).toBeChecked();
+      expect(screen.getByRole('checkbox', { name: 'beta' })).not.toBeChecked();
+      expect(screen.getByText(/\bgone\b/)).toBeInTheDocument();
+      expect(screen.queryByRole('radio', { name: 'Chat' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('radio', { name: 'Blueprint' })).not.toBeInTheDocument();
+    });
+
+    it('leaves no project out and waits to create until the project list has loaded', () => {
+      projectsLoading = true;
+      const view = openHandoff();
+      expect(screen.queryByText(/\bgone\b/)).not.toBeInTheDocument();
+      expect(createButton()).toBeDisabled();
+      projectsLoading = false;
+      view.rerender(<NewChatDialog open onClose={() => {}} handoff={prefill} />);
+      expect(screen.getByRole('checkbox', { name: 'Alpha' })).toBeChecked();
+      expect(screen.getByText(/\bgone\b/)).toBeInTheDocument();
+      expect(createButton()).toBeEnabled();
+    });
+
+    it('leaves no project out when the project list fails to load, and checks once it loads', () => {
+      projectsError = 'Failed to load projects';
+      const view = openHandoff();
+      expect(screen.queryByText(/\bgone\b/)).not.toBeInTheDocument();
+      expect(createButton()).toBeDisabled();
+      projectsError = null;
+      view.rerender(<NewChatDialog open onClose={() => {}} handoff={prefill} />);
+      expect(screen.getByRole('checkbox', { name: 'Alpha' })).toBeChecked();
+      expect(screen.getByText(/\bgone\b/)).toBeInTheDocument();
+      expect(createButton()).toBeEnabled();
+    });
+
+    it('creates, opens and posts the need once', async () => {
+      openHandoff();
+      await screen.findByLabelText('Model');
+      fireEvent.change(screen.getByLabelText('Need'), { target: { value: '## Need\nedited' } });
+      fireEvent.click(createButton());
+      await waitFor(() => expect(navigate).toHaveBeenCalledWith('/chat/S1'));
+      expect(createChat).toHaveBeenCalledTimes(1);
+      expect(createChat).toHaveBeenCalledWith({
+        title: prefill.title,
+        kind: 'architect',
+        projects: ['alpha'],
+        model: 'arch/default',
+        mode: 'default',
+        origin_chat: 'C',
+        origin_seq: 4,
+      });
+      expect(openChat).toHaveBeenCalledWith('S1');
+      expect(sendChatMessage).toHaveBeenCalledTimes(1);
+      expect(sendChatMessage).toHaveBeenCalledWith('S1', '## Need\nedited', { handoff_need: true });
+      expect(openChat.mock.invocationCallOrder[0]).toBeLessThan(sendChatMessage.mock.invocationCallOrder[0]);
+    });
+
+    it('refuses a need over 64 KiB', () => {
+      openHandoff();
+      const need = screen.getByLabelText('Need');
+      const over = '€'.repeat(21846);
+      fireEvent.change(need, { target: { value: over } });
+      expect(createButton()).toBeDisabled();
+      expect(screen.getByText(needReason(over)!)).toBeInTheDocument();
+      expect(need).toHaveAccessibleDescription(expect.stringContaining(formatBytes(utf8Length(over))));
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Enter', ctrlKey: true });
+      expect(createChat).not.toHaveBeenCalled();
+
+      const under = '€'.repeat(21845);
+      expect(utf8Length(under)).toBeLessThanOrEqual(BLUEPRINT_MESSAGE_MAX_BYTES);
+      fireEvent.change(need, { target: { value: under } });
+      expect(createButton()).toBeEnabled();
+    });
+
+    it('refuses a blank need', () => {
+      openHandoff();
+      fireEvent.change(screen.getByLabelText('Need'), { target: { value: '  ' } });
+      expect(createButton()).toBeDisabled();
+    });
+
+    it('retries a failed need send on the same session', async () => {
+      const sendErr = { error: 'boom', code: 'INTERNAL_ERROR' };
+      sendChatMessage.mockRejectedValueOnce(sendErr);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      openHandoff();
+      await screen.findByLabelText('Model');
+      fireEvent.click(createButton());
+      expect(await screen.findByRole('alert')).toHaveTextContent(NEED_NOT_POSTED);
+      expect(navigate).not.toHaveBeenCalled();
+
+      fireEvent.click(createButton());
+      await waitFor(() => expect(navigate).toHaveBeenCalledWith('/chat/S1'));
+      expect(createChat).toHaveBeenCalledTimes(1);
+      expect(openChat).toHaveBeenCalledTimes(2);
+      expect(sendChatMessage).toHaveBeenCalledTimes(2);
+      expect(sendChatMessage.mock.calls[1]).toEqual(sendChatMessage.mock.calls[0]);
+      expect(sendChatMessage.mock.calls[1][0]).toBe('S1');
+      expect(warn).toHaveBeenCalledWith(expect.any(String), sendErr);
+      warn.mockRestore();
+    });
+
+    it('retries on the same session after a setting changed', async () => {
+      sendChatMessage.mockRejectedValueOnce({ error: 'boom', code: 'INTERNAL_ERROR' });
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      openHandoff();
+      await screen.findByLabelText('Model');
+      fireEvent.click(createButton());
+      expect(await screen.findByRole('alert')).toHaveTextContent(NEED_NOT_POSTED);
+
+      fireEvent.click(screen.getByRole('radio', { name: 'Auto' }));
+      fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Renamed' } });
+      fireEvent.change(screen.getByLabelText('Need'), { target: { value: 'edited need' } });
+      fireEvent.click(createButton());
+      await waitFor(() => expect(navigate).toHaveBeenCalledWith('/chat/S1'));
+      expect(createChat).toHaveBeenCalledTimes(1);
+      expect(sendChatMessage).toHaveBeenCalledTimes(2);
+      expect(sendChatMessage).toHaveBeenLastCalledWith('S1', 'edited need', { handoff_need: true });
+      warn.mockRestore();
+    });
+
+    it('creates and posts once on a double click', async () => {
+      openHandoff();
+      await screen.findByLabelText('Model');
+      const button = createButton();
+      fireEvent.click(button);
+      fireEvent.click(button);
+      await waitFor(() => expect(navigate).toHaveBeenCalledWith('/chat/S1'));
+      expect(createChat).toHaveBeenCalledTimes(1);
+      expect(sendChatMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['HANDOFF_TAKEN', 'HANDOFF_REPLACED'] as const)('explains a %s refusal', async (code) => {
+      createChat.mockRejectedValueOnce({ error: 'conflict', code });
+      openHandoff();
+      fireEvent.click(createButton());
+      expect(await screen.findByRole('alert')).toHaveTextContent(HANDOFF_REFUSALS[code]);
+      expect(openChat).not.toHaveBeenCalled();
+      expect(sendChatMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  it('a plain New chat dialog has no Need field or banner', () => {
+    renderDialog();
+    expect(screen.queryByLabelText('Need')).not.toBeInTheDocument();
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name: 'Blueprint' }));
+    expect(screen.queryByLabelText('Need')).not.toBeInTheDocument();
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+  });
+
+  it('posts no need for a blueprint made without a hand-off', async () => {
+    startBlueprint();
+    await createAlpha();
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/chat/S1'));
+    expect(createChat.mock.calls[0][0]).not.toHaveProperty('origin_chat');
+    expect(sendChatMessage).not.toHaveBeenCalled();
   });
 });

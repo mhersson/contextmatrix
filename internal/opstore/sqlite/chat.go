@@ -21,7 +21,8 @@ var _ chat.Store = (*Store)(nil)
 const sessionColumns = `id, title, project, status, created_at, last_active, created_by,
     container_id, workspace, model, context_tokens, context_tokens_updated_at, rehydration_active,
     rehydration_started_at, prompt_tokens, completion_tokens, cache_read_tokens,
-    cache_creation_tokens, estimated_cost_usd, kind, mode, cost_cap_usd, plain_language`
+    cache_creation_tokens, estimated_cost_usd, kind, mode, cost_cap_usd, plain_language,
+    origin_chat, origin_seq`
 
 func (s *Store) CreateSession(ctx context.Context, sess chat.Session) error {
 	workspaceJSON, err := json.Marshal(sess.Workspace)
@@ -41,14 +42,19 @@ func (s *Store) CreateSession(ctx context.Context, sess chat.Session) error {
 
 	_, err = s.db.ExecContext(ctx, `INSERT INTO chat_sessions
         (id, title, project, status, created_at, last_active, created_by, container_id, workspace, model,
-         kind, mode, cost_cap_usd, plain_language)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         kind, mode, cost_cap_usd, plain_language, origin_chat, origin_seq)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sess.ID, sess.Title, nullIf(sess.Project), string(sess.Status),
 		sess.CreatedAt.Unix(), sess.LastActive.Unix(), sess.CreatedBy,
 		nullIf(sess.ContainerID), string(workspaceJSON), sess.Model,
 		string(kind), sess.Mode, sess.CostCapUSD, plainLanguage,
+		sess.OriginChat, sess.OriginSeq,
 	)
 	if err != nil {
+		if sess.OriginChat != "" && isUniqueViolation(err) {
+			return fmt.Errorf("chat: insert session: %w", chat.ErrHandoffTaken)
+		}
+
 		return fmt.Errorf("chat: insert session: %w", err)
 	}
 
@@ -419,6 +425,25 @@ func (s *Store) ListMessages(ctx context.Context, sessionID string, sinceSeq int
 	return scanChatMessages(rows)
 }
 
+func (s *Store) LastSeqOfKind(ctx context.Context, sessionID, kind string) (int64, error) {
+	var seq int64
+
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(seq), 0) FROM chat_messages WHERE session_id = ? AND kind = ?`,
+		sessionID, kind).Scan(&seq)
+	if err != nil {
+		return 0, fmt.Errorf("chat: last seq of kind: %w", err)
+	}
+
+	return seq, nil
+}
+
+// isUniqueViolation detects SQLite UNIQUE constraint failures; the driver has
+// no stable typed error for them.
+func isUniqueViolation(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
+}
+
 func (s *Store) ListMessagesTail(ctx context.Context, sessionID string, limit int) ([]chat.Message, error) {
 	if limit <= 0 {
 		return nil, nil
@@ -557,6 +582,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 		&rehydrationStartedAt,
 		&promptTokens, &completionTokens, &cacheReadTokens, &cacheCreationTokens,
 		&estimatedCostUSD, &kind, &mode, &costCapUSD, &plainLanguage,
+		&s.OriginChat, &s.OriginSeq,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return chat.Session{}, chat.ErrSessionNotFound

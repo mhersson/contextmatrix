@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseStructured } from './chatEntryUtils';
+import { parseStructured, utf8Length, formatBytes } from './chatEntryUtils';
 
 describe('parseStructured', () => {
   it('pretty-prints a JSON object', () => {
@@ -23,5 +23,20 @@ describe('parseStructured', () => {
     expect(parseStructured('true')).toBeNull();
     expect(parseStructured('"quoted string"')).toBeNull();
     expect(parseStructured('{"cut":"mid')).toBeNull();
+  });
+});
+
+describe('utf8Length', () => {
+  it('counts UTF-8 bytes', () => {
+    expect(utf8Length('a€😀')).toBe(1 + 3 + 4);
+  });
+});
+
+describe('formatBytes', () => {
+  it('formats bytes', () => {
+    expect(formatBytes(512)).toBe('512 B');
+    expect(formatBytes(65536)).toBe('64 KiB');
+    expect(formatBytes(65537)).toBe('64.1 KiB');
+    expect(formatBytes(12697)).toBe('12.4 KiB');
   });
 });

@@ -1,3 +1,4 @@
+import { BLUEPRINT_MESSAGE_MAX_BYTES, formatBytes, utf8Length } from '../../components/ChatPanel/chatEntryUtils';
 import { safeReadBool, safeWriteBool } from '../../utils/safeStorage';
 
 export type BlueprintMode = 'default' | 'auto' | 'auto+emit' | 'yolo';
@@ -82,6 +83,22 @@ export function disabledReason(blueprint: boolean, form: BlueprintForm, modelUnp
     return UNPRICED_CAP_REASON;
   }
   return null;
+}
+
+/** Why a handed-over need cannot be posted as the blueprint's first message, or null when it can. */
+export function needReason(need: string): string | null {
+  if (need.trim() === '') return 'Write the need to create the blueprint.';
+  if (utf8Length(need) > BLUEPRINT_MESSAGE_MAX_BYTES) {
+    return `The need is over ${formatBytes(BLUEPRINT_MESSAGE_MAX_BYTES)}; shorten it to create the blueprint.`;
+  }
+  return null;
+}
+
+/** Why a hand-off's Create waits: its projects are checked against the project list first. */
+export function projectListReason(failed: boolean): string {
+  return failed
+    ? 'The project list did not load; reload the page to create the blueprint.'
+    : "Loading the project list to check the hand-off's projects.";
 }
 
 export function createLabel(blueprint: boolean, mode: BlueprintMode, creating: boolean): string {

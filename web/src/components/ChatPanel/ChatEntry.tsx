@@ -1,4 +1,5 @@
 import { memo, useMemo } from 'react';
+import { Link } from 'react-router';
 import type { LogEntry } from '../../types';
 import { TimestampLabel } from '../../utils/chatTimestamp';
 import { ChatMarkdown } from './ChatMarkdown';
@@ -17,6 +18,8 @@ import { StructuredPayload } from './StructuredPayload';
 import { PromptActions } from './PromptActions';
 import { TechnicalDetail } from '../TechnicalDetail';
 import { MOCKUP_OFFER_ID, parsePromptEntry, type PromptState } from './prompts';
+import { HandoffBlock } from './HandoffBlock';
+import { HANDOFF_KIND, HANDOFF_NEED_KIND, parseHandoffEntry, type HandoffState } from './handoff';
 import { BarrierIcon, MockupIcon } from '../Blueprint/icons';
 import { parseMarkerEntry } from '../Blueprint/markers';
 import { useBlueprintSheet } from '../Blueprint/sheetContext';
@@ -41,9 +44,32 @@ interface ChatEntryProps {
   onReply?: (text: string) => Promise<void>;
   /** State of a question round row; undefined on every other row. */
   roundStatus?: RoundStatus;
+  /** State of a hand-off row; undefined on every other row. Primitives, so the memo holds. */
+  handoffStatus?: HandoffState['status'];
+  handoffBlueprintId?: string;
+  handoffBlueprintTitle?: string;
+  /** Opens the hand-off review; set only on an open hand-off. */
+  onReviewHandoff?: (entry: LogEntry) => void;
+  /** The chat a hand-off need came from; set only on a handoff_need row. Title is absent when the chat is gone. */
+  originChatId?: string;
+  originChatTitle?: string;
 }
 
-function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswer, onReply, roundStatus }: ChatEntryProps) {
+function ChatEntryImpl({
+  entry,
+  stampHHMM,
+  stampTitle,
+  promptStatus,
+  promptAnswer,
+  onReply,
+  roundStatus,
+  handoffStatus,
+  handoffBlueprintId,
+  handoffBlueprintTitle,
+  onReviewHandoff,
+  originChatId,
+  originChatTitle,
+}: ChatEntryProps) {
   const stamp = stampHHMM !== undefined && stampTitle !== undefined
     ? { hhmm: stampHHMM, title: stampTitle }
     : null;
@@ -56,6 +82,18 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
     [entry],
   );
   const prompt = parsePromptEntry(entry);
+
+  if (entry.kind === HANDOFF_KIND) {
+    return (
+      <HandoffBlock
+        handoff={parseHandoffEntry(entry)}
+        status={handoffStatus ?? 'open'}
+        blueprintId={handoffBlueprintId}
+        blueprintTitle={handoffBlueprintTitle}
+        onReview={onReviewHandoff ? () => onReviewHandoff(entry) : undefined}
+      />
+    );
+  }
 
   // Blueprint markers replace artifact bodies in the transcript; an unreadable one shows its fallback line.
   const marker = parseMarkerEntry(entry);
@@ -124,6 +162,20 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswe
           >
             {entry.content}
           </div>
+          {entry.kind === HANDOFF_NEED_KIND && originChatId !== undefined && (
+            <div className="mt-1 text-xs font-mono" style={{ color: 'var(--grey1)' }}>
+              {originChatTitle !== undefined ? (
+                <>
+                  handed over from the chat{' '}
+                  <Link to={`/chat/${originChatId}`} className="underline" style={{ color: 'var(--blue)' }}>
+                    {originChatTitle}
+                  </Link>
+                </>
+              ) : (
+                'handed over from a chat'
+              )}
+            </div>
+          )}
         </div>
       </div>
     );

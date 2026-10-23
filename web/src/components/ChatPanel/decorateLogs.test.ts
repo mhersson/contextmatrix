@@ -133,3 +133,17 @@ describe('blueprint marker rows', () => {
     expect(decorated.map((d) => d.showStamp)).toEqual([true, false, false]);
   });
 });
+
+describe('hand-off rows', () => {
+  it('keeps hand-off rows with every filter off', () => {
+    const handoff: LogEntry = {
+      ts: '2026-07-25T10:00:00Z',
+      card_id: '',
+      type: 'system',
+      kind: 'handoff',
+      content: '{"title":"T","need":"N","projects":["alpha"]}',
+    };
+    const shown = filterLogEntries([handoff], { showText: false, showToolCalls: false, showThinking: false });
+    expect(shown).toEqual([handoff]);
+  });
+});

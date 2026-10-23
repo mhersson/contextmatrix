@@ -986,3 +986,77 @@ func TestUpdateSessionMode_WritesOnlyTheMode(t *testing.T) {
 
 	require.ErrorIs(t, s.UpdateSessionMode(ctx, "missing", "auto"), chat.ErrSessionNotFound)
 }
+
+func TestStore_OriginRoundTripsAndIsUnique(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	newSess := func(origin string, seq int64) chat.Session {
+		return chat.Session{
+			ID: chat.NewID(), Title: "t", Status: chat.StatusCold, Kind: chat.KindArchitect,
+			CreatedAt: time.Now().UTC(), LastActive: time.Now().UTC(), CreatedBy: "human:web-x",
+			OriginChat: origin, OriginSeq: seq,
+		}
+	}
+
+	first := newSess("C", 7)
+	require.NoError(t, s.CreateSession(ctx, first))
+
+	got, err := s.GetSession(ctx, first.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "C", got.OriginChat)
+	assert.Equal(t, int64(7), got.OriginSeq)
+
+	listed, err := s.ListSessions(ctx, chat.SessionFilter{})
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.Equal(t, "C", listed[0].OriginChat)
+	assert.Equal(t, int64(7), listed[0].OriginSeq)
+
+	err = s.CreateSession(ctx, newSess("C", 7))
+	require.ErrorIs(t, err, chat.ErrHandoffTaken)
+
+	require.NoError(t, s.CreateSession(ctx, newSess("", 0)))
+	require.NoError(t, s.CreateSession(ctx, newSess("", 0)))
+	require.NoError(t, s.CreateSession(ctx, newSess("C", 8)))
+
+	require.NoError(t, s.DeleteSession(ctx, first.ID))
+	require.NoError(t, s.CreateSession(ctx, newSess("C", 7)))
+}
+
+func TestStore_LastSeqOfKind(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	mk := func() string {
+		sess := chat.Session{
+			ID: chat.NewID(), Title: "t", Status: chat.StatusCold,
+			CreatedAt: time.Now().UTC(), LastActive: time.Now().UTC(), CreatedBy: "human:web-x",
+		}
+		require.NoError(t, s.CreateSession(ctx, sess))
+
+		return sess.ID
+	}
+
+	id, other := mk(), mk()
+
+	for i, kind := range []string{"handoff", "", "handoff", "handoff_need"} {
+		_, err := s.AppendMessage(ctx, chat.Message{
+			SessionID: id, Seq: int64(i + 1), Role: chat.RoleSystem, Kind: kind,
+			Content: "x", CreatedAt: time.Now().UTC(),
+		})
+		require.NoError(t, err)
+	}
+
+	_, err := s.AppendMessage(ctx, chat.Message{
+		SessionID: other, Seq: 1, Role: chat.RoleSystem, Kind: "marker",
+		Content: "x", CreatedAt: time.Now().UTC(),
+	})
+	require.NoError(t, err)
+
+	for kind, want := range map[string]int64{"handoff": 3, "handoff_need": 4, "marker": 0} {
+		got, err := s.LastSeqOfKind(ctx, id, kind)
+		require.NoError(t, err)
+		assert.Equal(t, want, got, kind)
+	}
+}

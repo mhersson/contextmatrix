@@ -4,8 +4,26 @@ import type { LogEntry } from '../../types';
 export const INITIAL_TAIL = 50;
 /** Older messages revealed per "Show older" step. */
 export const REVEAL_CHUNK = 100;
-/** Longest message the composer or a prompt reply sends. */
+/** Longest prompt reply or question-round input, in characters. */
 export const MAX_MESSAGE_LENGTH = 8000;
+/** Server limit on a chat session message, in UTF-8 bytes. */
+export const CHAT_MESSAGE_MAX_BYTES = 8192;
+/** Server limit on a blueprint session message, in UTF-8 bytes. */
+export const BLUEPRINT_MESSAGE_MAX_BYTES = 65536;
+
+const utf8Encoder = new TextEncoder();
+
+/** Byte length of s as UTF-8, the unit the server limits messages in. */
+export function utf8Length(s: string): number {
+  return utf8Encoder.encode(s).length;
+}
+
+/** Human size; KiB round up so a size over a limit never reads as at or below it. */
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const kib = Math.ceil((n / 1024) * 10) / 10;
+  return `${kib.toFixed(1).replace(/\.0$/, '')} KiB`;
+}
 
 /** A plain-text payload longer than this collapses to a preview. */
 export const COLLAPSE_CHAR_THRESHOLD = 600;

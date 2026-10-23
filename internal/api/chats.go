@@ -26,6 +26,8 @@ const (
 
 	ErrCodeInvalidChatInput    = "INVALID_CHAT_INPUT"
 	ErrCodeChatKindUnavailable = "CHAT_KIND_UNAVAILABLE"
+	ErrCodeHandoffTaken        = "HANDOFF_TAKEN"
+	ErrCodeHandoffReplaced     = "HANDOFF_REPLACED"
 	ErrCodeInvalidModel        = "INVALID_MODEL"
 )
 
@@ -162,7 +164,13 @@ func agentIDForChat(r *http.Request) string {
 // existence is never leaked. Returns ok=false when a response has already
 // been written.
 func (h *chatHandlers) ownedSession(w http.ResponseWriter, r *http.Request) (chat.Session, bool) {
-	sess, err := h.mgr.GetSession(r.Context(), r.PathValue("id"))
+	return h.ownedSessionByID(w, r, r.PathValue("id"))
+}
+
+// ownedSessionByID applies the ownership rule to a session id taken from
+// anywhere in the request; foreign and missing ids both answer 404.
+func (h *chatHandlers) ownedSessionByID(w http.ResponseWriter, r *http.Request, sessionID string) (chat.Session, bool) {
+	sess, err := h.mgr.GetSession(r.Context(), sessionID)
 	if err != nil {
 		handleChatError(w, r, err)
 
@@ -263,9 +271,18 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 		Mode          string   `json:"mode"`
 		CostCapUSD    float64  `json:"cost_cap_usd"`
 		PlainLanguage bool     `json:"plain_language"`
+		OriginChat    string   `json:"origin_chat"`
+		OriginSeq     int64    `json:"origin_seq"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
+	}
+
+	// A foreign or missing origin chat is a 404 before anything is created.
+	if body.OriginChat != "" {
+		if _, ok := h.ownedSessionByID(w, r, body.OriginChat); !ok {
+			return
+		}
 	}
 
 	kind := chat.SessionKind(body.Kind)
@@ -319,6 +336,8 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 		Mode:          body.Mode,
 		CostCapUSD:    body.CostCapUSD,
 		PlainLanguage: body.PlainLanguage,
+		OriginChat:    body.OriginChat,
+		OriginSeq:     body.OriginSeq,
 	})
 	if err != nil {
 		handleChatError(w, r, err)
@@ -665,10 +684,11 @@ func validateMockupReply(m *protocol.MockupReply) error {
 
 func (h *chatHandlers) sendMessage(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Content   string                `json:"content"`
-		Round     *protocol.RoundReply  `json:"round"`
-		RoundChat string                `json:"round_chat"`
-		Mockup    *protocol.MockupReply `json:"mockup"`
+		Content     string                `json:"content"`
+		Round       *protocol.RoundReply  `json:"round"`
+		RoundChat   string                `json:"round_chat"`
+		Mockup      *protocol.MockupReply `json:"mockup"`
+		HandoffNeed bool                  `json:"handoff_need"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -680,8 +700,9 @@ func (h *chatHandlers) sendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(body.Content) > 8192 {
-		writeError(w, http.StatusRequestEntityTooLarge, ErrCodeContentTooLarge, "message too long", "")
+	if body.HandoffNeed && (body.Round != nil || body.RoundChat != "" || body.Mockup != nil) {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid handed-over need",
+			"handoff_need is exclusive with round, round_chat and mockup")
 
 		return
 	}
@@ -725,6 +746,8 @@ func (h *chatHandlers) sendMessage(w http.ResponseWriter, r *http.Request) {
 	)
 
 	switch {
+	case body.HandoffNeed:
+		msgID, err = h.mgr.SendHandoffNeed(r.Context(), r.PathValue("id"), body.Content)
 	case body.Round != nil:
 		msgID, err = h.mgr.SendRoundReply(r.Context(), r.PathValue("id"), body.Content, *body.Round)
 	case body.Mockup != nil:
@@ -1085,9 +1108,18 @@ func handleChatError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, chat.ErrInvalidSessionInput):
 		logger.Warn("chat error", "error", err)
 		writeError(w, http.StatusBadRequest, ErrCodeInvalidChatInput, "invalid chat session input", err.Error())
+	case errors.Is(err, chat.ErrMessageTooLarge):
+		logger.Warn("chat error", "error", err)
+		writeError(w, http.StatusRequestEntityTooLarge, ErrCodeContentTooLarge, "message too long", err.Error())
 	case errors.Is(err, chat.ErrKindUnavailable):
 		logger.Warn("chat error", "error", err)
 		writeError(w, http.StatusConflict, ErrCodeChatKindUnavailable, "no backend configured for this session kind", "")
+	case errors.Is(err, chat.ErrHandoffTaken):
+		logger.Warn("chat error", "error", err)
+		writeError(w, http.StatusConflict, ErrCodeHandoffTaken, "a blueprint was already started from this hand-off", "")
+	case errors.Is(err, chat.ErrHandoffReplaced):
+		logger.Warn("chat error", "error", err)
+		writeError(w, http.StatusConflict, ErrCodeHandoffReplaced, "a newer hand-off replaced this one", "")
 	default:
 		logger.Error("chat error", "error", err)
 		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "internal error", "")

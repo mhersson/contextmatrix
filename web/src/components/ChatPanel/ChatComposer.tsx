@@ -1,10 +1,12 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { MAX_MESSAGE_LENGTH } from './chatEntryUtils';
+import { formatBytes, utf8Length } from './chatEntryUtils';
 
 export interface ChatComposerProps {
   onSend: (content: string) => void | Promise<void>;
   sendDisabled: boolean;
+  /** Longest message in UTF-8 bytes; over it Send is disabled and nothing is cut. */
+  maxBytes: number;
   footer?: React.ReactNode;
   /**
    * Imperative focus trigger: whenever this value changes (and the textarea
@@ -15,7 +17,7 @@ export interface ChatComposerProps {
   refocus?: number;
 }
 
-export function ChatComposer({ onSend, sendDisabled, footer, focusKey, refocus }: ChatComposerProps) {
+export function ChatComposer({ onSend, sendDisabled, maxBytes, footer, focusKey, refocus }: ChatComposerProps) {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +37,8 @@ export function ChatComposer({ onSend, sendDisabled, footer, focusKey, refocus }
     textareaRef.current?.focus();
   }, [refocus]);
 
-  const isOverLimit = message.length > MAX_MESSAGE_LENGTH;
+  const bytes = utf8Length(message);
+  const isOverLimit = bytes > maxBytes;
   const canSend = message.trim().length > 0 && !sending && !isOverLimit && !sendDisabled;
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -76,7 +79,6 @@ export function ChatComposer({ onSend, sendDisabled, footer, focusKey, refocus }
           value={message}
           onChange={(e) => { setMessage(e.target.value); if (error) setError(null); }}
           onKeyDown={handleKeyDown}
-          maxLength={MAX_MESSAGE_LENGTH}
           disabled={sending || sendDisabled}
           rows={2}
         />
@@ -90,12 +92,12 @@ export function ChatComposer({ onSend, sendDisabled, footer, focusKey, refocus }
         </button>
       </div>
       <div className="px-[18px] pb-3 flex flex-wrap items-center justify-end gap-2">
-        {message.length > MAX_MESSAGE_LENGTH * 0.9 && (
+        {bytes > maxBytes * 0.9 && (
           <div
             className="text-xs font-mono mr-auto"
             style={{ color: isOverLimit ? 'var(--red)' : 'var(--yellow)' }}
           >
-            {message.length} / {MAX_MESSAGE_LENGTH}
+            {formatBytes(bytes)} / {formatBytes(maxBytes)}
           </div>
         )}
         {footer}

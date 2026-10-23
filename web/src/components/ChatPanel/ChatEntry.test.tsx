@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
 import { ChatEntry } from './ChatEntry';
 import type { LogEntry } from '../../types';
 import { BlueprintArtifactsContext, BlueprintSheetContext } from '../Blueprint/sheetContext';
@@ -376,5 +377,99 @@ describe('ChatEntry mockup offer', () => {
     );
     const frame = container.querySelector('.chat-offer') as HTMLElement;
     expect(frame.textContent).toContain('Technical detail');
+  });
+});
+
+describe('ChatEntry hand-off block', () => {
+  const body = { title: 'Card budgets', need: 'Cap spend per card.', projects: ['alpha', 'beta'] };
+  const handoffEntry = (content: string = JSON.stringify(body)): LogEntry => ({
+    ...makeEntry(4, 'system', content),
+    kind: 'handoff',
+  });
+  const renderEntry = (ui: React.ReactElement) => render(<MemoryRouter>{ui}</MemoryRouter>);
+
+  it('renders an open hand-off and reviews it', () => {
+    const entry = handoffEntry();
+    const onReviewHandoff = vi.fn();
+    renderEntry(<ChatEntry entry={entry} handoffStatus="open" onReviewHandoff={onReviewHandoff} />);
+    expect(screen.getByText(/Blueprint hand-off: Card budgets/)).toBeInTheDocument();
+    expect(screen.getByText(/alpha, beta/)).toBeInTheDocument();
+    expect(screen.getByText(/Need: 19 B/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Review and start blueprint\u2026' }));
+    expect(onReviewHandoff).toHaveBeenCalledWith(entry);
+  });
+
+  it('shows the need on demand', () => {
+    renderEntry(<ChatEntry entry={handoffEntry()} handoffStatus="open" />);
+    expect(screen.queryByText('Cap spend per card.')).not.toBeInTheDocument();
+    const toggle = screen.getByRole('button', { name: 'Show need' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+    expect(screen.getByText('Cap spend per card.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Hide need' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('a replaced hand-off has no button', () => {
+    renderEntry(<ChatEntry entry={handoffEntry()} handoffStatus="replaced" onReviewHandoff={vi.fn()} />);
+    expect(screen.getByText('Replaced by a newer hand-off')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Review and start/ })).not.toBeInTheDocument();
+  });
+
+  it('a started hand-off links to its blueprint', () => {
+    renderEntry(
+      <ChatEntry
+        entry={handoffEntry()}
+        handoffStatus="started"
+        handoffBlueprintId="B"
+        handoffBlueprintTitle="Budget blueprint"
+        onReviewHandoff={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('link', { name: 'Budget blueprint' })).toHaveAttribute('href', '/chat/B');
+    expect(screen.queryByRole('button', { name: /Review and start/ })).not.toBeInTheDocument();
+  });
+
+  it('a started hand-off with a blank blueprint title links as untitled', () => {
+    renderEntry(
+      <ChatEntry
+        entry={handoffEntry()}
+        handoffStatus="started"
+        handoffBlueprintId="B"
+        handoffBlueprintTitle=""
+        onReviewHandoff={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('link', { name: '(untitled)' })).toHaveAttribute('href', '/chat/B');
+  });
+
+  it('an unreadable hand-off renders one line', () => {
+    renderEntry(<ChatEntry entry={handoffEntry('nope')} handoffStatus="open" />);
+    expect(screen.getByText('A hand-off that could not be read')).toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  describe('a handed-over need', () => {
+    const needEntry = (): LogEntry => ({ ...makeEntry(1, 'user', 'Cap card budgets'), kind: 'handoff_need' });
+
+    it('links back to its chat', () => {
+      render(
+        <MemoryRouter>
+          <ChatEntry entry={needEntry()} originChatId="C" originChatTitle="Card budgets" />
+        </MemoryRouter>,
+      );
+      expect(screen.getByText('Cap card budgets')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Card budgets' })).toHaveAttribute('href', '/chat/C');
+    });
+
+    it('without the chat says where it came from', () => {
+      render(
+        <MemoryRouter>
+          <ChatEntry entry={needEntry()} originChatId="C" />
+        </MemoryRouter>,
+      );
+      expect(screen.getByText('Cap card budgets')).toBeInTheDocument();
+      expect(screen.getByText('handed over from a chat')).toBeInTheDocument();
+      expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    });
   });
 });

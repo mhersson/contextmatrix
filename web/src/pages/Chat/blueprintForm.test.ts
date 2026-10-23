@@ -4,6 +4,7 @@ import {
   capSentence,
   createLabel,
   disabledReason,
+  needReason,
   plainLanguageKey,
   readPlainLanguage,
   rememberPlainLanguage,
@@ -23,6 +24,16 @@ describe('blueprintForm', () => {
     expect(disabledReason(true, picked, true)).toBeNull();
     expect(disabledReason(false, { ...picked, capUSD: 5 }, true)).toBeNull();
     expect(disabledReason(true, { ...EMPTY_BLUEPRINT_FORM, capUSD: 5 }, true)).toBe(disabledReason(true, EMPTY_BLUEPRINT_FORM));
+  });
+
+  it('refuses a blank need and one over 64 KiB, counted in bytes', () => {
+    expect(needReason('')).not.toBeNull();
+    expect(needReason('  \n ')).not.toBeNull();
+    expect(needReason('x')).toBeNull();
+    expect(needReason('x'.repeat(65536))).toBeNull();
+    expect(needReason('x'.repeat(65537))).not.toBeNull();
+    // Bytes, not characters: 21846 euro signs are 65538 bytes.
+    expect(needReason('€'.repeat(21846))).not.toBeNull();
   });
 
   it('names the cap amount only when there is a cap', () => {

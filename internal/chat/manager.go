@@ -318,6 +318,12 @@ type Manager struct {
 	transcriptLocksMu sync.Mutex
 	transcriptLocks   map[string]*sync.Mutex
 
+	// needLocks keep a blueprint's handed-over need to one post:
+	// SendHandoffNeed holds one across its check, send and persist. Lazily
+	// allocated; dropped in DeleteSession.
+	needLocksMu sync.Mutex
+	needLocks   map[string]*sync.Mutex
+
 	closeOnce sync.Once
 
 	// costCache holds the most-recently computed GetChatCostSummary result.
@@ -367,6 +373,7 @@ func NewManager(cfg Config) *Manager {
 		appendLocks:       map[string]*sync.Mutex{},
 		statusLocks:       map[string]*sync.Mutex{},
 		transcriptLocks:   map[string]*sync.Mutex{},
+		needLocks:         map[string]*sync.Mutex{},
 	}
 }
 
@@ -398,6 +405,21 @@ func (m *Manager) transcriptLock(sessionID string) *sync.Mutex {
 	if !ok {
 		mu = &sync.Mutex{}
 		m.transcriptLocks[sessionID] = mu
+	}
+
+	return mu
+}
+
+// needLock returns the blueprint session's need mutex, creating it on first
+// use. Lock order: the need lock, then the transcript lock.
+func (m *Manager) needLock(sessionID string) *sync.Mutex {
+	m.needLocksMu.Lock()
+	defer m.needLocksMu.Unlock()
+
+	mu, ok := m.needLocks[sessionID]
+	if !ok {
+		mu = &sync.Mutex{}
+		m.needLocks[sessionID] = mu
 	}
 
 	return mu
@@ -994,6 +1016,10 @@ type CreateInput struct {
 	Mode          string
 	CostCapUSD    float64
 	PlainLanguage bool
+	// OriginChat and OriginSeq name the chat and its handoff row this
+	// blueprint starts from; KindArchitect only.
+	OriginChat string
+	OriginSeq  int64
 }
 
 // CreateSession inserts a cold-state session row. The container is
@@ -1060,6 +1086,10 @@ func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, e
 		return Session{}, fmt.Errorf("%w: unknown session kind %q", ErrInvalidSessionInput, in.Kind)
 	}
 
+	if err := m.checkOrigin(ctx, kind, in); err != nil {
+		return Session{}, err
+	}
+
 	now := m.clk.Now().UTC().Truncate(time.Second)
 
 	sess := Session{
@@ -1076,6 +1106,8 @@ func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, e
 		LastActive:    now,
 		CreatedBy:     in.CreatedBy,
 		Model:         in.Model,
+		OriginChat:    in.OriginChat,
+		OriginSeq:     in.OriginSeq,
 	}
 	if err := m.store.CreateSession(ctx, sess); err != nil {
 		return Session{}, fmt.Errorf("chat: CreateSession: %w", err)
@@ -1899,9 +1931,8 @@ func (m *Manager) reseedSeq(ctx context.Context, sessionID, op string) {
 
 // maxMessageBytes caps a single persisted transcript entry. Verbose tool
 // output (e.g. a tool_result containing a large file dump) would otherwise
-// grow the transcript store linearly without bound. The user-message path is
-// already capped at the HTTP boundary (8192 bytes), so this cap mainly fires
-// on backend-emitted entries.
+// grow the transcript store linearly without bound. The cap is for
+// backend-emitted rows; user rows are bounded at the send and stored whole.
 const maxMessageBytes = 32 * 1024
 
 // truncationMarker is appended to messages that exceeded maxMessageBytes.
@@ -1938,8 +1969,10 @@ func (m *Manager) AppendMessage(ctx context.Context, sessionID string, role Role
 // Message.Kind on the persisted row: the log consumer's prompt and marker
 // rows, and the send path's round chat rows.
 func (m *Manager) appendMessageWithKind(ctx context.Context, sessionID string, role Role, content, kind string) (Message, error) {
-	// promptContent bounds a prompt row itself, and a round row may exceed maxMessageBytes.
-	if kind != EventKindPrompt {
+	// promptContent bounds a prompt row itself, a round row may exceed
+	// maxMessageBytes, a handoff row is bounded by PostHandoff, and every
+	// user row passed the send limit.
+	if kind != EventKindPrompt && kind != EventKindHandoff && role != RoleUser {
 		content = truncateMessageContent(content)
 	}
 
@@ -2369,6 +2402,10 @@ func (m *Manager) DeleteSession(ctx context.Context, id string) error {
 	delete(m.transcriptLocks, id)
 	m.transcriptLocksMu.Unlock()
 
+	m.needLocksMu.Lock()
+	delete(m.needLocks, id)
+	m.needLocksMu.Unlock()
+
 	return nil
 }
 
@@ -2538,17 +2575,22 @@ func (m *Manager) SetMode(ctx context.Context, sessionID, mode string) (Session,
 
 // userSend is what a send carries beside its content: a round reply's
 // answers, the prompt id of the round a chat message is about, a mockup
-// reply, or a session command.
+// reply, a session command, or a handed-over need.
 type userSend struct {
-	round     *protocol.RoundReply
-	roundChat string
-	mockup    *protocol.MockupReply
-	command   bool
+	round       *protocol.RoundReply
+	roundChat   string
+	mockup      *protocol.MockupReply
+	command     bool
+	handoffNeed bool
 }
 
 func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us userSend) (string, error) {
 	sess, err := m.store.GetSession(ctx, sessionID)
 	if err != nil {
+		return "", err
+	}
+
+	if err := checkMessageSize(sess.Kind, len(content)); err != nil {
 		return "", err
 	}
 
@@ -2574,6 +2616,8 @@ func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us
 		kind = EventKindRoundChat
 	case us.round != nil:
 		kind = EventKindRoundReply
+	case us.handoffNeed:
+		kind = EventKindHandoffNeed
 	}
 
 	if err := m.ensureRunningForSend(ctx, sess); err != nil {

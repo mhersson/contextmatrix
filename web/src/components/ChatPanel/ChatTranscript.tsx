@@ -6,6 +6,7 @@ import { logRowKey } from '../../utils/logRowKey';
 import { ChatEntry } from './ChatEntry';
 import type { RoundStatus } from '../QuestionRound/rounds';
 import type { PromptState } from './prompts';
+import { HANDOFF_NEED_KIND, type HandoffState } from './handoff';
 import { WorkingIndicator } from './WorkingIndicator';
 import { decorateLogs } from './decorateLogs';
 import { INITIAL_TAIL, REVEAL_CHUNK } from './chatEntryUtils';
@@ -31,6 +32,12 @@ interface ChatTranscriptProps {
   roundStates?: ReadonlyMap<LogEntry, RoundStatus>;
   /** Sends a prompt reply; handed only to the open prompt's row. */
   onReply?: (text: string) => Promise<void>;
+  /** Hand-off row states keyed by row; see deriveHandoffStates. */
+  handoffStates?: ReadonlyMap<LogEntry, HandoffState>;
+  /** Opens the hand-off review; handed only to open hand-off rows. */
+  onReviewHandoff?: (entry: LogEntry) => void;
+  /** The chat a blueprint's hand-off need came from; the title is null when the chat is not listed. */
+  origin?: { chatId: string; chatTitle: string | null };
 }
 
 interface PendingAnchor {
@@ -61,6 +68,9 @@ export function ChatTranscript({
   promptStates,
   roundStates,
   onReply,
+  handoffStates,
+  onReviewHandoff,
+  origin,
 }: ChatTranscriptProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -287,6 +297,7 @@ export function ChatTranscript({
           <>
             {decoratedLogs.map((d) => {
               const ps = promptStates?.get(d.entry);
+              const hs = handoffStates?.get(d.entry);
               return (
                 <div key={logRowKey(d.entry)} data-logkey={logRowKey(d.entry)}>
                   <ChatEntry
@@ -297,6 +308,12 @@ export function ChatTranscript({
                     promptStatus={ps?.status}
                     promptAnswer={ps?.status === 'answered' ? ps.label : undefined}
                     onReply={ps?.status === 'open' ? onReply : undefined}
+                    handoffStatus={hs?.status}
+                    handoffBlueprintId={hs?.status === 'started' ? hs.blueprintId : undefined}
+                    handoffBlueprintTitle={hs?.status === 'started' ? hs.blueprintTitle : undefined}
+                    onReviewHandoff={hs?.status === 'open' ? onReviewHandoff : undefined}
+                    originChatId={d.entry.kind === HANDOFF_NEED_KIND ? origin?.chatId : undefined}
+                    originChatTitle={d.entry.kind === HANDOFF_NEED_KIND ? (origin?.chatTitle ?? undefined) : undefined}
                   />
                 </div>
               );

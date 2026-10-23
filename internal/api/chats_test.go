@@ -1800,3 +1800,199 @@ func TestListModels_UnpricedAbsentFromWireWhenPriced(t *testing.T) {
 	h.listModels(rec, httptest.NewRequest(http.MethodGet, "/api/chats/models", nil))
 	assert.NotContains(t, rec.Body.String(), "unpriced")
 }
+
+func TestSendMessage_BlueprintTakes64KiB(t *testing.T) {
+	var arch *chatStubBackend
+
+	opts := architectFixtureOpts()
+	opts.onArchitect = func(s *chatStubBackend) { arch = s }
+	mux, mgr := newChatFixture(t, opts)
+
+	bp, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	post := func(n int) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(map[string]string{"content": strings.Repeat("a", n)})
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats/"+bp.ID+"/messages", string(body)))
+
+		return rec
+	}
+
+	rec := post(chat.MaxBlueprintMessageBytes)
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+
+	sent := arch.sentPayloads()
+	require.Len(t, sent, 1)
+	assert.Len(t, sent[0].Content, chat.MaxBlueprintMessageBytes)
+
+	rec = post(chat.MaxBlueprintMessageBytes + 1)
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	assert.Equal(t, ErrCodeContentTooLarge, recorderErrorCode(t, rec))
+	assert.Len(t, arch.sentPayloads(), 1)
+}
+
+func TestCreateChat_FromAHandoff(t *testing.T) {
+	mux, mgr := newChatFixture(t, architectFixtureOpts())
+	origin := seedSession(t, mgr, "human:web")
+
+	row, err := mgr.PostHandoff(t.Context(), origin.ID, chat.Handoff{
+		Title: "Budgets", Need: "need", Projects: []string{"alpha"},
+	})
+	require.NoError(t, err)
+
+	body := fmt.Sprintf(`{"kind":"architect","projects":["alpha"],"origin_chat":%q,"origin_seq":%d}`, origin.ID, row.Seq)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats", body))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+	var sess chat.Session
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sess))
+	assert.Equal(t, origin.ID, sess.OriginChat)
+	assert.Equal(t, row.Seq, sess.OriginSeq)
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats", body))
+	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	assert.Equal(t, ErrCodeHandoffTaken, recorderErrorCode(t, rec))
+}
+
+func TestCreateChat_ReplacedHandoffIsConflict(t *testing.T) {
+	mux, mgr := newChatFixture(t, architectFixtureOpts())
+	origin := seedSession(t, mgr, "human:web")
+	h := chat.Handoff{Title: "Budgets", Need: "need", Projects: []string{"alpha"}}
+
+	first, err := mgr.PostHandoff(t.Context(), origin.ID, h)
+	require.NoError(t, err)
+	_, err = mgr.PostHandoff(t.Context(), origin.ID, h)
+	require.NoError(t, err)
+
+	body := fmt.Sprintf(`{"kind":"architect","projects":["alpha"],"origin_chat":%q,"origin_seq":%d}`, origin.ID, first.Seq)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats", body))
+	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	assert.Equal(t, ErrCodeHandoffReplaced, recorderErrorCode(t, rec))
+}
+
+func TestCreateChat_ForeignOriginIsNotFound(t *testing.T) {
+	mux, mgr := newChatFixture(t, architectFixtureOpts())
+	origin := seedSession(t, mgr, "human:alice")
+
+	row, err := mgr.PostHandoff(t.Context(), origin.ID, chat.Handoff{
+		Title: "Budgets", Need: "need", Projects: []string{"alpha"},
+	})
+	require.NoError(t, err)
+
+	body := fmt.Sprintf(`{"kind":"architect","projects":["alpha"],"origin_chat":%q,"origin_seq":%d}`, origin.ID, row.Seq)
+
+	rec := httptest.NewRecorder()
+	asUser(mux, "bob", false).ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats", body))
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+	assert.Equal(t, ErrCodeChatNotFound, recorderErrorCode(t, rec))
+
+	list, err := mgr.ListSessions(t.Context(), chat.SessionFilter{Kind: chat.KindArchitect})
+	require.NoError(t, err)
+	assert.Empty(t, list)
+}
+
+func TestCreateChat_OwnerStartsFromTheirOwnHandoff(t *testing.T) {
+	mux, mgr := newChatFixture(t, architectFixtureOpts())
+	origin := seedSession(t, mgr, "human:alice")
+
+	row, err := mgr.PostHandoff(t.Context(), origin.ID, chat.Handoff{
+		Title: "Budgets", Need: "need", Projects: []string{"alpha"},
+	})
+	require.NoError(t, err)
+
+	body := fmt.Sprintf(`{"kind":"architect","projects":["alpha"],"origin_chat":%q,"origin_seq":%d}`, origin.ID, row.Seq)
+
+	rec := httptest.NewRecorder()
+	asUser(mux, "alice", false).ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats", body))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+	var sess chat.Session
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sess))
+	assert.Equal(t, origin.ID, sess.OriginChat)
+	assert.Equal(t, row.Seq, sess.OriginSeq)
+}
+
+func TestSendMessage_HandoffNeed(t *testing.T) {
+	var arch *chatStubBackend
+
+	opts := architectFixtureOpts()
+	opts.onArchitect = func(s *chatStubBackend) { arch = s }
+	mux, mgr := newChatFixture(t, opts)
+	origin := seedSession(t, mgr, "human:web")
+
+	row, err := mgr.PostHandoff(t.Context(), origin.ID, chat.Handoff{
+		Title: "Budgets", Need: "## Need\nbudgets", Projects: []string{"alpha"},
+	})
+	require.NoError(t, err)
+
+	bp, err := mgr.CreateSession(t.Context(), chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web",
+		OriginChat: origin.ID, OriginSeq: row.Seq,
+	})
+	require.NoError(t, err)
+
+	post := func(body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats/"+bp.ID+"/messages", body))
+
+		return rec
+	}
+
+	messageID := func(rec *httptest.ResponseRecorder) string {
+		var got struct {
+			OK        bool   `json:"ok"`
+			MessageID string `json:"message_id"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		assert.True(t, got.OK)
+
+		return got.MessageID
+	}
+
+	need := `{"content":"## Need\nbudgets","handoff_need":true}`
+
+	rec := post(need)
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	assert.NotEmpty(t, messageID(rec))
+
+	rec = post(need)
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	assert.Empty(t, messageID(rec))
+
+	require.Len(t, arch.sentPayloads(), 1)
+
+	msgs, err := mgr.ListMessages(t.Context(), bp.ID, 0, 100)
+	require.NoError(t, err)
+
+	needs := 0
+
+	for _, m := range msgs {
+		if m.Kind == chat.EventKindHandoffNeed {
+			needs++
+		}
+	}
+
+	assert.Equal(t, 1, needs)
+
+	for name, body := range map[string]string{
+		"beside round_chat": `{"content":"x","handoff_need":true,"round_chat":"round:1"}`,
+		"beside round": `{"content":"x","handoff_need":true,` +
+			`"round":{"prompt_id":"round:1","answers":[{"number":1,"option":1}]}}`,
+		"beside mockup": `{"content":"x","handoff_need":true,` +
+			`"mockup":{"prompt_id":"mockup:1","revision":1,"action":"skip"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := post(body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+			assert.Equal(t, ErrCodeBadRequest, recorderErrorCode(t, rec))
+		})
+	}
+
+	assert.Len(t, arch.sentPayloads(), 1)
+}

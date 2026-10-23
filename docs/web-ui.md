@@ -144,6 +144,17 @@ board. Promote-to-autonomous lives in that tab.
   split to open an empty slot.
 - Panes, focus and divider sizes persist under the `chat_layout` key; the
   focused chat id under `last_chat_id`. `/chat/:id` opens that chat in a pane.
+- The message box takes up to 64 KiB on a blueprint and 8 KiB on a chat (and on
+  the card Chat tab), counted in bytes. From 90 percent of the limit it shows
+  the size against the limit; over it Send is disabled. Nothing is cut.
+- When the operator asks the chat agent to hand the need over, the agent posts a
+  hand-off block in the chat: its title, the projects to change, the need's
+  size, **Review and start blueprint...** and **Show need**. Nothing is created
+  until Create in the dialog. A newer hand-off marks older ones "Replaced by a
+  newer hand-off" without the button. Once a blueprint is started from one, the
+  block reads "Blueprint started: <title>" and links to it; deleting that
+  blueprint brings the button back on the newest hand-off. Messages in the chat
+  afterwards never reach the blueprint.
 - The New chat dialog shows two tiles, **Chat** and **Blueprint**, when an
   architect backend is configured (`architect_enabled` in app config); without
   one it creates chats only. Both kinds take an optional title. A chat picks one
@@ -161,39 +172,52 @@ board. Promote-to-autonomous lives in that tab.
   Ctrl+Enter anywhere, or Enter in the title, creates. The button names the
   outcome (Create chat, Create blueprint, or Create and run for yolo). A
   blueprint whose architect does not start keeps the dialog open with the error,
-  and with unchanged settings, Create then retries the same session. The sidebar
-  marks blueprint sessions with an aqua drafting-compass icon. The pane header
-  shows a blueprint's mode and cost cap, and the architect's spend from the
-  blueprint view (the figure the scale bar shows) where a chat's header shows
-  CM's estimate from its token counts. Once the view loads, the header's mode is
-  the view's too, so a switch the architect refused never shows there. A
-  blueprint created in plain language shows a Plain language badge beside the
-  pill; once the view loads the badge follows the view, so an architect that
-  does not run plain language shows none. The admin Chats page lists every
-  session's kind, mode and cap as the session row holds them. The architect's
-  questions and gates show reply buttons under the message. On a plain-language
-  blueprint a prompt reads in plain words with plain buttons (such as Continue
-  anyway and Stop) that send the architect's usual replies, and its technical
-  text is folded under a Technical detail line. A question's options are stacked
-  full-width buttons showing the whole option text. The question bubble is
-  tinted, with a 5px left bar and accent-bordered options in pink in the dark
-  themes and a dusty rose to maroon in the light ones, and the suggested option
-  carries a "recommended" chip. A prompt marked as a gate carries a barrier icon
-  beside its text and keeps compact buttons in a row. The offer of a mockup
-  shows instead in its own framed card with a mockup icon, Show mockup as the
-  main button (no chip) and Skip mockup beside it. A click sends that reply as
-  your message, a feedback action such as Reject asks for text first, in a box
-  labelled with the architect's question when it sends one (an approval over
-  critical findings asks why), and typing
-  the reply works too. A prompt closes when a reply answers it, when the
-  architect's decision line answers it (it decided the prompt itself, as at a
-  waiting sign-off after a switch to Auto + emit or Yolo), or when a later
-  prompt replaces it. It then shows a one-line summary instead of buttons, and a
-  closed non-gate prompt keeps its options above the summary as a smaller list
-  with the answering option marked. A closed question's list and summary render
-  in the normal text colour on the tint; gates and neutral prompts keep the
-  muted grey. The buttons are disabled while the session is not live or its
-  stream is disconnected, and prompts show with the Text filter off.
+  and with unchanged settings, Create then retries the same session. Opened from
+  a chat's hand-off, the dialog is a New blueprint dialog without the tiles: a
+  banner names the chat, the title is the hand-off's, an editable Need field
+  shows its size against 64 KiB (Create is disabled while it is empty or over),
+  and the hand-off's projects are ticked. Create waits for the project list;
+  once it loads, a project no longer in CM is left out and named in a note. The
+  mode, Plain language, model and cost cap start as usual. Create makes the
+  blueprint, opens its pane and posts the need as its first message. A failed
+  post, or an architect that does not start, keeps the dialog open, and Create
+  retries on the same blueprint even when a setting changed since. A second
+  blueprint from the same hand-off, or one from a hand-off a newer one replaced,
+  is refused with a message. A blueprint started from a hand-off shows the need
+  as its first message, with "handed over from the chat <title>" under it
+  linking back to the chat ("handed over from a chat" without a link when the
+  chat is gone). The sidebar marks blueprint sessions with an aqua
+  drafting-compass icon. The pane header shows a blueprint's mode and cost cap,
+  and the architect's spend from the blueprint view (the figure the scale bar
+  shows) where a chat's header shows CM's estimate from its token counts. Once
+  the view loads, the header's mode is the view's too, so a switch the architect
+  refused never shows there. A blueprint created in plain language shows a Plain
+  language badge beside the pill; once the view loads the badge follows the
+  view, so an architect that does not run plain language shows none. The admin
+  Chats page lists every session's kind, mode and cap as the session row holds
+  them. The architect's questions and gates show reply buttons under the
+  message. On a plain-language blueprint a prompt reads in plain words with
+  plain buttons (such as Continue anyway and Stop) that send the architect's
+  usual replies, and its technical text is folded under a Technical detail line.
+  A question's options are stacked full-width buttons showing the whole option
+  text. The question bubble is tinted, with a 5px left bar and accent-bordered
+  options in pink in the dark themes and a dusty rose to maroon in the light
+  ones, and the suggested option carries a "recommended" chip. A prompt marked
+  as a gate carries a barrier icon beside its text and keeps compact buttons in
+  a row. The offer of a mockup shows instead in its own framed card with a
+  mockup icon, Show mockup as the main button (no chip) and Skip mockup beside
+  it. A click sends that reply as your message, a feedback action such as Reject
+  asks for text first, in a box labelled with the architect's question when it
+  sends one (an approval over critical findings asks why), and typing the reply
+  works too. A prompt closes when a reply answers it, when the architect's
+  decision line answers it (it decided the prompt itself, as at a waiting
+  sign-off after a switch to Auto + emit or Yolo), or when a later prompt
+  replaces it. It then shows a one-line summary instead of buttons, and a closed
+  non-gate prompt keeps its options above the summary as a smaller list with the
+  answering option marked. A closed question's list and summary render in the
+  normal text colour on the tint; gates and neutral prompts keep the muted grey.
+  The buttons are disabled while the session is not live or its stream is
+  disconnected, and prompts show with the Text filter off.
 - A question round from the architect docks at the bottom of the pane in place
   of the message box while it waits for you; the transcript keeps scrolling
   above it. It has one tab per question, ticked once it has an answer (stored by

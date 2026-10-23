@@ -271,6 +271,8 @@ the request's `request_id`.
 | `PROTECTED_BRANCH`            | 403     | MCP `report_push` targeted `main` / `master`                                                                                                                                               |
 | `REVIEW_ATTEMPTS_CAPPED`      | 409     | Review attempts limit reached                                                                                                                                                              |
 | `CHAT_NOT_FOUND`              | 404     | Chat session ID does not exist (or belongs to another user in multi mode)                                                                                                                  |
+| `HANDOFF_TAKEN`               | 409     | A blueprint was already started from this hand-off                                                                                                                                         |
+| `HANDOFF_REPLACED`            | 409     | A newer hand-off in the chat replaced the one named                                                                                                                                        |
 | `CHAT_KIND_UNAVAILABLE`       | 409     | No backend is configured for the chat session's kind (for example no architect backend for a blueprint)                                                                                    |
 | `BLUEPRINT_NOT_FOUND`         | 404     | Chat session is not a blueprint, or the architect answered 404 for the blueprint, artifact or route                                                                                        |
 | `INVALID_MODEL`               | 400     | Chat `model` not in the active model source                                                                                                                                                |
@@ -2490,6 +2492,7 @@ management lives under `/api/admin/chats`.
 | `project`, `container_id`, `workspace`, `model`                                    | omitempty | `workspace` is a string list; `model` is set at creation and reused on every `/open`       |
 | `mode`, `cost_cap_usd`                                                             | omitempty | Architect sessions only; both are set at creation, then `mode` changes through `/mode` and `cost_cap_usd` through `/cap`. `workspace` holds the target projects |
 | `plain_language`                                                                   | omitempty | Architect sessions only; set at creation and never changed. Every start sends it |
+| `origin_chat`, `origin_seq`                                                        | omitempty | Architect sessions started from a hand-off only: the chat and its `handoff` row; set at creation and never changed |
 | `context_tokens`                                                                   | omitempty | Last `input + cache_read + cache_create` reported by the model                             |
 | `context_tokens_updated_at`                                                        | always    | Zero time (`0001-01-01T00:00:00Z`) until the first usage entry                             |
 | `rehydration_active`, `rehydration_started_at`                                     | omitempty | `true` between a cold reopen and the agent's `chat_rehydration_complete` call              |
@@ -2537,6 +2540,14 @@ exactly like an omitted one; any other model is validated against the catalog
 as for chat sessions. Violations are 400 `INVALID_CHAT_INPUT` with the reason
 in `details`; a create with no architect backend configured is 409
 `CHAT_KIND_UNAVAILABLE`.
+
+`origin_chat` and `origin_seq` start a blueprint from a hand-off: `origin_chat`
+must be the caller's own plain chat and `origin_seq` the seq of its newest
+`handoff` row. At most one blueprint exists per hand-off: 409 `HANDOFF_TAKEN`
+when one does (deleting it frees the hand-off), 409 `HANDOFF_REPLACED` when a
+newer hand-off exists. A foreign or missing origin chat is 404
+`CHAT_NOT_FOUND`; any other origin error is 400 `INVALID_CHAT_INPUT`. The
+session response carries `origin_chat` and `origin_seq`.
 
 **Response:** 201 with the session.
 
@@ -2699,8 +2710,21 @@ unchanged and stores an ordinary user row:
 }
 ```
 
-**Response:** 202 with `{ "ok": true, "message_id": "<26-char id>" }`.
-400 `BAD_REQUEST` for empty or whitespace `content`, a `round_chat` beside a
+`"handoff_need": true` posts the need handed over to a blueprint started from
+a hand-off (an `architect` session with `origin_chat`) as `content`. CM stores
+the row with `kind` `"handoff_need"` and sends it at most once per blueprint: a
+repeat, such as a retry or a second tab, sends nothing and returns 202 with an
+empty `message_id`. `handoff_need` is exclusive with `round`, `round_chat` and
+`mockup`:
+
+```json
+{ "content": "## Need\nPer-card time budgets ...", "handoff_need": true }
+```
+
+**Response:** 202 with `{ "ok": true, "message_id": "<26-char id>" }`, or an
+empty `message_id` when the blueprint already holds its handed-over need.
+400 `BAD_REQUEST` for empty or whitespace `content`, a `handoff_need` beside
+`round`, `round_chat` or `mockup`, a `round_chat` beside a
 `round` or not of the form `round:<n>` (n from 1, no leading zero), or a
 `round` without `prompt_id`, with an answer `number` below 1, a negative
 `option`, an `option` of 0 without `text`, a `text` above 32 KiB or a decision
@@ -2708,8 +2732,11 @@ without `id`; a `mockup` beside `round` or `round_chat`, without `prompt_id`,
 with a `revision` below 1, an unknown `action`, `settings` on `skip`, more than
 12 settings, or a setting id (`^[a-z][a-z0-9_]{0,31}$`) or value
 (`^[a-z0-9_-]{1,32}$`) outside those forms; 400 `INVALID_CHAT_INPUT` for a
-`round`, `round_chat` or `mockup` on a chat session; 413 `CONTENT_TOO_LARGE`
-above 8 KiB.
+`round`, `round_chat` or `mockup` on a chat session, or a `handoff_need` on a
+session that is not a blueprint started from a hand-off. The empty-content and
+shape checks run before the ownership check, the size check after it: 413
+`CONTENT_TOO_LARGE` above 8192 bytes on a chat session and above 65536 bytes on
+an architect session. Rows are stored whole.
 
 ### POST /api/chats/{id}/cap
 
@@ -2975,8 +3002,9 @@ The tool catalogue, connection instructions, and workflow entry points are in
   CSRF guard and the session guard.
 - **`X-CM-Chat-Session`:** chat containers forward their session id in this
   header; it must match `^[A-Z2-7]{26}$` or the request is 400. The value
-  gates session-scoped tools (`chat_rehydration_complete`). Absent for
-  card-mode workers and humans.
+  gates session-scoped tools (`chat_rehydration_complete`) and selects the
+  chat `hand_off_to_architect` posts into; that tool is refused without it.
+  Absent for card-mode workers and humans.
 - **Identity:** every tool takes an `agent_id` argument; there is no session
   concept.
 
