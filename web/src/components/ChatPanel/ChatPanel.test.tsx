@@ -3,6 +3,9 @@ import { render, screen, fireEvent, renderHook, act, waitFor, within } from '@te
 import { ChatPanel } from './ChatPanel';
 import { useWorkerLogs } from '../../hooks/useWorkerLogs';
 import { formatHHMM, formatTitle } from '../../utils/chatTimestamp';
+import { MemoryRouter } from 'react-router';
+import { HandoffContext } from './handoffContext';
+import type { ChatSession } from '../../types';
 import { BlueprintSheetContext } from '../Blueprint/sheetContext';
 import type { LogEntry } from '../../types';
 import { rawRound, roundChatEntry, roundEntry, roundReplyEntry } from '../../test-utils/roundFixtures';
@@ -996,5 +999,35 @@ describe('ChatPanel kept round drafts', () => {
     draftIt();
     view.rerender(panel([...logs, roundEntry(2, 'round:2', rawRound())]));
     expect(Object.keys(JSON.parse(localStorageMock.getItem(key) ?? '{}'))).toEqual([]);
+  });
+});
+
+describe('ChatPanel hand-off', () => {
+  it('opens the dialog with the hand-off from the context', () => {
+    const openHandoff = vi.fn();
+    const need = { title: 'Card budgets plan', need: 'Cap spend.', projects: ['alpha'] };
+    const row: LogEntry = {
+      ts: '2026-05-13T10:00:00Z',
+      card_id: '',
+      type: 'system',
+      kind: 'handoff',
+      content: JSON.stringify(need),
+      seq: 4,
+    };
+    const sessions = [{ id: 'C', title: 'Card budgets' } as ChatSession];
+    render(
+      <MemoryRouter>
+        <HandoffContext.Provider value={{ sessions, openHandoff }}>
+          <ChatPanel logs={[row]} sessionID="C" onSend={vi.fn()} sendDisabled={false} />
+        </HandoffContext.Provider>
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Review and start blueprint/ }));
+    expect(openHandoff).toHaveBeenCalledWith({
+      chatId: 'C',
+      chatTitle: 'Card budgets',
+      seq: 4,
+      ...need,
+    });
   });
 });

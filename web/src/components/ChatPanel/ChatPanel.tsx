@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { LogEntry, RoundReply } from '../../types';
 import { useChatFilterPrefs } from '../../hooks/useChatFilterPrefs';
 import { ChatComposer } from './ChatComposer';
@@ -6,6 +6,8 @@ import { CHAT_MESSAGE_MAX_BYTES } from './chatEntryUtils';
 import { ChatTranscript } from './ChatTranscript';
 import { filterLogEntries } from './decorateLogs';
 import { derivePromptStates } from './prompts';
+import { deriveHandoffStates, parseHandoffEntry } from './handoff';
+import { HandoffContext } from './handoffContext';
 import type { WorkingState } from '../../hooks/useWorkingState';
 import { RoundBlock } from '../QuestionRound/RoundBlock';
 import { pruneSession } from '../QuestionRound/roundDraftStore';
@@ -100,6 +102,13 @@ export function ChatPanel({
   // a prompt even when the reply's row is filtered or not yet revealed.
   const promptStates = useMemo(() => derivePromptStates(logs, promptsLive), [logs, promptsLive]);
 
+  const handoffCtx = useContext(HandoffContext);
+  const handoffSessions = handoffCtx?.sessions;
+  const handoffStates = useMemo(
+    () => deriveHandoffStates(logs, sessionID, handoffSessions ?? []),
+    [logs, sessionID, handoffSessions],
+  );
+
   const rounds = useMemo(() => deriveRounds(logs, promptsLive), [logs, promptsLive]);
   const transcriptLogs = useMemo(
     () =>
@@ -131,6 +140,19 @@ export function ChatPanel({
   const sendReply = useCallback(async (text: string) => {
     await onSendRef.current(text);
     setRefocus((n) => n + 1);
+  }, []);
+
+  // Ref-stable like sendReply, so memoized rows keep their props across renders.
+  const handoffRef = useRef({ ctx: handoffCtx, sessionID });
+  useEffect(() => {
+    handoffRef.current = { ctx: handoffCtx, sessionID };
+  });
+  const reviewHandoff = useCallback((entry: LogEntry) => {
+    const { ctx, sessionID: chatId } = handoffRef.current;
+    const handoff = parseHandoffEntry(entry);
+    if (!ctx || !chatId || !handoff || entry.seq === undefined) return;
+    const chatTitle = ctx.sessions.find((s) => s.id === chatId)?.title.trim() || '(untitled)';
+    ctx.openHandoff({ chatId, chatTitle, seq: entry.seq, ...handoff });
   }, []);
 
   return (
@@ -172,6 +194,8 @@ export function ChatPanel({
         onLoadOlder={onLoadOlder}
         promptStates={promptStates}
         onReply={sendReply}
+        handoffStates={handoffStates}
+        onReviewHandoff={handoffCtx ? reviewHandoff : undefined}
       />
 
       {docked && (

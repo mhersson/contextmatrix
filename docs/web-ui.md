@@ -147,6 +147,14 @@ board. Promote-to-autonomous lives in that tab.
 - The message box takes up to 64 KiB on a blueprint and 8 KiB on a chat (and on
   the card Chat tab), counted in bytes. From 90 percent of the limit it shows
   the size against the limit; over it Send is disabled. Nothing is cut.
+- When the operator asks the chat agent to hand the need over, the agent posts a
+  hand-off block in the chat: its title, the projects to change, the need's
+  size, **Review and start blueprint...** and **Show need**. Nothing is created
+  until Create in the dialog. A newer hand-off marks older ones "Replaced by a
+  newer hand-off" without the button. Once a blueprint is started from one, the
+  block reads "Blueprint started: <title>" and links to it; deleting that
+  blueprint brings the button back on the newest hand-off. Messages in the chat
+  afterwards never reach the blueprint.
 - The New chat dialog shows two tiles, **Chat** and **Blueprint**, when an
   architect backend is configured (`architect_enabled` in app config); without
   one it creates chats only. Both kinds take an optional title. A chat picks one
