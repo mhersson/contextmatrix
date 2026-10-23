@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, isAPIError } from '../../api/client';
 import type { ChatSendExtra, ChatSession, MockupReply, RoundReply } from '../../types';
 import { ChatPanel } from '../../components/ChatPanel';
+import { BLUEPRINT_MESSAGE_MAX_BYTES, CHAT_MESSAGE_MAX_BYTES } from '../../components/ChatPanel/chatEntryUtils';
 import { BlueprintSession } from '../../components/Blueprint/BlueprintSession';
 import { mockupChatExtra } from '../../components/Mockup/mockupStore';
 import { useChatStream } from '../../hooks/useChatStream';
@@ -266,6 +267,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
       onSendRound={view.kind === 'architect' ? handleSendRound : undefined}
       onSendRoundChat={view.kind === 'architect' ? handleSendRoundChat : undefined}
       sendDisabled={sendDisabled}
+      maxMessageBytes={view.kind === 'architect' ? BLUEPRINT_MESSAGE_MAX_BYTES : CHAT_MESSAGE_MAX_BYTES}
       promptsLive={connected && !sendDisabled}
       readOnlyMessage={readOnlyMessage}
       focusKey={isFocused ? sessionID : undefined}

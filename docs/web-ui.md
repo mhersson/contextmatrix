@@ -144,6 +144,9 @@ board. Promote-to-autonomous lives in that tab.
   split to open an empty slot.
 - Panes, focus and divider sizes persist under the `chat_layout` key; the
   focused chat id under `last_chat_id`. `/chat/:id` opens that chat in a pane.
+- The message box takes up to 64 KiB on a blueprint and 8 KiB on a chat (and on
+  the card Chat tab), counted in bytes. From 90 percent of the limit it shows
+  the size against the limit; over it Send is disabled. Nothing is cut.
 - The New chat dialog shows two tiles, **Chat** and **Blueprint**, when an
   architect backend is configured (`architect_enabled` in app config); without
   one it creates chats only. Both kinds take an optional title. A chat picks one

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LogEntry, RoundReply } from '../../types';
 import { useChatFilterPrefs } from '../../hooks/useChatFilterPrefs';
 import { ChatComposer } from './ChatComposer';
+import { CHAT_MESSAGE_MAX_BYTES } from './chatEntryUtils';
 import { ChatTranscript } from './ChatTranscript';
 import { filterLogEntries } from './decorateLogs';
 import { derivePromptStates } from './prompts';
@@ -17,6 +18,8 @@ export interface ChatPanelProps {
   logs: readonly LogEntry[];
   onSend: (content: string) => void | Promise<void>;
   sendDisabled: boolean;
+  /** Longest composer message in UTF-8 bytes. Defaults to the chat limit. */
+  maxMessageBytes?: number;
   /**
    * Optional footer rendered below the compose row. Card-bound chat uses
    * it for the "Switch to Autonomous" button + read-only indicator. Global
@@ -70,6 +73,7 @@ export function ChatPanel({
   logs,
   onSend,
   sendDisabled,
+  maxMessageBytes = CHAT_MESSAGE_MAX_BYTES,
   footer,
   readOnlyMessage,
   focusKey,
@@ -196,6 +200,7 @@ export function ChatPanel({
         <ChatComposer
           onSend={onSend}
           sendDisabled={sendDisabled}
+          maxBytes={maxMessageBytes}
           footer={footer}
           focusKey={focusKey}
           refocus={refocus}
