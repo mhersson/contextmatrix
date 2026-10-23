@@ -84,7 +84,7 @@ Every phase and gate is specified in [agent workflow](agent-workflow.md).
 
 ## Tools
 
-The server registers up to 41 tools. The eight playbook tools are absent while a
+The server registers up to 42 tools. The eight playbook tools are absent while a
 project named `playbooks` disables the playbook subsystem, `run_card`
 registers only when a task backend is configured, and `run_playbook` registers
 only when a task backend is configured and the playbook subsystem is enabled.
@@ -97,6 +97,7 @@ The "Caller" column uses these values:
 | claim      | Caller must hold the card's active claim.                        |
 | owner      | Checked against the claim only when the card is claimed.         |
 | session    | Chat containers only; the session ID must match the caller's.    |
+| chat       | Chat containers only; acts on the calling chat named by `X-CM-Chat-Session`, refused without it. |
 
 ### Cards
 
@@ -188,6 +189,16 @@ runnable playbook that owns its execution settings.
 | Tool                        | Description                                          | Caller  |
 | --------------------------- | ---------------------------------------------------- | ------- |
 | `chat_rehydration_complete` | End a resumed chat's rehydration phase with a summary | session |
+| `hand_off_to_architect`     | Post a hand-off of this chat's need to the architect for the operator to review | chat |
+
+`hand_off_to_architect` takes `title` (at most 256 bytes), `need` (markdown, at
+most 65536 bytes) and `projects` (at least one existing project), and returns
+`ok` and the `seq` of the hand-off row. It has no session argument: it posts
+into the chat named by `X-CM-Chat-Session`. It is refused without that header,
+from a blueprint session, and when no architect backend is configured. Nothing
+is created until the operator presses Create on the hand-off block. A chat
+container lists tools when it starts, so chats started before the tool shipped
+do not see it.
 
 ## Slash commands
 

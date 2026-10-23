@@ -101,6 +101,7 @@ func NewServer(cfg ServerConfig) *mcp.Server {
 
 	if cfg.ChatManager != nil {
 		registerChatRehydrationComplete(server, cfg.ChatManager)
+		registerHandOffToArchitect(server, cfg.ChatManager)
 	}
 
 	return server
@@ -150,7 +151,8 @@ var chatSessionIDRe = regexp.MustCompile(`^[A-Z2-7]{26}$`)
 // chat-container entrypoints) and stashes the value into the request context
 // via mcpcontext.WithChatSession. Session-scoped MCP tools
 // (chat_rehydration_complete) compare this against the in-RPC session_id to
-// reject cross-session calls from a compromised or malicious caller.
+// reject cross-session calls from a compromised or malicious caller;
+// hand_off_to_architect takes no session_id and acts on this session alone.
 //
 // Empty header (card-mode worker, human curl) leaves the context untouched so
 // existing flows are unaffected.
