@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router';
 import { PlaybookDetailPage } from './PlaybookDetailPage';
@@ -23,9 +23,22 @@ vi.mock('../../api/client', async (importOriginal) => ({
   },
 }));
 
+// Captures each pattern's latest handler so a test can deliver an event.
+const sse = vi.hoisted(() => ({ handlers: new Map<string, (e: { data?: { id?: string } }) => void>() }));
 vi.mock('../../hooks/useSSEBus', () => ({
-  useSSEBus: () => ({ subscribe: () => () => {}, connected: true, reconnectEpoch: 0 }),
+  useSSEBus: () => ({
+    subscribe: (pattern: string, onEvent: (e: { data?: { id?: string } }) => void) => {
+      sse.handlers.set(pattern, onEvent);
+      return () => {};
+    },
+    connected: true,
+    reconnectEpoch: 0,
+  }),
 }));
+
+// The description mounts the lazy markdown chunk; loading it up front keeps the
+// import from outliving the file.
+beforeAll(() => import('../Markdown/SafeMarkdownPreview'));
 
 // DndContext is a pass-through that captures its props, so a test can end
 // a drag directly; jsdom has no layout for dnd-kit's sensors to measure.
@@ -340,5 +353,36 @@ describe('PlaybookDetailPage', () => {
     const link = await screen.findByRole('link', { name: /PROJ-1/ });
     expect(link).toHaveAttribute('href', 'https://acme.atlassian.net/browse/PROJ-1');
     expect(link).toHaveAttribute('target', '_blank');
+  });
+
+  it('saves an edited description but skips the write when it is unchanged', async () => {
+    vi.mocked(api.getPlaybook).mockResolvedValue({ ...baseDetail(), description: 'Ship it.\n' });
+    vi.mocked(api.patchPlaybook).mockResolvedValue({ ...baseDetail(), description: 'Ship it later.' });
+    renderPage();
+
+    fireEvent.click(await screen.findByText('Ship it.'));
+    fireEvent.blur(screen.getByPlaceholderText('Add a description'));
+    expect(api.patchPlaybook).not.toHaveBeenCalled();
+
+    fireEvent.click(await screen.findByText('Ship it.'));
+    const box = screen.getByPlaceholderText('Add a description');
+    fireEvent.change(box, { target: { value: 'Ship it later. ' } });
+    fireEvent.blur(box);
+    await waitFor(() => expect(api.patchPlaybook).toHaveBeenCalledWith('roll', { description: 'Ship it later.' }));
+  });
+
+  it('keeps a description changed elsewhere while the editor sat untouched', async () => {
+    vi.mocked(api.getPlaybook)
+      .mockResolvedValueOnce({ ...baseDetail(), description: 'Ship it.' })
+      .mockResolvedValue({ ...baseDetail(), description: 'Ship it on Friday.' });
+    renderPage();
+
+    fireEvent.click(await screen.findByText('Ship it.'));
+    act(() => sse.handlers.get('playbook.*')?.({ data: { id: 'roll' } }));
+    await waitFor(() => expect(api.getPlaybook).toHaveBeenCalledTimes(2));
+    fireEvent.blur(screen.getByPlaceholderText('Add a description'));
+
+    expect(api.patchPlaybook).not.toHaveBeenCalled();
+    expect(await screen.findByText('Ship it on Friday.')).toBeInTheDocument();
   });
 });

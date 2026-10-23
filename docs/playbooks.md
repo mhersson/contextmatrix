@@ -49,10 +49,12 @@ Card nodes carry the sequence number and a state chip; an `in_progress` card
 pulses as "agent active"; broken references get a dashed red border. The first
 incomplete entry is spotlighted and repeated in the side panel as "Next up".
 Drag an entry to reorder; the composer in the side panel appends a card (picked
-from any project) or a manual step to the end. Notes edit inline. The page
-updates live over SSE. The side panel also carries a **Run** card (make
-runnable, base branch, Run and Stop, status line, compare links); entry rows
-read `queued` while a run is active (see [web UI](web-ui.md#playbooks)).
+from any project) or a manual step to the end. Notes edit inline. The
+description renders as markdown, collapsed past about six lines behind **Show
+more**; clicking it edits the raw text. The page updates live over SSE. The
+side panel also carries a **Run** card (make runnable, base branch, Run and
+Stop, status line, compare links); entry rows read `queued` while a run is
+active (see [web UI](web-ui.md#playbooks)).
 
 ## Running a playbook
 
