@@ -164,7 +164,13 @@ func agentIDForChat(r *http.Request) string {
 // existence is never leaked. Returns ok=false when a response has already
 // been written.
 func (h *chatHandlers) ownedSession(w http.ResponseWriter, r *http.Request) (chat.Session, bool) {
-	sess, err := h.mgr.GetSession(r.Context(), r.PathValue("id"))
+	return h.ownedSessionByID(w, r, r.PathValue("id"))
+}
+
+// ownedSessionByID applies the ownership rule to a session id taken from
+// anywhere in the request; foreign and missing ids both answer 404.
+func (h *chatHandlers) ownedSessionByID(w http.ResponseWriter, r *http.Request, id string) (chat.Session, bool) {
+	sess, err := h.mgr.GetSession(r.Context(), id)
 	if err != nil {
 		handleChatError(w, r, err)
 
@@ -274,16 +280,7 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 
 	// A foreign or missing origin chat is a 404 before anything is created.
 	if body.OriginChat != "" {
-		origin, err := h.mgr.GetSession(r.Context(), body.OriginChat)
-		if err != nil {
-			handleChatError(w, r, err)
-
-			return
-		}
-
-		if id, ok := sessionIdentity(r.Context()); ok && origin.CreatedBy != id {
-			handleChatError(w, r, chat.ErrSessionNotFound)
-
+		if _, ok := h.ownedSessionByID(w, r, body.OriginChat); !ok {
 			return
 		}
 	}

@@ -1896,3 +1896,24 @@ func TestCreateChat_ForeignOriginIsNotFound(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, list)
 }
+
+func TestCreateChat_OwnerStartsFromTheirOwnHandoff(t *testing.T) {
+	mux, mgr := newChatFixture(t, architectFixtureOpts())
+	origin := seedSession(t, mgr, "human:alice")
+
+	row, err := mgr.PostHandoff(t.Context(), origin.ID, chat.Handoff{
+		Title: "Budgets", Need: "need", Projects: []string{"alpha"},
+	})
+	require.NoError(t, err)
+
+	body := fmt.Sprintf(`{"kind":"architect","projects":["alpha"],"origin_chat":%q,"origin_seq":%d}`, origin.ID, row.Seq)
+
+	rec := httptest.NewRecorder()
+	asUser(mux, "alice", false).ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats", body))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+	var sess chat.Session
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sess))
+	assert.Equal(t, origin.ID, sess.OriginChat)
+	assert.Equal(t, row.Seq, sess.OriginSeq)
+}
