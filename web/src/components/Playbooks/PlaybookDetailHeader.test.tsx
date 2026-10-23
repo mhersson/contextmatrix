@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { PlaybookDetailHeader } from './PlaybookDetailHeader';
 import type { PlaybookDetail } from '../../types';
@@ -14,7 +14,7 @@ const DESCRIPTION = [
   '',
   'Assumptions, each with its latest status:',
   '- A1 (confirmed by the user) the sync runs hourly',
-  '- A2 (assumed by the responder) see [the spec](https://example.com/spec)',
+  '- A2 (assumed by the responder) see [the spec](#spec)',
   '',
   'Emitted by contextmatrix-architect from blueprint bp-1.',
 ].join('\n');
@@ -30,10 +30,10 @@ function detail(description?: string): PlaybookDetail {
 function renderHeader(description: string | undefined, editingDescription = false) {
   const onStartEditDescription = vi.fn();
   const onSaveDescription = vi.fn();
-  render(
+  const header = (text: string | undefined) => (
     <MemoryRouter>
       <PlaybookDetailHeader
-        detail={detail(description)}
+        detail={detail(text)}
         editingTitle={false}
         editingDescription={editingDescription}
         onStartEditTitle={() => {}}
@@ -42,9 +42,24 @@ function renderHeader(description: string | undefined, editingDescription = fals
         onSaveDescription={onSaveDescription}
         onDeleteClick={() => {}}
       />
-    </MemoryRouter>,
+    </MemoryRouter>
   );
-  return { onStartEditDescription, onSaveDescription };
+  const { rerender } = render(header(description));
+  return { onStartEditDescription, onSaveDescription, rerender: (text: string) => rerender(header(text)) };
+}
+
+// Stands in for the browser's observer so a test can report a resize to
+// whatever is being observed.
+const observers: ResizeObserverCallback[] = [];
+class ManualResizeObserver {
+  private readonly callback: ResizeObserverCallback;
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback;
+  }
+  observe() {
+    observers.push(this.callback);
+  }
+  disconnect() {}
 }
 
 // jsdom has no layout: every element reports a zero height unless stubbed.
@@ -64,6 +79,9 @@ describe('PlaybookDetailHeader description', () => {
   afterEach(() => {
     restoreLayout?.();
     restoreLayout = undefined;
+    observers.length = 0;
+    vi.unstubAllGlobals();
+    window.getSelection()?.removeAllRanges();
   });
 
   it('renders the description as markdown', async () => {
@@ -80,6 +98,26 @@ describe('PlaybookDetailHeader description', () => {
 
     fireEvent.click(screen.getByText(/Emitted by contextmatrix-architect/));
     expect(onStartEditDescription).toHaveBeenCalledOnce();
+  });
+
+  it('leaves the copy control and a summary in the description to themselves', async () => {
+    const { onStartEditDescription } = renderHeader(
+      'Run it:\n\n```\nmake test\n```\n\n<details><summary>Why</summary>Because.</details>',
+    );
+    await waitFor(() => expect(document.querySelector('.copied')).not.toBeNull());
+    fireEvent.click(document.querySelector('.copied')!);
+    fireEvent.click(screen.getByText('Why'));
+    expect(onStartEditDescription).not.toHaveBeenCalled();
+  });
+
+  it('does not start editing when the click ends a text selection', async () => {
+    const { onStartEditDescription } = renderHeader(DESCRIPTION);
+    const text = await screen.findByText(/Emitted by contextmatrix-architect/);
+    const range = document.createRange();
+    range.selectNodeContents(text);
+    window.getSelection()!.addRange(range);
+    fireEvent.click(text);
+    expect(onStartEditDescription).not.toHaveBeenCalled();
   });
 
   it('collapses a long description behind a Show more toggle that does not start editing', async () => {
@@ -99,6 +137,32 @@ describe('PlaybookDetailHeader description', () => {
     expect(screen.getByRole('button', { name: 'Show more' })).toHaveAttribute('aria-expanded', 'false');
     expect(box).toHaveStyle({ overflow: 'hidden' });
     expect(onStartEditDescription).not.toHaveBeenCalled();
+  });
+
+  it('collapses again when the description changes while expanded', async () => {
+    restoreLayout = stubOverflowingLayout();
+    const { rerender } = renderHeader(DESCRIPTION);
+    fireEvent.click(await screen.findByRole('button', { name: 'Show more' }));
+
+    rerender(`${DESCRIPTION}\n\nRevised.`);
+    expect(screen.getByRole('button', { name: 'Show more' })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('offers the toggle once a resize makes the description overflow', async () => {
+    vi.stubGlobal('ResizeObserver', ManualResizeObserver);
+    renderHeader(DESCRIPTION);
+    await screen.findByText('out of sync');
+    expect(screen.queryByRole('button', { name: 'Show more' })).toBeNull();
+
+    restoreLayout = stubOverflowingLayout();
+    act(() => observers.forEach((notify) => notify([], {} as ResizeObserver)));
+    expect(screen.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
+  });
+
+  it('prompts for a description when it is only whitespace', () => {
+    const { onStartEditDescription } = renderHeader(' \n ');
+    fireEvent.click(screen.getByText('Add a description'));
+    expect(onStartEditDescription).toHaveBeenCalledOnce();
   });
 
   it('shows no toggle for a description that fits', async () => {

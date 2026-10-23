@@ -83,8 +83,12 @@ export function PlaybookDetailHeader({
           className="block w-full mb-4 bg-transparent text-sm rounded px-1 resize-y"
           style={editableInputStyle}
         />
-      ) : detail.description ? (
-        <PlaybookDescription description={detail.description} onStartEdit={onStartEditDescription} />
+      ) : detail.description?.trim() ? (
+        <PlaybookDescription
+          key={detail.description}
+          description={detail.description}
+          onStartEdit={onStartEditDescription}
+        />
       ) : (
         <p
           onClick={onStartEditDescription}

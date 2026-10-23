@@ -6,10 +6,14 @@ interface PlaybookDescriptionProps {
   onStartEdit: () => void;
 }
 
+// Markup that acts on its own click: links, the code-block copy control, <details>.
+const OWN_CLICK = 'a, button, summary, input, .copied';
+
 /**
  * The description as markdown, clicked to edit. The clamp is visual, not a
  * string cut, so a list or fenced block never splits; overflow is measured
  * because soft line breaks make the source a poor guide to rendered height.
+ * The caller keys it on the text, so a new description starts collapsed.
  */
 export function PlaybookDescription({ description, onStartEdit }: PlaybookDescriptionProps) {
   const [expanded, setExpanded] = useState(false);
@@ -35,7 +39,8 @@ export function PlaybookDescription({ description, onStartEdit }: PlaybookDescri
         ref={boxRef}
         data-testid="playbook-description"
         onClick={(e) => {
-          if (!(e.target as Element).closest('a')) onStartEdit();
+          if ((e.target as Element).closest(OWN_CLICK) || window.getSelection()?.isCollapsed === false) return;
+          onStartEdit();
         }}
         className="pb-description relative cursor-text"
         style={expanded ? undefined : { maxHeight: '8rem', overflow: 'hidden' }}

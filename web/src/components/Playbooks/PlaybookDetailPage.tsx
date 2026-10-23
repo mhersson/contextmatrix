@@ -31,7 +31,9 @@ export function PlaybookDetailPage() {
   const [notFound, setNotFound] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
-  const [editingDescription, setEditingDescription] = useState(false);
+  // The text the description editor opened with: an untouched blur writes
+  // nothing, so a change that arrived mid-edit is not reverted.
+  const [descriptionBase, setDescriptionBase] = useState<string | null>(null);
   const [runnableConfirmOpen, setRunnableConfirmOpen] = useState(false);
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
 
@@ -163,9 +165,9 @@ export function PlaybookDetailPage() {
   };
 
   const saveDescription = (value: string) => {
-    setEditingDescription(false);
+    setDescriptionBase(null);
     const description = value.trim();
-    if (!detail || description === (detail.description ?? '').trim()) return;
+    if (!detail || description === (descriptionBase ?? '').trim()) return;
     applyPatch(api.patchPlaybook(detail.id, { description }));
   };
 
@@ -221,9 +223,9 @@ export function PlaybookDetailPage() {
             <PlaybookDetailHeader
               detail={detail}
               editingTitle={editingTitle}
-              editingDescription={editingDescription}
+              editingDescription={descriptionBase !== null}
               onStartEditTitle={() => setEditingTitle(true)}
-              onStartEditDescription={() => setEditingDescription(true)}
+              onStartEditDescription={() => setDescriptionBase(detail.description ?? '')}
               onSaveTitle={saveTitle}
               onSaveDescription={saveDescription}
               onDeleteClick={() => setDeleteOpen(true)}
