@@ -176,3 +176,37 @@ func (m *Manager) checkOrigin(ctx context.Context, kind SessionKind, in CreateIn
 
 	return nil
 }
+
+// SendHandoffNeed posts the need handed over to a blueprint started from a
+// hand-off, at most once: when the blueprint already holds it, it returns an
+// empty message id without sending.
+func (m *Manager) SendHandoffNeed(ctx context.Context, sessionID, content string) (string, error) {
+	sess, err := m.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return "", fmt.Errorf("chat: SendHandoffNeed: %w", err)
+	}
+
+	if sess.Kind != KindArchitect || sess.OriginChat == "" {
+		return "", fmt.Errorf("%w: a handed-over need goes only to a blueprint started from a hand-off", ErrInvalidSessionInput)
+	}
+
+	if err := checkMessageSize(sess.Kind, len(content)); err != nil {
+		return "", err
+	}
+
+	// Not the transcript lock: sendMessage releases that while it restarts the architect.
+	nl := m.needLock(sessionID)
+	nl.Lock()
+	defer nl.Unlock()
+
+	posted, err := m.store.LastSeqOfKind(ctx, sessionID, EventKindHandoffNeed)
+	if err != nil {
+		return "", fmt.Errorf("chat: SendHandoffNeed: %w", err)
+	}
+
+	if posted > 0 {
+		return "", nil
+	}
+
+	return m.sendMessage(ctx, sessionID, content, userSend{handoffNeed: true})
+}

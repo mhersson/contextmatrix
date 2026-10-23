@@ -255,3 +255,179 @@ func TestCreateSession_InvalidOrigin(t *testing.T) {
 		})
 	}
 }
+
+// handedOverBlueprint returns a manager and its architect stub with a
+// blueprint started from a hand-off.
+func handedOverBlueprint(t *testing.T) (*chat.Manager, *stubBackend, chat.Session) {
+	t.Helper()
+
+	ctx := context.Background()
+	mgr, _, arch := newManagerWithArchitectStub(t)
+
+	origin, err := mgr.CreateSession(ctx, chat.CreateInput{CreatedBy: "human:web"})
+	require.NoError(t, err)
+
+	row, err := mgr.PostHandoff(ctx, origin.ID, validHandoff())
+	require.NoError(t, err)
+
+	bp, err := mgr.CreateSession(ctx, architectFromHandoff(origin.ID, row.Seq))
+	require.NoError(t, err)
+
+	return mgr, arch, bp
+}
+
+func handoffNeedRows(t *testing.T, mgr *chat.Manager, sessionID string) []chat.Message {
+	t.Helper()
+
+	rows, err := mgr.ListMessages(context.Background(), sessionID, 0, 100)
+	require.NoError(t, err)
+
+	var needs []chat.Message
+
+	for _, r := range rows {
+		if r.Kind == chat.EventKindHandoffNeed {
+			needs = append(needs, r)
+		}
+	}
+
+	return needs
+}
+
+func TestSendHandoffNeed_SecondCallIsANoOp(t *testing.T) {
+	ctx := context.Background()
+	mgr, arch, bp := handedOverBlueprint(t)
+	need := validHandoff().Need
+
+	id, err := mgr.SendHandoffNeed(ctx, bp.ID, need)
+	require.NoError(t, err)
+	assert.NotEmpty(t, id)
+
+	again, err := mgr.SendHandoffNeed(ctx, bp.ID, need)
+	require.NoError(t, err)
+	assert.Empty(t, again)
+
+	assert.Equal(t, int64(1), arch.sendCalls.Load())
+
+	arch.mu.Lock()
+	sent := append([]sendArg(nil), arch.sendArgs...)
+	arch.mu.Unlock()
+	require.Len(t, sent, 1)
+	assert.Equal(t, need, sent[0].Content)
+	assert.Equal(t, id, sent[0].MessageID)
+
+	rows, err := mgr.ListMessages(ctx, bp.ID, 0, 100)
+	require.NoError(t, err)
+
+	var users []chat.Message
+
+	for _, r := range rows {
+		if r.Role == chat.RoleUser {
+			users = append(users, r)
+		}
+	}
+
+	require.Len(t, users, 1)
+	assert.Equal(t, chat.EventKindHandoffNeed, users[0].Kind)
+	assert.Equal(t, need, users[0].Content)
+}
+
+func TestSendHandoffNeed_ConcurrentSendsPostOnce(t *testing.T) {
+	ctx := context.Background()
+	mgr, arch, bp := handedOverBlueprint(t)
+
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+
+	arch.sendFn = func() {
+		if arch.sendCalls.Load() == 1 {
+			entered <- struct{}{}
+
+			<-release
+		}
+	}
+
+	type result struct {
+		id  string
+		err error
+	}
+
+	results := make(chan result, 2)
+	send := func() {
+		id, err := mgr.SendHandoffNeed(ctx, bp.ID, "need")
+		results <- result{id, err}
+	}
+
+	go send()
+
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		close(release)
+		t.Fatal("the first send never reached the backend")
+	}
+
+	go send()
+
+	// Let the second caller reach the need lock while the first is inside the send.
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+
+	var ids []string
+
+	for range 2 {
+		select {
+		case r := <-results:
+			require.NoError(t, r.err)
+
+			ids = append(ids, r.id)
+		case <-time.After(5 * time.Second):
+			t.Fatal("a send never returned")
+		}
+	}
+
+	assert.Equal(t, int64(1), arch.sendCalls.Load())
+	assert.Len(t, handoffNeedRows(t, mgr, bp.ID), 1)
+	assert.ElementsMatch(t, []bool{true, false}, []bool{ids[0] != "", ids[1] != ""})
+}
+
+func TestSendHandoffNeed_NeedsAHandedOverBlueprint(t *testing.T) {
+	ctx := context.Background()
+	mgr, chatStub, arch := newManagerWithArchitectStub(t)
+
+	bare, err := mgr.CreateSession(ctx, chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web",
+	})
+	require.NoError(t, err)
+
+	plain, err := mgr.CreateSession(ctx, chat.CreateInput{CreatedBy: "human:web"})
+	require.NoError(t, err)
+
+	for name, id := range map[string]string{"blueprint without origin": bare.ID, "plain chat": plain.ID} {
+		t.Run(name, func(t *testing.T) {
+			_, err := mgr.SendHandoffNeed(ctx, id, "need")
+			require.ErrorIs(t, err, chat.ErrInvalidSessionInput)
+			assert.Empty(t, handoffNeedRows(t, mgr, id))
+		})
+	}
+
+	assert.Equal(t, int64(0), arch.sendCalls.Load())
+	assert.Equal(t, int64(0), chatStub.sendCalls.Load())
+}
+
+func TestSendHandoffNeed_OverTheBlueprintLimitIsRefused(t *testing.T) {
+	ctx := context.Background()
+	mgr, arch, bp := handedOverBlueprint(t)
+	tooLarge := strings.Repeat("a", chat.MaxBlueprintMessageBytes+1)
+
+	_, err := mgr.SendHandoffNeed(ctx, bp.ID, tooLarge)
+	require.ErrorIs(t, err, chat.ErrMessageTooLarge)
+	assert.Equal(t, int64(0), arch.sendCalls.Load())
+	assert.Empty(t, handoffNeedRows(t, mgr, bp.ID))
+
+	_, err = mgr.SendHandoffNeed(ctx, bp.ID, "need")
+	require.NoError(t, err)
+
+	_, err = mgr.SendHandoffNeed(ctx, bp.ID, tooLarge)
+	require.ErrorIs(t, err, chat.ErrMessageTooLarge, "a repeat is refused over the limit too")
+	assert.Equal(t, int64(1), arch.sendCalls.Load())
+}

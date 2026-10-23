@@ -1191,7 +1191,7 @@ for a user message that answers a round whose content is its readable summary,
 `command` for a session command such as `cap 4` that the panel never renders,
 `handoff` for a system row in a chat whose content is a `{title, need, projects}`
 JSON object stored whole, `handoff_need` for the user row that carries a
-handed-over need into a blueprint as plain text)
+handed-over need into a blueprint as plain text, at most one per blueprint)
 and a unique index on `(session_id, seq)`.
 
 **`chat_sessions`:**

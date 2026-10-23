@@ -318,6 +318,12 @@ type Manager struct {
 	transcriptLocksMu sync.Mutex
 	transcriptLocks   map[string]*sync.Mutex
 
+	// needLocks keep a blueprint's handed-over need to one post:
+	// SendHandoffNeed holds one across its check, send and persist. Lazily
+	// allocated; dropped in DeleteSession.
+	needLocksMu sync.Mutex
+	needLocks   map[string]*sync.Mutex
+
 	closeOnce sync.Once
 
 	// costCache holds the most-recently computed GetChatCostSummary result.
@@ -367,6 +373,7 @@ func NewManager(cfg Config) *Manager {
 		appendLocks:       map[string]*sync.Mutex{},
 		statusLocks:       map[string]*sync.Mutex{},
 		transcriptLocks:   map[string]*sync.Mutex{},
+		needLocks:         map[string]*sync.Mutex{},
 	}
 }
 
@@ -398,6 +405,21 @@ func (m *Manager) transcriptLock(sessionID string) *sync.Mutex {
 	if !ok {
 		mu = &sync.Mutex{}
 		m.transcriptLocks[sessionID] = mu
+	}
+
+	return mu
+}
+
+// needLock returns the blueprint session's need mutex, creating it on first
+// use. Lock order: the need lock, then the transcript lock.
+func (m *Manager) needLock(sessionID string) *sync.Mutex {
+	m.needLocksMu.Lock()
+	defer m.needLocksMu.Unlock()
+
+	mu, ok := m.needLocks[sessionID]
+	if !ok {
+		mu = &sync.Mutex{}
+		m.needLocks[sessionID] = mu
 	}
 
 	return mu
@@ -2380,6 +2402,10 @@ func (m *Manager) DeleteSession(ctx context.Context, id string) error {
 	delete(m.transcriptLocks, id)
 	m.transcriptLocksMu.Unlock()
 
+	m.needLocksMu.Lock()
+	delete(m.needLocks, id)
+	m.needLocksMu.Unlock()
+
 	return nil
 }
 
@@ -2549,12 +2575,13 @@ func (m *Manager) SetMode(ctx context.Context, sessionID, mode string) (Session,
 
 // userSend is what a send carries beside its content: a round reply's
 // answers, the prompt id of the round a chat message is about, a mockup
-// reply, or a session command.
+// reply, a session command, or a handed-over need.
 type userSend struct {
-	round     *protocol.RoundReply
-	roundChat string
-	mockup    *protocol.MockupReply
-	command   bool
+	round       *protocol.RoundReply
+	roundChat   string
+	mockup      *protocol.MockupReply
+	command     bool
+	handoffNeed bool
 }
 
 func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us userSend) (string, error) {
@@ -2589,6 +2616,8 @@ func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us
 		kind = EventKindRoundChat
 	case us.round != nil:
 		kind = EventKindRoundReply
+	case us.handoffNeed:
+		kind = EventKindHandoffNeed
 	}
 
 	if err := m.ensureRunningForSend(ctx, sess); err != nil {

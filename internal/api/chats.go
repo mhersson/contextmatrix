@@ -684,10 +684,11 @@ func validateMockupReply(m *protocol.MockupReply) error {
 
 func (h *chatHandlers) sendMessage(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Content   string                `json:"content"`
-		Round     *protocol.RoundReply  `json:"round"`
-		RoundChat string                `json:"round_chat"`
-		Mockup    *protocol.MockupReply `json:"mockup"`
+		Content     string                `json:"content"`
+		Round       *protocol.RoundReply  `json:"round"`
+		RoundChat   string                `json:"round_chat"`
+		Mockup      *protocol.MockupReply `json:"mockup"`
+		HandoffNeed bool                  `json:"handoff_need"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -695,6 +696,13 @@ func (h *chatHandlers) sendMessage(w http.ResponseWriter, r *http.Request) {
 
 	if strings.TrimSpace(body.Content) == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "content is required", "")
+
+		return
+	}
+
+	if body.HandoffNeed && (body.Round != nil || body.RoundChat != "" || body.Mockup != nil) {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid handed-over need",
+			"handoff_need is exclusive with round, round_chat and mockup")
 
 		return
 	}
@@ -738,6 +746,8 @@ func (h *chatHandlers) sendMessage(w http.ResponseWriter, r *http.Request) {
 	)
 
 	switch {
+	case body.HandoffNeed:
+		msgID, err = h.mgr.SendHandoffNeed(r.Context(), r.PathValue("id"), body.Content)
 	case body.Round != nil:
 		msgID, err = h.mgr.SendRoundReply(r.Context(), r.PathValue("id"), body.Content, *body.Round)
 	case body.Mockup != nil:

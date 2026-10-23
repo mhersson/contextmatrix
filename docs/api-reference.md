@@ -2710,8 +2710,21 @@ unchanged and stores an ordinary user row:
 }
 ```
 
-**Response:** 202 with `{ "ok": true, "message_id": "<26-char id>" }`.
-400 `BAD_REQUEST` for empty or whitespace `content`, a `round_chat` beside a
+`"handoff_need": true` posts the need handed over to a blueprint started from
+a hand-off (an `architect` session with `origin_chat`) as `content`. CM stores
+the row with `kind` `"handoff_need"` and sends it at most once per blueprint: a
+repeat, such as a retry or a second tab, sends nothing and returns 202 with an
+empty `message_id`. `handoff_need` is exclusive with `round`, `round_chat` and
+`mockup`:
+
+```json
+{ "content": "## Need\nPer-card time budgets ...", "handoff_need": true }
+```
+
+**Response:** 202 with `{ "ok": true, "message_id": "<26-char id>" }`, or an
+empty `message_id` when the blueprint already holds its handed-over need.
+400 `BAD_REQUEST` for empty or whitespace `content`, a `handoff_need` beside
+`round`, `round_chat` or `mockup`, a `round_chat` beside a
 `round` or not of the form `round:<n>` (n from 1, no leading zero), or a
 `round` without `prompt_id`, with an answer `number` below 1, a negative
 `option`, an `option` of 0 without `text`, a `text` above 32 KiB or a decision
@@ -2719,7 +2732,8 @@ without `id`; a `mockup` beside `round` or `round_chat`, without `prompt_id`,
 with a `revision` below 1, an unknown `action`, `settings` on `skip`, more than
 12 settings, or a setting id (`^[a-z][a-z0-9_]{0,31}$`) or value
 (`^[a-z0-9_-]{1,32}$`) outside those forms; 400 `INVALID_CHAT_INPUT` for a
-`round`, `round_chat` or `mockup` on a chat session. The empty-content and
+`round`, `round_chat` or `mockup` on a chat session, or a `handoff_need` on a
+session that is not a blueprint started from a hand-off. The empty-content and
 shape checks run before the ownership check, the size check after it: 413
 `CONTENT_TOO_LARGE` above 8192 bytes on a chat session and above 65536 bytes on
 an architect session. Rows are stored whole.
