@@ -53,6 +53,22 @@ Three shared Go modules underpin them:
 [contextmatrix-backendkit](https://github.com/mhersson/contextmatrix-backendkit)
 (serve plumbing: webhook auth, worker lifecycle, metrics, log streaming).
 
+## A blueprint, step by step
+
+The
+[architect guide](https://github.com/mhersson/contextmatrix-architect/blob/main/docs/guide.md)
+shows the whole stack at work. It follows one real blueprint, a family recipe
+web app, from the first message to the final pull request, one short chapter
+per step with screenshots from that run. On the way it covers starting a
+blueprint (directly or from a chat hand-off), the interview, trying a mockup of
+the screen, slicing, design, checking the plan against the code, writing and
+signing off the cards, the playbook run that builds them on the board, and
+learning from cards that struggled. Beside it, the
+[reference](https://github.com/mhersson/contextmatrix-architect/blob/main/docs/reference.md)
+lists every reply you can type, the modes and the settings, and
+[Installing the architect](https://github.com/mhersson/contextmatrix-architect/blob/main/docs/installing.md)
+says what you need and how to get it running.
+
 ## Features
 
 Each bullet links to the document that covers it in full.
