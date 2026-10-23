@@ -274,7 +274,7 @@ export function PlaybookDetailPage() {
       <ConfirmModal
         open={stopConfirmOpen}
         title="Stop the playbook run?"
-        message="The current card's worker will be killed. Uncommitted work in that container is lost. Play resumes from the current entry."
+        message="The current card's worker will be killed. Uncommitted work in that container is lost. Run resumes from the current entry."
         variant="danger"
         confirmLabel="Stop run"
         onConfirm={() => void handleStopConfirm()}

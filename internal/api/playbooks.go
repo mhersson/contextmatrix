@@ -277,7 +277,7 @@ func (h *playbookHandlers) deleteEntry(w http.ResponseWriter, r *http.Request) {
 // a waiting run. Human-only, like every card run.
 func (h *playbookHandlers) run(w http.ResponseWriter, r *http.Request) {
 	if isNonHumanAgent(r) {
-		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can play a playbook", "")
+		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can run a playbook", "")
 
 		return
 	}

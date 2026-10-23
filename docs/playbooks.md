@@ -3,7 +3,7 @@
 A playbook is an ordered, cross-project runbook: card references whose status
 is read live from the board, mixed with manual gate steps a human checks off.
 Playbooks coordinate order for people and planning sessions. A playbook made
-**runnable** can also be played: ContextMatrix then runs its cards in order on
+**runnable** can also be run: ContextMatrix then runs its cards in order on
 a shared branch (see [Running a playbook](#running-a-playbook)).
 
 ## Entries
@@ -59,7 +59,7 @@ read `queued` while a run is active (see [web UI](web-ui.md#playbooks)).
 Playbooks start not runnable. A human makes one runnable from the detail
 page (the switch opens a warning that lists exactly what follows) or through
 the `run_playbook` MCP tool, which makes it runnable if it is not and then
-plays it.
+runs it.
 
 ### Make runnable
 
@@ -125,12 +125,12 @@ run:
 
 `running` and `waiting` are active: the cards' own run buttons are disabled
 and answer `409 PLAYBOOK_RUN_ACTIVE`, unchecking runnable is refused, and a
-second Play is refused. `completed` does not lock the playbook on the
-server: the API still accepts Play and `runnable: false` after it. On the
+second Run is refused. `completed` does not lock the playbook on the
+server: the API still accepts Run and `runnable: false` after it. On the
 detail page, a completed run whose entries are all complete disables both
 the Make runnable switch and the Run button, and the page offers no way to
 un-runnable or replay such a playbook; entries added later re-enable both
-controls so Play can run them.
+controls so Run can start them.
 
 Cards carry a derived `playbook_lock` with the owning playbook's id, title
 and, while active, its run status.
@@ -181,15 +181,15 @@ card or Stop All in its project clears it sooner. A claim through another
 instance without a worker does not stop the run from starting other cards; when
 it is on the next card, the run waits on it until the claim goes.
 
-### Play and Stop
+### Run and Stop
 
 See [Playbook runs](running-cards.md#playbook-runs) for the runner's
-behavior. Both controls are human-only; `run_playbook` is the MCP path to Play
+behavior. Both controls are human-only; `run_playbook` is the MCP path to Run
 and is gated on a `human:` caller. Stop is a web UI control only.
 
-- **Play** requires the playbook to be runnable and no run already active
+- **Run** requires the playbook to be runnable and no run already active
   (`409 PLAYBOOK_RUN_ACTIVE`), and a configured task backend
-  (`503 BACKEND_DISABLED`). A Play that arrives while a Stop of the same
+  (`503 BACKEND_DISABLED`). A Run that arrives while a Stop of the same
   playbook is still in progress waits for that Stop to finish.
 - **Stop** requires an active run (`409 PLAYBOOK_RUN_INACTIVE`). It kills, on
   this instance, the current card's worker and every worker queued or running
@@ -237,7 +237,7 @@ required on mutations for `created_by` and `done_by` attribution.
 | `add_playbook_entry`    | `POST /api/playbooks/{id}/entries`             | Appends one card or manual entry                                         |
 | `update_playbook_entry` | `PATCH /api/playbooks/{id}/entries/{entryId}`  | `done` and `text` (manual only), `note` (both), `position`               |
 | `remove_playbook_entry` | `DELETE /api/playbooks/{id}/entries/{entryId}` | Removes one entry                                                        |
-| `run_playbook`          | `PATCH /api/playbooks/{id}` (`runnable`) then `POST /api/playbooks/{id}/run` | Human-only; makes it runnable if it is not, then plays it |
+| `run_playbook`          | `PATCH /api/playbooks/{id}` (`runnable`) then `POST /api/playbooks/{id}/run` | Human-only; makes it runnable if it is not, then runs it  |
 
 `position` is the entry's final index after the move; values past the end
 clamp, negative values are rejected, and no move is accepted while a run is

@@ -127,7 +127,7 @@ The "Caller" column uses these values:
 | `increment_review_attempts` | Bump `review_attempts`; the server caps it at 7             | claim  |
 | `promote_to_autonomous`     | Flip `autonomous` to true; idempotent; 409 on terminal cards | human |
 | `run_card`                  | Start an autonomous (Run Auto) agent-backend run; a non-autonomous `todo` card is set autonomous first | human |
-| `run_playbook`              | Make a playbook runnable if it is not, then play it; same guards as the playbook page | human |
+| `run_playbook`              | Make a playbook runnable if it is not, then run it; same guards as the playbook page | human |
 
 ### Workflow skills
 
@@ -177,7 +177,7 @@ vetted cards see the real title.
 | `update_playbook_entry` | Done state, note, text, or position                  | any    |
 | `remove_playbook_entry` | Remove one entry; its id is never reused             | any    |
 
-Making a playbook runnable and playing it are available to a `human:` caller
+Making a playbook runnable and running it are available to a `human:` caller
 through `run_playbook`; stopping a run and setting the base branch stay web UI
 controls. Card summaries (`get_card`, `list_cards`,
 task context) carry `playbook_lock` mirrored from the card, naming the

@@ -26,7 +26,7 @@ from the board. A card whose worker is already `queued` or `running`, or an
 unvetted import, is left unchanged and the run is refused.
 
 The `run_playbook` MCP tool is the playbook counterpart, also human-only: it
-makes a playbook runnable if it is not, then plays it (see
+makes a playbook runnable if it is not, then runs it (see
 [Playbook runs](#playbook-runs)).
 
 An imported card (one with a `source`) that is not vetted cannot run: the run
@@ -202,7 +202,7 @@ of Stop, and Stop All skips it; that instance owns the container.
 ## Playbook runs
 
 A runnable playbook (see [playbooks](playbooks.md#running-a-playbook)) is
-played from its detail page or by the `run_playbook` MCP tool. The server then runs its card entries one after
+run from its detail page or by the `run_playbook` MCP tool. The server then runs its card entries one after
 another: each card is launched exactly as **Run Auto** would launch it, with
 `create_base_branch` set so the worker creates the playbook branch on its
 first run in a repository.
@@ -214,10 +214,10 @@ first run in a repository.
 | `stopped`   | Stop was pressed; the **Stop** bullet below says which workers it killed.                                                                                                      |
 | `completed` | Every entry is complete. The compare links open the final pull requests.                                                                                                       |
 
-- **Play** starts a run, or resumes a `stopped` one. A resume re-launches the
+- **Run** starts a run, or resumes a `stopped` one. A resume re-launches the
   current card: a parked or stalled card is first moved back to `todo`. A card
-  that finished meanwhile is skipped; one that is running is waited on. Play
-  is refused while a run is `running` or `waiting`. A Play pressed while a
+  that finished meanwhile is skipped; one that is running is waited on. Run
+  is refused while a run is `running` or `waiting`. A Run pressed while a
   Stop is still finishing waits for it.
 - **Stop** kills, on this instance, the current card's worker and every
   worker queued or running on the run's other cards when the stop is written,
@@ -225,12 +225,12 @@ first run in a repository.
   and Stop then kills the worker it queued. A hand run on another card after
   the stop is left alone.
 - The runner never retries on its own. After a failed card, fix the cause,
-  then press Stop and Play: Stop ends the `waiting` run and Play resumes it.
+  then press Stop and Run: Stop ends the `waiting` run and Run resumes it.
 - An imported card that is not vetted holds the run at `waiting` with the reason
   `<card> not vetted`. Vetting the card is the go-ahead: the run continues by
-  itself, without Play.
+  itself, without Run.
 - While a run is `running` or `waiting`, the cards' own run buttons are
-  disabled and `POST .../run` answers `409 PLAYBOOK_RUN_ACTIVE`. A hand run that races a Play either queues first,
+  disabled and `POST .../run` answers `409 PLAYBOOK_RUN_ACTIVE`. A hand run that races the playbook's Run either queues first,
   and the run waits on its worker, or is refused the same way.
 - While any of its cards has a queued or running worker, the run starts no other card: an
   entry that turns incomplete is handled after that worker ends. The run
@@ -243,10 +243,10 @@ first run in a repository.
   its project clears it sooner. A claim through another instance without a
   worker does not stop the run from starting other cards; when it is on the
   next card, the run waits on it until the claim goes.
-- A Play after a Stop that left a worker alive (the kill failed, or the card
+- A Run after a Stop that left a worker alive (the kill failed, or the card
   is claimed through another instance), or after a hand run while stopped,
   waits on that worker before starting anything else.
-- On a shared board the instance that pressed Play owns the run; other
+- On a shared board the instance that pressed Run owns the run; other
   instances show it and never walk it. A restart resumes owned runs.
 
 ## Cost tracking
