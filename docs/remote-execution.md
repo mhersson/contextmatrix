@@ -332,8 +332,8 @@ The chat manager sends the chat form of the same payload on every user turn:
 ```
 
 Exactly one of `(card_id + project)` or `session_id` is set; the backend
-dispatches on which is present. CM caps `content` at 8192 bytes before
-sending. The backend writes the content to the container's stdin and echoes
+dispatches on which is present. CM caps `content` at 8192 bytes for a card or chat
+session before sending. The backend writes the content to the container's stdin and echoes
 it as a `user` log frame so the browser console shows it.
 
 #### POST {agent_url}/promote
@@ -444,7 +444,8 @@ protocol. CM drives it with the same `POST /chat/start`, `POST /chat/end` and
 transcript, all signed with the architect entry's `api_key`. CM sends no
 health or readiness probe to it. A session is a blueprint bound to its
 session id, not a container; CM records whatever `container_id` the start
-response returns. Differences from a chat start:
+response returns. A blueprint message's `content` may be up to 65536 bytes.
+Differences from a chat start:
 
 | Field                                           | Architect start                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

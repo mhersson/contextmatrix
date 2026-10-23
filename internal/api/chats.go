@@ -680,12 +680,6 @@ func (h *chatHandlers) sendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(body.Content) > 8192 {
-		writeError(w, http.StatusRequestEntityTooLarge, ErrCodeContentTooLarge, "message too long", "")
-
-		return
-	}
-
 	if body.RoundChat != "" {
 		if err := validateRoundChat(body.RoundChat, body.Round); err != nil {
 			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid round chat", err.Error())
@@ -1085,6 +1079,9 @@ func handleChatError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, chat.ErrInvalidSessionInput):
 		logger.Warn("chat error", "error", err)
 		writeError(w, http.StatusBadRequest, ErrCodeInvalidChatInput, "invalid chat session input", err.Error())
+	case errors.Is(err, chat.ErrMessageTooLarge):
+		logger.Warn("chat error", "error", err)
+		writeError(w, http.StatusRequestEntityTooLarge, ErrCodeContentTooLarge, "message too long", err.Error())
 	case errors.Is(err, chat.ErrKindUnavailable):
 		logger.Warn("chat error", "error", err)
 		writeError(w, http.StatusConflict, ErrCodeChatKindUnavailable, "no backend configured for this session kind", "")

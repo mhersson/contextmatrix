@@ -1800,3 +1800,35 @@ func TestListModels_UnpricedAbsentFromWireWhenPriced(t *testing.T) {
 	h.listModels(rec, httptest.NewRequest(http.MethodGet, "/api/chats/models", nil))
 	assert.NotContains(t, rec.Body.String(), "unpriced")
 }
+
+func TestSendMessage_BlueprintTakes64KiB(t *testing.T) {
+	var arch *chatStubBackend
+
+	opts := architectFixtureOpts()
+	opts.onArchitect = func(s *chatStubBackend) { arch = s }
+	mux, mgr := newChatFixture(t, opts)
+
+	bp, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	post := func(n int) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(map[string]string{"content": strings.Repeat("a", n)})
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats/"+bp.ID+"/messages", string(body)))
+
+		return rec
+	}
+
+	rec := post(chat.MaxBlueprintMessageBytes)
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+
+	sent := arch.sentPayloads()
+	require.Len(t, sent, 1)
+	assert.Len(t, sent[0].Content, chat.MaxBlueprintMessageBytes)
+
+	rec = post(chat.MaxBlueprintMessageBytes + 1)
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	assert.Equal(t, ErrCodeContentTooLarge, recorderErrorCode(t, rec))
+	assert.Len(t, arch.sentPayloads(), 1)
+}

@@ -2708,8 +2708,10 @@ without `id`; a `mockup` beside `round` or `round_chat`, without `prompt_id`,
 with a `revision` below 1, an unknown `action`, `settings` on `skip`, more than
 12 settings, or a setting id (`^[a-z][a-z0-9_]{0,31}$`) or value
 (`^[a-z0-9_-]{1,32}$`) outside those forms; 400 `INVALID_CHAT_INPUT` for a
-`round`, `round_chat` or `mockup` on a chat session; 413 `CONTENT_TOO_LARGE`
-above 8 KiB.
+`round`, `round_chat` or `mockup` on a chat session. The empty-content and
+shape checks run before the ownership check, the size check after it: 413
+`CONTENT_TOO_LARGE` above 8192 bytes on a chat session and above 65536 bytes on
+an architect session. Rows are stored whole.
 
 ### POST /api/chats/{id}/cap
 

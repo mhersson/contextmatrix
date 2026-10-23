@@ -6758,3 +6758,65 @@ func TestManager_ArchitectStartCarriesContextWindow(t *testing.T) {
 		})
 	}
 }
+
+func sentContents(b *stubBackend) []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	out := []string{}
+	for _, a := range b.sendArgs {
+		out = append(out, a.Content)
+	}
+
+	return out
+}
+
+func userRowContents(t *testing.T, mgr *chat.Manager, id string) []string {
+	t.Helper()
+
+	msgs, err := mgr.ListMessages(context.Background(), id, 0, 100)
+	require.NoError(t, err)
+
+	out := []string{}
+
+	for _, m := range msgs {
+		if m.Role == chat.RoleUser {
+			out = append(out, m.Content)
+		}
+	}
+
+	return out
+}
+
+func TestSendMessage_BlueprintLimitCountsBytes(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "x"})
+	require.NoError(t, err)
+
+	fits := strings.Repeat("€", 21845) // 65535 bytes
+	_, err = mgr.SendUserMessage(ctx, bp.ID, fits)
+	require.NoError(t, err)
+
+	_, err = mgr.SendUserMessage(ctx, bp.ID, fits+"€") // 65538 bytes
+	require.ErrorIs(t, err, chat.ErrMessageTooLarge)
+
+	assert.Equal(t, []string{fits}, sentContents(arch))
+	assert.Equal(t, []string{fits}, userRowContents(t, mgr, bp.ID))
+}
+
+func TestSendMessage_ChatKeeps8192(t *testing.T) {
+	mgr, chatStub, _ := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{CreatedBy: "x"})
+	require.NoError(t, err)
+
+	fits := strings.Repeat("a", chat.MaxChatMessageBytes)
+	_, err = mgr.SendUserMessage(ctx, sess.ID, fits)
+	require.NoError(t, err)
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, fits+"a")
+	require.ErrorIs(t, err, chat.ErrMessageTooLarge)
+
+	assert.Equal(t, []string{fits}, sentContents(chatStub))
+}

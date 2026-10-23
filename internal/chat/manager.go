@@ -1899,9 +1899,8 @@ func (m *Manager) reseedSeq(ctx context.Context, sessionID, op string) {
 
 // maxMessageBytes caps a single persisted transcript entry. Verbose tool
 // output (e.g. a tool_result containing a large file dump) would otherwise
-// grow the transcript store linearly without bound. The user-message path is
-// already capped at the HTTP boundary (8192 bytes), so this cap mainly fires
-// on backend-emitted entries.
+// grow the transcript store linearly without bound. The cap is for
+// backend-emitted rows; user rows are bounded at the send and stored whole.
 const maxMessageBytes = 32 * 1024
 
 // truncationMarker is appended to messages that exceeded maxMessageBytes.
@@ -1938,8 +1937,9 @@ func (m *Manager) AppendMessage(ctx context.Context, sessionID string, role Role
 // Message.Kind on the persisted row: the log consumer's prompt and marker
 // rows, and the send path's round chat rows.
 func (m *Manager) appendMessageWithKind(ctx context.Context, sessionID string, role Role, content, kind string) (Message, error) {
-	// promptContent bounds a prompt row itself, and a round row may exceed maxMessageBytes.
-	if kind != EventKindPrompt {
+	// promptContent bounds a prompt row itself, a round row may exceed
+	// maxMessageBytes, and every user row passed the send limit.
+	if kind != EventKindPrompt && role != RoleUser {
 		content = truncateMessageContent(content)
 	}
 
@@ -2549,6 +2549,10 @@ type userSend struct {
 func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us userSend) (string, error) {
 	sess, err := m.store.GetSession(ctx, sessionID)
 	if err != nil {
+		return "", err
+	}
+
+	if err := checkMessageSize(sess.Kind, len(content)); err != nil {
 		return "", err
 	}
 
