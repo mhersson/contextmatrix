@@ -2,6 +2,7 @@ import { Link } from 'react-router';
 import type { PlaybookDetail } from '../../types';
 import { sourceIcon } from '../icons';
 import { isSafeHttpUrl } from '../CardPanel/utils';
+import { PlaybookDescription } from './PlaybookDescription';
 
 interface PlaybookDetailHeaderProps {
   detail: PlaybookDetail;
@@ -18,6 +19,10 @@ const editableInputStyle = { color: 'var(--fg)', border: '1px solid var(--bg3)' 
 
 function blurOnEnter(e: React.KeyboardEvent<HTMLInputElement>) {
   if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+}
+
+function descriptionRows(description?: string): number {
+  return Math.min(16, Math.max(3, (description ?? '').split('\n').length));
 }
 
 /** Breadcrumb plus click-to-edit title/description; progress lives in the
@@ -69,22 +74,24 @@ export function PlaybookDetailHeader({
       </div>
 
       {editingDescription ? (
-        <input
+        <textarea
           autoFocus
           defaultValue={detail.description ?? ''}
+          rows={descriptionRows(detail.description)}
           placeholder="Add a description"
           onBlur={(e) => onSaveDescription(e.target.value)}
-          onKeyDown={blurOnEnter}
-          className="w-full mb-4 bg-transparent text-sm rounded px-1"
+          className="block w-full mb-4 bg-transparent text-sm rounded px-1 resize-y"
           style={editableInputStyle}
         />
+      ) : detail.description ? (
+        <PlaybookDescription description={detail.description} onStartEdit={onStartEditDescription} />
       ) : (
         <p
           onClick={onStartEditDescription}
           className="cursor-text mb-4 text-sm"
           style={{ color: 'var(--grey2)' }}
         >
-          {detail.description || 'Add a description'}
+          Add a description
         </p>
       )}
     </>

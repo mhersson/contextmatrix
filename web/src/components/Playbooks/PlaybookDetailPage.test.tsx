@@ -341,4 +341,20 @@ describe('PlaybookDetailPage', () => {
     expect(link).toHaveAttribute('href', 'https://acme.atlassian.net/browse/PROJ-1');
     expect(link).toHaveAttribute('target', '_blank');
   });
+
+  it('saves an edited description but skips the write when it is unchanged', async () => {
+    vi.mocked(api.getPlaybook).mockResolvedValue({ ...baseDetail(), description: 'Ship it.\n' });
+    vi.mocked(api.patchPlaybook).mockResolvedValue({ ...baseDetail(), description: 'Ship it later.' });
+    renderPage();
+
+    fireEvent.click(await screen.findByText('Ship it.'));
+    fireEvent.blur(screen.getByPlaceholderText('Add a description'));
+    expect(api.patchPlaybook).not.toHaveBeenCalled();
+
+    fireEvent.click(await screen.findByText('Ship it.'));
+    const box = screen.getByPlaceholderText('Add a description');
+    fireEvent.change(box, { target: { value: 'Ship it later. ' } });
+    fireEvent.blur(box);
+    await waitFor(() => expect(api.patchPlaybook).toHaveBeenCalledWith('roll', { description: 'Ship it later.' }));
+  });
 });

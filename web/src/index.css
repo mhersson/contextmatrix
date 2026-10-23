@@ -3444,6 +3444,10 @@ textarea {
   min-width: 0;
 }
 
+.pb-description .wmde-markdown {
+  color: var(--grey2) !important;
+}
+
 .pb-side {
   flex: 1 1 300px;
   max-width: 300px;

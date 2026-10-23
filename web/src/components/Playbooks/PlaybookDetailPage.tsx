@@ -164,8 +164,9 @@ export function PlaybookDetailPage() {
 
   const saveDescription = (value: string) => {
     setEditingDescription(false);
-    if (!detail) return;
-    applyPatch(api.patchPlaybook(detail.id, { description: value.trim() }));
+    const description = value.trim();
+    if (!detail || description === (detail.description ?? '').trim()) return;
+    applyPatch(api.patchPlaybook(detail.id, { description }));
   };
 
   const handleDelete = async () => {
