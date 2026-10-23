@@ -55,7 +55,12 @@ interface ChatEntryProps {
   originChatTitle?: string;
 }
 
-function ChatEntryImpl({ entry, stampHHMM, stampTitle, promptStatus, promptAnswer,
+function ChatEntryImpl({
+  entry,
+  stampHHMM,
+  stampTitle,
+  promptStatus,
+  promptAnswer,
   onReply,
   roundStatus,
   handoffStatus,

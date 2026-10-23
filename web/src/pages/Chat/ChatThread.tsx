@@ -245,7 +245,10 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
   const origin = view.origin_chat
     ? {
         chatId: view.origin_chat,
-        chatTitle: handoffCtx?.sessions.find((s) => s.id === view.origin_chat)?.title ?? null,
+        chatTitle: (() => {
+          const title = handoffCtx?.sessions.find((s) => s.id === view.origin_chat)?.title;
+          return title === undefined ? null : title || '(untitled)';
+        })(),
       }
     : undefined;
 

@@ -169,8 +169,8 @@ func (h *chatHandlers) ownedSession(w http.ResponseWriter, r *http.Request) (cha
 
 // ownedSessionByID applies the ownership rule to a session id taken from
 // anywhere in the request; foreign and missing ids both answer 404.
-func (h *chatHandlers) ownedSessionByID(w http.ResponseWriter, r *http.Request, id string) (chat.Session, bool) {
-	sess, err := h.mgr.GetSession(r.Context(), id)
+func (h *chatHandlers) ownedSessionByID(w http.ResponseWriter, r *http.Request, sessionID string) (chat.Session, bool) {
+	sess, err := h.mgr.GetSession(r.Context(), sessionID)
 	if err != nil {
 		handleChatError(w, r, err)
 

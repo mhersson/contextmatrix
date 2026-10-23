@@ -333,8 +333,8 @@ The chat manager sends the chat form of the same payload on every user turn:
 
 Exactly one of `(card_id + project)` or `session_id` is set; the backend
 dispatches on which is present. CM caps `content` at 8192 bytes for a card or chat
-session before sending. The backend writes the content to the container's stdin and echoes
-it as a `user` log frame so the browser console shows it.
+session before sending. The backend writes the content to the container's
+stdin and echoes it as a `user` log frame so the browser console shows it.
 
 #### POST {agent_url}/promote
 

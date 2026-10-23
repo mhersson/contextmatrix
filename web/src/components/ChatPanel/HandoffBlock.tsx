@@ -62,7 +62,7 @@ export function HandoffBlock({ handoff, status, blueprintId, blueprintTitle, onR
           <span className="text-xs" style={{ color: 'var(--grey2)' }}>
             {'Blueprint started: '}
             <Link to={`/chat/${blueprintId}`} className="underline" style={{ color: 'var(--green)' }}>
-              {blueprintTitle}
+              {blueprintTitle || '(untitled)'}
             </Link>
           </span>
         )}

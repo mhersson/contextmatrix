@@ -3002,8 +3002,9 @@ The tool catalogue, connection instructions, and workflow entry points are in
   CSRF guard and the session guard.
 - **`X-CM-Chat-Session`:** chat containers forward their session id in this
   header; it must match `^[A-Z2-7]{26}$` or the request is 400. The value
-  gates session-scoped tools (`chat_rehydration_complete`). Absent for
-  card-mode workers and humans.
+  gates session-scoped tools (`chat_rehydration_complete`) and selects the
+  chat `hand_off_to_architect` posts into; that tool is refused without it.
+  Absent for card-mode workers and humans.
 - **Identity:** every tool takes an `agent_id` argument; there is no session
   concept.
 

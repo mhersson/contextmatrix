@@ -26,8 +26,8 @@ const SYSTEM_EVENT_JSON = /^\s*\{"/;
  *  results ride the Tool calls checkbox, stderr drops INFO/DEBUG slog
  *  diagnostics and system drops raw JSON event dumps unconditionally;
  *  everything else always shows. An architect prompt shows with Text off:
- *  it may be waiting on the user. Hand-off rows always show, as do blueprint marker rows: a stage
- *  divider is a system row with JSON content. */
+ *  it may be waiting on the user. Hand-off and blueprint marker rows always
+ *  show: both are system rows with JSON content. */
 export function filterLogEntries(
   logs: readonly LogEntry[],
   prefs: ChatFilterPrefs,

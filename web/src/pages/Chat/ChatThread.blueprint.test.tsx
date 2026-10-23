@@ -181,4 +181,20 @@ describe('ChatThread on an architect session', () => {
     expect(await screen.findByText('Cap card budgets')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Card budgets' })).toHaveAttribute('href', '/chat/C');
   });
+
+  it('links an untitled origin chat as untitled', async () => {
+    vi.mocked(api.getChat).mockResolvedValue({ ...session, origin_chat: 'C' });
+    const origin: ChatSession = { ...session, id: 'C', title: '', kind: 'chat' };
+    render(
+      <MemoryRouter>
+        <HandoffContext.Provider value={{ sessions: [origin], openHandoff: vi.fn() }}>
+          <ChatThread sessionID="S1" embedded />
+        </HandoffContext.Provider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(MockEventSource.instances).toHaveLength(1));
+    emit({ seq: 1, role: 'user', content: 'Cap card budgets', kind: 'handoff_need' });
+    expect(await screen.findByText('Cap card budgets')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '(untitled)' })).toHaveAttribute('href', '/chat/C');
+  });
 });

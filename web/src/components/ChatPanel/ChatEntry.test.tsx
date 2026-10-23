@@ -429,6 +429,19 @@ describe('ChatEntry hand-off block', () => {
     expect(screen.queryByRole('button', { name: /Review and start/ })).not.toBeInTheDocument();
   });
 
+  it('a started hand-off with a blank blueprint title links as untitled', () => {
+    renderEntry(
+      <ChatEntry
+        entry={handoffEntry()}
+        handoffStatus="started"
+        handoffBlueprintId="B"
+        handoffBlueprintTitle=""
+        onReviewHandoff={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('link', { name: '(untitled)' })).toHaveAttribute('href', '/chat/B');
+  });
+
   it('an unreadable hand-off renders one line', () => {
     renderEntry(<ChatEntry entry={handoffEntry('nope')} handoffStatus="open" />);
     expect(screen.getByText('A hand-off that could not be read')).toBeInTheDocument();
