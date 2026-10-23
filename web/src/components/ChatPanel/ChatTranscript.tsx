@@ -6,7 +6,7 @@ import { logRowKey } from '../../utils/logRowKey';
 import { ChatEntry } from './ChatEntry';
 import type { RoundStatus } from '../QuestionRound/rounds';
 import type { PromptState } from './prompts';
-import type { HandoffState } from './handoff';
+import { HANDOFF_NEED_KIND, type HandoffState } from './handoff';
 import { WorkingIndicator } from './WorkingIndicator';
 import { decorateLogs } from './decorateLogs';
 import { INITIAL_TAIL, REVEAL_CHUNK } from './chatEntryUtils';
@@ -36,6 +36,8 @@ interface ChatTranscriptProps {
   handoffStates?: ReadonlyMap<LogEntry, HandoffState>;
   /** Opens the hand-off review; handed only to open hand-off rows. */
   onReviewHandoff?: (entry: LogEntry) => void;
+  /** The chat a blueprint's hand-off need came from; the title is null when the chat is not listed. */
+  origin?: { chatId: string; chatTitle: string | null };
 }
 
 interface PendingAnchor {
@@ -68,6 +70,7 @@ export function ChatTranscript({
   onReply,
   handoffStates,
   onReviewHandoff,
+  origin,
 }: ChatTranscriptProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -309,6 +312,8 @@ export function ChatTranscript({
                     handoffBlueprintId={hs?.status === 'started' ? hs.blueprintId : undefined}
                     handoffBlueprintTitle={hs?.status === 'started' ? hs.blueprintTitle : undefined}
                     onReviewHandoff={hs?.status === 'open' ? onReviewHandoff : undefined}
+                    originChatId={d.entry.kind === HANDOFF_NEED_KIND ? origin?.chatId : undefined}
+                    originChatTitle={d.entry.kind === HANDOFF_NEED_KIND ? (origin?.chatTitle ?? undefined) : undefined}
                   />
                 </div>
               );

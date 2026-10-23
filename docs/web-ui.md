@@ -182,7 +182,10 @@ board. Promote-to-autonomous lives in that tab.
   blueprint, opens its pane and posts the need as its first message. A failed
   post, or an architect that does not start, keeps the dialog open, and Create
   retries on the same blueprint even when a setting changed since. A second blueprint from the same hand-off, or one from a
-  hand-off a newer one replaced, is refused with a message. The sidebar
+  hand-off a newer one replaced, is refused with a message. A blueprint started
+  from a hand-off shows the need as its first message, with "handed over from
+  the chat <title>" under it linking back to the chat ("handed over from a
+  chat" without a link when the chat is gone). The sidebar
   marks blueprint sessions with an aqua drafting-compass icon. The pane header
   shows a blueprint's mode and cost cap, and the architect's spend from the
   blueprint view (the figure the scale bar shows) where a chat's header shows

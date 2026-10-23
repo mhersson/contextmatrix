@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api, isAPIError } from '../../api/client';
 import type { ChatSendExtra, ChatSession, MockupReply, RoundReply } from '../../types';
 import { ChatPanel } from '../../components/ChatPanel';
 import { BLUEPRINT_MESSAGE_MAX_BYTES, CHAT_MESSAGE_MAX_BYTES } from '../../components/ChatPanel/chatEntryUtils';
+import { HandoffContext } from '../../components/ChatPanel/handoffContext';
 import { BlueprintSession } from '../../components/Blueprint/BlueprintSession';
 import { mockupChatExtra } from '../../components/Mockup/mockupStore';
 import { useChatStream } from '../../hooks/useChatStream';
@@ -28,6 +29,7 @@ interface ChatThreadProps {
 type PostFn = (content: string, extra: ChatSendExtra | undefined, failure: string) => Promise<void>;
 
 export function ChatThread({ sessionID, embedded = false, isFocused = true, phone = false }: ChatThreadProps) {
+  const handoffCtx = useContext(HandoffContext);
   const [session, setSession] = useState<ChatSession | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { logs, connected, connection, sessionUpdate, hasMore, loadingOlder, loadOlder, subscribeBlueprint } =
@@ -240,6 +242,12 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
     );
   }
   const view = merged;
+  const origin = view.origin_chat
+    ? {
+        chatId: view.origin_chat,
+        chatTitle: handoffCtx?.sessions.find((s) => s.id === view.origin_chat)?.title ?? null,
+      }
+    : undefined;
 
   const handleSendRound = (content: string, reply: RoundReply) => post(content, { round: reply }, 'Failed to send answers');
   const handleSendRoundChat = (content: string, promptId: string) =>
@@ -275,6 +283,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
       hasMoreHistory={hasMore}
       loadingOlder={loadingOlder}
       onLoadOlder={loadOlder}
+      origin={origin}
     />
   );
 

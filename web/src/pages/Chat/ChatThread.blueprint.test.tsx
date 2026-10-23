@@ -7,6 +7,8 @@ import type { ChatSession } from '../../types';
 import { rawRound, roundEntry } from '../../test-utils/roundFixtures';
 import { useChatLiveData } from '../../hooks/useChatLiveData';
 import { ChatThread } from './ChatThread';
+import { MemoryRouter } from 'react-router';
+import { HandoffContext } from '../../components/ChatPanel/handoffContext';
 
 vi.mock('../../api/client', () => ({
   api: {
@@ -162,5 +164,21 @@ describe('ChatThread on an architect session', () => {
         },
       }),
     );
+  });
+
+  it('passes the origin chat to the transcript', async () => {
+    vi.mocked(api.getChat).mockResolvedValue({ ...session, origin_chat: 'C' });
+    const origin: ChatSession = { ...session, id: 'C', title: 'Card budgets', kind: 'chat' };
+    render(
+      <MemoryRouter>
+        <HandoffContext.Provider value={{ sessions: [origin], openHandoff: vi.fn() }}>
+          <ChatThread sessionID="S1" embedded />
+        </HandoffContext.Provider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(MockEventSource.instances).toHaveLength(1));
+    emit({ seq: 1, role: 'user', content: 'Cap card budgets', kind: 'handoff_need' });
+    expect(await screen.findByText('Cap card budgets')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Card budgets' })).toHaveAttribute('href', '/chat/C');
   });
 });

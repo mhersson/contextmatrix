@@ -69,6 +69,8 @@ export interface ChatPanelProps {
   onSendRound?: (content: string, reply: RoundReply) => Promise<void>;
   /** Sends a message typed in the waiting round's chat box, with that round's prompt id. Set on architect sessions. */
   onSendRoundChat?: (content: string, promptId: string) => Promise<void>;
+  /** The chat this blueprint was handed over from; its need row links back. */
+  origin?: { chatId: string; chatTitle: string | null };
 }
 
 export function ChatPanel({
@@ -87,6 +89,7 @@ export function ChatPanel({
   sessionID,
   onSendRound,
   onSendRoundChat,
+  origin,
 }: ChatPanelProps) {
   const { prefs, setPref } = useChatFilterPrefs();
   const { showText, showToolCalls, showThinking } = prefs;
@@ -196,6 +199,7 @@ export function ChatPanel({
         onReply={sendReply}
         handoffStates={handoffStates}
         onReviewHandoff={handoffCtx ? reviewHandoff : undefined}
+        origin={origin}
       />
 
       {docked && (

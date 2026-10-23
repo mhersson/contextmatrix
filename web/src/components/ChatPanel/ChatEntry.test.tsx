@@ -434,4 +434,29 @@ describe('ChatEntry hand-off block', () => {
     expect(screen.getByText('A hand-off that could not be read')).toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
+
+  describe('a handed-over need', () => {
+    const needEntry = (): LogEntry => ({ ...makeEntry(1, 'user', 'Cap card budgets'), kind: 'handoff_need' });
+
+    it('links back to its chat', () => {
+      render(
+        <MemoryRouter>
+          <ChatEntry entry={needEntry()} originChatId="C" originChatTitle="Card budgets" />
+        </MemoryRouter>,
+      );
+      expect(screen.getByText('Cap card budgets')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Card budgets' })).toHaveAttribute('href', '/chat/C');
+    });
+
+    it('without the chat says where it came from', () => {
+      render(
+        <MemoryRouter>
+          <ChatEntry entry={needEntry()} originChatId="C" />
+        </MemoryRouter>,
+      );
+      expect(screen.getByText('Cap card budgets')).toBeInTheDocument();
+      expect(screen.getByText('handed over from a chat')).toBeInTheDocument();
+      expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    });
+  });
 });
