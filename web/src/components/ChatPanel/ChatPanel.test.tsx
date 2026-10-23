@@ -1030,4 +1030,24 @@ describe('ChatPanel hand-off', () => {
       ...need,
     });
   });
+
+  it('offers the button only on the newest of two hand-offs', () => {
+    const row = (seq: number, title: string): LogEntry => ({
+      ts: '2026-05-13T10:00:00Z',
+      card_id: '',
+      type: 'system',
+      kind: 'handoff',
+      content: JSON.stringify({ title, need: 'n', projects: ['alpha'] }),
+      seq,
+    });
+    render(
+      <MemoryRouter>
+        <HandoffContext.Provider value={{ sessions: [], openHandoff: vi.fn() }}>
+          <ChatPanel logs={[row(2, 'First'), row(5, 'Second')]} sessionID="C" onSend={vi.fn()} sendDisabled={false} />
+        </HandoffContext.Provider>
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('Replaced by a newer hand-off')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /Review and start blueprint/ })).toHaveLength(1);
+  });
 });
