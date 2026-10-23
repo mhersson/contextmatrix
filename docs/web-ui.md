@@ -179,8 +179,9 @@ board. Promote-to-autonomous lives in that tab.
   and the hand-off's projects are ticked; a project no longer in CM is left out
   and named in a note. The mode, Plain language, model and cost cap start as
   usual. Create makes the blueprint, opens its pane and posts the need as its
-  first message. A failed post keeps the dialog open, and Create retries it on
-  the same blueprint. A second blueprint from the same hand-off, or one from a
+  first message. A failed post, or an architect that does not start, keeps the
+  dialog open, and Create retries on the same blueprint even when a setting
+  changed since. A second blueprint from the same hand-off, or one from a
   hand-off a newer one replaced, is refused with a message. The sidebar
   marks blueprint sessions with an aqua drafting-compass icon. The pane header
   shows a blueprint's mode and cost cap, and the architect's spend from the

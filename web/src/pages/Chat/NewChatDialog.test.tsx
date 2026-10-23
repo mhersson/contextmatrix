@@ -418,6 +418,23 @@ describe('NewChatDialog', () => {
       expect(sendChatMessage.mock.calls[1][0]).toBe('S1');
     });
 
+    it('retries on the same session after a setting changed', async () => {
+      sendChatMessage.mockRejectedValueOnce({ error: 'boom', code: 'INTERNAL_ERROR' });
+      openHandoff();
+      await screen.findByLabelText('Model');
+      fireEvent.click(createButton());
+      expect(await screen.findByRole('alert')).toHaveTextContent(NEED_NOT_POSTED);
+
+      fireEvent.click(screen.getByRole('radio', { name: 'Auto' }));
+      fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Renamed' } });
+      fireEvent.change(screen.getByLabelText('Need'), { target: { value: 'edited need' } });
+      fireEvent.click(createButton());
+      await waitFor(() => expect(navigate).toHaveBeenCalledWith('/chat/S1'));
+      expect(createChat).toHaveBeenCalledTimes(1);
+      expect(sendChatMessage).toHaveBeenCalledTimes(2);
+      expect(sendChatMessage).toHaveBeenLastCalledWith('S1', 'edited need', { handoff_need: true });
+    });
+
     it.each(['HANDOFF_TAKEN', 'HANDOFF_REPLACED'] as const)('explains a %s refusal', async (code) => {
       createChat.mockRejectedValueOnce({ error: 'conflict', code });
       openHandoff();

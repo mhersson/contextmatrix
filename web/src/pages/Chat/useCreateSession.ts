@@ -27,8 +27,8 @@ function createFailure(e: unknown, blueprint: boolean): string {
  * Creates a session, opens it, posts a handed-over need when given one and
  * navigates to it. A blueprint whose architect does not start, or whose need
  * is not posted, keeps the dialog open with the error; creating again with the
- * same request reopens that session (and resends the need, which CM posts at
- * most once) instead of making another.
+ * same request, or from the same hand-off, reopens that session (and resends
+ * the need, which CM posts at most once) instead of making another.
  */
 export function useCreateSession(onDone: () => void) {
   const navigate = useNavigate();
@@ -39,7 +39,8 @@ export function useCreateSession(onDone: () => void) {
   const create = useCallback(
     async (req: CreateRequest, need?: string) => {
       const blueprint = req.kind === 'architect';
-      const request = JSON.stringify(req);
+      // A hand-off makes at most one blueprint, so its retry never depends on settings changed since.
+      const request = req.origin_chat ? `origin:${req.origin_chat}#${req.origin_seq}` : JSON.stringify(req);
       setCreating(true);
       setError(null);
       try {
