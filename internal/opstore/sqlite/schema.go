@@ -62,7 +62,9 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			kind                      TEXT NOT NULL DEFAULT 'chat',
 			mode                      TEXT NOT NULL DEFAULT '',
 			cost_cap_usd              REAL NOT NULL DEFAULT 0,
-			plain_language            INTEGER NOT NULL DEFAULT 0
+			plain_language            INTEGER NOT NULL DEFAULT 0,
+			origin_chat               TEXT NOT NULL DEFAULT '',
+			origin_seq                INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_sessions_last_active ON chat_sessions(last_active)`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_sessions_status ON chat_sessions(status)`,
@@ -145,10 +147,18 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		{"mode", "TEXT NOT NULL DEFAULT ''"},
 		{"cost_cap_usd", "REAL NOT NULL DEFAULT 0"},
 		{"plain_language", "INTEGER NOT NULL DEFAULT 0"},
+		{"origin_chat", "TEXT NOT NULL DEFAULT ''"},
+		{"origin_seq", "INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if err := addColumnIfMissing(ctx, db, "chat_sessions", col.name, col.decl); err != nil {
 			return err
 		}
+	}
+
+	// After the column loop: an upgraded database has the columns only now.
+	if _, err := db.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_sessions_origin
+		ON chat_sessions(origin_chat, origin_seq) WHERE origin_chat != ''`); err != nil {
+		return fmt.Errorf("opstore schema: %w", err)
 	}
 
 	// Stamp the version. PRAGMA user_version takes no bound parameter; the value

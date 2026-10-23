@@ -1218,6 +1218,11 @@ and a unique index on `(session_id, seq)`.
 | `mode`                      | TEXT    | `''`    | Architect session mode; empty for chat sessions.               |
 | `cost_cap_usd`              | REAL    | `0`     | Architect session cost cap in USD; `0` for chat sessions.      |
 | `plain_language`            | INTEGER | `0`     | `1` for an architect session created in plain language; never changed after creation. |
+| `origin_chat`               | TEXT    | `''`    | The chat a blueprint was started from; empty otherwise. Never changed after creation. |
+| `origin_seq`                | INTEGER | `0`     | The `handoff` row in `origin_chat` the blueprint was started from; `0` otherwise. |
+
+A partial unique index on `(origin_chat, origin_seq) WHERE origin_chat != ''`
+allows one blueprint per hand-off; deleting the blueprint frees the hand-off.
 
 **`chat_cost_archive`:** `DeleteSession` copies the cost columns here before
 removing the session row; transcript and title are not kept. `AggregateCost`

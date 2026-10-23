@@ -232,6 +232,54 @@ func TestEnsureSchema_AddsPlainLanguageWithoutABump(t *testing.T) {
 	assert.False(t, old.PlainLanguage)
 }
 
+func TestEnsureSchema_AddsOriginWithoutABump(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ops.db")
+
+	s, err := Open(path)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	db, err := sql.Open("sqlite", sqliteutil.DSN(path, sqliteutil.WithForeignKeys()))
+	require.NoError(t, err)
+	_, err = db.Exec("DROP INDEX idx_chat_sessions_origin")
+	require.NoError(t, err)
+	_, err = db.Exec("ALTER TABLE chat_sessions DROP COLUMN origin_chat")
+	require.NoError(t, err)
+	_, err = db.Exec("ALTER TABLE chat_sessions DROP COLUMN origin_seq")
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	s2, err := Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s2.Close() })
+
+	assert.True(t, columnExists(t, s2.db, "chat_sessions", "origin_chat"))
+	assert.True(t, columnExists(t, s2.db, "chat_sessions", "origin_seq"))
+
+	var v int
+
+	require.NoError(t, s2.db.QueryRow("PRAGMA user_version").Scan(&v))
+	assert.Equal(t, schemaVersion, v)
+
+	_, err = s2.db.Exec(`INSERT INTO chat_sessions
+		(id, title, project, status, created_at, last_active, created_by, container_id, workspace, model, kind, mode, cost_cap_usd)
+		VALUES ('OLD', 'old', NULL, 'cold', 1, 1, 'human:web', NULL, '["alpha"]', '', 'architect', 'default', 0)`)
+	require.NoError(t, err)
+
+	old, err := s2.GetSession(context.Background(), "OLD")
+	require.NoError(t, err)
+	assert.Empty(t, old.OriginChat)
+	assert.Zero(t, old.OriginSeq)
+
+	ins := `INSERT INTO chat_sessions
+		(id, title, status, created_at, last_active, created_by, origin_chat, origin_seq)
+		VALUES (?, 't', 'cold', 1, 1, 'human:web', 'C', 1)`
+	_, err = s2.db.Exec(ins, "A")
+	require.NoError(t, err)
+	_, err = s2.db.Exec(ins, "B")
+	require.Error(t, err)
+}
+
 func columnExists(t *testing.T, db *sql.DB, table, column string) bool {
 	t.Helper()
 

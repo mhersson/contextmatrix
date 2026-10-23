@@ -9,6 +9,10 @@ import (
 // ErrSessionNotFound is returned when a session ID has no row.
 var ErrSessionNotFound = errors.New("chat: session not found")
 
+// ErrHandoffTaken is returned by CreateSession when a blueprint was already
+// started from the same hand-off.
+var ErrHandoffTaken = errors.New("chat: a blueprint was already started from this hand-off")
+
 // Store persists chat sessions and messages. Implementations must be
 // safe for concurrent use.
 type Store interface {
@@ -64,6 +68,10 @@ type Store interface {
 
 	AppendMessage(ctx context.Context, m Message) (int64, error)
 	ListMessages(ctx context.Context, sessionID string, sinceSeq int64, limit int) ([]Message, error)
+
+	// LastSeqOfKind returns the newest seq of a message of the given kind in
+	// the session, or 0 when there is none.
+	LastSeqOfKind(ctx context.Context, sessionID, kind string) (int64, error)
 
 	// ClearTranscriptAtomic marks all prior messages as rehydration_phase=1
 	// and inserts the divider message in a single database transaction. If

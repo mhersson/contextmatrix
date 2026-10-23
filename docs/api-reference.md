@@ -2490,6 +2490,7 @@ management lives under `/api/admin/chats`.
 | `project`, `container_id`, `workspace`, `model`                                    | omitempty | `workspace` is a string list; `model` is set at creation and reused on every `/open`       |
 | `mode`, `cost_cap_usd`                                                             | omitempty | Architect sessions only; both are set at creation, then `mode` changes through `/mode` and `cost_cap_usd` through `/cap`. `workspace` holds the target projects |
 | `plain_language`                                                                   | omitempty | Architect sessions only; set at creation and never changed. Every start sends it |
+| `origin_chat`, `origin_seq`                                                        | omitempty | Architect sessions started from a hand-off only: the chat and its `handoff` row; set at creation and never changed |
 | `context_tokens`                                                                   | omitempty | Last `input + cache_read + cache_create` reported by the model                             |
 | `context_tokens_updated_at`                                                        | always    | Zero time (`0001-01-01T00:00:00Z`) until the first usage entry                             |
 | `rehydration_active`, `rehydration_started_at`                                     | omitempty | `true` between a cold reopen and the agent's `chat_rehydration_complete` call              |

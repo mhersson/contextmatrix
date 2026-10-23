@@ -72,7 +72,11 @@ type Session struct {
 	CostCapUSD float64 `json:"cost_cap_usd,omitempty"`
 	// PlainLanguage: architect sessions only, the blueprint runs in plain
 	// language. Set at creation; every start sends it.
-	PlainLanguage          bool      `json:"plain_language,omitempty"`
+	PlainLanguage bool `json:"plain_language,omitempty"`
+	// OriginChat and OriginSeq name the chat and its handoff row a blueprint
+	// was started from; empty and 0 otherwise. Set at creation, never changed.
+	OriginChat             string    `json:"origin_chat,omitempty"`
+	OriginSeq              int64     `json:"origin_seq,omitempty"`
 	Status                 Status    `json:"status"`
 	CreatedAt              time.Time `json:"created_at"`
 	LastActive             time.Time `json:"last_active"`
