@@ -91,6 +91,8 @@ func TestHandOffToArchitect_RefusesWithoutAChatHeader(t *testing.T) {
 	tool := buildHandOffToArchitectTool(mgr)
 	_, _, err = tool(ctx, nil, handOffInput{Title: "Plan", Need: "n", Projects: []string{"alpha"}})
 	require.Error(t, err)
+	// Refused before reaching the manager, which would report an unknown session.
+	require.NotErrorIs(t, err, chat.ErrSessionNotFound)
 
 	msgs, err := mgr.ListMessages(ctx, sess.ID, 0, 100)
 	require.NoError(t, err)
