@@ -24,22 +24,26 @@ flowchart LR
   CM -->|commit, pull, push| Boards[(Boards git repo)]
   CM -->|HMAC webhooks| Agent[Agent backend]
   CM -->|HMAC webhooks| Chat[Chat backend]
+  CM -->|HMAC webhooks| Architect[Architect backend]
   Agent --> Worker[Card worker container]
   Chat --> ChatWorker[Chat worker container]
   Worker -->|MCP, Bearer| CM
   ChatWorker -->|MCP, Bearer| CM
+  Architect -->|MCP, Bearer| CM
   Worker -->|clone, push, PR| GitHub[(GitHub)]
+  Architect -->|read-only fetch| GitHub
   CM -->|issue import, boards remote| GitHub
 ```
 
 You only need this repo to get started. Add a backend when you want unattended
 or chat execution.
 
-| Repository                                                                 | Role                                                                                                                                 |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| **[contextmatrix](https://github.com/mhersson/contextmatrix)** (this repo) | Coordination server: board, web UI, REST API, MCP hub.                                                                               |
-| **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)** | Task backend. A Go harness with per-role model selection over **OpenRouter** or any OpenAI-compatible gateway. Executes cards only. |
-| **[contextmatrix-chat](https://github.com/mhersson/contextmatrix-chat)**   | Chat backend for the global `/chat` surface: long-lived, board-aware sessions on the same LLM endpoint.                              |
+| Repository                                                                         | Role                                                                                                                                                                                                  |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **[contextmatrix](https://github.com/mhersson/contextmatrix)** (this repo)         | Coordination server: board, web UI, REST API, MCP hub.                                                                                                                                                |
+| **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)**         | Task backend. A Go harness with per-role model selection over **OpenRouter** or any OpenAI-compatible gateway. Executes cards only.                                                                   |
+| **[contextmatrix-chat](https://github.com/mhersson/contextmatrix-chat)**           | Chat backend for the global `/chat` surface: long-lived, board-aware sessions on the same LLM endpoint.                                                                                               |
+| **[contextmatrix-architect](https://github.com/mhersson/contextmatrix-architect)** | Blueprint backend for the same chat panel. Interviews you about a need, then slices, designs and reviews it into contract-checked cards it creates in ContextMatrix, with a playbook for two or more. |
 
 Three shared Go modules underpin them:
 [contextmatrix-protocol](https://github.com/mhersson/contextmatrix-protocol)
