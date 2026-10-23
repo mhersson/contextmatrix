@@ -1776,10 +1776,9 @@ func (s *CardService) applyCardMutation(
 		appendDependsOnChangeLog(card, opts.commitAgentID, card.Updated)
 	}
 
-	// Release agent claim on not_planned and clear worker_status on terminal
-	// states. Must happen before validate+persist so the written card reflects
-	// the invariants.
-	s.applyTerminalInvariants(project, card, stateChanged)
+	// State-change invariants: see applyTerminalInvariants. Must happen before
+	// validate+persist so the written card reflects the invariants.
+	s.applyTerminalInvariants(project, card, oldState)
 
 	if err := s.runValidatorsAndDeps(ctx, project, id, card, cfg, opts.skipValidators); err != nil {
 		s.writeMu.Unlock()
