@@ -182,43 +182,42 @@ board. Promote-to-autonomous lives in that tab.
   blueprint, opens its pane and posts the need as its first message. A failed
   post, or an architect that does not start, keeps the dialog open, and Create
   retries on the same blueprint even when a setting changed since. A second
-  blueprint from the same hand-off, or one from a hand-off a newer one
-  replaced, is refused with a message. A blueprint started from a hand-off
-  shows the need as its first message, with "handed over from the chat
-  <title>" under it linking back to the chat ("handed over from a chat"
-  without a link when the chat is gone). The sidebar marks blueprint sessions
-  with an aqua drafting-compass icon. The pane header shows a blueprint's mode
-  and cost cap, and the architect's spend from the
-  blueprint view (the figure the scale bar shows) where a chat's header shows
-  CM's estimate from its token counts. Once the view loads, the header's mode is
-  the view's too, so a switch the architect refused never shows there. A
-  blueprint created in plain language shows a Plain language badge beside the
-  pill; once the view loads the badge follows the view, so an architect that
-  does not run plain language shows none. The admin Chats page lists every
-  session's kind, mode and cap as the session row holds them. The architect's
-  questions and gates show reply buttons under the message. On a plain-language
-  blueprint a prompt reads in plain words with plain buttons (such as Continue
-  anyway and Stop) that send the architect's usual replies, and its technical
-  text is folded under a Technical detail line. A question's options are stacked
-  full-width buttons showing the whole option text. The question bubble is
-  tinted, with a 5px left bar and accent-bordered options in pink in the dark
-  themes and a dusty rose to maroon in the light ones, and the suggested option
-  carries a "recommended" chip. A prompt marked as a gate carries a barrier icon
-  beside its text and keeps compact buttons in a row. The offer of a mockup
-  shows instead in its own framed card with a mockup icon, Show mockup as the
-  main button (no chip) and Skip mockup beside it. A click sends that reply as
-  your message, a feedback action such as Reject asks for text first, in a box
-  labelled with the architect's question when it sends one (an approval over
-  critical findings asks why), and typing
-  the reply works too. A prompt closes when a reply answers it, when the
-  architect's decision line answers it (it decided the prompt itself, as at a
-  waiting sign-off after a switch to Auto + emit or Yolo), or when a later
-  prompt replaces it. It then shows a one-line summary instead of buttons, and a
-  closed non-gate prompt keeps its options above the summary as a smaller list
-  with the answering option marked. A closed question's list and summary render
-  in the normal text colour on the tint; gates and neutral prompts keep the
-  muted grey. The buttons are disabled while the session is not live or its
-  stream is disconnected, and prompts show with the Text filter off.
+  blueprint from the same hand-off, or one from a hand-off a newer one replaced,
+  is refused with a message. A blueprint started from a hand-off shows the need
+  as its first message, with "handed over from the chat <title>" under it
+  linking back to the chat ("handed over from a chat" without a link when the
+  chat is gone). The sidebar marks blueprint sessions with an aqua
+  drafting-compass icon. The pane header shows a blueprint's mode and cost cap,
+  and the architect's spend from the blueprint view (the figure the scale bar
+  shows) where a chat's header shows CM's estimate from its token counts. Once
+  the view loads, the header's mode is the view's too, so a switch the architect
+  refused never shows there. A blueprint created in plain language shows a Plain
+  language badge beside the pill; once the view loads the badge follows the
+  view, so an architect that does not run plain language shows none. The admin
+  Chats page lists every session's kind, mode and cap as the session row holds
+  them. The architect's questions and gates show reply buttons under the
+  message. On a plain-language blueprint a prompt reads in plain words with
+  plain buttons (such as Continue anyway and Stop) that send the architect's
+  usual replies, and its technical text is folded under a Technical detail line.
+  A question's options are stacked full-width buttons showing the whole option
+  text. The question bubble is tinted, with a 5px left bar and accent-bordered
+  options in pink in the dark themes and a dusty rose to maroon in the light
+  ones, and the suggested option carries a "recommended" chip. A prompt marked
+  as a gate carries a barrier icon beside its text and keeps compact buttons in
+  a row. The offer of a mockup shows instead in its own framed card with a
+  mockup icon, Show mockup as the main button (no chip) and Skip mockup beside
+  it. A click sends that reply as your message, a feedback action such as Reject
+  asks for text first, in a box labelled with the architect's question when it
+  sends one (an approval over critical findings asks why), and typing the reply
+  works too. A prompt closes when a reply answers it, when the architect's
+  decision line answers it (it decided the prompt itself, as at a waiting
+  sign-off after a switch to Auto + emit or Yolo), or when a later prompt
+  replaces it. It then shows a one-line summary instead of buttons, and a closed
+  non-gate prompt keeps its options above the summary as a smaller list with the
+  answering option marked. A closed question's list and summary render in the
+  normal text colour on the tint; gates and neutral prompts keep the muted grey.
+  The buttons are disabled while the session is not live or its stream is
+  disconnected, and prompts show with the Text filter off.
 - A question round from the architect docks at the bottom of the pane in place
   of the message box while it waits for you; the transcript keeps scrolling
   above it. It has one tab per question, ticked once it has an answer (stored by

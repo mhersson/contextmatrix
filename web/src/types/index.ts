@@ -595,7 +595,8 @@ export interface LogEntry {
    * "handoff" for a chat's system row whose content is a {title, need,
    * projects} JSON object, "handoff_need" for the user row that carries that
    * need into the blueprint. Empty / absent means a regular message. The
-   * frontend matches on this rather than content strings so the rendering rule is unambiguous and survives reloads.
+   * frontend matches on this rather than content strings so the rendering
+   * rule is unambiguous and survives reloads.
    */
   kind?: string;
 }
