@@ -94,6 +94,13 @@ export function needReason(need: string): string | null {
   return null;
 }
 
+/** Why a hand-off's Create waits: its projects are checked against the project list first. */
+export function projectListReason(failed: boolean): string {
+  return failed
+    ? 'The project list did not load; reload the page to create the blueprint.'
+    : "Loading the project list to check the hand-off's projects.";
+}
+
 export function createLabel(blueprint: boolean, mode: BlueprintMode, creating: boolean): string {
   if (creating) return blueprint ? 'Starting the architect' : 'Starting';
   if (!blueprint) return 'Create chat';

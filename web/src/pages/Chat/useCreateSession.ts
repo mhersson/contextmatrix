@@ -65,8 +65,11 @@ export function useCreateSession(onDone: () => void) {
         if (need !== undefined) {
           try {
             await api.sendChatMessage(id, need, { handoff_need: true });
-          } catch {
+          } catch (sendErr) {
+            console.warn('posting the handed-over need failed; Create retries it', sendErr);
             pendingRef.current = { request, id };
+            // The open landed, so the listed status is stale.
+            notifyChatSessionsChanged();
             setError(NEED_NOT_POSTED);
             return;
           }

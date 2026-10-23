@@ -16,6 +16,7 @@ import {
   createLabel,
   disabledReason,
   needReason,
+  projectListReason,
   readPlainLanguage,
   rememberPlainLanguage,
   type BlueprintForm,
@@ -45,7 +46,7 @@ interface NewChatDialogBodyProps {
 }
 
 function NewChatDialogBody({ onClose, choices, handoff }: NewChatDialogBodyProps) {
-  const { projects, loading } = useProjects();
+  const { projects, loading, error: projectsError } = useProjects();
   const { architectEnabled } = useTheme();
   const { identity } = useIdentity();
   const [blueprint, setBlueprint] = useState(handoff !== undefined);
@@ -56,9 +57,9 @@ function NewChatDialogBody({ onClose, choices, handoff }: NewChatDialogBodyProps
   }));
   const [title, setTitle] = useState(handoff?.title ?? '');
   const [need, setNeed] = useState(handoff?.need ?? '');
-  // Null until the project list has loaded; a name missing before then may only be loading.
+  // Null until the project list has loaded; a name missing from a list still loading or failed may exist.
   const [leftOut, setLeftOut] = useState<string[] | null>(null);
-  if (handoff && !loading && leftOut === null) {
+  if (handoff && !loading && !projectsError && leftOut === null) {
     const known = new Set(projects.map((p) => p.name));
     setLeftOut(handoff.projects.filter((name) => !known.has(name)));
     setForm((f) => ({ ...f, projects: f.projects.filter((name) => known.has(name)) }));
@@ -82,7 +83,9 @@ function NewChatDialogBody({ onClose, choices, handoff }: NewChatDialogBodyProps
 
   const picked = choices.blueprint;
   const modelUnpriced = picked.models.some((m) => m.id === picked.model && m.unpriced === true);
-  const reason = disabledReason(blueprint, form, modelUnpriced) ?? (handoff ? needReason(need) : null);
+  const reason =
+    disabledReason(blueprint, form, modelUnpriced) ??
+    (handoff ? (leftOut === null ? projectListReason(Boolean(projectsError)) : needReason(need)) : null);
   const canCreate = !creating && reason === null;
 
   const submit = () => {

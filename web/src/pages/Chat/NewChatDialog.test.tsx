@@ -34,12 +34,15 @@ vi.mock('../../api/client', () => {
 });
 
 let projectsLoading = false;
+let projectsError: string | null = null;
 vi.mock('../../hooks/useProjects', () => ({
   useProjects: () => ({
-    projects: projectsLoading
-      ? []
-      : [{ name: 'alpha', display_name: 'Alpha', repo: 'git@github.com:example/alpha.git' }, { name: 'beta' }],
+    projects:
+      projectsLoading || projectsError
+        ? []
+        : [{ name: 'alpha', display_name: 'Alpha', repo: 'git@github.com:example/alpha.git' }, { name: 'beta' }],
     loading: projectsLoading,
+    error: projectsError,
   }),
 }));
 vi.mock('../../hooks/useChatSessions', () => ({ notifyChatSessionsChanged: vi.fn() }));
@@ -76,6 +79,7 @@ describe('NewChatDialog', () => {
     navigate.mockReset();
     architectEnabled = true;
     projectsLoading = false;
+    projectsError = null;
     modelSource = 'endpoint';
     modelList = baseModels;
     createChat.mockResolvedValue({ id: 'S1', title: '', status: 'cold' });
@@ -346,14 +350,28 @@ describe('NewChatDialog', () => {
       expect(screen.queryByRole('radio', { name: 'Blueprint' })).not.toBeInTheDocument();
     });
 
-    it('leaves no project out until the project list has loaded', () => {
+    it('leaves no project out and waits to create until the project list has loaded', () => {
       projectsLoading = true;
       const view = openHandoff();
       expect(screen.queryByText(/\bgone\b/)).not.toBeInTheDocument();
+      expect(createButton()).toBeDisabled();
       projectsLoading = false;
       view.rerender(<NewChatDialog open onClose={() => {}} handoff={prefill} />);
       expect(screen.getByRole('checkbox', { name: 'Alpha' })).toBeChecked();
       expect(screen.getByText(/\bgone\b/)).toBeInTheDocument();
+      expect(createButton()).toBeEnabled();
+    });
+
+    it('leaves no project out when the project list fails to load, and checks once it loads', () => {
+      projectsError = 'Failed to load projects';
+      const view = openHandoff();
+      expect(screen.queryByText(/\bgone\b/)).not.toBeInTheDocument();
+      expect(createButton()).toBeDisabled();
+      projectsError = null;
+      view.rerender(<NewChatDialog open onClose={() => {}} handoff={prefill} />);
+      expect(screen.getByRole('checkbox', { name: 'Alpha' })).toBeChecked();
+      expect(screen.getByText(/\bgone\b/)).toBeInTheDocument();
+      expect(createButton()).toBeEnabled();
     });
 
     it('creates, opens and posts the need once', async () => {
@@ -402,7 +420,9 @@ describe('NewChatDialog', () => {
     });
 
     it('retries a failed need send on the same session', async () => {
-      sendChatMessage.mockRejectedValueOnce({ error: 'boom', code: 'INTERNAL_ERROR' });
+      const sendErr = { error: 'boom', code: 'INTERNAL_ERROR' };
+      sendChatMessage.mockRejectedValueOnce(sendErr);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       openHandoff();
       await screen.findByLabelText('Model');
       fireEvent.click(createButton());
@@ -416,10 +436,13 @@ describe('NewChatDialog', () => {
       expect(sendChatMessage).toHaveBeenCalledTimes(2);
       expect(sendChatMessage.mock.calls[1]).toEqual(sendChatMessage.mock.calls[0]);
       expect(sendChatMessage.mock.calls[1][0]).toBe('S1');
+      expect(warn).toHaveBeenCalledWith(expect.any(String), sendErr);
+      warn.mockRestore();
     });
 
     it('retries on the same session after a setting changed', async () => {
       sendChatMessage.mockRejectedValueOnce({ error: 'boom', code: 'INTERNAL_ERROR' });
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       openHandoff();
       await screen.findByLabelText('Model');
       fireEvent.click(createButton());
@@ -433,6 +456,18 @@ describe('NewChatDialog', () => {
       expect(createChat).toHaveBeenCalledTimes(1);
       expect(sendChatMessage).toHaveBeenCalledTimes(2);
       expect(sendChatMessage).toHaveBeenLastCalledWith('S1', 'edited need', { handoff_need: true });
+      warn.mockRestore();
+    });
+
+    it('creates and posts once on a double click', async () => {
+      openHandoff();
+      await screen.findByLabelText('Model');
+      const button = createButton();
+      fireEvent.click(button);
+      fireEvent.click(button);
+      await waitFor(() => expect(navigate).toHaveBeenCalledWith('/chat/S1'));
+      expect(createChat).toHaveBeenCalledTimes(1);
+      expect(sendChatMessage).toHaveBeenCalledTimes(1);
     });
 
     it.each(['HANDOFF_TAKEN', 'HANDOFF_REPLACED'] as const)('explains a %s refusal', async (code) => {
