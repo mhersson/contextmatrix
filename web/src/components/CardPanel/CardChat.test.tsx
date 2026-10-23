@@ -143,10 +143,12 @@ describe('CardChat - Enter-to-send', () => {
 });
 
 describe('CardChat - over-limit guard', () => {
-  it('Send button is disabled when content exceeds 8000 chars', () => {
+  it.each([
+    ['exceeds 8192 bytes', 'a'.repeat(8193)],
+    ['exceeds 8192 bytes in multibyte text', '€'.repeat(2731)],
+  ])('Send button is disabled when content %s', (_name, overLimit) => {
     render(<CardChat card={runningCard} cardLogs={noLogs} />);
     const textarea = screen.getByPlaceholderText(/Type a message/);
-    const overLimit = 'a'.repeat(8001);
 
     fireEvent.change(textarea, { target: { value: overLimit } });
 
