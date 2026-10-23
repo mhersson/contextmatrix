@@ -540,6 +540,8 @@ class APIClient {
     mode?: string;
     cost_cap_usd?: number;
     plain_language?: boolean;
+    origin_chat?: string;
+    origin_seq?: number;
   }): Promise<ChatSession> {
     return this.request<ChatSession>('/chats', {
       method: 'POST',

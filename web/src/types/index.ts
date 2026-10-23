@@ -591,7 +591,9 @@ export interface LogEntry {
    * in an open question round's chat box, "round_reply" for a user message
    * answering a round (hidden when its round is loaded, a plain message
    * otherwise), "command" for a user message that carries a command to the architect (e.g. a cost cap
-   * change; never shown, answers no prompt). Empty / absent means a regular message. The frontend matches on this rather than content
+   * change; never shown, answers no prompt), "handoff" for a chat's system row
+   * whose content is a {title, need, projects} JSON object, "handoff_need" for the
+   * user row that carries that need into the blueprint. Empty / absent means a regular message. The frontend matches on this rather than content
    * strings so the rendering rule is unambiguous and survives reloads.
    */
   kind?: string;
@@ -619,7 +621,7 @@ export interface RoundReply {
 }
 
 /** What a chat send carries beside its content: a round's answers, or the prompt id of the open round a message is about. */
-export type ChatSendExtra = { round: RoundReply } | { round_chat: string } | { mockup: MockupReply };
+export type ChatSendExtra = { round: RoundReply } | { round_chat: string } | { mockup: MockupReply } | { handoff_need: true };
 
 /** A reply to the mockup that waits for the person; settings are never sent on a skip. */
 export interface MockupReply {
@@ -908,6 +910,9 @@ export interface ChatSession {
   cost_cap_usd?: number;
   /** Fixed at creation: the blueprint asks in plain language. */
   plain_language?: boolean;
+  /** Blueprints started from a chat hand-off: the chat and the seq of its hand-off row. */
+  origin_chat?: string;
+  origin_seq?: number;
   status: ChatStatus;
   created_at: string;
   last_active: string;
