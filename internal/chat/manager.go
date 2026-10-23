@@ -1938,8 +1938,9 @@ func (m *Manager) AppendMessage(ctx context.Context, sessionID string, role Role
 // rows, and the send path's round chat rows.
 func (m *Manager) appendMessageWithKind(ctx context.Context, sessionID string, role Role, content, kind string) (Message, error) {
 	// promptContent bounds a prompt row itself, a round row may exceed
-	// maxMessageBytes, and every user row passed the send limit.
-	if kind != EventKindPrompt && role != RoleUser {
+	// maxMessageBytes, a handoff row is bounded by PostHandoff, and every
+	// user row passed the send limit.
+	if kind != EventKindPrompt && kind != EventKindHandoff && role != RoleUser {
 		content = truncateMessageContent(content)
 	}
 
