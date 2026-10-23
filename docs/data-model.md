@@ -793,7 +793,7 @@ gate steps, or both. Playbooks are global team artifacts stored one file per
 playbook at `<boards.dir>/playbooks/<id>.yaml`, at the top level of the boards
 repo. Order is array order. A playbook is coordination state until a human
 makes it runnable (web UI or `run_playbook`); then its cards carry forced execution settings and a run
-can be played (see [playbooks](playbooks.md#running-a-playbook)).
+can be started (see [playbooks](playbooks.md#running-a-playbook)).
 
 Each boards repo has its own `playbooks/` directory. IDs are unique across
 repos (a create checks every repo before choosing a suffix), `boards_repo` on

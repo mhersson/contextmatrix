@@ -78,7 +78,7 @@ DELETE /api/playbooks/{id}                             # delete playbook
 POST   /api/playbooks/{id}/entries                     # append entry (card reference or manual step)
 PATCH  /api/playbooks/{id}/entries/{entryId}            # update entry (done/note/text/position)
 DELETE /api/playbooks/{id}/entries/{entryId}            # remove entry
-POST   /api/playbooks/{id}/run                         # play or resume a runnable playbook (human-only; MCP equivalent: `run_playbook`)
+POST   /api/playbooks/{id}/run                         # run or resume a runnable playbook (human-only; MCP equivalent: `run_playbook`)
 POST   /api/playbooks/{id}/stop                        # stop the run and kill every live worker of its cards on this instance (human-only)
 
 GET    /api/task-skills                                # list available task skill names
@@ -2093,15 +2093,15 @@ cards - session in multi mode, else `X-Agent-ID`, falling back to
 
 ### POST /api/playbooks/{id}/run
 
-Play starts a run, or resumes a `stopped` one. Human-only; the MCP equivalent
+Run starts a run, or resumes a `stopped` one. Human-only; the MCP equivalent
 is `run_playbook`, which also makes the playbook runnable first. A `running` or
 `waiting` run is refused with `409 PLAYBOOK_RUN_ACTIVE`; resume a `waiting`
-run with Stop, then Play. Writes the run block with `status: running` and
+run with Stop, then Run. Writes the run block with `status: running` and
 `reason` cleared. `entry` is cleared unless a card entry still has a live
 worker (after a Stop whose kill failed, or a hand run made while stopped); then
 the run stays on that entry, preferring the stopped run's own, and waits for
 that worker before starting anything else. `started_at` is kept across a
-resume, and the walker starts. A Play that arrives while a Stop of the same
+resume, and the walker starts. A Run that arrives while a Stop of the same
 playbook is still in progress waits for it to finish first. `202` with the playbook detail.
 Errors: `403 HUMAN_ONLY_FIELD`, `404 PLAYBOOK_NOT_FOUND`,
 `409 PLAYBOOK_NOT_RUNNABLE`, `409 PLAYBOOK_RUN_ACTIVE`, `503 BACKEND_DISABLED`.
@@ -2169,7 +2169,7 @@ asynchronously.
 | 403    | `CARD_NOT_VETTED`     | The card has a `source` and is not vetted                                                                  |
 | 409    | `INVALID_TRANSITION`  | Card is not in `todo`                                                                                      |
 | 409    | `WORKER_CONFLICT`     | Card is already `queued` or `running`                                                                      |
-| 409    | `PLAYBOOK_RUN_ACTIVE` | The card's playbook run is `running` or `waiting`, including a Play that wins a race                       |
+| 409    | `PLAYBOOK_RUN_ACTIVE` | The card's playbook run is `running` or `waiting`, including a Run that wins a race                       |
 | 409    | `VALIDATION_ERROR`    | The project's `github_credential` binding is broken (worker status reverts, activity entry `run-rejected`) |
 | 502    | `BACKEND_UNAVAILABLE` | Webhook failed                                                                                             |
 | 503    | `BACKEND_DISABLED`    | No task backend configured                                                                                 |

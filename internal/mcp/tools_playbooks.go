@@ -176,7 +176,7 @@ func registerCreatePlaybook(server *mcp.Server, pb *service.PlaybookService) {
 func registerUpdatePlaybook(server *mcp.Server, pb *service.PlaybookService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "update_playbook",
-		Description: "Update a playbook's title and/or description. Empty fields are left unchanged. The playbook id is immutable - a title edit never re-slugs it. runnable, base_branch and run state are operator fields this tool preserves; run_playbook makes a playbook runnable and plays it.",
+		Description: "Update a playbook's title and/or description. Empty fields are left unchanged. The playbook id is immutable - a title edit never re-slugs it. runnable, base_branch and run state are operator fields this tool preserves; run_playbook makes a playbook runnable and runs it.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input updatePlaybookInput) (*mcp.CallToolResult, service.PlaybookSummary, error) {
 		detail, err := pb.UpdateMeta(ctx, input.ID, service.UpdatePlaybookInput{
 			Title:       nonEmptyPtr(input.Title),
