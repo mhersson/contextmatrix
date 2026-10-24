@@ -23,7 +23,7 @@ export function SessionsPage() {
   const [params, setParams] = useSearchParams();
   const tab: SessionKind = params.get('tab') === TAB_PARAM.architect ? 'architect' : 'chat';
   const navigate = useNavigate();
-  const { sessions, error } = useChatSessions();
+  const { sessions, error, loaded } = useChatSessions();
   const pin = useSessionPin();
   const { showToast } = useToast();
   const [filter, setFilter] = useState<SessionFilter>(EMPTY_FILTER);
@@ -35,24 +35,24 @@ export function SessionsPage() {
   const rows = newestActivityFirst(filterSessions(tabSessions, filter));
   // Bulk actions only ever touch ticked rows the user can see.
   const selected = rows.filter((s) => picked.has(s.id)).map((s) => s.id);
+  // A tick on a row that stops showing (tab, filters or a refresh) is dropped, never kept hidden.
+  const visibleKey = rows.map((s) => s.id).join(' ');
+  const [prunedFor, setPrunedFor] = useState(visibleKey);
+  if (prunedFor !== visibleKey) {
+    setPrunedFor(visibleKey);
+    setPicked(new Set(selected));
+  }
   const counts: Record<SessionKind, number> = {
     chat: sessions.filter((s) => sessionKind(s) === 'chat').length,
     architect: sessions.filter((s) => sessionKind(s) === 'architect').length,
   };
 
   const switchTab = (next: SessionKind) => {
-    setPicked(new Set());
     setParams((prev) => {
       const p = new URLSearchParams(prev);
       p.set('tab', TAB_PARAM[next]);
       return p;
     }, { replace: true });
-  };
-
-  const changeFilter = (next: SessionFilter) => {
-    const visible = new Set(filterSessions(tabSessions, next).map((s) => s.id));
-    setPicked((prev) => new Set([...prev].filter((id) => visible.has(id))));
-    setFilter(next);
   };
 
   const toggle = (id: string) =>
@@ -91,8 +91,8 @@ export function SessionsPage() {
       <div className="ssn-page">
         <h1 className="ssn-title">Sessions</h1>
         <SessionsTabs active={tab} counts={counts} onChange={switchTab} />
-        <div id={SESSIONS_PANEL_ID} role="tabpanel" aria-labelledby={`sessions-tab-${tab}`}>
-          <SessionsToolbar sessions={tabSessions} filter={filter} onChange={changeFilter} />
+        <div id={SESSIONS_PANEL_ID} role="tabpanel" aria-labelledby={`sessions-tab-${tab}`} aria-busy={!loaded}>
+          <SessionsToolbar sessions={tabSessions} filter={filter} onChange={setFilter} />
           {error && <p className="ssn-error" role="alert">Could not load sessions: {error}</p>}
           {selected.length > 0 && (
             <SessionsBulkBar
@@ -103,7 +103,9 @@ export function SessionsPage() {
               onDelete={() => setConfirming(true)}
             />
           )}
-          {rows.length > 0 ? (
+          {!loaded ? (
+            <p className="ssn-loading">Loading…</p>
+          ) : rows.length > 0 ? (
             <SessionsTable
               rows={rows}
               showMode={tab === 'architect'}
@@ -114,11 +116,13 @@ export function SessionsPage() {
               onOpen={(id) => navigate(`/chat/${id}`)}
             />
           ) : (
-            <SessionsEmpty
-              kind={tab}
-              filtered={tabSessions.length > 0 && !isEmptyFilter(filter)}
-              onClear={() => changeFilter(EMPTY_FILTER)}
-            />
+            !error && (
+              <SessionsEmpty
+                kind={tab}
+                filtered={tabSessions.length > 0 && !isEmptyFilter(filter)}
+                onClear={() => setFilter(EMPTY_FILTER)}
+              />
+            )
           )}
         </div>
       </div>

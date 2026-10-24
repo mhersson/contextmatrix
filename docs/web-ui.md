@@ -478,12 +478,14 @@ you, in the main area like the dashboard and playbooks.
   on `/chat`, as the sidebar does. The tick box and the pin do not open it; the
   pin pins or unpins the session.
 - Ticking rows shows a bar with the count and **Pin**, **Unpin** and
-  **Delete...**; the header tick box ticks every row shown. The bar acts only
-  on ticked rows that the tab, search and filters show: a filter change unticks
-  the rows it hides and switching tabs unticks all. **Delete...** asks first,
-  naming the count, then deletes each session (removing its transcript) and
-  refreshes the list once. Deletes that fail are reported in one message with
-  their count, and their rows stay ticked.
+  **Delete…**; the header tick box ticks every row shown. The bar acts only on
+  ticked rows that are shown: a row that stops showing, through a tab switch, a
+  filter or a refresh, loses its tick. **Delete…** asks first, naming the
+  count, then deletes each session (removing its transcript) and refreshes the
+  list once. Deletes that fail are reported in one message with their count,
+  and their rows stay ticked.
+- Until the list first loads the page shows a loading line; a failed load
+  shows the error instead of an empty state.
 
 ## Image attachments
 

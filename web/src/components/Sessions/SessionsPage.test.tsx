@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { SessionsPage } from './SessionsPage';
 import { api } from '../../api/client';
@@ -249,19 +249,39 @@ describe('SessionsPage', () => {
     expect(api.updateChat).toHaveBeenCalledWith('b1', { pinned: false });
   });
 
-  it('a failed load shows an alert', async () => {
+  it('a tick on a row that a refresh hides does not come back', async () => {
+    store = store.map((s) => (s.kind === 'architect' ? { ...s, pinned: true } : s));
+    renderAt();
+    await screen.findByText('Recipe box');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pinned only' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /all/i }));
+    fireEvent.click(within(bulkBar()!).getByRole('button', { name: 'Unpin' }));
+    const noMatch = await screen.findByRole('status');
+    fireEvent.click(within(noMatch).getByRole('button', { name: /clear filters/i }));
+
+    expect(listedTitles()).toHaveLength(3);
+    expect(screen.getAllByRole('checkbox').filter((c) => (c as HTMLInputElement).checked)).toHaveLength(0);
+    expect(bulkBar()).toBeNull();
+  });
+
+  it('a failed load shows an alert and no empty state', async () => {
     vi.mocked(api.listChats).mockRejectedValueOnce(new Error('boom'));
     renderAt();
 
     expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).toBeNull();
   });
 
   it('an empty tab and a filter with no matches each show an empty state', async () => {
-    store = store.filter((s) => s.kind !== 'architect');
+    let resolve!: (list: ChatSession[]) => void;
+    vi.mocked(api.listChats).mockImplementationOnce(() => new Promise((r) => { resolve = r; }));
     const { unmount } = renderAt();
     await waitFor(() => expect(api.listChats).toHaveBeenCalled());
+    expect(screen.queryByRole('status')).toBeNull();
 
-    const empty = await screen.findByRole('status');
+    await act(async () => resolve(store.filter((s) => s.kind !== 'architect')));
+    const empty = screen.getByRole('status');
     expect(within(empty).queryByRole('button')).toBeNull();
     expect(listedTitles()).toHaveLength(0);
     unmount();

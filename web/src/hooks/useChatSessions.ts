@@ -6,6 +6,8 @@ export interface UseChatSessions {
   sessions: ChatSession[];
   refresh: () => void;
   error: string | null;
+  /** True once the first fetch has settled, whether it succeeded or failed. */
+  loaded: boolean;
 }
 
 /**
@@ -35,6 +37,7 @@ export function notifyChatSessionsChanged() {
 export function useChatSessions(): UseChatSessions {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -45,11 +48,13 @@ export function useChatSessions(): UseChatSessions {
         if (alive) {
           setSessions(data ?? []);
           setError(null);
+          setLoaded(true);
         }
       })
       .catch((e) => {
         if (alive) {
           setError(e instanceof Error ? e.message : 'failed to load chats');
+          setLoaded(true);
         }
       });
     return () => {
@@ -78,5 +83,6 @@ export function useChatSessions(): UseChatSessions {
     sessions,
     refresh: () => setTick((n) => n + 1),
     error,
+    loaded,
   };
 }

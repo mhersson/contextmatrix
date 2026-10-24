@@ -33,4 +33,18 @@ describe('useChatSessions', () => {
     const { result } = renderHook(() => useChatSessions());
     await waitFor(() => expect(result.current.error).toBe('boom'));
   });
+
+  it('is loaded once the first fetch settles, whether it succeeds or fails', async () => {
+    const ok = renderHook(() => useChatSessions());
+    expect(ok.result.current.loaded).toBe(false);
+    await waitFor(() => expect(ok.result.current.loaded).toBe(true));
+    expect(ok.result.current.sessions).toHaveLength(1);
+    ok.unmount();
+
+    vi.spyOn(api, 'listChats').mockRejectedValueOnce(new Error('boom'));
+    const failed = renderHook(() => useChatSessions());
+    expect(failed.result.current.loaded).toBe(false);
+    await waitFor(() => expect(failed.result.current.loaded).toBe(true));
+    expect(failed.result.current.error).toBe('boom');
+  });
 });

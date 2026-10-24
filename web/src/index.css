@@ -9570,7 +9570,7 @@ button.bp-rv-head {
   cursor: default;
 }
 .ssn-bulk-acts .ssn-bulk-del {
-  color: var(--red);
+  color: var(--blueprint-ink-red);
 }
 
 .ssn-table-wrap {
@@ -9690,6 +9690,12 @@ button.bp-rv-head {
   border-color: color-mix(in srgb, var(--aqua) 55%, transparent);
 }
 
+.ssn-loading {
+  padding: 28px 12px;
+  font-size: 13px;
+  text-align: center;
+  color: var(--grey1);
+}
 .ssn-error {
   margin-bottom: 10px;
   font-size: 13px;
