@@ -54,6 +54,9 @@ function NewChatDialogBody({ onClose, choices, handoff, initialKind }: NewChatDi
   const { architectEnabled } = useTheme();
   const { identity } = useIdentity();
   const [blueprint, setBlueprint] = useState(handoff !== undefined || (initialKind === 'architect' && architectEnabled));
+  const [kindPicked, setKindPicked] = useState(false);
+  // architectEnabled is false until the app config loads, so a reload of ?new=blueprint renders Chat first.
+  if (initialKind === 'architect' && architectEnabled && !blueprint && !kindPicked) setBlueprint(true);
   const [form, setForm] = useState<BlueprintForm>(() => ({
     ...EMPTY_BLUEPRINT_FORM,
     projects: handoff?.projects ?? [],
@@ -141,6 +144,7 @@ function NewChatDialogBody({ onClose, choices, handoff, initialKind }: NewChatDi
                 blueprint={blueprint}
                 onChange={(next) => {
                   setBlueprint(next);
+                  setKindPicked(true);
                   clearError();
                 }}
               />

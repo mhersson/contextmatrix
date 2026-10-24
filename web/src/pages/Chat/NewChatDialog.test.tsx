@@ -93,6 +93,27 @@ describe('NewChatDialog', () => {
     expect(screen.getByRole('button', { name: /Create blueprint|Start blueprint/i })).toBeInTheDocument();
   });
 
+  it('switches to Blueprint when the architect turns out to be enabled after opening', () => {
+    architectEnabled = false;
+    const { rerender } = render(<NewChatDialog open onClose={() => {}} initialKind="architect" />);
+    expect(screen.getByRole('button', { name: 'Create chat' })).toBeInTheDocument();
+    architectEnabled = true;
+    rerender(<NewChatDialog open onClose={() => {}} initialKind="architect" />);
+    expect(screen.getByRole('radio', { name: 'Blueprint' })).toBeChecked();
+  });
+
+  it('keeps Chat once the user picked it over an asked-for Blueprint', () => {
+    architectEnabled = false;
+    const { rerender } = render(<NewChatDialog open onClose={() => {}} initialKind="architect" />);
+    architectEnabled = true;
+    rerender(<NewChatDialog open onClose={() => {}} initialKind="architect" />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Chat' }));
+    expect(screen.getByRole('radio', { name: 'Chat' })).toBeChecked();
+    rerender(<NewChatDialog open onClose={() => {}} initialKind="architect" />);
+    expect(screen.getByRole('radio', { name: 'Chat' })).toBeChecked();
+    expect(screen.getByRole('button', { name: 'Create chat' })).toBeInTheDocument();
+  });
+
   it('asking for Blueprint without an architect opens a chat', () => {
     architectEnabled = false;
     render(<NewChatDialog open onClose={() => {}} initialKind="architect" />);
