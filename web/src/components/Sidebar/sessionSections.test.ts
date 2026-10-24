@@ -1,16 +1,24 @@
 import { describe, it, expect } from 'vitest';
 import { SECTION_ROW_CAP, sectionRows } from './sessionSections';
-import type { ChatSession, ChatStatus } from '../../types';
+import type { ChatSession, ChatStatus, SessionKind } from '../../types';
 
 function s(
   id: string,
-  o: { status?: ChatStatus; pinned?: boolean; last_active?: string } = {},
+  o: {
+    status?: ChatStatus;
+    pinned?: boolean;
+    last_active?: string;
+    kind?: SessionKind;
+    assistant_working?: boolean;
+  } = {},
 ): ChatSession {
   return {
     id,
     title: id,
+    kind: o.kind,
     status: o.status ?? 'cold',
     pinned: o.pinned,
+    assistant_working: o.assistant_working,
     created_at: '2026-10-01T00:00:00Z',
     last_active: o.last_active ?? '2026-10-01T00:00:00Z',
     created_by: 'human:alice',
@@ -22,6 +30,12 @@ const day = (n: number) => `2026-10-${String(n).padStart(2, '0')}T12:00:00Z`;
 
 function cold(count: number, firstDay: number): ChatSession[] {
   return Array.from({ length: count }, (_, i) => s(`cold${i}`, { last_active: day(firstDay + i) }));
+}
+
+function blueprints(count: number, firstDay: number, status: ChatStatus = 'cold'): ChatSession[] {
+  return Array.from({ length: count }, (_, i) =>
+    s(`bp${i}`, { kind: 'architect', status, last_active: day(firstDay + i) }),
+  );
 }
 
 const ids = (rows: ChatSession[]) => rows.map((r) => r.id);
@@ -86,5 +100,37 @@ describe('sectionRows', () => {
     const expected = ids(sectionRows(input));
     expect(ids(sectionRows([...input].reverse()))).toEqual(expected);
     expect(ids(sectionRows([...input.slice(4), ...input.slice(0, 4)]))).toEqual(expected);
+  });
+
+  it('caps warm-idle blueprints at five, newest first', () => {
+    const rows = sectionRows(blueprints(8, 1, 'warm-idle'));
+    expect(ids(rows)).toEqual(['bp7', 'bp6', 'bp5', 'bp4', 'bp3']);
+  });
+
+  it('fills a warm-idle blueprint as a recent row by its last activity', () => {
+    const rows = sectionRows([
+      ...blueprints(5, 10),
+      s('warmOld', { kind: 'architect', status: 'warm-idle', last_active: day(1) }),
+      s('warmNew', { kind: 'architect', status: 'warm-idle', last_active: day(20) }),
+    ]);
+    expect(ids(rows)).toEqual(['warmNew', 'bp4', 'bp3', 'bp2', 'bp1']);
+  });
+
+  it('always shows an active blueprint and one mid-turn', () => {
+    const rows = sectionRows([
+      ...blueprints(6, 10),
+      s('active', { kind: 'architect', status: 'active', last_active: day(1) }),
+      s('working', { kind: 'architect', status: 'warm-idle', assistant_working: true, last_active: day(2) }),
+    ]);
+    expect(ids(rows)).toEqual(['working', 'active', 'bp5', 'bp4', 'bp3']);
+  });
+
+  it('always shows a warm-idle chat', () => {
+    const rows = sectionRows([
+      ...cold(6, 10),
+      s('warmChat', { kind: 'chat', status: 'warm-idle', last_active: day(1) }),
+      s('warmLegacy', { status: 'warm-idle', last_active: day(2) }),
+    ]);
+    expect(ids(rows)).toEqual(['warmLegacy', 'warmChat', 'cold5', 'cold4', 'cold3']);
   });
 });

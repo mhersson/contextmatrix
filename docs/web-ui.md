@@ -139,14 +139,17 @@ board. Promote-to-autonomous lives in that tab.
 `/chat` hosts board-aware chat sessions that outlive any card.
 
 - The sidebar lists sessions in two sections between Workspace and Projects,
-  **Chats** and **Blueprints**. Each shows its pinned sessions, then its live
-  ones (active with a green dot, warm-idle with a yellow one), then the most
-  recently active of the rest, up to five rows in all; pinned and live rows
-  always show, even past five. A section that holds any session ends with
-  **All chats →** or **All blueprints →** and the kind's total, linking to that
-  tab of the [Sessions](#sessions) page. **+ new** opens the New chat dialog on
-  the section's kind. Without an architect backend the Blueprints section shows
-  only while blueprint sessions exist, and then without **+ new**. Each section
+  **Chats** and **Blueprints**. A row's dot is green while the session is active
+  and yellow while it is warm-idle. Each section shows its pinned sessions, then
+  its live ones, then the most recently active of the rest, up to five rows in
+  all; pinned and live rows always show, even past five. A live chat is active
+  or warm-idle. A live blueprint is active or mid-turn; a warm-idle blueprint
+  counts among the rest, since blueprints are never ended for idleness. A
+  section that holds any session ends with **All chats →** or
+  **All blueprints →** and the kind's total, linking to that tab of the
+  [Sessions](#sessions) page. **+ new** opens the New chat dialog on the
+  section's kind. Without an architect backend the Blueprints section shows only
+  while blueprint sessions exist, and then without **+ new**. Each section
   collapses on its own, remembered per browser under
   `sidebar.chat_section_collapsed` and `sidebar.blueprint_section_collapsed`.
   Clicking a row opens the session in a pane (`/chat/:id`) and closes the
