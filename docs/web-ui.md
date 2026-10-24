@@ -207,7 +207,7 @@ board. Promote-to-autonomous lives in that tab.
   chat is gone). The sidebar marks blueprint sessions with an aqua
   drafting-compass icon. The pane header shows a blueprint's mode and cost cap,
   and the architect's spend from the blueprint view (the figure the scale bar
-  shows) where a chat's header shows CM's estimate from its token counts. Once
+  shows) where a chat's header shows its cost (the gateway's reported cost per turn, else CM's estimate from token counts). Once
   the view loads, the header's mode is the view's too, so a switch the architect
   refused never shows there. A blueprint created in plain language shows a Plain
   language badge beside the pill; once the view loads the badge follows the

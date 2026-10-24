@@ -1709,7 +1709,7 @@ Prometheus counters related to chat cost (admin `/metrics` listener):
 
 | Counter                                        | Labels  | Meaning                                                                                   |
 | ---------------------------------------------- | ------- | ----------------------------------------------------------------------------------------- |
-| `contextmatrix_chat_usage_unknown_model_total` | `model` | A chat usage frame named a model not in `token_costs`; tokens accumulate, cost stays `$0` |
+| `contextmatrix_chat_usage_unknown_model_total` | `model` | A chat usage frame without a gateway cost named a model not in `token_costs`; tokens accumulate, cost stays `$0` |
 | `contextmatrix_chat_cost_summary_errors_total` | -       | The chat-cost summary failed inside the dashboard; chat-cost fields render as zero        |
 
 ### GET /api/projects/{project}/activity
@@ -2499,7 +2499,7 @@ management lives under `/api/admin/chats`.
 | `context_tokens_updated_at`                                                        | always    | Zero time (`0001-01-01T00:00:00Z`) until the first usage entry                             |
 | `rehydration_active`, `rehydration_started_at`                                     | omitempty | `true` between a cold reopen and the agent's `chat_rehydration_complete` call              |
 | `prompt_tokens`, `completion_tokens`, `cache_read_tokens`, `cache_creation_tokens` | omitempty | Cumulative totals across usage frames                                                      |
-| `estimated_cost_usd`                                                               | omitempty | Running cost, same cache-tier formula as card-scoped `report_usage`                        |
+| `estimated_cost_usd`                                                               | omitempty | Running cost: per usage frame the gateway's `cost_usd` when reported, else the `report_usage` cache-tier formula |
 | `pinned`                                                                           | omitempty | `true` once pinned; set through `PATCH /api/chats/{id}`                                    |
 | `spent_usd`                                                                        | omitempty | Architect sessions only: the architect's `cost.spent_usd` as CM last read it; absent until the first read. CM reads it on each blueprint view read, after each architect run, and once at startup for a blueprint without one |
 | `assistant_working`, `assistant_working_since`                                     | omitempty | In-memory presence derived from `status` log frames                                        |

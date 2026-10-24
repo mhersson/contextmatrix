@@ -645,10 +645,13 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fall
 		model = fallbackModel
 	}
 
-	// Price the per-turn tokens.
-	var cost float64
+	// The gateway's reported cost wins; the rate table prices only frames
+	// without one, so the unknown-model signal counts table-priced frames.
+	cost := e.Usage.CostUSD
 
-	if m.pricer != nil {
+	if cost <= 0 && m.pricer != nil {
+		cost = 0
+
 		c, known := m.pricer.PriceTokens(model, prompt, cacheRead, cacheCreate, completion)
 		if !known {
 			m.logger.Warn("chat: handleUsageEntry: unknown model, cost recorded as $0",

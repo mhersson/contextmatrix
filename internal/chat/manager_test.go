@@ -7119,3 +7119,74 @@ func TestManager_BackfillBlueprintSpend(t *testing.T) {
 		}
 	})
 }
+
+// TestHandleUsageEntry_GatewayCost verifies a frame's gateway-reported cost
+// wins over the rate table, and that the rate table (and its unknown-model
+// signal) is used only for frames without one.
+func TestHandleUsageEntry_GatewayCost(t *testing.T) {
+	tests := []struct {
+		name        string
+		model       string
+		known       bool
+		frameCost   float64
+		wantCost    float64
+		wantUnknown float64
+	}{
+		{name: "gateway cost wins over the table", model: "gw-cost-known-a", known: true, frameCost: 0.5, wantCost: 0.5},
+		{name: "no gateway cost uses the table", model: "gw-cost-known-b", known: true, frameCost: 0, wantCost: 0.02},
+		{name: "unknown model with gateway cost", model: "gw-cost-unknown", known: false, frameCost: 0.3, wantCost: 0.3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hub := chat.NewSSEHub(64)
+
+			store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = store.Close() })
+
+			known := map[string]float64{}
+			if tt.known {
+				known[tt.model] = 0.02
+			}
+
+			backend := &usageStreamingBackend{
+				entries: []chat.LogEntry{
+					{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 100, OutputTokens: 50, CostUSD: tt.frameCost}, Model: tt.model},
+				},
+			}
+
+			mgr := newManager(t, chat.Config{
+				Store:        store,
+				Backend:      backend,
+				Clock:        clock.Real(),
+				IdleTTL:      time.Hour,
+				Hub:          hub,
+				DefaultModel: tt.model,
+				Pricer:       newStubPricer(known),
+			})
+
+			const project = "gw-cost-project"
+
+			costBase := testutil.ToFloat64(metrics.ChatCostUSDTotal.WithLabelValues(project, tt.model))
+			unknownBase := testutil.ToFloat64(metrics.ChatUsageUnknownModelTotal.WithLabelValues(tt.model))
+
+			ctx := context.Background()
+			sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", Project: project, CreatedBy: "x"})
+			require.NoError(t, err)
+
+			ev := openAndWaitForUsageEvent(t, mgr, hub, sess.ID)
+
+			assert.InDelta(t, tt.wantCost, ev.SessionUpdate.EstimatedCostUSD, 1e-9)
+
+			got, err := store.GetSession(ctx, sess.ID)
+			require.NoError(t, err)
+			assert.InDelta(t, tt.wantCost, got.EstimatedCostUSD, 1e-9)
+
+			assert.InDelta(t, costBase+tt.wantCost,
+				testutil.ToFloat64(metrics.ChatCostUSDTotal.WithLabelValues(project, tt.model)), 1e-9)
+			assert.InDelta(t, unknownBase+tt.wantUnknown,
+				testutil.ToFloat64(metrics.ChatUsageUnknownModelTotal.WithLabelValues(tt.model)), 1e-9)
+		})
+	}
+}

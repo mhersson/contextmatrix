@@ -172,6 +172,8 @@ type TokenUsage struct {
 	OutputTokens      int64 `json:"output_tokens"`
 	CacheReadTokens   int64 `json:"cache_read_tokens"`
 	CacheCreateTokens int64 `json:"cache_creation_tokens"`
+	// CostUSD is the gateway-reported cost of this turn; 0 means none reported.
+	CostUSD float64 `json:"cost_usd,omitempty"`
 }
 
 // ResumeContext is the rehydration payload CM passes to the backend on a
