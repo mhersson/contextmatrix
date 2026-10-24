@@ -1153,3 +1153,69 @@ func TestUpdateSession_KeepsPinAndSpend(t *testing.T) {
 	require.NotNil(t, got.SpentUSD)
 	assert.InDelta(t, 2.0, *got.SpentUSD, 1e-9)
 }
+
+func newTestBlueprintAtTime(t *testing.T, store *Store, lastActive time.Time, cost float64, spend *float64) string {
+	t.Helper()
+
+	ctx := context.Background()
+	id := newTestSessionAtTime(t, store, lastActive, cost)
+	_, err := store.db.ExecContext(ctx, `UPDATE chat_sessions SET kind = ? WHERE id = ?`, string(chat.KindArchitect), id)
+	require.NoError(t, err)
+
+	if spend != nil {
+		require.NoError(t, store.UpdateSessionSpend(ctx, id, *spend))
+	}
+
+	return id
+}
+
+func TestAggregateCost_BlueprintCostIsRecordedSpend(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	now := time.Date(2026, 5, 22, 14, 0, 0, 0, time.UTC)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	until := todayStart.Add(24 * time.Hour)
+	since := todayStart.AddDate(0, 0, -29)
+	at := now.Add(-2 * time.Hour)
+	spend := 2.00
+
+	newTestSessionAtTime(t, store, at, 0.50)
+	newTestBlueprintAtTime(t, store, at, 9.00, &spend)
+	newTestBlueprintAtTime(t, store, at, 7.00, nil)
+
+	last30d, _, series, err := store.AggregateCost(context.Background(), since, until)
+	require.NoError(t, err)
+	assert.InDelta(t, 2.50, last30d, 1e-9)
+	assert.InDelta(t, 2.50, series[29], 1e-9)
+}
+
+func TestDeleteSession_ArchivesABlueprintsRecordedSpend(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	now := time.Date(2026, 5, 22, 14, 0, 0, 0, time.UTC)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	until := todayStart.Add(24 * time.Hour)
+	since := todayStart.AddDate(0, 0, -29)
+	at := now.Add(-2 * time.Hour)
+	spend := 2.00
+
+	bp := newTestBlueprintAtTime(t, store, at, 9.00, &spend)
+	c := newTestSessionAtTime(t, store, at, 0.50)
+
+	require.NoError(t, store.DeleteSession(ctx, bp))
+	require.NoError(t, store.DeleteSession(ctx, c))
+
+	last30d, _, _, err := store.AggregateCost(ctx, since, until)
+	require.NoError(t, err)
+	assert.InDelta(t, 2.50, last30d, 1e-9)
+
+	var archived float64
+	require.NoError(t, store.db.QueryRowContext(ctx,
+		`SELECT estimated_cost_usd FROM chat_cost_archive WHERE id = ?`, bp).Scan(&archived))
+	assert.InDelta(t, 2.00, archived, 1e-9)
+}

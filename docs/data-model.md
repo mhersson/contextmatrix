@@ -1232,7 +1232,8 @@ allows one blueprint per hand-off; deleting the blueprint frees the hand-off.
 **`chat_cost_archive`:** `DeleteSession` copies the cost columns here before
 removing the session row; transcript and title are not kept. `AggregateCost`
 unions both tables so deleted sessions still count in the 30-day dashboard
-rollup. Rows are retained indefinitely; there is no purge.
+rollup. Each session counts once at one cost: a chat's `estimated_cost_usd`, a
+blueprint's `spent_usd` (0 until recorded). Rows are retained indefinitely; there is no purge.
 
 | Column                  | Type    | Default | Meaning                                    |
 | ----------------------- | ------- | ------- | ------------------------------------------ |
@@ -1244,7 +1245,7 @@ rollup. Rows are retained indefinitely; there is no purge.
 | `completion_tokens`     | INTEGER | `0`     | Cumulative output tokens.                  |
 | `cache_read_tokens`     | INTEGER | `0`     | Cumulative cache-read tokens.              |
 | `cache_creation_tokens` | INTEGER | `0`     | Cumulative cache-creation tokens.          |
-| `estimated_cost_usd`    | REAL    | `0`     | Accumulated USD cost.                      |
+| `estimated_cost_usd`    | REAL    | `0`     | The session's cost at delete time (a blueprint's `spent_usd`, else the estimate); rows archived earlier keep the estimate. |
 | `deleted_at`            | INTEGER | -       | Unix epoch of deletion.                    |
 
 `estimated_cost_usd` is a SQLite `REAL` (IEEE 754 double); rounding drift

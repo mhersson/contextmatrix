@@ -372,7 +372,7 @@ func (s *Store) DeleteSession(ctx context.Context, id string) error {
 			 cache_creation_tokens, estimated_cost_usd, deleted_at)
 		SELECT id, project, model, last_active,
 			prompt_tokens, completion_tokens, cache_read_tokens,
-			cache_creation_tokens, estimated_cost_usd, ?
+			cache_creation_tokens, `+sessionCostExpr+`, ?
 		FROM chat_sessions WHERE id = ?
 		ON CONFLICT(id) DO NOTHING`,
 		time.Now().UTC().Unix(), id,
@@ -677,10 +677,14 @@ func scanSession(sc scanner) (chat.Session, error) {
 	return s, nil
 }
 
+// sessionCostExpr is one cost per session: a blueprint's recorded spend (0 until
+// recorded, never CM's estimate), a chat's estimate.
+const sessionCostExpr = "CASE WHEN kind = 'architect' THEN COALESCE(spent_usd, 0) ELSE estimated_cost_usd END"
+
 // costRowsSubquery is a UNION ALL over live and archived sessions that exposes
-// estimated_cost_usd AS cost and last_active for a half-open time window
+// the session cost AS cost and last_active for a half-open time window
 // [?, ?). It accepts four bind parameters: since, until, since, until.
-const costRowsSubquery = `SELECT estimated_cost_usd AS cost, last_active FROM chat_sessions     WHERE last_active >= ? AND last_active < ?
+const costRowsSubquery = `SELECT ` + sessionCostExpr + ` AS cost, last_active FROM chat_sessions     WHERE last_active >= ? AND last_active < ?
                           UNION ALL
                           SELECT estimated_cost_usd AS cost, last_active FROM chat_cost_archive WHERE last_active >= ? AND last_active < ?`
 
