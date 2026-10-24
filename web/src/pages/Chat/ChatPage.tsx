@@ -95,8 +95,8 @@ export function ChatPage() {
   const layout = useChatLayout({ availableChats, onLRUEvict });
 
   // Sidebar fires custom drag events with the chat id so the pane drop
-  // overlay can show the chat name. We use window events because ChatSection
-  // lives outside the layout subtree.
+  // overlay can show the chat name. We use window events because the sidebar's
+  // session rows live outside the layout subtree.
   useEffect(() => {
     const onStart = (e: Event) => {
       const detail = (e as CustomEvent<{ chatId?: string }>).detail;

@@ -49,8 +49,8 @@ vi.mock('../../hooks/useAuth', () => ({
   useOptionalAuth: () => authState.current,
 }));
 
-vi.mock('./ChatSection', () => ({
-  ChatSection: () => null,
+vi.mock('./SessionSections', () => ({
+  SessionSections: () => null,
 }));
 
 import { useProjects } from '../../hooks/useProjects';

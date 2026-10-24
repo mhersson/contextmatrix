@@ -13,7 +13,7 @@ import { useRepoSectionsCollapsed } from '../../hooks/useRepoSectionsCollapsed';
 import { formatVersionWithLocalTime } from '../../utils/formatVersion';
 import { boardsRepoName, type PlaybookSummary, type ProjectConfig, type SessionKind } from '../../types';
 import { ProjectCard } from './ProjectCard';
-import { ChatSection } from './ChatSection';
+import { SessionSections } from './SessionSections';
 import { UserMenu } from './UserMenu';
 import { SettingsMenu } from './SettingsMenu';
 import { RepoSection } from './RepoSection';
@@ -229,7 +229,7 @@ export function Sidebar({ onNewProject, onNewSession, mobileOpen = false, onMobi
           />
         </div>
 
-        <ChatSection onNewChat={() => onNewSession('chat')} />
+        <SessionSections onNewSession={onNewSession} />
 
         <div className="px-2">
           {multiRepo ? (

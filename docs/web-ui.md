@@ -138,6 +138,23 @@ board. Promote-to-autonomous lives in that tab.
 
 `/chat` hosts board-aware chat sessions that outlive any card.
 
+- The sidebar lists sessions in two sections between Workspace and Projects,
+  **Chats** and **Blueprints**. Each shows its pinned sessions, then its live
+  ones (active with a green dot, warm-idle with a yellow one), then the most
+  recently active of the rest, up to five rows in all; pinned and live rows
+  always show, even past five. A section that holds any session ends with
+  **All chats →** or **All blueprints →** and the kind's total, linking to that
+  tab of the [Sessions](#sessions) page. **+ new** opens the New chat dialog on
+  the section's kind. Without an architect backend the Blueprints section shows
+  only while blueprint sessions exist, and then without **+ new**. Each section
+  collapses on its own, remembered per browser under
+  `sidebar.chat_section_collapsed` and `sidebar.blueprint_section_collapsed`.
+  Clicking a row opens the session in a pane (`/chat/:id`) and closes the
+  mobile drawer.
+- A sidebar row's pin button shows on hover or keyboard focus, and always on
+  touch screens; a pinned row shows a filled orange pin. Pins are stored with
+  the session, so they follow you to another browser, and pinning leaves the
+  session's last activity unchanged.
 - Up to 4 panes in a 2x2 layout. Opening a fifth chat replaces the pane focused
   least recently and shows a toast, "Closed X to make room for Y", with Undo
   for 6 seconds.
