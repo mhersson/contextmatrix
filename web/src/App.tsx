@@ -53,6 +53,9 @@ const PlaybooksPage = lazy(() =>
 const PlaybookDetailPage = lazy(() =>
   import('./components/Playbooks/PlaybookDetailPage').then((m) => ({ default: m.PlaybookDetailPage }))
 );
+const SessionsPage = lazy(() =>
+  import('./components/Sessions').then((m) => ({ default: m.SessionsPage }))
+);
 
 /** Minimal placeholder shown while a lazy-loaded route chunk is being fetched. */
 function AppShellSkeleton() {
@@ -88,7 +91,7 @@ function AppInner() {
                 <div className="h-screen flex flex-row" style={{ backgroundColor: 'var(--bg-dim)' }}>
                   <Sidebar
                     onNewProject={() => setNewProjectOpen(true)}
-                    onNewChat={() => navigate('/chat?new=1')}
+                    onNewSession={(kind) => navigate(kind === 'architect' ? '/chat?new=blueprint' : '/chat?new=1')}
                     mobileOpen={mobileOpen}
                     onMobileClose={onMobileClose}
                   />
@@ -104,6 +107,7 @@ function AppInner() {
                           <Route path="chat/:id" element={<ChatPage />} />
                           <Route path="playbooks" element={<PlaybooksPage />} />
                           <Route path="playbooks/:id" element={<PlaybookDetailPage />} />
+                          <Route path="sessions" element={<SessionsPage />} />
                           <Route path="admin/users" element={<AdminGuard><AdminUsersPage /></AdminGuard>} />
                           <Route path="admin/credentials" element={<AdminGuard><AdminCredentialsPage /></AdminGuard>} />
                           <Route path="admin/chats" element={<AdminGuard><AdminChatsPage /></AdminGuard>} />

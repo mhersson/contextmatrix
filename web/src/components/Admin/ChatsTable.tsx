@@ -1,4 +1,5 @@
 import type { ChatSession } from '../../types';
+import { sessionCostUSD } from '../../lib/sessions';
 
 interface ChatsTableProps {
   chats: ChatSession[];
@@ -72,7 +73,7 @@ export function ChatsTable({ chats, loading, error, onEnd, onDelete }: ChatsTabl
               <td className="px-4 py-2">{c.mode || ' - '}</td>
               <td className="px-4 py-2">{fmtCost(c.cost_cap_usd)}</td>
               <td className="px-4 py-2">{c.status}</td>
-              <td className="px-4 py-2">{fmtCost(c.estimated_cost_usd)}</td>
+              <td className="px-4 py-2">{fmtCost(sessionCostUSD(c))}</td>
               <td className="px-4 py-2">{fmtWhen(c.last_active)}</td>
               <td className="px-4 py-2 text-right whitespace-nowrap">
                 {c.status !== 'cold' && (

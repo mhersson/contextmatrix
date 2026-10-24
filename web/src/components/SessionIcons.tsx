@@ -48,3 +48,26 @@ export function ChatIcon({ size = 14, label }: IconProps) {
     </svg>
   );
 }
+
+/** Push pin: a pinned session when filled. */
+export function PinIcon({ size = 14, filled = false, label }: IconProps & { filled?: boolean }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...a11y(label)}
+    >
+      <path d="M12 17v5" />
+      <path
+        d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"
+        fill={filled ? 'currentColor' : 'none'}
+      />
+    </svg>
+  );
+}

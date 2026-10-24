@@ -4,6 +4,7 @@ import { useIdentity } from '../../hooks/useIdentity';
 import { useProjects } from '../../hooks/useProjects';
 import { useTheme } from '../../hooks/useTheme';
 import type { HandoffPrefill } from '../../components/ChatPanel/handoff';
+import type { SessionKind } from '../../types';
 import { BlueprintFields } from './BlueprintFields';
 import { ChatModelPicker } from './ChatModelPicker';
 import { Field } from './Field';
@@ -29,27 +30,33 @@ interface NewChatDialogProps {
   onClose: () => void;
   /** Opens a New blueprint dialog pre-filled from a chat's hand-off. */
   handoff?: HandoffPrefill;
+  /** Kind the dialog opens on; Blueprint needs an architect backend. */
+  initialKind?: SessionKind;
 }
 
 // The model pick lives out here so it persists between opens; the body
 // remounts on every open, so everything else starts fresh.
-export function NewChatDialog({ open, onClose, handoff }: NewChatDialogProps) {
+export function NewChatDialog({ open, onClose, handoff, initialKind }: NewChatDialogProps) {
   const choices = useChatModelChoice();
   if (!open) return null;
-  return <NewChatDialogBody onClose={onClose} choices={choices} handoff={handoff} />;
+  return <NewChatDialogBody onClose={onClose} choices={choices} handoff={handoff} initialKind={initialKind} />;
 }
 
 interface NewChatDialogBodyProps {
   onClose: () => void;
   choices: ChatModelChoices;
   handoff?: HandoffPrefill;
+  initialKind?: SessionKind;
 }
 
-function NewChatDialogBody({ onClose, choices, handoff }: NewChatDialogBodyProps) {
+function NewChatDialogBody({ onClose, choices, handoff, initialKind }: NewChatDialogBodyProps) {
   const { projects, loading, error: projectsError } = useProjects();
   const { architectEnabled } = useTheme();
   const { identity } = useIdentity();
-  const [blueprint, setBlueprint] = useState(handoff !== undefined);
+  const [blueprint, setBlueprint] = useState(handoff !== undefined || (initialKind === 'architect' && architectEnabled));
+  const [kindPicked, setKindPicked] = useState(false);
+  // architectEnabled is false until the app config loads, so a reload of ?new=blueprint renders Chat first.
+  if (initialKind === 'architect' && architectEnabled && !blueprint && !kindPicked) setBlueprint(true);
   const [form, setForm] = useState<BlueprintForm>(() => ({
     ...EMPTY_BLUEPRINT_FORM,
     projects: handoff?.projects ?? [],
@@ -137,6 +144,7 @@ function NewChatDialogBody({ onClose, choices, handoff }: NewChatDialogBodyProps
                 blueprint={blueprint}
                 onChange={(next) => {
                   setBlueprint(next);
+                  setKindPicked(true);
                   clearError();
                 }}
               />

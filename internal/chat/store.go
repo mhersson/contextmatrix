@@ -62,6 +62,14 @@ type Store interface {
 	// ErrSessionNotFound if no row matches.
 	UpdateSessionCostCap(ctx context.Context, sessionID string, capUSD float64) error
 
+	// UpdateSessionPinned writes only the pinned column. Returns
+	// ErrSessionNotFound if no row matches.
+	UpdateSessionPinned(ctx context.Context, sessionID string, pinned bool) error
+
+	// UpdateSessionSpend writes only the spent_usd column. Returns
+	// ErrSessionNotFound if no row matches.
+	UpdateSessionSpend(ctx context.Context, sessionID string, spentUSD float64) error
+
 	// UpdateSessionMode writes only the mode column. Returns
 	// ErrSessionNotFound if no row matches.
 	UpdateSessionMode(ctx context.Context, sessionID, mode string) error
@@ -104,9 +112,10 @@ type Store interface {
 	CountSessionsByStatus(ctx context.Context, statuses ...Status) (int, error)
 
 	// AggregateCost returns cost aggregates over the supplied time windows.
-	// last30d is the sum of estimated_cost_usd for sessions whose last_active
-	// falls in [since, until). prior30d covers the prior window of equal
-	// width ending at since. series30d is a length-30 daily slice (index 0 =
+	// last30d is the sum of each session's cost (a chat's estimate, a
+	// blueprint's recorded spend, 0 until recorded) for sessions whose
+	// last_active falls in [since, until). prior30d covers the prior window of
+	// equal width ending at since. series30d is a length-30 daily slice (index 0 =
 	// since, index 29 = the day before until), filled with 0.0 for days with
 	// no sessions. The caller is responsible for aligning since/until to UTC
 	// midnight boundaries; no boundary adjustment is performed here.

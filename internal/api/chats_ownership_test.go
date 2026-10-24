@@ -214,3 +214,18 @@ func TestCreateChat_StampsSessionIdentityOverHeader(t *testing.T) {
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&sess))
 	assert.Equal(t, "human:alice", sess.CreatedBy)
 }
+
+func TestPatchChat_PinOnAForeignSessionIs404(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+	bobs := seedSession(t, mgr, "human:bob")
+
+	w := httptest.NewRecorder()
+	asUser(mux, "alice", false).ServeHTTP(w, jsonReq(t, http.MethodPatch, "/api/chats/"+bobs.ID, `{"pinned":true}`))
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Contains(t, w.Body.String(), "CHAT_NOT_FOUND")
+
+	got, err := mgr.GetSession(t.Context(), bobs.ID)
+	require.NoError(t, err)
+	assert.False(t, got.Pinned)
+}

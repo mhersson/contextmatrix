@@ -1060,3 +1060,162 @@ func TestStore_LastSeqOfKind(t *testing.T) {
 		assert.Equal(t, want, got, kind)
 	}
 }
+
+func TestUpdateSessionPinned_WritesOnlyThePin(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	last := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
+
+	sess := sessionRow("P1")
+	sess.Status = chat.StatusActive
+	sess.ContainerID = "c1"
+	sess.LastActive = last
+	sess.Title = "keep"
+	require.NoError(t, s.CreateSession(ctx, sess))
+
+	require.NoError(t, s.UpdateSessionPinned(ctx, "P1", true))
+
+	got, err := s.GetSession(ctx, "P1")
+	require.NoError(t, err)
+	assert.True(t, got.Pinned)
+	assert.Equal(t, chat.StatusActive, got.Status)
+	assert.Equal(t, "c1", got.ContainerID)
+	assert.True(t, last.Equal(got.LastActive))
+	assert.Equal(t, "keep", got.Title)
+
+	list, err := s.ListSessions(ctx, chat.SessionFilter{})
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.True(t, list[0].Pinned)
+
+	require.NoError(t, s.UpdateSessionPinned(ctx, "P1", false))
+
+	got, err = s.GetSession(ctx, "P1")
+	require.NoError(t, err)
+	assert.False(t, got.Pinned)
+
+	assert.ErrorIs(t, s.UpdateSessionPinned(ctx, "missing", true), chat.ErrSessionNotFound)
+}
+
+func TestUpdateSessionSpend_RecordsAndOverwrites(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	sess := sessionRow("S1")
+	sess.Kind = chat.KindArchitect
+	require.NoError(t, s.CreateSession(ctx, sess))
+
+	_, _, _, _, _, err := s.IncrementSessionCost(ctx, "S1", 1, 1, 0, 0, 0.5, "m")
+	require.NoError(t, err)
+
+	got, err := s.GetSession(ctx, "S1")
+	require.NoError(t, err)
+	assert.Nil(t, got.SpentUSD)
+
+	require.NoError(t, s.UpdateSessionSpend(ctx, "S1", 1.25))
+
+	got, err = s.GetSession(ctx, "S1")
+	require.NoError(t, err)
+	require.NotNil(t, got.SpentUSD)
+	assert.InDelta(t, 1.25, *got.SpentUSD, 1e-9)
+	assert.InDelta(t, 0.5, got.EstimatedCostUSD, 1e-9)
+
+	require.NoError(t, s.UpdateSessionSpend(ctx, "S1", 0))
+
+	got, err = s.GetSession(ctx, "S1")
+	require.NoError(t, err)
+	require.NotNil(t, got.SpentUSD)
+	assert.Zero(t, *got.SpentUSD)
+
+	assert.ErrorIs(t, s.UpdateSessionSpend(ctx, "missing", 1), chat.ErrSessionNotFound)
+}
+
+func TestUpdateSession_KeepsPinAndSpend(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	sess := sessionRow("K1")
+	sess.Kind = chat.KindArchitect
+	require.NoError(t, s.CreateSession(ctx, sess))
+	require.NoError(t, s.UpdateSessionPinned(ctx, "K1", true))
+	require.NoError(t, s.UpdateSessionSpend(ctx, "K1", 2.0))
+
+	got, err := s.GetSession(ctx, "K1")
+	require.NoError(t, err)
+
+	got.Title = "renamed"
+	require.NoError(t, s.UpdateSession(ctx, got))
+
+	got, err = s.GetSession(ctx, "K1")
+	require.NoError(t, err)
+	assert.Equal(t, "renamed", got.Title)
+	assert.True(t, got.Pinned)
+	require.NotNil(t, got.SpentUSD)
+	assert.InDelta(t, 2.0, *got.SpentUSD, 1e-9)
+}
+
+func newTestBlueprintAtTime(t *testing.T, store *Store, lastActive time.Time, cost float64, spend *float64) string {
+	t.Helper()
+
+	ctx := context.Background()
+	id := newTestSessionAtTime(t, store, lastActive, cost)
+	_, err := store.db.ExecContext(ctx, `UPDATE chat_sessions SET kind = ? WHERE id = ?`, string(chat.KindArchitect), id)
+	require.NoError(t, err)
+
+	if spend != nil {
+		require.NoError(t, store.UpdateSessionSpend(ctx, id, *spend))
+	}
+
+	return id
+}
+
+func TestAggregateCost_BlueprintCostIsRecordedSpend(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	now := time.Date(2026, 5, 22, 14, 0, 0, 0, time.UTC)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	until := todayStart.Add(24 * time.Hour)
+	since := todayStart.AddDate(0, 0, -29)
+	at := now.Add(-2 * time.Hour)
+	spend := 2.00
+
+	newTestSessionAtTime(t, store, at, 0.50)
+	newTestBlueprintAtTime(t, store, at, 9.00, &spend)
+	newTestBlueprintAtTime(t, store, at, 7.00, nil)
+
+	last30d, _, series, err := store.AggregateCost(context.Background(), since, until)
+	require.NoError(t, err)
+	assert.InDelta(t, 2.50, last30d, 1e-9)
+	assert.InDelta(t, 2.50, series[29], 1e-9)
+}
+
+func TestDeleteSession_ArchivesABlueprintsRecordedSpend(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	now := time.Date(2026, 5, 22, 14, 0, 0, 0, time.UTC)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	until := todayStart.Add(24 * time.Hour)
+	since := todayStart.AddDate(0, 0, -29)
+	at := now.Add(-2 * time.Hour)
+	spend := 2.00
+
+	bp := newTestBlueprintAtTime(t, store, at, 9.00, &spend)
+	c := newTestSessionAtTime(t, store, at, 0.50)
+
+	require.NoError(t, store.DeleteSession(ctx, bp))
+	require.NoError(t, store.DeleteSession(ctx, c))
+
+	last30d, _, _, err := store.AggregateCost(ctx, since, until)
+	require.NoError(t, err)
+	assert.InDelta(t, 2.50, last30d, 1e-9)
+
+	var archived float64
+	require.NoError(t, store.db.QueryRowContext(ctx,
+		`SELECT estimated_cost_usd FROM chat_cost_archive WHERE id = ?`, bp).Scan(&archived))
+	assert.InDelta(t, 2.00, archived, 1e-9)
+}

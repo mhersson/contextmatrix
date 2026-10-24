@@ -75,8 +75,12 @@ type Session struct {
 	PlainLanguage bool `json:"plain_language,omitempty"`
 	// OriginChat and OriginSeq name the chat and its handoff row a blueprint
 	// was started from; empty and 0 otherwise. Set at creation, never changed.
-	OriginChat             string    `json:"origin_chat,omitempty"`
-	OriginSeq              int64     `json:"origin_seq,omitempty"`
+	OriginChat string `json:"origin_chat,omitempty"`
+	OriginSeq  int64  `json:"origin_seq,omitempty"`
+	// Pinned keeps the session in its sidebar section. SpentUSD is the
+	// architect's recorded spend; nil until CM records it.
+	Pinned                 bool      `json:"pinned,omitempty"`
+	SpentUSD               *float64  `json:"spent_usd,omitempty"`
 	Status                 Status    `json:"status"`
 	CreatedAt              time.Time `json:"created_at"`
 	LastActive             time.Time `json:"last_active"`
@@ -168,6 +172,8 @@ type TokenUsage struct {
 	OutputTokens      int64 `json:"output_tokens"`
 	CacheReadTokens   int64 `json:"cache_read_tokens"`
 	CacheCreateTokens int64 `json:"cache_creation_tokens"`
+	// CostUSD is the gateway-reported cost of this turn; 0 means none reported.
+	CostUSD float64 `json:"cost_usd,omitempty"`
 }
 
 // ResumeContext is the rehydration payload CM passes to the backend on a

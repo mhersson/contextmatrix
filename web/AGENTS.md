@@ -28,9 +28,10 @@ Auto-loaded when working in `web/`. Backend conventions live in the root
   `useTheme()`. Don't add a parallel theme mechanism.
 - `vite.config.ts` proxies `/api` → `http://localhost:8080` for dev.
 - **No `localStorage` outside the documented allowlist:** theme, `palette`, human
-  agent ID, `last_chat_id`, chat section collapse, `chat_layout`,
-  collapsed column/card state, `chat_filter_prefs`, rail-expanded, NowRail-open,
-  column-sort preferences, `contextmatrix-manual-order-<project>`,
+  agent ID, `last_chat_id`, Chats and Blueprints section collapse
+  (`sidebar.chat_section_collapsed`, `sidebar.blueprint_section_collapsed`),
+  `chat_layout`, collapsed column/card state, `chat_filter_prefs`, rail-expanded,
+  NowRail-open, column-sort preferences, `contextmatrix-manual-order-<project>`,
   `contextmatrix-board-header-collapsed`,
   `contextmatrix-sidebar-repo-collapsed` (sidebar repo sections),
   `contextmatrix-ladder-provider-filter` (model selection ladder provider
@@ -208,7 +209,7 @@ interactions.
 - **URL state:** for bookmarkable UI state use `useSearchParams` with the
   updater-callback form and `{ replace: true }`; validate the value against the
   known set and fall back gracefully on unknown. Current params: `?card=<id>`,
-  `?project=<slug>`, `?new=1`.
+  `?project=<slug>`, `?new=1|blueprint`, `?tab=<chats|blueprints>` (Sessions page).
 - **Delivery-unit metrics:** headline counters (MetricsRibbon, KpiRow, BoardBand)
   count only cards where `parent === ""` (standalone + parent tasks); subtasks are
   excluded so decomposition doesn't inflate throughput. Backend source:

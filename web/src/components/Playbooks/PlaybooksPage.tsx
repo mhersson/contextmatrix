@@ -8,7 +8,7 @@ import { useToast } from '../../hooks/useToast';
 import type { PlaybookSummary } from '../../types';
 import { isFullyComplete } from './playbookUtils';
 import { PlaybookReceipt, PlaybookRow } from './PlaybookRow';
-import { PlaybooksBar } from './PlaybooksBar';
+import { PageBar } from '../SidebarMenuButton/PageBar';
 import { NewPlaybookButton, PlaybookGhostRow } from './PlaybookGhostRow';
 import { PlaybooksEmptyHero } from './PlaybooksEmptyHero';
 import { usePlaybookCreateForm } from './usePlaybookCreateForm';
@@ -65,12 +65,12 @@ export function PlaybooksPage() {
     <>
       {isEmpty ? (
         <div className="h-full flex flex-col overflow-y-auto">
-          <PlaybooksBar />
+          <PageBar title="Playbooks" />
           <PlaybooksEmptyHero creating={creating} onStartCreate={() => setCreating(true)} {...ghostProps} />
         </div>
       ) : (
         <div className="h-full overflow-y-auto">
-          <PlaybooksBar />
+          <PageBar title="Playbooks" />
           <div className="pbl-page">
             <div className="pbl-header">
               <div>

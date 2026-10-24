@@ -571,7 +571,7 @@ Chat frames set `session_id` instead of `card_id`. `type` is one of:
 | `stderr`    | A raw stderr line from the container.                                                                                                             |
 | `system`    | Container lifecycle event (started, completed, failed, canceled, promoted).                                                                       |
 | `user`      | A human message echoed by the backend's `/message` handler.                                                                                       |
-| `usage`     | Per-turn token accounting; `content` is empty. `usage` carries `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`.     |
+| `usage`     | Per-turn token accounting; `content` is empty. `usage` carries `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, and `cost_usd` (gateway-reported turn cost; absent or 0 means none, and CM prices the turn from its rate table). |
 | `status`    | Chat-mode run state, `content` is `working` or `idle`. Ephemeral: the chat manager turns it into presence state and never persists it.            |
 
 `user_question` exists on the wire only for persisted entries that still
@@ -1021,7 +1021,10 @@ flowchart LR
   by `session_id`, persists each transcript frame to `ops.db`, and
   republishes it on the per-session chat SSE hub. `usage` frames update the
   session's context-token counter and cost; `status` frames drive the
-  working indicator and are never persisted. Both consumers reconnect with
+  working indicator and are never persisted. An architect `idle` status frame
+  also makes CM re-read the blueprint view and record its spend, and startup
+  reads it once for every blueprint without one (a failed read leaves it
+  unrecorded until the next view read). Both consumers reconnect with
   backoff after a stream error (250 ms to 30 s, reset after a stream that
   lived a minute). A chat consumer stops when the stream closes cleanly; an
   architect consumer reconnects after that too, re-sending the start first

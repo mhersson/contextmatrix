@@ -5460,6 +5460,56 @@ textarea {
   border-top: 1px solid var(--bg2);
   border-bottom: 1px solid var(--bg2);
 }
+/* The pin keeps its space while hidden (opacity, not display), so it stays
+   reachable by Tab and the title does not reflow on hover. */
+.sb-pin {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-right: 4px;
+  padding: 3px;
+  border-radius: 4px;
+  color: var(--grey1);
+  opacity: 0;
+}
+.sb-session:hover .sb-pin,
+.sb-session:focus-within .sb-pin,
+.sb-pin--shown {
+  opacity: 1;
+}
+.sb-pin:hover {
+  color: var(--fg);
+  background-color: var(--bg2);
+}
+.sb-pin[aria-pressed='true'] {
+  color: var(--orange);
+}
+@media (pointer: coarse) {
+  .sb-pin {
+    min-width: 24px;
+    min-height: 24px;
+    align-items: center;
+    justify-content: center;
+  }
+}
+.sb-all {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 2px;
+  padding: 4px 12px 2px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--blue);
+}
+.sb-all:hover {
+  background-color: var(--bg1);
+}
+.sb-all__count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--grey1);
+}
 .sb-navrow {
   background-color: transparent;
 }
@@ -9420,4 +9470,324 @@ button.bp-rv-head {
 .mk-seg button:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* Sessions page - tabs, search and filter chips, bulk bar, session table.
+   The table scrolls sideways inside its wrapper so the page never does. */
+.ssn-page {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 28px 24px 40px;
+}
+@media (max-width: 767px) {
+  .ssn-page {
+    padding: 20px 16px 32px;
+  }
+}
+.ssn-title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 26px;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  color: var(--fg);
+}
+
+.ssn-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 14px 0;
+  border-bottom: 1px solid var(--bg3);
+}
+.ssn-tab {
+  padding: 7px 14px;
+  margin-bottom: -1px;
+  font-size: 13.5px;
+  color: var(--grey1);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+.ssn-tab:hover {
+  color: var(--fg);
+}
+.ssn-tab--on {
+  color: var(--fg);
+  font-weight: 600;
+  border-bottom-color: var(--aqua);
+}
+.ssn-tab-count {
+  margin-left: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--grey1);
+}
+
+.ssn-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.ssn-search {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg0);
+  border: 1px solid var(--bg3);
+  border-radius: 7px;
+}
+.ssn-search::placeholder {
+  color: var(--grey1);
+}
+.ssn-search:focus {
+  outline: none;
+  border-color: var(--aqua);
+}
+.ssn-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 11px;
+  font-size: 12.5px;
+  color: var(--grey2);
+  background: var(--bg0);
+  border: 1px solid var(--bg3);
+  border-radius: 14px;
+  cursor: pointer;
+}
+.ssn-chip select {
+  font: inherit;
+  font-weight: 600;
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.ssn-chip select:focus {
+  outline: none;
+}
+.ssn-chip option {
+  color: var(--fg);
+  background: var(--bg1);
+}
+.ssn-chip--on {
+  color: var(--fg);
+  background: var(--bg-blue);
+  border-color: var(--aqua);
+}
+
+.ssn-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+  padding: 7px 12px;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg2);
+  border: 1px solid var(--bg3);
+  border-radius: 8px;
+}
+.ssn-bulk b {
+  font-weight: 600;
+}
+.ssn-bulk-acts {
+  display: flex;
+  gap: 4px;
+}
+.ssn-bulk-acts button {
+  padding: 3px 10px;
+  font-size: 13px;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ssn-bulk-acts button:hover:not(:disabled) {
+  border-color: var(--bg4);
+}
+.ssn-bulk-acts button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ssn-bulk-acts .ssn-bulk-del {
+  color: var(--blueprint-ink-red);
+}
+
+.ssn-table-wrap {
+  overflow-x: auto;
+  background: var(--bg0);
+  border: 1px solid var(--bg2);
+  border-radius: 8px;
+}
+.ssn-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  color: var(--fg);
+}
+.ssn-table th {
+  padding: 9px 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--grey2);
+  background: var(--bg1);
+  border-bottom: 1px solid var(--bg2);
+}
+.ssn-table td {
+  padding: 8px 10px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--bg1);
+}
+.ssn-row {
+  cursor: pointer;
+}
+.ssn-row:last-child td {
+  border-bottom: 0;
+}
+.ssn-row:hover td {
+  background: var(--bg1);
+}
+.ssn-row--sel td,
+.ssn-row--sel:hover td {
+  background: var(--bg-visual);
+}
+.ssn-table .ssn-col-tick,
+.ssn-table .ssn-col-pin {
+  width: 1%;
+  padding-right: 2px;
+}
+.ssn-tick {
+  accent-color: var(--aqua);
+  cursor: pointer;
+}
+.ssn-pin {
+  display: inline-flex;
+  padding: 2px;
+  color: var(--grey1);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.ssn-pin:hover {
+  color: var(--fg);
+}
+.ssn-pin--on,
+.ssn-pin--on:hover {
+  color: var(--orange);
+}
+@media (pointer: coarse) {
+  .ssn-pin {
+    min-width: 24px;
+    min-height: 24px;
+    align-items: center;
+    justify-content: center;
+  }
+}
+.ssn-open {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 330px;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.ssn-open-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ssn-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.ssn-mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--grey2);
+}
+.ssn-muted {
+  color: var(--grey1);
+}
+.ssn-tag {
+  padding: 0 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--grey2);
+  border: 1px solid var(--bg4);
+  border-radius: 9px;
+}
+.ssn-tag--yolo {
+  color: var(--blueprint-ink-orange);
+  border-color: color-mix(in srgb, var(--orange) 55%, transparent);
+}
+.ssn-tag--auto {
+  color: var(--blueprint-ink-aqua);
+  border-color: color-mix(in srgb, var(--aqua) 55%, transparent);
+}
+
+.ssn-loading {
+  padding: 28px 12px;
+  font-size: 13px;
+  text-align: center;
+  color: var(--grey1);
+}
+.ssn-error {
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: var(--blueprint-ink-red);
+}
+
+.ssn-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 12px;
+  font-size: 13px;
+  text-align: center;
+  color: var(--grey1);
+  border: 1px dashed var(--bg3);
+  border-radius: 8px;
+}
+.ssn-empty-clear {
+  font-size: 13px;
+  color: var(--aqua);
+  text-decoration: underline;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.ssn-tab:focus-visible,
+.ssn-chip:focus-visible,
+.ssn-chip:has(select:focus-visible),
+.ssn-pin:focus-visible,
+.ssn-open:focus-visible,
+.ssn-bulk-acts button:focus-visible,
+.ssn-empty-clear:focus-visible {
+  outline: 2px solid var(--aqua);
+  outline-offset: 2px;
 }

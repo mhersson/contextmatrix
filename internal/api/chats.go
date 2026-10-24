@@ -878,7 +878,8 @@ func (h *chatHandlers) listMessages(w http.ResponseWriter, r *http.Request) {
 
 func (h *chatHandlers) patchChat(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Title *string `json:"title,omitempty"`
+		Title  *string `json:"title,omitempty"`
+		Pinned *bool   `json:"pinned,omitempty"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -891,12 +892,22 @@ func (h *chatHandlers) patchChat(w http.ResponseWriter, r *http.Request) {
 
 	if body.Title != nil {
 		sess.Title = *body.Title
+
+		if err := h.mgr.UpdateSessionMetadata(r.Context(), sess); err != nil {
+			handleChatError(w, r, err)
+
+			return
+		}
 	}
 
-	if err := h.mgr.UpdateSessionMetadata(r.Context(), sess); err != nil {
-		handleChatError(w, r, err)
+	if body.Pinned != nil {
+		if err := h.mgr.SetPinned(r.Context(), sess.ID, *body.Pinned); err != nil {
+			handleChatError(w, r, err)
 
-		return
+			return
+		}
+
+		sess.Pinned = *body.Pinned
 	}
 
 	writeJSON(w, http.StatusOK, sess)

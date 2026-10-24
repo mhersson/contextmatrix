@@ -6820,3 +6820,384 @@ func TestSendMessage_ChatKeeps8192(t *testing.T) {
 
 	assert.Equal(t, []string{fits}, sentContents(chatStub))
 }
+
+// spendCalls records the session ids a stub ArchitectSpend was asked for.
+type spendCalls struct {
+	mu  sync.Mutex
+	ids []string
+}
+
+func (c *spendCalls) add(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.ids = append(c.ids, id)
+}
+
+func (c *spendCalls) seen() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return append([]string(nil), c.ids...)
+}
+
+// spendSpyStore counts spend writes, including any a cancelled ctx would fail.
+type spendSpyStore struct {
+	chat.Store
+
+	writes atomic.Int64
+}
+
+func (s *spendSpyStore) UpdateSessionSpend(ctx context.Context, sessionID string, spentUSD float64) error {
+	s.writes.Add(1)
+
+	return s.Store.UpdateSessionSpend(ctx, sessionID, spentUSD)
+}
+
+// newSpendManager builds a manager whose chat and architect backends both
+// replay entries, with spend as its ArchitectSpend.
+func newSpendManager(t *testing.T, entries []chat.LogEntry,
+	spend func(ctx context.Context, sessionID string) (float64, bool, error),
+) (*chat.Manager, *spendSpyStore) {
+	t.Helper()
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	spy := &spendSpyStore{Store: store}
+	streaming := &usageStreamingBackend{entries: entries}
+
+	mgr := newManager(t, chat.Config{
+		Store:            spy,
+		Backend:          streaming,
+		ArchitectBackend: streaming,
+		ArchitectSpend:   spend,
+		Clock:            clock.Real(),
+		IdleTTL:          time.Hour,
+		ResolveProjectExec: func(context.Context, string) (chat.ProjectExecInfo, error) {
+			return chat.ProjectExecInfo{}, nil
+		},
+	})
+
+	return mgr, spy
+}
+
+func createKind(t *testing.T, mgr *chat.Manager, kind chat.SessionKind) chat.Session {
+	t.Helper()
+
+	in := chat.CreateInput{Kind: kind, Title: "t", CreatedBy: "x"}
+	if kind == chat.KindArchitect {
+		in.Projects = []string{"alpha"}
+	}
+
+	sess, err := mgr.CreateSession(t.Context(), in)
+	require.NoError(t, err)
+
+	return sess
+}
+
+func spentUSD(t *testing.T, mgr *chat.Manager, sessionID string) *float64 {
+	t.Helper()
+
+	sess, err := mgr.GetSession(context.Background(), sessionID)
+	require.NoError(t, err)
+
+	return sess.SpentUSD
+}
+
+func TestManager_IdleFrameRecordsBlueprintSpend(t *testing.T) {
+	var calls spendCalls
+
+	mgr, _ := newSpendManager(t, []chat.LogEntry{{Type: "status", Content: "idle"}},
+		func(_ context.Context, id string) (float64, bool, error) {
+			calls.add(id)
+
+			return 3.25, true, nil
+		})
+	bp := createKind(t, mgr, chat.KindArchitect)
+
+	_, err := mgr.OpenSession(context.Background(), bp.ID)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		got, err := mgr.GetSession(context.Background(), bp.ID)
+
+		return err == nil && got.SpentUSD != nil && *got.SpentUSD == 3.25
+	}, 2*time.Second, 10*time.Millisecond)
+	assert.Equal(t, []string{bp.ID}, calls.seen())
+}
+
+func TestManager_IdleFrameSpendFetch_Rows(t *testing.T) {
+	entries := []chat.LogEntry{
+		{Type: "status", Content: "idle"},
+		{Type: "text", Content: "after idle"},
+	}
+
+	tests := []struct {
+		name      string
+		kind      chat.SessionKind
+		spent     float64
+		ok        bool
+		err       error
+		wantCalls int
+	}{
+		{"chat session idle frame never fetches", chat.KindChat, 9, true, nil, 0},
+		{"fetch error leaves the spend unrecorded", chat.KindArchitect, 7, true, errors.New("architect down"), 1},
+		{"no spend in the view", chat.KindArchitect, 0, false, nil, 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var calls spendCalls
+
+			release := make(chan struct{})
+
+			mgr, spy := newSpendManager(t, entries, func(ctx context.Context, id string) (float64, bool, error) {
+				calls.add(id)
+
+				select {
+				case <-release:
+				case <-ctx.Done():
+				}
+
+				return tt.spent, tt.ok, tt.err
+			})
+			sess := createKind(t, mgr, tt.kind)
+
+			_, err := mgr.OpenSession(context.Background(), sess.ID)
+			require.NoError(t, err)
+
+			// The frame after the idle one lands while the fetch is held: the consumer never waits on it.
+			require.Eventually(t, func() bool {
+				msgs, err := mgr.ListMessages(context.Background(), sess.ID, 0, 100)
+
+				return err == nil && len(msgs) > 0 && msgs[len(msgs)-1].Content == "after idle"
+			}, 2*time.Second, 10*time.Millisecond)
+
+			require.Eventually(t, func() bool { return len(calls.seen()) == tt.wantCalls }, 2*time.Second, 10*time.Millisecond)
+			close(release)
+
+			// Close waits out every fetch, so nothing can land after the checks below.
+			require.NoError(t, mgr.Close(context.Background()))
+
+			assert.Len(t, calls.seen(), tt.wantCalls)
+			assert.Zero(t, spy.writes.Load())
+			assert.Nil(t, spentUSD(t, mgr, sess.ID))
+		})
+	}
+}
+
+func TestManager_BackfillBlueprintSpend(t *testing.T) {
+	type result struct {
+		spent float64
+		ok    bool
+		err   error
+	}
+
+	t.Run("records each blueprint without a spend", func(t *testing.T) {
+		var calls spendCalls
+
+		results := map[string]result{}
+
+		mgr, _ := newSpendManager(t, nil, func(_ context.Context, id string) (float64, bool, error) {
+			calls.add(id)
+
+			r, found := results[id]
+			if !found {
+				return 99, true, nil
+			}
+
+			return r.spent, r.ok, r.err
+		})
+
+		a := createKind(t, mgr, chat.KindArchitect)
+		b := createKind(t, mgr, chat.KindArchitect)
+		c := createKind(t, mgr, chat.KindArchitect)
+		d := createKind(t, mgr, chat.KindChat)
+
+		results[a.ID] = result{spent: 1.5, ok: true}
+		results[b.ID] = result{spent: 7, ok: true, err: errors.New("architect no longer holds it")}
+
+		require.NoError(t, mgr.RecordBlueprintSpend(context.Background(), c.ID, 4.0))
+
+		mgr.BackfillBlueprintSpend(context.Background())
+
+		require.NotNil(t, spentUSD(t, mgr, a.ID))
+		assert.InDelta(t, 1.5, *spentUSD(t, mgr, a.ID), 1e-9)
+		assert.Nil(t, spentUSD(t, mgr, b.ID), "a failed read leaves the spend unrecorded")
+		require.NotNil(t, spentUSD(t, mgr, c.ID))
+		assert.InDelta(t, 4.0, *spentUSD(t, mgr, c.ID), 1e-9, "a recorded spend is never re-read")
+		assert.Nil(t, spentUSD(t, mgr, d.ID))
+		assert.ElementsMatch(t, []string{a.ID, b.ID}, calls.seen())
+	})
+
+	t.Run("cancelled ctx starts no read", func(t *testing.T) {
+		var calls spendCalls
+
+		mgr, _ := newSpendManager(t, nil, func(_ context.Context, id string) (float64, bool, error) {
+			calls.add(id)
+
+			return 1, true, nil
+		})
+		a := createKind(t, mgr, chat.KindArchitect)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		mgr.BackfillBlueprintSpend(ctx)
+
+		assert.Empty(t, calls.seen())
+		assert.Nil(t, spentUSD(t, mgr, a.ID))
+	})
+
+	t.Run("no reader configured", func(t *testing.T) {
+		mgr, spy := newSpendManager(t, nil, nil)
+		a := createKind(t, mgr, chat.KindArchitect)
+
+		mgr.BackfillBlueprintSpend(context.Background())
+
+		assert.Zero(t, spy.writes.Load())
+		assert.Nil(t, spentUSD(t, mgr, a.ID))
+	})
+
+	t.Run("at most four reads in flight", func(t *testing.T) {
+		const blueprints = 7
+
+		var inFlight, peak atomic.Int64
+
+		release := make(chan struct{})
+
+		mgr, _ := newSpendManager(t, nil, func(ctx context.Context, _ string) (float64, bool, error) {
+			n := inFlight.Add(1)
+			defer inFlight.Add(-1)
+
+			for {
+				p := peak.Load()
+				if n <= p || peak.CompareAndSwap(p, n) {
+					break
+				}
+			}
+
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+
+			return 2, true, nil
+		})
+
+		ids := make([]string, 0, blueprints)
+		for range blueprints {
+			ids = append(ids, createKind(t, mgr, chat.KindArchitect).ID)
+		}
+
+		done := make(chan struct{})
+
+		go func() {
+			defer close(done)
+
+			mgr.BackfillBlueprintSpend(context.Background())
+		}()
+
+		require.Eventually(t, func() bool { return inFlight.Load() >= 4 }, 2*time.Second, 5*time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
+		assert.Equal(t, int64(4), peak.Load())
+
+		close(release)
+
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("backfill did not return")
+		}
+
+		for _, id := range ids {
+			got := spentUSD(t, mgr, id)
+			require.NotNil(t, got, id)
+			assert.InDelta(t, 2.0, *got, 1e-9, id)
+		}
+	})
+}
+
+// TestHandleUsageEntry_GatewayCost verifies a frame's gateway-reported cost
+// wins over the rate table, and that the rate table (and its unknown-model
+// signal) is used only for frames without one.
+func TestHandleUsageEntry_GatewayCost(t *testing.T) {
+	tests := []struct {
+		name        string
+		model       string
+		known       bool
+		noPricer    bool
+		frameCost   float64
+		wantCost    float64
+		wantUnknown float64
+	}{
+		{name: "gateway cost wins over the table", model: "gw-cost-known-a", known: true, frameCost: 0.5, wantCost: 0.5},
+		{name: "no gateway cost uses the table", model: "gw-cost-known-b", known: true, frameCost: 0, wantCost: 0.02},
+		{name: "unknown model with gateway cost", model: "gw-cost-unknown", known: false, frameCost: 0.3, wantCost: 0.3},
+		{name: "unknown model without gateway cost", model: "gw-cost-unknown-table", known: false, frameCost: 0, wantCost: 0, wantUnknown: 1},
+		{name: "negative gateway cost is treated as absent", model: "gw-cost-negative", known: true, frameCost: -0.4, wantCost: 0.02},
+		{name: "gateway cost without a pricer", model: "gw-cost-no-pricer", noPricer: true, frameCost: 0.5, wantCost: 0.5},
+		{name: "negative gateway cost without a pricer records 0", model: "gw-cost-no-pricer-negative", noPricer: true, frameCost: -0.4, wantCost: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hub := chat.NewSSEHub(64)
+
+			store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = store.Close() })
+
+			known := map[string]float64{}
+			if tt.known {
+				known[tt.model] = 0.02
+			}
+
+			// A nil interface, not a typed nil *stubPricer, so the manager sees no pricer.
+			var pricer chat.Pricer
+			if !tt.noPricer {
+				pricer = newStubPricer(known)
+			}
+
+			backend := &usageStreamingBackend{
+				entries: []chat.LogEntry{
+					{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 100, OutputTokens: 50, CostUSD: tt.frameCost}, Model: tt.model},
+				},
+			}
+
+			mgr := newManager(t, chat.Config{
+				Store:        store,
+				Backend:      backend,
+				Clock:        clock.Real(),
+				IdleTTL:      time.Hour,
+				Hub:          hub,
+				DefaultModel: tt.model,
+				Pricer:       pricer,
+			})
+
+			const project = "gw-cost-project"
+
+			costBase := testutil.ToFloat64(metrics.ChatCostUSDTotal.WithLabelValues(project, tt.model))
+			unknownBase := testutil.ToFloat64(metrics.ChatUsageUnknownModelTotal.WithLabelValues(tt.model))
+
+			ctx := context.Background()
+			sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", Project: project, CreatedBy: "x"})
+			require.NoError(t, err)
+
+			ev := openAndWaitForUsageEvent(t, mgr, hub, sess.ID)
+
+			assert.InDelta(t, tt.wantCost, ev.SessionUpdate.EstimatedCostUSD, 1e-9)
+
+			got, err := store.GetSession(ctx, sess.ID)
+			require.NoError(t, err)
+			assert.InDelta(t, tt.wantCost, got.EstimatedCostUSD, 1e-9)
+
+			assert.InDelta(t, costBase+tt.wantCost,
+				testutil.ToFloat64(metrics.ChatCostUSDTotal.WithLabelValues(project, tt.model)), 1e-9)
+			assert.InDelta(t, unknownBase+tt.wantUnknown,
+				testutil.ToFloat64(metrics.ChatUsageUnknownModelTotal.WithLabelValues(tt.model)), 1e-9)
+		})
+	}
+}

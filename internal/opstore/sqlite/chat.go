@@ -22,7 +22,7 @@ const sessionColumns = `id, title, project, status, created_at, last_active, cre
     container_id, workspace, model, context_tokens, context_tokens_updated_at, rehydration_active,
     rehydration_started_at, prompt_tokens, completion_tokens, cache_read_tokens,
     cache_creation_tokens, estimated_cost_usd, kind, mode, cost_cap_usd, plain_language,
-    origin_chat, origin_seq`
+    origin_chat, origin_seq, pinned, spent_usd`
 
 func (s *Store) CreateSession(ctx context.Context, sess chat.Session) error {
 	workspaceJSON, err := json.Marshal(sess.Workspace)
@@ -282,6 +282,45 @@ func (s *Store) UpdateSessionCostCap(ctx context.Context, sessionID string, capU
 	return nil
 }
 
+// UpdateSessionPinned writes only the pinned column, so pinning never moves
+// last_active or races a status flip.
+func (s *Store) UpdateSessionPinned(ctx context.Context, sessionID string, pinned bool) error {
+	v := 0
+	if pinned {
+		v = 1
+	}
+
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE chat_sessions SET pinned = ? WHERE id = ?`, v, sessionID)
+	if err != nil {
+		return fmt.Errorf("chat: update session pinned: %w", err)
+	}
+
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return chat.ErrSessionNotFound
+	}
+
+	return nil
+}
+
+// UpdateSessionSpend writes only the spent_usd column (a recorded zero is
+// distinct from the NULL of never recorded).
+func (s *Store) UpdateSessionSpend(ctx context.Context, sessionID string, spentUSD float64) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE chat_sessions SET spent_usd = ? WHERE id = ?`, spentUSD, sessionID)
+	if err != nil {
+		return fmt.Errorf("chat: update session spend: %w", err)
+	}
+
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return chat.ErrSessionNotFound
+	}
+
+	return nil
+}
+
 // UpdateSessionMode writes only the mode column, so a concurrent status flip
 // is not overwritten by a stale row snapshot.
 func (s *Store) UpdateSessionMode(ctx context.Context, sessionID, mode string) error {
@@ -333,7 +372,7 @@ func (s *Store) DeleteSession(ctx context.Context, id string) error {
 			 cache_creation_tokens, estimated_cost_usd, deleted_at)
 		SELECT id, project, model, last_active,
 			prompt_tokens, completion_tokens, cache_read_tokens,
-			cache_creation_tokens, estimated_cost_usd, ?
+			cache_creation_tokens, `+sessionCostExpr+`, ?
 		FROM chat_sessions WHERE id = ?
 		ON CONFLICT(id) DO NOTHING`,
 		time.Now().UTC().Unix(), id,
@@ -573,6 +612,8 @@ func scanSession(sc scanner) (chat.Session, error) {
 		kind, mode                  string
 		costCapUSD                  float64
 		plainLanguage               int
+		pinned                      int
+		spentUSD                    sql.NullFloat64
 	)
 
 	if err := sc.Scan(
@@ -582,7 +623,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 		&rehydrationStartedAt,
 		&promptTokens, &completionTokens, &cacheReadTokens, &cacheCreationTokens,
 		&estimatedCostUSD, &kind, &mode, &costCapUSD, &plainLanguage,
-		&s.OriginChat, &s.OriginSeq,
+		&s.OriginChat, &s.OriginSeq, &pinned, &spentUSD,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return chat.Session{}, chat.ErrSessionNotFound
@@ -598,6 +639,13 @@ func scanSession(sc scanner) (chat.Session, error) {
 	s.Mode = mode
 	s.CostCapUSD = costCapUSD
 	s.PlainLanguage = plainLanguage != 0
+	s.Pinned = pinned != 0
+
+	if spentUSD.Valid {
+		v := spentUSD.Float64
+		s.SpentUSD = &v
+	}
+
 	s.CreatedAt = time.Unix(createdAt, 0).UTC()
 	s.LastActive = time.Unix(lastActive, 0).UTC()
 	s.Model = model.String
@@ -629,10 +677,14 @@ func scanSession(sc scanner) (chat.Session, error) {
 	return s, nil
 }
 
+// sessionCostExpr is one cost per session: a blueprint's recorded spend (0 until
+// recorded, never CM's estimate), a chat's estimate.
+const sessionCostExpr = "CASE WHEN kind = 'architect' THEN COALESCE(spent_usd, 0) ELSE estimated_cost_usd END"
+
 // costRowsSubquery is a UNION ALL over live and archived sessions that exposes
-// estimated_cost_usd AS cost and last_active for a half-open time window
+// the session cost AS cost and last_active for a half-open time window
 // [?, ?). It accepts four bind parameters: since, until, since, until.
-const costRowsSubquery = `SELECT estimated_cost_usd AS cost, last_active FROM chat_sessions     WHERE last_active >= ? AND last_active < ?
+const costRowsSubquery = `SELECT ` + sessionCostExpr + ` AS cost, last_active FROM chat_sessions     WHERE last_active >= ? AND last_active < ?
                           UNION ALL
                           SELECT estimated_cost_usd AS cost, last_active FROM chat_cost_archive WHERE last_active >= ? AND last_active < ?`
 

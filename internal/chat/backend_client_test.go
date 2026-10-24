@@ -322,3 +322,24 @@ func jsonField(t *testing.T, v any, key string) string {
 
 	return s
 }
+
+func TestBackendClient_StreamLogs_CarriesTheGatewayCost(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"ts":"2026-01-02T03:04:05Z","type":"usage","usage":{"input_tokens":10,"output_tokens":5,"cost_usd":0.0123}}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"ts":"2026-01-02T03:04:06Z","type":"usage","usage":{"input_tokens":10,"output_tokens":5}}`+"\n\n")
+	}))
+	t.Cleanup(srv.Close)
+
+	rc := chat.NewBackendClient(chat.BackendClientConfig{BaseURL: srv.URL, HMACKey: "k"})
+
+	var got []chat.LogEntry
+
+	require.NoError(t, rc.StreamLogs(context.Background(), "S1", func(e chat.LogEntry) { got = append(got, e) }))
+
+	require.Len(t, got, 2)
+	require.NotNil(t, got[0].Usage)
+	assert.InDelta(t, 0.0123, got[0].Usage.CostUSD, 1e-12)
+	require.NotNil(t, got[1].Usage)
+	assert.Zero(t, got[1].Usage.CostUSD)
+}

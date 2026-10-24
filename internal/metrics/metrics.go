@@ -135,14 +135,15 @@ var (
 		Help: "report_usage calls where the model is not in the token_costs map (cost not calculated).",
 	}, []string{"model"})
 
-	// ChatUsageUnknownModelTotal counts handleUsageEntry calls where the model
-	// name resolved from the usage frame is not in the configured token_costs
-	// map. Cost is persisted as $0 for that frame; tokens still accumulate.
+	// ChatUsageUnknownModelTotal counts handleUsageEntry calls priced from the
+	// rate table (no gateway cost on the frame) where the resolved model name
+	// is not in the configured token_costs map. Cost is persisted as $0 for
+	// that frame; tokens still accumulate.
 	// The model label lets operators detect deprecated or misconfigured model
 	// names in active chat sessions.
 	ChatUsageUnknownModelTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "contextmatrix_chat_usage_unknown_model_total",
-		Help: "chat usage frames where the model is not in the token_costs map (cost recorded as $0).",
+		Help: "chat usage frames without a gateway cost where the model is not in the token_costs map (cost recorded as $0).",
 	}, []string{"model"})
 
 	// GitHubPagesTruncatedTotal counts FetchOpenIssues / FetchBranches calls
@@ -229,7 +230,7 @@ var (
 
 	ChatCostUSDTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "contextmatrix_chat_cost_usd_total",
-		Help: "Chat session spend in USD priced from worker usage frames, by project and model.",
+		Help: "Chat session spend in USD, by project and model: each frame adds the gateway-reported cost when present, else the rate-table price.",
 	}, []string{"project", "model"})
 
 	ChatTokensTotal = prometheus.NewCounterVec(prometheus.CounterOpts{

@@ -1697,17 +1697,19 @@ present; `card_count` counts cards with a `token_usage` record.
   (approximate - claim history is not tracked). Cards that pre-date
   state-change logging fall back to their current `state`.
 - `chat_cost_*` fields are **server-wide** aggregates riding on the
-  per-project payload. They sum `estimated_cost_usd` across all chat sessions
-  bucketed by `last_active` on UTC midnight; today occupies
-  `chat_cost_series_30d[29]`. The summary is cached for 30 seconds, so the
-  fan-out requests the All Projects view makes return identical values.
+  per-project payload. They sum each session's cost (a chat's
+  `estimated_cost_usd`, a blueprint's `spent_usd`, 0 until recorded;
+  archived rows keep the figure stored at delete time), bucketed by
+  `last_active` on UTC midnight; today occupies `chat_cost_series_30d[29]`.
+  The summary is cached for 30 seconds, so the fan-out requests the All
+  Projects view makes return identical values.
   `chat_cost_series_30d` is omitted when empty; treat missing as `0`.
 
 Prometheus counters related to chat cost (admin `/metrics` listener):
 
 | Counter                                        | Labels  | Meaning                                                                                   |
 | ---------------------------------------------- | ------- | ----------------------------------------------------------------------------------------- |
-| `contextmatrix_chat_usage_unknown_model_total` | `model` | A chat usage frame named a model not in `token_costs`; tokens accumulate, cost stays `$0` |
+| `contextmatrix_chat_usage_unknown_model_total` | `model` | A chat usage frame without a gateway cost named a model not in `token_costs`; tokens accumulate, cost stays `$0` |
 | `contextmatrix_chat_cost_summary_errors_total` | -       | The chat-cost summary failed inside the dashboard; chat-cost fields render as zero        |
 
 ### GET /api/projects/{project}/activity
@@ -2497,7 +2499,9 @@ management lives under `/api/admin/chats`.
 | `context_tokens_updated_at`                                                        | always    | Zero time (`0001-01-01T00:00:00Z`) until the first usage entry                             |
 | `rehydration_active`, `rehydration_started_at`                                     | omitempty | `true` between a cold reopen and the agent's `chat_rehydration_complete` call              |
 | `prompt_tokens`, `completion_tokens`, `cache_read_tokens`, `cache_creation_tokens` | omitempty | Cumulative totals across usage frames                                                      |
-| `estimated_cost_usd`                                                               | omitempty | Running cost, same cache-tier formula as card-scoped `report_usage`                        |
+| `estimated_cost_usd`                                                               | omitempty | Running cost: per usage frame the gateway's `cost_usd` when reported, else the `report_usage` cache-tier formula |
+| `pinned`                                                                           | omitempty | `true` once pinned; set through `PATCH /api/chats/{id}`                                    |
+| `spent_usd`                                                                        | omitempty | Architect sessions only: the architect's `cost.spent_usd` as CM last read it; absent until the first read. CM reads it on each blueprint view read, after each architect run, and once at startup for a blueprint without one |
 | `assistant_working`, `assistant_working_since`                                     | omitempty | In-memory presence derived from `status` log frames                                        |
 
 ### POST /api/chats
@@ -2604,11 +2608,13 @@ Returns the session. `404 CHAT_NOT_FOUND` if unknown.
 
 ### PATCH /api/chats/{id}
 
-Renames a session. Body is decoded before the ownership check, so bad JSON
-is 400 even for an unknown id.
+Renames and/or pins a session. Both fields are optional; with neither, nothing
+is written and the session comes back unchanged. Pinning writes only the pin,
+so `last_active`, `status` and `container_id` stay as they were. Body is
+decoded before the ownership check, so bad JSON is 400 even for an unknown id.
 
 ```json
-{ "title": "Renamed: auth-flow regression" }
+{ "title": "Renamed: auth-flow regression", "pinned": true }
 ```
 
 **Response:** 200 with the updated session.
@@ -2912,7 +2918,9 @@ open prompt, cost and artifact index. CM reads it from the architect's signed
 `GET /blueprints/{id}` (the blueprint id is the session id) and relays the
 body unchanged as `application/json`; the architect owns the shape
 (`protocol.BlueprintView`). The session's status does not matter, so an ended
-blueprint stays readable while the architect holds it.
+blueprint stays readable while the architect holds it. Once the whole body is
+relayed, CM records its `cost.spent_usd` on the session (`spent_usd`); a view
+without one leaves the session as it was.
 
 ### GET /api/chats/{id}/blueprint/artifacts/{stage}/{version}
 

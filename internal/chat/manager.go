@@ -216,6 +216,11 @@ type Config struct {
 	// ArchitectResearch is the research block of every architect start; nil
 	// keeps research off. It carries the provider's API key: never log it.
 	ArchitectResearch *protocol.ResearchStart
+
+	// ArchitectSpend reads a blueprint's cost.spent_usd from the architect's
+	// view; ok is false when the view carries none. nil disables the read on
+	// an idle frame and the startup backfill.
+	ArchitectSpend func(ctx context.Context, sessionID string) (spentUSD float64, ok bool, err error)
 }
 
 // Manager orchestrates chat session lifecycle, transcript persistence,
@@ -249,6 +254,7 @@ type Manager struct {
 	architectPrice                  func(model string) (protocol.ModelPrice, bool)
 	architectContextWindow          func(ctx context.Context, model string) int
 	architectResearch               *protocol.ResearchStart
+	architectSpend                  func(ctx context.Context, sessionID string) (float64, bool, error)
 
 	mu           sync.Mutex
 	seqMap       map[string]int64           // sessionID → last assigned seq
@@ -363,6 +369,7 @@ func NewManager(cfg Config) *Manager {
 		architectPrice:                  cfg.ArchitectPrice,
 		architectContextWindow:          cfg.ArchitectContextWindow,
 		architectResearch:               cfg.ArchitectResearch,
+		architectSpend:                  cfg.ArchitectSpend,
 
 		seqMap:            make(map[string]int64),
 		titled:            make(map[string]bool),
@@ -514,7 +521,9 @@ func (m *Manager) setWorking(sessionID string, working bool) bool {
 // (Content "working" or "idle"). Status frames are ephemeral indicator state:
 // never persisted, never a transcript row. Rehydration replay must not arm
 // the indicator - the first real turn starts with the user's next message.
-func (m *Manager) handleStatusEntry(ctx context.Context, sessionID string, e LogEntry) {
+// A blueprint's idle frame re-reads its spend off the consumer goroutine, so
+// the consumer never waits on the architect.
+func (m *Manager) handleStatusEntry(ctx context.Context, sessionID string, kind SessionKind, e LogEntry) {
 	switch e.Content {
 	case "working":
 		if m.isRehydrationActive(ctx, sessionID) {
@@ -524,6 +533,10 @@ func (m *Manager) handleStatusEntry(ctx context.Context, sessionID string, e Log
 		m.setWorking(sessionID, true)
 	case "idle":
 		m.setWorking(sessionID, false)
+
+		if kind == KindArchitect && m.architectSpend != nil {
+			m.wg.Go(func() { m.readBlueprintSpend(ctx, sessionID) })
+		}
 	default:
 		m.logger.Debug("chat: unknown status frame content",
 			"session_id", sessionID, "content", e.Content)
@@ -632,10 +645,15 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fall
 		model = fallbackModel
 	}
 
-	// Price the per-turn tokens.
-	var cost float64
+	// The gateway's reported cost wins; the rate table prices only frames
+	// without one, so the unknown-model signal counts table-priced frames.
+	cost := e.Usage.CostUSD
+	// The protocol says cost is never negative; a bad frame must not lower the total.
+	if cost < 0 {
+		cost = 0
+	}
 
-	if m.pricer != nil {
+	if cost == 0 && m.pricer != nil {
 		c, known := m.pricer.PriceTokens(model, prompt, cacheRead, cacheCreate, completion)
 		if !known {
 			m.logger.Warn("chat: handleUsageEntry: unknown model, cost recorded as $0",
@@ -763,7 +781,7 @@ func (m *Manager) startConsumer(sessionID string, restart bool) {
 
 		onEntry := func(e LogEntry) {
 			if e.Type == "status" {
-				m.handleStatusEntry(ctx, sessionID, e)
+				m.handleStatusEntry(ctx, sessionID, kind, e)
 
 				return
 			}
@@ -2751,6 +2769,110 @@ func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us
 // UpdateSessionMetadata writes session metadata changes (title, last_active).
 func (m *Manager) UpdateSessionMetadata(ctx context.Context, s Session) error {
 	return m.store.UpdateSession(ctx, s)
+}
+
+// SetPinned sets only the pin; it never touches last_active or status.
+func (m *Manager) SetPinned(ctx context.Context, sessionID string, pinned bool) error {
+	if err := m.store.UpdateSessionPinned(ctx, sessionID, pinned); err != nil {
+		return fmt.Errorf("set pinned: %w", err)
+	}
+
+	return nil
+}
+
+// RecordBlueprintSpend stores the architect's spend for a blueprint; it never
+// touches last_active or status.
+func (m *Manager) RecordBlueprintSpend(ctx context.Context, sessionID string, spentUSD float64) error {
+	if err := m.store.UpdateSessionSpend(ctx, sessionID, spentUSD); err != nil {
+		return fmt.Errorf("record blueprint spend: %w", err)
+	}
+
+	return nil
+}
+
+// spendBackfillConcurrency bounds the startup backfill's architect reads in flight.
+const spendBackfillConcurrency = 4
+
+// BackfillBlueprintSpend reads the architect's view once for every blueprint
+// with no recorded spend and records what it finds. Best-effort: a failed or
+// empty read leaves the row unrecorded until the next view read. It returns
+// when the pass ends and starts no read once ctx is done.
+func (m *Manager) BackfillBlueprintSpend(ctx context.Context) {
+	if m.architectSpend == nil || ctx.Err() != nil {
+		return
+	}
+
+	sessions, err := m.store.ListSessions(ctx, SessionFilter{Kind: KindArchitect})
+	if err != nil {
+		m.logger.Warn("chat: blueprint spend backfill: list failed", "error", err)
+
+		return
+	}
+
+	var (
+		wg         sync.WaitGroup
+		candidates int
+		recorded   atomic.Int64
+	)
+
+	sem := make(chan struct{}, spendBackfillConcurrency)
+
+	for _, sess := range sessions {
+		if sess.SpentUSD != nil {
+			continue
+		}
+
+		candidates++
+
+		if ctx.Err() != nil {
+			continue
+		}
+
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			continue
+		}
+
+		wg.Go(func() {
+			defer func() { <-sem }()
+
+			if m.readBlueprintSpend(ctx, sess.ID) {
+				recorded.Add(1)
+			}
+		})
+	}
+
+	wg.Wait()
+
+	m.logger.Info("chat: blueprint spend backfill done",
+		"recorded", recorded.Load(), "unrecorded", int64(candidates)-recorded.Load())
+}
+
+// readBlueprintSpend reads a blueprint's spend from the architect and records
+// it. A failed or empty read leaves the row as it is; it reports whether a
+// spend was recorded.
+func (m *Manager) readBlueprintSpend(ctx context.Context, sessionID string) bool {
+	spent, ok, err := m.architectSpend(ctx, sessionID)
+	if err != nil {
+		m.logger.Debug("chat: blueprint spend read failed", "session_id", sessionID, "error", err)
+
+		return false
+	}
+
+	if !ok {
+		m.logger.Debug("chat: blueprint view carries no spend", "session_id", sessionID)
+
+		return false
+	}
+
+	if err := m.RecordBlueprintSpend(ctx, sessionID, spent); err != nil {
+		m.logger.Debug("chat: blueprint spend not recorded", "session_id", sessionID, "error", err)
+
+		return false
+	}
+
+	return true
 }
 
 // ListMessages returns the transcript slice (seq > sinceSeq, oldest-first,

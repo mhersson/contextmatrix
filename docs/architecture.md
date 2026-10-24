@@ -361,10 +361,10 @@ Every mutation follows validate -> store write -> commit -> event publish. The
 heartbeat timeout checker lives here rather than in `lock` because it
 coordinates store, git and events; it also reaps abandoned parents (see
 [data model](data-model.md)). `CardService` satisfies `chat.Pricer`
-(`PriceTokens`), so chat cost frames use the same cache-tier formula as
-card-scoped `report_usage`, and holds a `chatCostSummarizer`
-(`SetChatCostSummarizer`) that `GetDashboard` calls to append server-wide
-chat-cost aggregates.
+(`PriceTokens`), so chat usage frames without a gateway-reported cost use the
+same cache-tier formula as card-scoped `report_usage`, and holds a
+`chatCostSummarizer` (`SetChatCostSummarizer`) that `GetDashboard` calls to
+append server-wide chat-cost aggregates.
 
 ### PlaybookService
 
@@ -405,14 +405,21 @@ order matches seq order.
   modes, so any holder of the key can omit the header.
 - **Cost accumulation.** Each `usage` frame carries per-turn token counts
   (one `message.usage` block per assistant turn, not cumulative totals).
-  `handleUsageEntry` prices them through `chat.Pricer` and persists via
-  `Store.IncrementSessionCost`, a single atomic `UPDATE ... RETURNING`. On
-  success a `session_updated` event carries the running totals
-  (`prompt_tokens`, `completion_tokens`, `cache_read_tokens`,
-  `cache_creation_tokens`, `estimated_cost_usd`); on persist error nothing is
-  published. `GetChatCostSummary` aggregates a 30-day UTC window and caches
-  it for 30 seconds (`chatCostCacheTTL`) so the All Projects view's
-  per-project dashboard fan-out does not amplify SQL.
+  `handleUsageEntry` takes the frame's gateway-reported `cost_usd` when it is
+  above 0 and prices through `chat.Pricer` only otherwise; existing figures
+  are not recomputed. It persists via `Store.IncrementSessionCost`, a single
+  atomic `UPDATE ... RETURNING`. On success a `session_updated` event carries
+  the running totals (`prompt_tokens`, `completion_tokens`,
+  `cache_read_tokens`, `cache_creation_tokens`, `estimated_cost_usd`); on
+  persist error nothing is published. `GetChatCostSummary` aggregates a 30-day
+  UTC window and caches it for 30 seconds (`chatCostCacheTTL`) so the All
+  Projects view's per-project dashboard fan-out does not amplify SQL.
+- **Blueprint spend.** A blueprint's cost is the architect's
+  `cost.spent_usd`, stored in `spent_usd`. The blueprint view proxy records it
+  on every read, and an architect `idle` status frame makes CM re-read the
+  view and record it, off the consumer goroutine. Startup reads it once for
+  every blueprint without one, at most four reads at a time, without blocking
+  startup. A failed read leaves it unrecorded until the next view read.
 - **SSEHub.** One `sessionHub` per session with a 128-event ring buffer,
   replayed on `Subscribe(sinceSeq)` so reconnects inside the window are
   gapless; `DeleteSession` drops the hub. Two event kinds: `message` (a
@@ -427,7 +434,9 @@ order matches seq order.
   readers bypass the single-writer gate that `chat.Manager.mu` enforces above
   the pool. The unique index on `(session_id, seq)` backs the in-memory seq
   cache. `DeleteSession` archives cost columns to `chat_cost_archive` before
-  the hard delete, and `AggregateCost` unions both tables.
+  the hard delete, and `AggregateCost` unions both tables. Both use one cost
+  per session: a chat's cost (gateway-reported per frame, else the rate-table
+  estimate), a blueprint's recorded `spent_usd` (0 until recorded).
 - **IdleReaper.** Periodically ends `warm-idle` chat sessions older than the idle
   TTL (blueprints are exempt) and sweeps sessions stuck in rehydration past the
   rehydration timeout.
@@ -499,7 +508,8 @@ are excluded from the latency histogram. Alert-worthy counters:
 `contextmatrix_parent_autotransition_errors_total`,
 `contextmatrix_report_usage_unknown_model_total` (labeled by model; a
 `report_usage` for a model absent from the rate table),
-`contextmatrix_chat_usage_unknown_model_total`, and
+`contextmatrix_chat_usage_unknown_model_total` (frames priced from the rate
+table only), and
 `contextmatrix_chat_cost_summary_errors_total`.
 
 ## Git repository scope

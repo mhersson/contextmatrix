@@ -49,8 +49,8 @@ vi.mock('../../hooks/useAuth', () => ({
   useOptionalAuth: () => authState.current,
 }));
 
-vi.mock('./ChatSection', () => ({
-  ChatSection: () => null,
+vi.mock('./SessionSections', () => ({
+  SessionSections: () => null,
 }));
 
 import { useProjects } from '../../hooks/useProjects';
@@ -60,7 +60,7 @@ const mockUseProjects = vi.mocked(useProjects);
 function renderSidebar(props?: { mobileOpen?: boolean; onMobileClose?: () => void }) {
   return render(
     <MemoryRouter>
-      <Sidebar onNewProject={() => {}} onNewChat={() => {}} {...props} />
+      <Sidebar onNewProject={() => {}} onNewSession={() => {}} {...props} />
     </MemoryRouter>
   );
 }

@@ -12,8 +12,9 @@ reference for people using the UI; execution semantics live in
 | `/`, `/all`                                 | All-projects dashboard                                   |
 | `/projects/:project`                        | Board. `?card=ID` opens that card's detail panel         |
 | `/projects/:project/settings`               | Project settings                                         |
-| `/chat`, `/chat/:id`                        | Global chat surface. `/chat?new=1` opens the New Chat dialog |
+| `/chat`, `/chat/:id`                        | Global chat surface. `/chat?new=1` opens the New Chat dialog on Chat, `?new=blueprint` on Blueprint |
 | `/playbooks`, `/playbooks/:id`              | Playbook list and detail (see [playbooks](playbooks.md)) |
+| `/sessions`                                 | Sessions page. `?tab=chats` or `?tab=blueprints` picks the tab |
 | `/admin/users`, `/admin/credentials`        | Admin pages, `multi` auth mode only                      |
 | `/admin/chats`                              | Chat administration (admin; open in `none` mode)         |
 | `/admin/model-selection`                    | Tier ladders (admin; open in `none` mode)                |
@@ -137,6 +138,26 @@ board. Promote-to-autonomous lives in that tab.
 
 `/chat` hosts board-aware chat sessions that outlive any card.
 
+- The sidebar lists sessions in two sections between Workspace and Projects,
+  **Chats** and **Blueprints**. A row's dot is green while the session is active
+  and yellow while it is warm-idle. Each section shows its pinned sessions, then
+  its live ones, then the most recently active of the rest, up to five rows in
+  all; pinned and live rows always show, even past five. A live chat is active
+  or warm-idle. A live blueprint is active or mid-turn; a warm-idle blueprint
+  counts among the rest, since blueprints are never ended for idleness. A
+  section that holds any session ends with **All chats →** or
+  **All blueprints →** and the kind's total, linking to that tab of the
+  [Sessions](#sessions) page. **+ new** opens the New chat dialog on the
+  section's kind. Without an architect backend the Blueprints section shows only
+  while blueprint sessions exist, and then without **+ new**. Each section
+  collapses on its own, remembered per browser under
+  `sidebar.chat_section_collapsed` and `sidebar.blueprint_section_collapsed`.
+  Clicking a row opens the session in a pane (`/chat/:id`) and closes the
+  mobile drawer.
+- A sidebar row's pin button shows on hover or keyboard focus, and always on
+  touch screens; a pinned row shows a filled orange pin. Pins are stored with
+  the session, so they follow you to another browser, and pinning leaves the
+  session's last activity unchanged.
 - Up to 4 panes in a 2x2 layout. Opening a fifth chat replaces the pane focused
   least recently and shows a toast, "Closed X to make room for Y", with Undo
   for 6 seconds.
@@ -189,14 +210,16 @@ board. Promote-to-autonomous lives in that tab.
   chat is gone). The sidebar marks blueprint sessions with an aqua
   drafting-compass icon. The pane header shows a blueprint's mode and cost cap,
   and the architect's spend from the blueprint view (the figure the scale bar
-  shows) where a chat's header shows CM's estimate from its token counts. Once
-  the view loads, the header's mode is the view's too, so a switch the architect
-  refused never shows there. A blueprint created in plain language shows a Plain
+  shows) where a chat's header shows its cost (the gateway's reported cost per
+  turn, else CM's estimate from token counts). Once the view loads, the
+  header's mode is the view's too, so a switch the architect refused never
+  shows there. A blueprint created in plain language shows a Plain
   language badge beside the pill; once the view loads the badge follows the
   view, so an architect that does not run plain language shows none. The admin
   Chats page lists every session's kind, mode and cap as the session row holds
-  them. The architect's questions and gates show reply buttons under the
-  message. On a plain-language blueprint a prompt reads in plain words with
+  them. It also shows each session's cost; a blueprint's is the architect's
+  recorded spend. The architect's questions and gates show reply buttons under
+  the message. On a plain-language blueprint a prompt reads in plain words with
   plain buttons (such as Continue anyway and Stop) that send the architect's
   usual replies, and its technical text is folded under a Technical detail line.
   A question's options are stacked full-width buttons showing the whole option
@@ -452,6 +475,39 @@ board. Promote-to-autonomous lives in that tab.
     says the architect cannot be reached, with a Retry, and the scale bar
     hides; the transcript keeps working. An architect without the blueprint
     endpoints leaves the pane a plain transcript.
+
+## Sessions
+
+`/sessions` lists the chat and blueprint sessions `GET /api/chats` returns to
+you, in the main area like the dashboard and playbooks.
+
+- Two tabs, **Chats** and **Blueprints**, each with its kind's total. The tab
+  is kept in the URL as `?tab=chats` or `?tab=blueprints`; a missing or unknown
+  value opens Chats.
+- Search matches titles, ignoring case. The filters are Project (a chat's
+  project, or any project in a blueprint's workspace), Status (live is active
+  or warm-idle, not live is everything else) and Pinned only; they combine. A
+  tab without sessions and filters that hide every row each show an empty
+  state, the latter with Clear filters.
+- Rows sort newest activity first. The columns are a tick box, the pin, the
+  title with a status dot (green while active and yellow while warm-idle, as in
+  the sidebar), the project or projects, the mode as stored (Blueprints only),
+  the cost and the last activity. The cost follows the one-cost rule: a chat's
+  is the gateway's reported cost per turn, else CM's estimate from token
+  counts; a blueprint's is the architect's recorded spend and "-" until one is
+  recorded, never CM's estimate.
+- Clicking a row, or its title from the keyboard, opens the session as a pane
+  on `/chat`, as the sidebar does. The tick box and the pin do not open it; the
+  pin pins or unpins the session.
+- Ticking rows shows a bar with the count and **Pin**, **Unpin** and
+  **Delete…**; the header tick box ticks every row shown. The bar acts only on
+  ticked rows that are shown: a row that stops showing, through a tab switch, a
+  filter or a refresh, loses its tick. **Delete…** asks first, naming the
+  count, then deletes each session (removing its transcript) and refreshes the
+  list once. Deletes that fail are reported in one message with their count,
+  and their rows stay ticked.
+- Until the list first loads the page shows a loading line; a failed load
+  shows the error instead of an empty state.
 
 ## Image attachments
 

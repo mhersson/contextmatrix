@@ -11,6 +11,7 @@ import { api, isAPIError } from '../../api/client';
 import { safeRemove } from '../../utils/safeStorage';
 import { ConfirmModal } from '../../components/ConfirmModal/ConfirmModal';
 import type { HandoffPrefill } from '../../components/ChatPanel/handoff';
+import type { SessionKind } from '../../types';
 import { HandoffContext, type HandoffContextValue } from '../../components/ChatPanel/handoffContext';
 import {
   CHAT_DRAG_START_EVENT,
@@ -34,8 +35,11 @@ export function ChatPage() {
   const { id: deepLinkId } = useParams();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const wantsNew = params.get('new') === '1';
-  const [dialogOpen, setDialogOpen] = useState(wantsNew);
+  const newParam = params.get('new');
+  const wantsNew: SessionKind | null =
+    newParam === 'blueprint' ? 'architect' : newParam === '1' ? 'chat' : null;
+  const [dialogOpen, setDialogOpen] = useState(wantsNew !== null);
+  const [dialogKind, setDialogKind] = useState<SessionKind>(wantsNew ?? 'chat');
   const [handoff, setHandoff] = useState<HandoffPrefill | null>(null);
 
   const { sessions } = useChatSessions();
@@ -91,8 +95,8 @@ export function ChatPage() {
   const layout = useChatLayout({ availableChats, onLRUEvict });
 
   // Sidebar fires custom drag events with the chat id so the pane drop
-  // overlay can show the chat name. We use window events because ChatSection
-  // lives outside the layout subtree.
+  // overlay can show the chat name. We use window events because the sidebar's
+  // session rows live outside the layout subtree.
   useEffect(() => {
     const onStart = (e: Event) => {
       const detail = (e as CustomEvent<{ chatId?: string }>).detail;
@@ -123,18 +127,27 @@ export function ChatPage() {
     setPrevDeepLinkId(undefined);
   }
 
-  // ?new=1 → open NewChatDialog (matches the prior in-render reset pattern)
+  // ?new=1|blueprint → open NewChatDialog on that kind (in-render reset pattern)
   const [prevWantsNew, setPrevWantsNew] = useState(wantsNew);
   if (wantsNew !== prevWantsNew) {
     setPrevWantsNew(wantsNew);
-    if (wantsNew) setDialogOpen(true);
+    if (wantsNew) {
+      setDialogKind(wantsNew);
+      setDialogOpen(true);
+    }
   }
 
   const openHandoff = useCallback((prefill: HandoffPrefill) => {
     setHandoff(prefill);
+    setDialogKind('chat');
     setDialogOpen(true);
   }, []);
   const handoffValue = useMemo<HandoffContextValue>(() => ({ sessions, openHandoff }), [sessions, openHandoff]);
+
+  const openNewChat = () => {
+    setDialogKind('chat');
+    setDialogOpen(true);
+  };
 
   const closeDialog = () => {
     setDialogOpen(false);
@@ -263,7 +276,7 @@ export function ChatPage() {
         {isMobile && (
           <MobileChatHeader
             title={mobileTitle}
-            onNewChat={() => setDialogOpen(true)}
+            onNewChat={openNewChat}
           />
         )}
         <div className="flex-1 min-h-0">
@@ -283,7 +296,7 @@ export function ChatPage() {
               onMovePane={handleMovePane}
               onPickEmptyPane={layout.swapPaneChat}
               onCancelEmpty={layout.cancelEmptyPane}
-              onNewChat={() => setDialogOpen(true)}
+              onNewChat={openNewChat}
               onEndSession={handleEndSession}
               onClearContext={requestClearContext}
               onReopenChat={handleReopenChat}
@@ -327,7 +340,7 @@ export function ChatPage() {
           >×</button>
         </div>
       )}
-      <NewChatDialog open={dialogOpen} onClose={closeDialog} handoff={handoff ?? undefined} />
+      <NewChatDialog open={dialogOpen} onClose={closeDialog} initialKind={dialogKind} handoff={handoff ?? undefined} />
       <ConfirmModal
         open={pendingClear !== null}
         title="Clear context"

@@ -338,6 +338,31 @@ func TestPatchChat_UpdatesTitle(t *testing.T) {
 	assert.Equal(t, "new", got.Title)
 }
 
+func TestPatchChat_EmptyBodyLeavesSessionUnchanged(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+	sess, err := mgr.CreateSession(t.Context(), chat.CreateInput{Title: "keep", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+	require.NoError(t, mgr.SetPinned(t.Context(), sess.ID, true))
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, jsonReq(t, http.MethodPatch, "/api/chats/"+sess.ID, `{}`))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var got chat.Session
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&got))
+
+	stored, err := mgr.GetSession(t.Context(), sess.ID)
+	require.NoError(t, err)
+
+	for _, s := range []chat.Session{got, stored} {
+		assert.Equal(t, sess.ID, s.ID)
+		assert.Equal(t, "keep", s.Title)
+		assert.True(t, s.Pinned)
+		assert.Equal(t, sess.Status, s.Status)
+		assert.True(t, s.LastActive.Equal(sess.LastActive))
+	}
+}
+
 func TestListChats_InvalidStatusBadRequest(t *testing.T) {
 	mux, _ := newChatFixture(t, defaultFixtureOpts())
 	req := httptest.NewRequest(http.MethodGet, "/api/chats?status=bogus", nil)
@@ -1995,4 +2020,61 @@ func TestSendMessage_HandoffNeed(t *testing.T) {
 	}
 
 	assert.Len(t, arch.sentPayloads(), 1)
+}
+
+func TestPatchChat_PinnedRoundTrip(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+	sess, err := mgr.CreateSession(t.Context(), chat.CreateInput{Title: "old", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	patch := func(body string) chat.Session {
+		t.Helper()
+
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, jsonReq(t, http.MethodPatch, "/api/chats/"+sess.ID, body))
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+		var got chat.Session
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&got))
+
+		return got
+	}
+
+	stored := func() chat.Session {
+		t.Helper()
+
+		s, err := mgr.GetSession(t.Context(), sess.ID)
+		require.NoError(t, err)
+
+		return s
+	}
+
+	got := patch(`{"pinned":true}`)
+	assert.True(t, got.Pinned)
+	assert.True(t, got.LastActive.Equal(sess.LastActive), "pinning must not move last_active")
+	assert.True(t, stored().Pinned)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, jsonReq(t, http.MethodGet, "/api/chats", ""))
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var list []chat.Session
+
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&list))
+	require.Len(t, list, 1)
+	assert.True(t, list[0].Pinned)
+
+	assert.False(t, patch(`{"pinned":false}`).Pinned)
+	assert.False(t, stored().Pinned)
+
+	got = patch(`{"title":"T","pinned":true}`)
+	assert.Equal(t, "T", got.Title)
+	assert.True(t, got.Pinned)
+	assert.Equal(t, "T", stored().Title)
+	assert.True(t, stored().Pinned)
+
+	got = patch(`{"title":"U"}`)
+	assert.Equal(t, "U", got.Title)
+	assert.True(t, got.Pinned)
+	assert.True(t, stored().Pinned)
 }

@@ -214,6 +214,7 @@ func (c *backendClient) StreamLogs(ctx context.Context, sessionID string, onEntr
 				OutputTokens:      entry.Usage.OutputTokens,
 				CacheReadTokens:   entry.Usage.CacheReadTokens,
 				CacheCreateTokens: entry.Usage.CacheCreateTokens,
+				CostUSD:           entry.Usage.CostUSD,
 			}
 		}
 
