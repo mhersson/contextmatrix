@@ -648,11 +648,12 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fall
 	// The gateway's reported cost wins; the rate table prices only frames
 	// without one, so the unknown-model signal counts table-priced frames.
 	cost := e.Usage.CostUSD
-
-	if cost <= 0 && m.pricer != nil {
-		// The protocol says cost is never negative; a bad frame must not lower the total.
+	// The protocol says cost is never negative; a bad frame must not lower the total.
+	if cost < 0 {
 		cost = 0
+	}
 
+	if cost == 0 && m.pricer != nil {
 		c, known := m.pricer.PriceTokens(model, prompt, cacheRead, cacheCreate, completion)
 		if !known {
 			m.logger.Warn("chat: handleUsageEntry: unknown model, cost recorded as $0",

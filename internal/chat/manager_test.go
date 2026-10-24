@@ -7128,6 +7128,7 @@ func TestHandleUsageEntry_GatewayCost(t *testing.T) {
 		name        string
 		model       string
 		known       bool
+		noPricer    bool
 		frameCost   float64
 		wantCost    float64
 		wantUnknown float64
@@ -7137,6 +7138,8 @@ func TestHandleUsageEntry_GatewayCost(t *testing.T) {
 		{name: "unknown model with gateway cost", model: "gw-cost-unknown", known: false, frameCost: 0.3, wantCost: 0.3},
 		{name: "unknown model without gateway cost", model: "gw-cost-unknown-table", known: false, frameCost: 0, wantCost: 0, wantUnknown: 1},
 		{name: "negative gateway cost is treated as absent", model: "gw-cost-negative", known: true, frameCost: -0.4, wantCost: 0.02},
+		{name: "gateway cost without a pricer", model: "gw-cost-no-pricer", noPricer: true, frameCost: 0.5, wantCost: 0.5},
+		{name: "negative gateway cost without a pricer records 0", model: "gw-cost-no-pricer-negative", noPricer: true, frameCost: -0.4, wantCost: 0},
 	}
 
 	for _, tt := range tests {
@@ -7152,6 +7155,12 @@ func TestHandleUsageEntry_GatewayCost(t *testing.T) {
 				known[tt.model] = 0.02
 			}
 
+			// A nil interface, not a typed nil *stubPricer, so the manager sees no pricer.
+			var pricer chat.Pricer
+			if !tt.noPricer {
+				pricer = newStubPricer(known)
+			}
+
 			backend := &usageStreamingBackend{
 				entries: []chat.LogEntry{
 					{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 100, OutputTokens: 50, CostUSD: tt.frameCost}, Model: tt.model},
@@ -7165,7 +7174,7 @@ func TestHandleUsageEntry_GatewayCost(t *testing.T) {
 				IdleTTL:      time.Hour,
 				Hub:          hub,
 				DefaultModel: tt.model,
-				Pricer:       newStubPricer(known),
+				Pricer:       pricer,
 			})
 
 			const project = "gw-cost-project"
