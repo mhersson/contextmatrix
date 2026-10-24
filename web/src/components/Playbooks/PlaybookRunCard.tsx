@@ -55,10 +55,10 @@ export function PlaybookRunCard({
           />
           <span>Make runnable</span>
         </label>
-        {runnable && detail.branch && (
-          <span className="font-mono text-xs" style={{ color: 'var(--aqua)' }}>{detail.branch}</span>
-        )}
       </div>
+      {runnable && detail.branch && (
+        <div className="font-mono text-xs wrap-anywhere" style={{ color: 'var(--aqua)' }}>{detail.branch}</div>
+      )}
 
       <div className="bf-spread mt-2">
         <span className="bf-switch-label">Base branch</span>

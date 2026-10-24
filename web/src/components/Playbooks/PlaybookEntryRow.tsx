@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react';
+import type { CSSProperties } from 'react';
 import { Link } from 'react-router';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -7,6 +7,7 @@ import { formatRelativeTime } from '../CardPanel/utils';
 import { entryStateChip, isRunActive, projectColor } from './playbookUtils';
 import { EntryNode } from './EntryNode';
 import { PlaybookEntryNote } from './PlaybookEntryNote';
+import { PlaybookManualStep } from './PlaybookManualStep';
 
 export interface PlaybookEntryRowViewProps {
   entry: PlaybookEntry;
@@ -36,8 +37,6 @@ export function PlaybookEntryRowView({
   entry, index, isFrontier, prevComplete, isLast = false, run,
   onToggleDone, onSaveNote, onSaveText, onRemove,
 }: PlaybookEntryRowViewProps) {
-  const [editingText, setEditingText] = useState(false);
-  const [textDraft, setTextDraft] = useState(entry.text ?? '');
   const chip = entryStateChip(entry);
   // A run held on an unvetted card has an empty entry; the frontier row is the held card.
   const heldHere = run?.status === 'waiting' && isFrontier && !run.entry;
@@ -65,55 +64,24 @@ export function PlaybookEntryRowView({
             {entry.type === 'card' ? (
               <Link
                 to={`/projects/${entry.project}?card=${entry.card}`}
-                className="flex items-center gap-2 min-w-0"
+                className="flex items-baseline gap-2 min-w-0"
                 style={{ textDecoration: 'none' }}
               >
                 <span
-                  className="font-mono text-[10px] px-1.5 py-0.5 rounded"
+                  className="font-mono text-[10px] px-1.5 py-0.5 rounded shrink-0"
                   style={{ backgroundColor: 'var(--bg1)', border: '1px solid var(--bg3)', color: projectColor(entry.project ?? '') }}
                 >
                   {entry.project}
                 </span>
-                <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--grey1)', fontSize: '11px' }}>
+                <span className="shrink-0" style={{ fontFamily: 'var(--font-mono)', color: 'var(--grey1)', fontSize: '11px' }}>
                   {entry.card}
                 </span>
-                <span className="truncate" style={{ color: 'var(--fg)' }}>
+                <span className="min-w-0 wrap-anywhere" style={{ color: 'var(--fg)' }}>
                   {entry.card_title ?? '(unknown card)'}
                 </span>
               </Link>
             ) : (
-              <div className="flex items-center gap-2 min-w-0">
-                <input
-                  type="checkbox"
-                  checked={entry.complete}
-                  aria-label={entry.text}
-                  onChange={(e) => onToggleDone(entry.id, e.target.checked)}
-                  style={{ accentColor: 'var(--green)' }}
-                />
-                {editingText ? (
-                  <input
-                    autoFocus
-                    value={textDraft}
-                    onChange={(e) => setTextDraft(e.target.value)}
-                    onBlur={() => { setEditingText(false); onSaveText(entry.id, textDraft.trim()); }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); }
-                      else if (e.key === 'Escape') { setTextDraft(entry.text ?? ''); setEditingText(false); }
-                    }}
-                    className="px-1 rounded text-sm"
-                    style={{ backgroundColor: 'var(--bg2)', border: '1px solid var(--bg3)', color: 'var(--fg)' }}
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setEditingText(true)}
-                    className="truncate text-left"
-                    style={{ color: 'var(--fg)', background: 'none', border: 'none', padding: 0, cursor: 'text' }}
-                  >
-                    {entry.text}
-                  </button>
-                )}
-              </div>
+              <PlaybookManualStep entry={entry} onToggleDone={onToggleDone} onSaveText={onSaveText} />
             )}
 
             {isFrontier && <span className="pb-nextup-chip">next up</span>}

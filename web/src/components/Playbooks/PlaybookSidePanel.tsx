@@ -67,7 +67,7 @@ export function PlaybookSidePanel({
                 </span>
               </Link>
             ) : (
-              <p className="text-sm mt-0.5" style={{ color: 'var(--fg)' }}>{next.text}</p>
+              <p className="text-sm mt-0.5 wrap-anywhere" style={{ color: 'var(--fg)' }}>{next.text}</p>
             )
           ) : (
             <p className="text-sm mt-0.5" style={{ color: 'var(--green)' }}>All entries complete</p>
