@@ -361,8 +361,8 @@ Every mutation follows validate -> store write -> commit -> event publish. The
 heartbeat timeout checker lives here rather than in `lock` because it
 coordinates store, git and events; it also reaps abandoned parents (see
 [data model](data-model.md)). `CardService` satisfies `chat.Pricer`
-(`PriceTokens`), so chat cost frames use the same cache-tier formula as
-card-scoped `report_usage`, and holds a `chatCostSummarizer`
+(`PriceTokens`), so chat usage frames without a gateway-reported cost use the same
+cache-tier formula as card-scoped `report_usage`, and holds a `chatCostSummarizer`
 (`SetChatCostSummarizer`) that `GetDashboard` calls to append server-wide
 chat-cost aggregates.
 

@@ -650,6 +650,7 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fall
 	cost := e.Usage.CostUSD
 
 	if cost <= 0 && m.pricer != nil {
+		// The protocol says cost is never negative; a bad frame must not lower the total.
 		cost = 0
 
 		c, known := m.pricer.PriceTokens(model, prompt, cacheRead, cacheCreate, completion)

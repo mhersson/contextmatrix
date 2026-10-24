@@ -7135,6 +7135,8 @@ func TestHandleUsageEntry_GatewayCost(t *testing.T) {
 		{name: "gateway cost wins over the table", model: "gw-cost-known-a", known: true, frameCost: 0.5, wantCost: 0.5},
 		{name: "no gateway cost uses the table", model: "gw-cost-known-b", known: true, frameCost: 0, wantCost: 0.02},
 		{name: "unknown model with gateway cost", model: "gw-cost-unknown", known: false, frameCost: 0.3, wantCost: 0.3},
+		{name: "unknown model without gateway cost", model: "gw-cost-unknown-table", known: false, frameCost: 0, wantCost: 0, wantUnknown: 1},
+		{name: "negative gateway cost is treated as absent", model: "gw-cost-negative", known: true, frameCost: -0.4, wantCost: 0.02},
 	}
 
 	for _, tt := range tests {
