@@ -19,6 +19,9 @@ export function PlaybookEntryNote({ note, onSave }: PlaybookEntryNoteProps) {
         rows={2}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
+        // The whole row is the drag handle; keep presses here so text can be selected.
+        onPointerDown={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
         onBlur={() => { setEditing(false); onSave(draft.trim()); }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey) {

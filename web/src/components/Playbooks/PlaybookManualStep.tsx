@@ -40,6 +40,9 @@ export function PlaybookManualStep({ entry, onToggleDone, onSaveText }: Playbook
           rows={1}
           value={draft}
           onChange={(e) => setDraft(e.target.value.replace(/[\r\n]+/g, ' '))}
+          // The whole row is the drag handle; keep presses here so text can be selected.
+          onPointerDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
           onBlur={() => { setEditing(false); onSaveText(entry.id, draft.trim()); }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); }

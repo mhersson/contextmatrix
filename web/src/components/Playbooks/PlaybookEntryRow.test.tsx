@@ -1,7 +1,9 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { PlaybookEntryRowView, type PlaybookEntryRowViewProps } from './PlaybookEntryRow';
+import { DndContext, useSensor, useSensors, type Activators } from '@dnd-kit/core';
+import { SortableContext } from '@dnd-kit/sortable';
+import { PlaybookEntryRow, PlaybookEntryRowView, type PlaybookEntryRowViewProps } from './PlaybookEntryRow';
 import type { PlaybookEntry } from '../../types';
 
 const noop = { onToggleDone: vi.fn(), onSaveNote: vi.fn(), onSaveText: vi.fn(), onRemove: vi.fn() };
@@ -176,5 +178,60 @@ describe('PlaybookEntryRowView manual step text', () => {
     contentHeight = 96;
     fireEvent.change(textbox, { target: { value: `${longStep} and the ingress answers on every host` } });
     expect(textbox.style.height).toBe('96px');
+  });
+});
+
+describe('PlaybookEntryRow drag handle and editors', () => {
+  // Records which presses reach dnd-kit's activators on the row and never activates a drag.
+  const presses: string[] = [];
+  class PressSpySensor {
+    static activators: Activators<object> = [
+      { eventName: 'onPointerDown', handler: () => { presses.push('pointer'); return false; } },
+      { eventName: 'onTouchStart', handler: () => { presses.push('touch'); return false; } },
+    ];
+    autoScrollEnabled = false;
+  }
+
+  function DraggableRow({ entry }: { entry: PlaybookEntry }) {
+    const sensors = useSensors(useSensor(PressSpySensor));
+    return (
+      <DndContext sensors={sensors}>
+        <SortableContext items={[entry.id]}>
+          <ul><PlaybookEntryRow entry={entry} index={0} isFrontier={false} {...noop} /></ul>
+        </SortableContext>
+      </DndContext>
+    );
+  }
+
+  function renderDraggable(entry: PlaybookEntry) {
+    presses.length = 0;
+    render(<MemoryRouter><DraggableRow entry={entry} /></MemoryRouter>);
+  }
+
+  function press(el: Element) {
+    fireEvent.pointerDown(el);
+    fireEvent.touchStart(el);
+  }
+
+  it('lets the row be dragged from its step text', () => {
+    renderDraggable({ id: 'e2', type: 'manual', text: 'redeploy', complete: false });
+    press(screen.getByRole('button', { name: 'redeploy' }));
+    expect(presses).toEqual(['pointer', 'touch']);
+  });
+
+  it('keeps presses in the step editor from starting a row drag', () => {
+    renderDraggable({ id: 'e2', type: 'manual', text: 'redeploy', complete: false });
+    fireEvent.click(screen.getByRole('button', { name: 'redeploy' }));
+    presses.length = 0;
+    press(screen.getByRole('textbox'));
+    expect(presses).toEqual([]);
+  });
+
+  it('keeps presses in the note editor from starting a row drag', () => {
+    renderDraggable(cardEntry({ note: 'brew coffee first' }));
+    fireEvent.click(screen.getByText(/brew coffee first/));
+    presses.length = 0;
+    press(screen.getByRole('textbox'));
+    expect(presses).toEqual([]);
   });
 });
