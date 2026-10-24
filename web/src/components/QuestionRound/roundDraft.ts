@@ -12,7 +12,7 @@ export interface RoundDraft {
 
 export const EMPTY_DRAFT: RoundDraft = { picks: {}, decisions: {} };
 
-/** The server refuses content above 8 KiB; the summary stays below it in bytes. */
+/** The summary's clip in UTF-8 bytes, well inside the blueprint message limit its content counts against. */
 export const SUMMARY_MAX_BYTES = 8000;
 const SUMMARY_ANSWER_CHARS = 200;
 

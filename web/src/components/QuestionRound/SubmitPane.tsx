@@ -1,3 +1,5 @@
+import { ByteCount } from '../ChatPanel/ByteCount';
+import { ROUND_ANSWER_MAX_BYTES, utf8Length } from '../ChatPanel/chatEntryUtils';
 import type { Round } from './parseRound';
 import { answerLabel, answeredCount, effectiveAnswer, effectiveDecision, hasUnsent, itemCount, type RoundDraft } from './roundDraft';
 import type { RoundMode } from './roundView';
@@ -16,23 +18,34 @@ interface SubmitPaneProps {
 export function SubmitPane({ round, draft, mode, phase, error, onSend }: SubmitPaneProps) {
   const total = itemCount(round);
   const answered = answeredCount(round, draft);
-  const live = mode === 'open' && phase === 'idle';
+  const answers = round.questions.map((q) => {
+    const a = effectiveAnswer(round, draft, q);
+    return { q, a, bytes: utf8Length(a?.text ?? '') };
+  });
+  // Every send carries every answer, so one answer over the server's limit holds both.
+  const tooLong = answers.some((x) => x.bytes > ROUND_ANSWER_MAX_BYTES);
+  const live = mode === 'open' && phase === 'idle' && !tooLong;
   return (
     <>
       <p className="qb-q">Review your answers</p>
       <table className="qb-review">
         <tbody>
-          {round.questions.map((q) => {
-            const a = effectiveAnswer(round, draft, q);
-            return (
-              <tr key={`q${q.number}`}>
+          {answers.map(({ q, a, bytes }) => (
+            <tr key={`q${q.number}`}>
+              <td>
+                Q{q.number} {q.title}
+              </td>
+              {!a ? (
+                <td className="missing">not answered</td>
+              ) : bytes > ROUND_ANSWER_MAX_BYTES ? (
                 <td>
-                  Q{q.number} {q.title}
+                  <ByteCount bytes={bytes} max={ROUND_ANSWER_MAX_BYTES} className="inline-block" tint />, too long to send
                 </td>
-                {a ? <td>{answerLabel(q, a)}</td> : <td className="missing">not answered</td>}
-              </tr>
-            );
-          })}
+              ) : (
+                <td>{answerLabel(q, a)}</td>
+              )}
+            </tr>
+          ))}
           {round.assumptions.map((a, i) => {
             const d = effectiveDecision(round, draft, a.id);
             return (

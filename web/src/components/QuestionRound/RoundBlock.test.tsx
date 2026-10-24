@@ -525,6 +525,64 @@ describe('RoundBlock sending', () => {
     expect(thread.scrollTop).toBe(480);
   });
 
+  it('keeps a long own answer whole and holds both sends while it is over 32 KiB', async () => {
+    const { onSendRound } = renderSending();
+    const own = screen.getByRole('textbox', { name: /Your own answer to Q1/ }) as HTMLInputElement;
+    // 10923 three-byte characters are 32769 bytes, one over the limit.
+    fireEvent.change(own, { target: { value: '€'.repeat(10923) } });
+    // jsdom never enforces maxlength, so its absence is what keeps a browser from cutting the paste.
+    expect(own).not.toHaveAttribute('maxlength');
+    expect(own.value).toHaveLength(10923);
+    expect(screen.getByText('32.1 KiB / 32 KiB')).toBeInTheDocument();
+
+    fireEvent.click(tab(/Submit/));
+    expect(screen.getByRole('button', { name: 'Send 1 now, answer the rest later' })).toBeDisabled();
+    expect(within(screen.getAllByRole('row')[0]).getByText(/32\.1 KiB \/ 32 KiB/)).toBeInTheDocument();
+    for (const [tabName, opt] of [[/Logging/, /Grafana/], [/Postgres/, /CloudNativePG/]] as const) {
+      fireEvent.click(tab(tabName));
+      fireEvent.click(option(opt));
+    }
+    fireEvent.click(tab(/Submit/));
+    expect(screen.getByRole('button', { name: 'Submit all 3' })).toBeDisabled();
+
+    fireEvent.click(tab(/Deploy tooling/));
+    const shorter = '€'.repeat(10922);
+    fireEvent.change(screen.getByRole('textbox', { name: /Your own answer to Q1/ }), { target: { value: shorter } });
+    fireEvent.click(tab(/Submit/));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit all 3' }));
+    await waitFor(() => expect(onSendRound).toHaveBeenCalledTimes(1));
+    const [, reply] = onSendRound.mock.calls[0] as unknown as [string, RoundReply];
+    expect(reply.answers?.[0]).toEqual({ number: 1, text: shorter });
+  });
+
+  it('sends a picked option over a long own answer left in the box', () => {
+    renderSending({ answers: [{ number: 2, option: 1 }, { number: 3, option: 1 }] });
+    fireEvent.change(screen.getByRole('textbox', { name: /Your own answer to Q1/ }), { target: { value: 'a'.repeat(32769) } });
+    fireEvent.click(option(/Helm/));
+    fireEvent.click(tab(/Submit/));
+    expect(screen.getByRole('button', { name: 'Submit all 3' })).toBeEnabled();
+  });
+
+  it('keeps a long chat message whole and holds Send while it is over 64 KiB', async () => {
+    const { onSendChat } = renderSending({ chat: [{ from: 'system_designer', text: 'Hi.' }] });
+    const box = screen.getByRole('textbox', { name: 'Message about these questions' }) as HTMLTextAreaElement;
+    const send = screen.getByRole('button', { name: 'Send' });
+    // 21846 three-byte characters are 65538 bytes, two over the limit.
+    fireEvent.change(box, { target: { value: '€'.repeat(21846) } });
+    expect(box).not.toHaveAttribute('maxlength');
+    expect(box.value).toHaveLength(21846);
+    expect(send).toBeDisabled();
+    expect(screen.getByText('64.1 KiB / 64 KiB')).toBeInTheDocument();
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onSendChat).not.toHaveBeenCalled();
+
+    const fits = '€'.repeat(21845);
+    fireEvent.change(box, { target: { value: fits } });
+    expect(send).toBeEnabled();
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(onSendChat).toHaveBeenCalledWith(fits));
+  });
+
   it('opens the chat on a click when the round has no thread yet', () => {
     renderSending();
     expect(screen.queryByRole('textbox', { name: 'Message about these questions' })).not.toBeInTheDocument();

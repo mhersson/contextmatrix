@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { formatBytes, utf8Length } from './chatEntryUtils';
+import { ByteCount } from './ByteCount';
+import { utf8Length } from './chatEntryUtils';
 
 export interface ChatComposerProps {
   onSend: (content: string) => void | Promise<void>;
@@ -92,14 +93,7 @@ export function ChatComposer({ onSend, sendDisabled, maxBytes, footer, focusKey,
         </button>
       </div>
       <div className="px-[18px] pb-3 flex flex-wrap items-center justify-end gap-2">
-        {bytes > maxBytes * 0.9 && (
-          <div
-            className="text-xs font-mono mr-auto"
-            style={{ color: isOverLimit ? 'var(--red)' : 'var(--yellow)' }}
-          >
-            {formatBytes(bytes)} / {formatBytes(maxBytes)}
-          </div>
-        )}
+        <ByteCount bytes={bytes} max={maxBytes} className="mr-auto" />
         {footer}
         {error && (
           <div

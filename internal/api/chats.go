@@ -586,8 +586,8 @@ func (h *chatHandlers) clearChat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }
 
-// maxRoundTextBytes caps one typed answer in a round reply; the panel limits
-// the input to 8000 characters, which fits in UTF-8.
+// maxRoundTextBytes caps one typed answer in a round reply; the panel holds its
+// sends while an own answer is above it, counted in UTF-8 bytes.
 const maxRoundTextBytes = 32 * 1024
 
 // validateRoundReply refuses a reply no architect could store; what the

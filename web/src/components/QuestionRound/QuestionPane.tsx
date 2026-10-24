@@ -1,5 +1,6 @@
 import type { Ref } from 'react';
-import { MAX_MESSAGE_LENGTH } from '../ChatPanel/chatEntryUtils';
+import { ByteCount } from '../ChatPanel/ByteCount';
+import { ROUND_ANSWER_MAX_BYTES, utf8Length } from '../ChatPanel/chatEntryUtils';
 import { OptionRow } from './OptionRow';
 import type { Round, RoundQuestion } from './parseRound';
 import { answerLabel, effectiveAnswer, storedAnswer, type RoundDraft } from './roundDraft';
@@ -61,10 +62,10 @@ export function QuestionPane({ round, question, draft, own, mode, expanded, onOp
               aria-label={`Your own answer to Q${n}`}
               placeholder="Your answer to this question"
               value={own}
-              maxLength={MAX_MESSAGE_LENGTH}
               disabled={mode !== 'open'}
               onChange={(e) => onOwn(e.target.value)}
             />
+            <ByteCount bytes={utf8Length(own.trim())} max={ROUND_ANSWER_MAX_BYTES} className="mt-1" tint />
           </div>
         </div>
       </div>

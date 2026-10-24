@@ -4,12 +4,12 @@ import type { LogEntry } from '../../types';
 export const INITIAL_TAIL = 50;
 /** Older messages revealed per "Show older" step. */
 export const REVEAL_CHUNK = 100;
-/** Longest prompt reply or question-round input, in characters. */
-export const MAX_MESSAGE_LENGTH = 8000;
 /** Server limit on a chat session message, in UTF-8 bytes. */
 export const CHAT_MESSAGE_MAX_BYTES = 8192;
 /** Server limit on a blueprint session message, in UTF-8 bytes. */
 export const BLUEPRINT_MESSAGE_MAX_BYTES = 65536;
+/** Server limit on one typed answer in a question round reply, in UTF-8 bytes. */
+export const ROUND_ANSWER_MAX_BYTES = 32768;
 
 const utf8Encoder = new TextEncoder();
 
