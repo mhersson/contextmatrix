@@ -91,7 +91,7 @@ function AppInner() {
                 <div className="h-screen flex flex-row" style={{ backgroundColor: 'var(--bg-dim)' }}>
                   <Sidebar
                     onNewProject={() => setNewProjectOpen(true)}
-                    onNewChat={() => navigate('/chat?new=1')}
+                    onNewSession={(kind) => navigate(kind === 'architect' ? '/chat?new=blueprint' : '/chat?new=1')}
                     mobileOpen={mobileOpen}
                     onMobileClose={onMobileClose}
                   />

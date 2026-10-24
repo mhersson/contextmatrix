@@ -16,7 +16,13 @@ vi.mock('../../api/client', () => ({
 }));
 
 vi.mock('./ChatThread', () => ({ ChatThread: () => null }));
-vi.mock('./NewChatDialog', () => ({ NewChatDialog: () => null }));
+const dialogSpy = vi.fn<(props: { open: boolean; initialKind?: string }) => void>();
+vi.mock('./NewChatDialog', () => ({
+  NewChatDialog: (props: { open: boolean; initialKind?: string }) => {
+    dialogSpy({ open: props.open, initialKind: props.initialKind });
+    return null;
+  },
+}));
 vi.mock('./MobileChatHeader', () => ({ MobileChatHeader: () => null }));
 vi.mock('../../components/ConfirmModal/ConfirmModal', () => ({ ConfirmModal: () => null }));
 
@@ -50,6 +56,23 @@ describe('ChatPage deep link', () => {
       const lastCall = layoutSpy.mock.calls.at(-1)?.[0];
       expect(lastCall?.panes.TL?.chatId).toBe('chat-a');
       expect(lastCall?.focused).toBe('TL');
+    });
+  });
+
+  it.each([
+    ['/chat?new=blueprint', 'architect'],
+    ['/chat?new=1', 'chat'],
+  ])('%s opens the dialog on %s', async (url, kind) => {
+    dialogSpy.mockClear();
+    render(
+      <MemoryRouter initialEntries={[url]}>
+        <Routes>
+          <Route path="chat" element={<ChatPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(dialogSpy.mock.calls.at(-1)?.[0]).toEqual({ open: true, initialKind: kind });
     });
   });
 });

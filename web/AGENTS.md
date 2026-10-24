@@ -208,7 +208,7 @@ interactions.
 - **URL state:** for bookmarkable UI state use `useSearchParams` with the
   updater-callback form and `{ replace: true }`; validate the value against the
   known set and fall back gracefully on unknown. Current params: `?card=<id>`,
-  `?project=<slug>`, `?new=1`, `?tab=<chats|blueprints>` (Sessions page).
+  `?project=<slug>`, `?new=1|blueprint`, `?tab=<chats|blueprints>` (Sessions page).
 - **Delivery-unit metrics:** headline counters (MetricsRibbon, KpiRow, BoardBand)
   count only cards where `parent === ""` (standalone + parent tasks); subtasks are
   excluded so decomposition doesn't inflate throughput. Backend source:

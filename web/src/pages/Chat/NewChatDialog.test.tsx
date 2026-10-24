@@ -87,6 +87,18 @@ describe('NewChatDialog', () => {
     sendChatMessage.mockResolvedValue({ ok: true, message_id: 'M1' });
   });
 
+  it('opens on Blueprint when asked and the architect is enabled', () => {
+    render(<NewChatDialog open onClose={() => {}} initialKind="architect" />);
+    expect(screen.getByRole('radio', { name: 'Blueprint' })).toBeChecked();
+    expect(screen.getByRole('button', { name: /Create blueprint|Start blueprint/i })).toBeInTheDocument();
+  });
+
+  it('asking for Blueprint without an architect opens a chat', () => {
+    architectEnabled = false;
+    render(<NewChatDialog open onClose={() => {}} initialKind="architect" />);
+    expect(screen.getByRole('button', { name: 'Create chat' })).toBeEnabled();
+  });
+
   it('offers no kind switch when no architect backend is configured', () => {
     architectEnabled = false;
     renderDialog();

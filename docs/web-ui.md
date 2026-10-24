@@ -12,7 +12,7 @@ reference for people using the UI; execution semantics live in
 | `/`, `/all`                                 | All-projects dashboard                                   |
 | `/projects/:project`                        | Board. `?card=ID` opens that card's detail panel         |
 | `/projects/:project/settings`               | Project settings                                         |
-| `/chat`, `/chat/:id`                        | Global chat surface. `/chat?new=1` opens the New Chat dialog |
+| `/chat`, `/chat/:id`                        | Global chat surface. `/chat?new=1` opens the New Chat dialog on Chat, `?new=blueprint` on Blueprint |
 | `/playbooks`, `/playbooks/:id`              | Playbook list and detail (see [playbooks](playbooks.md)) |
 | `/sessions`                                 | Sessions page. `?tab=chats` or `?tab=blueprints` picks the tab |
 | `/admin/users`, `/admin/credentials`        | Admin pages, `multi` auth mode only                      |

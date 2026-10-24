@@ -60,7 +60,7 @@ const mockUseProjects = vi.mocked(useProjects);
 function renderSidebar(props?: { mobileOpen?: boolean; onMobileClose?: () => void }) {
   return render(
     <MemoryRouter>
-      <Sidebar onNewProject={() => {}} onNewChat={() => {}} {...props} />
+      <Sidebar onNewProject={() => {}} onNewSession={() => {}} {...props} />
     </MemoryRouter>
   );
 }

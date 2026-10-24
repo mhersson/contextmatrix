@@ -11,7 +11,7 @@ import { useOptionalAuth } from '../../hooks/useAuth';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useRepoSectionsCollapsed } from '../../hooks/useRepoSectionsCollapsed';
 import { formatVersionWithLocalTime } from '../../utils/formatVersion';
-import { boardsRepoName, type PlaybookSummary, type ProjectConfig } from '../../types';
+import { boardsRepoName, type PlaybookSummary, type ProjectConfig, type SessionKind } from '../../types';
 import { ProjectCard } from './ProjectCard';
 import { ChatSection } from './ChatSection';
 import { UserMenu } from './UserMenu';
@@ -20,7 +20,7 @@ import { RepoSection } from './RepoSection';
 
 interface SidebarProps {
   onNewProject: () => void;
-  onNewChat: () => void;
+  onNewSession: (kind: SessionKind) => void;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
 }
@@ -93,7 +93,7 @@ function WorkspaceNavLink({ to, activeBase, label, icon, onNavigate }: Workspace
   );
 }
 
-export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileClose }: SidebarProps) {
+export function Sidebar({ onNewProject, onNewSession, mobileOpen = false, onMobileClose }: SidebarProps) {
   const { projects } = useProjects();
   const { version, boardsRepos = [] } = useTheme();
   const { statusFor } = useSync();
@@ -229,7 +229,7 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
           />
         </div>
 
-        <ChatSection onNewChat={onNewChat} />
+        <ChatSection onNewChat={() => onNewSession('chat')} />
 
         <div className="px-2">
           {multiRepo ? (
