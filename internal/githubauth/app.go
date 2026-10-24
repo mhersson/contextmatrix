@@ -1,6 +1,7 @@
 package githubauth
 
 import (
+	"bytes"
 	"context"
 	"crypto/rsa"
 	"encoding/json"
@@ -128,6 +129,28 @@ type installationToken struct {
 // GenerateToken signs a JWT, exchanges it via GitHub's REST API, and
 // returns the resulting installation access token plus its expiry.
 func (p *AppProvider) GenerateToken(ctx context.Context) (string, time.Time, error) {
+	return p.mint(ctx, nil)
+}
+
+// GenerateRepoToken mints an installation token limited to the named
+// repository. An empty name is refused before any request so the call can
+// never yield an installation-wide token.
+func (p *AppProvider) GenerateRepoToken(ctx context.Context, repo string) (string, time.Time, error) {
+	if repo == "" {
+		return "", time.Time{}, errors.New("repo is required")
+	}
+
+	body, err := json.Marshal(map[string][]string{"repositories": {repo}})
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("marshal request: %w", err)
+	}
+
+	return p.mint(ctx, body)
+}
+
+// mint exchanges a fresh JWT for an installation token; a nil body requests
+// the installation's full access.
+func (p *AppProvider) mint(ctx context.Context, reqBody []byte) (string, time.Time, error) {
 	jwtToken, err := p.createJWT()
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("create JWT: %w", err)
@@ -135,9 +158,18 @@ func (p *AppProvider) GenerateToken(ctx context.Context) (string, time.Time, err
 
 	url := fmt.Sprintf("%s/app/installations/%d/access_tokens", p.apiBaseURL, p.installationID)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	var rdr io.Reader
+	if reqBody != nil {
+		rdr = bytes.NewReader(reqBody)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, rdr)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("create request: %w", err)
+	}
+
+	if reqBody != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 
 	req.Header.Set("Authorization", "Bearer "+jwtToken)

@@ -45,9 +45,27 @@ type fakeTokenProvider struct {
 	token     string
 	expiresAt time.Time
 	err       error
+
+	calls     atomic.Int32 // broad GenerateToken calls
+	repoCalls atomic.Int32 // scoped GenerateRepoToken calls
+
+	mu       sync.Mutex
+	lastRepo string
 }
 
 func (f *fakeTokenProvider) GenerateToken(_ context.Context) (string, time.Time, error) {
+	f.calls.Add(1)
+
+	return f.token, f.expiresAt, f.err
+}
+
+func (f *fakeTokenProvider) GenerateRepoToken(_ context.Context, repo string) (string, time.Time, error) {
+	f.repoCalls.Add(1)
+
+	f.mu.Lock()
+	f.lastRepo = repo
+	f.mu.Unlock()
+
 	return f.token, f.expiresAt, f.err
 }
 

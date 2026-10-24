@@ -2,6 +2,8 @@ package githubauth
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -19,6 +21,27 @@ type fakeProvider struct {
 	expiry  time.Time // returned for every call
 	failOn  int       // call number (1-indexed) on which to return the error
 	failErr error
+
+	repoCalls   atomic.Int32
+	lastRepo    string
+	repoFailErr error // returned by GenerateRepoToken when non-nil
+}
+
+func (f *fakeProvider) GenerateRepoToken(_ context.Context, repo string) (string, time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	n := f.repoCalls.Add(1)
+	f.lastRepo = repo
+
+	if f.repoFailErr != nil {
+		err := f.repoFailErr
+		f.repoFailErr = nil
+
+		return "", time.Time{}, err
+	}
+
+	return fmt.Sprintf("scoped-%s-%d", repo, n), f.expiry, nil
 }
 
 func (f *fakeProvider) GenerateToken(_ context.Context) (string, time.Time, error) {
@@ -170,3 +193,69 @@ func TestCachingProvider_Concurrent(t *testing.T) {
 type errSentinel string
 
 func (e errSentinel) Error() string { return string(e) }
+
+func TestCachingProvider_RepoTokens(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("one mint per repo, case-insensitive", func(t *testing.T) {
+		inner := &fakeProvider{tokens: []string{"broad"}, expiry: time.Now().Add(45 * time.Minute)}
+		cp := NewCachingProvider(inner)
+
+		first, _, err := cp.GenerateRepoToken(ctx, "Widgets")
+		require.NoError(t, err)
+		second, _, err := cp.GenerateRepoToken(ctx, "widgets")
+		require.NoError(t, err)
+		assert.Equal(t, first, second)
+		assert.Equal(t, int32(1), inner.repoCalls.Load())
+
+		other, _, err := cp.GenerateRepoToken(ctx, "gadgets")
+		require.NoError(t, err)
+		assert.NotEqual(t, first, other)
+		assert.Equal(t, int32(2), inner.repoCalls.Load())
+	})
+
+	t.Run("scoped and broad slots are separate", func(t *testing.T) {
+		inner := &fakeProvider{tokens: []string{"broad"}, expiry: time.Now().Add(45 * time.Minute)}
+		cp := NewCachingProvider(inner)
+
+		scoped, _, err := cp.GenerateRepoToken(ctx, "widgets")
+		require.NoError(t, err)
+		assert.NotEqual(t, "broad", scoped)
+		assert.Zero(t, inner.calls.Load())
+
+		broad, _, err := cp.GenerateToken(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, "broad", broad)
+		assert.Equal(t, int32(1), inner.calls.Load())
+
+		again, _, err := cp.GenerateRepoToken(ctx, "widgets")
+		require.NoError(t, err)
+		assert.Equal(t, scoped, again)
+	})
+
+	t.Run("inner error is returned and not cached", func(t *testing.T) {
+		inner := &fakeProvider{tokens: []string{"broad"}, expiry: time.Now().Add(45 * time.Minute), repoFailErr: errors.New("boom")}
+		cp := NewCachingProvider(inner)
+
+		token, _, err := cp.GenerateRepoToken(ctx, "widgets")
+		require.Error(t, err)
+		assert.Empty(t, token)
+
+		token, _, err = cp.GenerateRepoToken(ctx, "widgets")
+		require.NoError(t, err)
+		assert.NotEmpty(t, token)
+		assert.Equal(t, int32(2), inner.repoCalls.Load())
+	})
+
+	t.Run("expiry within skew re-mints", func(t *testing.T) {
+		inner := &fakeProvider{tokens: []string{"broad"}, expiry: time.Now().Add(2 * time.Minute)}
+		cp := NewCachingProvider(inner)
+
+		first, _, err := cp.GenerateRepoToken(ctx, "widgets")
+		require.NoError(t, err)
+		second, _, err := cp.GenerateRepoToken(ctx, "widgets")
+		require.NoError(t, err)
+		assert.NotEqual(t, first, second)
+		assert.Equal(t, int32(2), inner.repoCalls.Load())
+	})
+}

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -191,14 +192,28 @@ func (s *stubSessionLiveness) SessionLiveness(_ context.Context, sessionID strin
 // GenerateToken calls, so fail-closed tests can assert the instance
 // credential was NEVER minted, not merely that the response wasn't 200.
 type countingTokenProvider struct {
-	inner githubauth.TokenGenerator
-	calls atomic.Int32
+	inner     githubauth.TokenGenerator
+	calls     atomic.Int32 // broad GenerateToken calls
+	repoCalls atomic.Int32 // scoped GenerateRepoToken calls
+
+	mu       sync.Mutex
+	lastRepo string
 }
 
 func (c *countingTokenProvider) GenerateToken(ctx context.Context) (string, time.Time, error) {
 	c.calls.Add(1)
 
 	return c.inner.GenerateToken(ctx)
+}
+
+func (c *countingTokenProvider) GenerateRepoToken(ctx context.Context, repo string) (string, time.Time, error) {
+	c.repoCalls.Add(1)
+
+	c.mu.Lock()
+	c.lastRepo = repo
+	c.mu.Unlock()
+
+	return c.inner.GenerateRepoToken(ctx, repo)
 }
 
 // doWorkerGitCredentialsRequest drives h.getGitCredentials directly (no

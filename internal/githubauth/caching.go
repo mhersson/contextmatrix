@@ -2,6 +2,7 @@ package githubauth
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 )
@@ -18,6 +19,16 @@ type CachingProvider struct {
 	refreshSkew time.Duration
 
 	mu      sync.Mutex
+	token   string
+	expires time.Time
+
+	// Scoped tokens live apart from the broad one under their own lock so a
+	// slow scoped mint never blocks the broad token.
+	repoMu     sync.Mutex
+	repoTokens map[string]cachedToken
+}
+
+type cachedToken struct {
 	token   string
 	expires time.Time
 }
@@ -39,6 +50,7 @@ func NewCachingProvider(inner TokenGenerator, opts ...CacheOption) *CachingProvi
 	c := &CachingProvider{
 		inner:       inner,
 		refreshSkew: defaultRefreshSkew,
+		repoTokens:  make(map[string]cachedToken),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -67,6 +79,28 @@ func (c *CachingProvider) GenerateToken(ctx context.Context) (string, time.Time,
 
 	c.token = token
 	c.expires = exp
+
+	return token, exp, nil
+}
+
+// GenerateRepoToken is GenerateToken for a single repository, cached per
+// repo name (case-insensitive) apart from the broad token.
+func (c *CachingProvider) GenerateRepoToken(ctx context.Context, repo string) (string, time.Time, error) {
+	c.repoMu.Lock()
+	defer c.repoMu.Unlock()
+
+	key := strings.ToLower(repo)
+
+	if e, ok := c.repoTokens[key]; ok && e.token != "" && time.Until(e.expires) > c.refreshSkew {
+		return e.token, e.expires, nil
+	}
+
+	token, exp, err := c.inner.GenerateRepoToken(ctx, repo)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+
+	c.repoTokens[key] = cachedToken{token: token, expires: exp}
 
 	return token, exp, nil
 }
