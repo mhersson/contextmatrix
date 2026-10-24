@@ -11,7 +11,7 @@ import { arrayMoveLocal, isRunActive, persistReorder } from './playbookUtils';
 import { PlaybookDetailHeader } from './PlaybookDetailHeader';
 import { PlaybookEntryList } from './PlaybookEntryList';
 import { PlaybookSidePanel } from './PlaybookSidePanel';
-import { PlaybooksBar } from './PlaybooksBar';
+import { PageBar } from '../SidebarMenuButton/PageBar';
 
 // Progress segments derive from live card state, not a stored field, so they
 // stay in sync with card.* events that only trigger a refetch.
@@ -216,7 +216,7 @@ export function PlaybookDetailPage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <PlaybooksBar />
+      <PageBar title="Playbooks" />
       <div className="p-6 pb-page">
         <div className="pb-workbench">
           <div className="pb-track">

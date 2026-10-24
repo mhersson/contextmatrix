@@ -1,4 +1,4 @@
-import type { ChatSession, SessionKind } from '../types';
+import type { ChatSession, ChatStatus, SessionKind } from '../types';
 import { formatCost } from './format';
 
 export function sessionKind(s: ChatSession): SessionKind {
@@ -22,4 +22,15 @@ export function sessionCostUSD(s: ChatSession): number | undefined {
 export function formatSessionCost(s: ChatSession): string {
   const v = sessionCostUSD(s);
   return v === undefined ? '-' : formatCost(v);
+}
+
+export function statusDotColor(status: ChatStatus): string | null {
+  switch (status) {
+    case 'active':
+      return 'var(--green)';
+    case 'warm-idle':
+      return 'var(--yellow)';
+    default:
+      return null;
+  }
 }

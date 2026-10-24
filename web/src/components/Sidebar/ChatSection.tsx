@@ -4,23 +4,13 @@ import { useChatSessions } from '../../hooks/useChatSessions';
 import { useMobileSidebar } from '../../context/MobileSidebarContext';
 import { isTouchDevice } from '../../utils/isTouchDevice';
 import { safeGetString, safeSetString } from '../../utils/safeStorage';
-import type { ChatSession, ChatStatus } from '../../types';
+import type { ChatSession } from '../../types';
+import { statusDotColor } from '../../lib/sessions';
 import { BlueprintIcon } from '../SessionIcons';
 
 const STORAGE_KEY = 'sidebar.chat_section_collapsed';
 
 import { CHAT_DRAG_START_EVENT, CHAT_DRAG_END_EVENT } from '../ChatLayout/dragProtocol';
-
-function statusDotColor(status: ChatStatus): string | null {
-  switch (status) {
-    case 'active':
-      return 'var(--green)';
-    case 'warm-idle':
-      return 'var(--yellow)';
-    default:
-      return null;
-  }
-}
 
 export function ChatSection({ onNewChat }: { onNewChat: () => void }) {
   const { sessions } = useChatSessions();
