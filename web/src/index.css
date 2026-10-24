@@ -5483,6 +5483,14 @@ textarea {
 .sb-pin[aria-pressed='true'] {
   color: var(--orange);
 }
+@media (pointer: coarse) {
+  .sb-pin {
+    min-width: 24px;
+    min-height: 24px;
+    align-items: center;
+    justify-content: center;
+  }
+}
 .sb-all {
   display: flex;
   align-items: baseline;
@@ -9682,6 +9690,14 @@ button.bp-rv-head {
 .ssn-pin--on,
 .ssn-pin--on:hover {
   color: var(--orange);
+}
+@media (pointer: coarse) {
+  .ssn-pin {
+    min-width: 24px;
+    min-height: 24px;
+    align-items: center;
+    justify-content: center;
+  }
 }
 .ssn-open {
   display: flex;
