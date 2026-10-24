@@ -2501,6 +2501,7 @@ management lives under `/api/admin/chats`.
 | `prompt_tokens`, `completion_tokens`, `cache_read_tokens`, `cache_creation_tokens` | omitempty | Cumulative totals across usage frames                                                      |
 | `estimated_cost_usd`                                                               | omitempty | Running cost, same cache-tier formula as card-scoped `report_usage`                        |
 | `pinned`                                                                           | omitempty | `true` once pinned; set through `PATCH /api/chats/{id}`                                    |
+| `spent_usd`                                                                        | omitempty | Architect sessions only: the architect's `cost.spent_usd` as CM last read it; absent until the first read. CM reads it on each blueprint view read, after each architect run, and once at startup for a blueprint without one |
 | `assistant_working`, `assistant_working_since`                                     | omitempty | In-memory presence derived from `status` log frames                                        |
 
 ### POST /api/chats
@@ -2917,7 +2918,9 @@ open prompt, cost and artifact index. CM reads it from the architect's signed
 `GET /blueprints/{id}` (the blueprint id is the session id) and relays the
 body unchanged as `application/json`; the architect owns the shape
 (`protocol.BlueprintView`). The session's status does not matter, so an ended
-blueprint stays readable while the architect holds it.
+blueprint stays readable while the architect holds it. Once the whole body is
+relayed, CM records its `cost.spent_usd` on the session (`spent_usd`); a view
+without one leaves the session as it was.
 
 ### GET /api/chats/{id}/blueprint/artifacts/{stage}/{version}
 

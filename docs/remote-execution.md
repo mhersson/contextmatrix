@@ -1021,7 +1021,10 @@ flowchart LR
   by `session_id`, persists each transcript frame to `ops.db`, and
   republishes it on the per-session chat SSE hub. `usage` frames update the
   session's context-token counter and cost; `status` frames drive the
-  working indicator and are never persisted. Both consumers reconnect with
+  working indicator and are never persisted. An architect `idle` status frame
+  also makes CM re-read the blueprint view and record its spend, and startup
+  reads it once for every blueprint without one (a failed read leaves it
+  unrecorded until the next view read). Both consumers reconnect with
   backoff after a stream error (250 ms to 30 s, reset after a stream that
   lived a minute). A chat consumer stops when the stream closes cleanly; an
   architect consumer reconnects after that too, re-sending the start first

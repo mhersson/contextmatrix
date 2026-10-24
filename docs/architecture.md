@@ -413,6 +413,12 @@ order matches seq order.
   published. `GetChatCostSummary` aggregates a 30-day UTC window and caches
   it for 30 seconds (`chatCostCacheTTL`) so the All Projects view's
   per-project dashboard fan-out does not amplify SQL.
+- **Blueprint spend.** A blueprint's cost is the architect's
+  `cost.spent_usd`, stored in `spent_usd`. The blueprint view proxy records it
+  on every read, and an architect `idle` status frame makes CM re-read the
+  view and record it, off the consumer goroutine. Startup reads it once for
+  every blueprint without one, at most four reads at a time, without blocking
+  startup. A failed read leaves it unrecorded until the next view read.
 - **SSEHub.** One `sessionHub` per session with a 128-event ring buffer,
   replayed on `Subscribe(sinceSeq)` so reconnects inside the window are
   gapless; `DeleteSession` drops the hub. Two event kinds: `message` (a

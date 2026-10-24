@@ -660,3 +660,142 @@ func TestBlueprintArtifact_MalformedSliceNeverReachesTheArchitect(t *testing.T) 
 
 	assert.Empty(t, fa.seen())
 }
+
+func TestBlueprintView_RecordsTheSpend(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want float64
+	}{
+		{"spend", `{"id":"X","cost":{"spent_usd":1.75,"cap_usd":0}}`, 1.75},
+		{"zero spend is a recorded spend", `{"id":"X","cost":{"spent_usd":0,"cap_usd":2}}`, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fa := newFakeArchitect(t, map[string]http.HandlerFunc{
+				"GET /blueprints/{id}": func(w http.ResponseWriter, _ *http.Request) {
+					_, _ = io.WriteString(w, tt.body)
+				},
+			})
+			mux, mgr := newChatFixture(t, blueprintFixtureOpts(fa.URL))
+			bp := seedBlueprint(t, mgr, "human:web")
+
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, jsonReq(t, http.MethodGet, "/api/chats/"+bp.ID+"/blueprint", ""))
+
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			assert.Equal(t, tt.body, rec.Body.String(), "the relay stays byte for byte") //nolint:testifylint // byte identity is the contract
+
+			got, err := mgr.GetSession(t.Context(), bp.ID)
+			require.NoError(t, err)
+			require.NotNil(t, got.SpentUSD)
+			assert.InDelta(t, tt.want, *got.SpentUSD, 1e-9)
+		})
+	}
+}
+
+func TestBlueprintView_LeavesSpendAloneWithoutCost(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{"view without a cost", http.StatusOK, `{}`},
+		{"cost without a spend", http.StatusOK, `{"cost":{"cap_usd":2}}`},
+		{"body that is not JSON", http.StatusOK, `not json`},
+		{"unknown blueprint", http.StatusNotFound, `{"ok":false,"code":"not_found"}`},
+		{"architect error", http.StatusInternalServerError, `{"cost":{"spent_usd":9}}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fa := newFakeArchitect(t, map[string]http.HandlerFunc{
+				"GET /blueprints/{id}": func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(tt.status)
+					_, _ = io.WriteString(w, tt.body)
+				},
+			})
+			mux, mgr := newChatFixture(t, blueprintFixtureOpts(fa.URL))
+			bp := seedBlueprint(t, mgr, "human:web")
+
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, jsonReq(t, http.MethodGet, "/api/chats/"+bp.ID+"/blueprint", ""))
+			require.Len(t, fa.seen(), 1, "the view was read")
+
+			got, err := mgr.GetSession(t.Context(), bp.ID)
+			require.NoError(t, err)
+			assert.Nil(t, got.SpentUSD)
+		})
+	}
+}
+
+func TestBlueprintView_CutShortRelayRecordsNothing(t *testing.T) {
+	fa := newFakeArchitect(t, map[string]http.HandlerFunc{
+		"GET /blueprints/{id}": func(w http.ResponseWriter, _ *http.Request) {
+			// A complete view, then the connection drops short of the declared length.
+			w.Header().Set("Content-Length", "4096")
+			_, _ = io.WriteString(w, `{"cost":{"spent_usd":1.5}}`)
+		},
+	})
+	mux, mgr := newChatFixture(t, blueprintFixtureOpts(fa.URL))
+	bp := seedBlueprint(t, mgr, "human:web")
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, http.MethodGet, "/api/chats/"+bp.ID+"/blueprint", ""))
+	require.Len(t, fa.seen(), 1, "the view was read")
+
+	got, err := mgr.GetSession(t.Context(), bp.ID)
+	require.NoError(t, err)
+	assert.Nil(t, got.SpentUSD)
+}
+
+func TestArchitectSpendReader(t *testing.T) {
+	fa := newFakeArchitect(t, map[string]http.HandlerFunc{
+		"GET /blueprints/{id}": func(w http.ResponseWriter, r *http.Request) {
+			switch r.PathValue("id") {
+			case "costed":
+				_, _ = io.WriteString(w, `{"id":"costed","cost":{"spent_usd":2.5,"cap_usd":0}}`)
+			case "uncosted":
+				_, _ = io.WriteString(w, `{}`)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = io.WriteString(w, `{"ok":false,"code":"not_found"}`)
+			}
+		},
+	})
+
+	tests := []struct {
+		name      string
+		key       string
+		id        string
+		wantSpent float64
+		wantOK    bool
+		wantErr   bool
+	}{
+		// The fake answers 401 to a bad signature, so an ok read proves the request was signed.
+		{"cost present", testArchitectKey, "costed", 2.5, true, false},
+		{"view without a cost", testArchitectKey, "uncosted", 0, false, false},
+		{"unknown blueprint", testArchitectKey, "gone", 0, false, true},
+		{"refused signature", "another-key-0123456789abcdef012345", "costed", 0, false, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spent, ok, err := ArchitectSpendReader(fa.URL, tt.key)(t.Context(), tt.id)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			assert.Equal(t, tt.wantOK, ok)
+			assert.InDelta(t, tt.wantSpent, spent, 1e-9)
+		})
+	}
+
+	for _, uri := range fa.seen() {
+		assert.True(t, strings.HasPrefix(uri, "/blueprints/"), uri)
+		assert.Contains(t, uri, "?nonce=", "each read signs a distinct URI")
+	}
+}

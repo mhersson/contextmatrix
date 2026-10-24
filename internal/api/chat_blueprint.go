@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -146,33 +148,109 @@ func (h *chatHandlers) architectGet(ctx context.Context, w http.ResponseWriter, 
 }
 
 // proxyBlueprintRead relays one architect JSON read byte for byte, always as
-// application/json so CM's origin never serves another content type.
-func (h *chatHandlers) proxyBlueprintRead(w http.ResponseWriter, r *http.Request, path string, query url.Values) {
+// application/json so CM's origin never serves another content type. tee,
+// when non-nil, receives a copy of the body. It reports whether the whole
+// body was relayed.
+func (h *chatHandlers) proxyBlueprintRead(w http.ResponseWriter, r *http.Request, path string, query url.Values, tee io.Writer) bool {
 	ctx, cancel := context.WithTimeout(r.Context(), h.architect.readTimeout)
 	defer cancel()
 
 	resp, ok := h.architectGet(ctx, w, r, path, query, "application/json")
 	if !ok {
-		return
+		return false
 	}
 	defer resp.Body.Close()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
-	if _, err := io.Copy(w, resp.Body); err != nil && r.Context().Err() == nil {
-		ctxlog.Logger(r.Context()).Warn("blueprint proxy: relay cut short", "upstream_path", path, "error", err)
+	var body io.Reader = resp.Body
+	if tee != nil {
+		body = io.TeeReader(resp.Body, tee)
 	}
+
+	if _, err := io.Copy(w, body); err != nil {
+		if r.Context().Err() == nil {
+			ctxlog.Logger(r.Context()).Warn("blueprint proxy: relay cut short", "upstream_path", path, "error", err)
+		}
+
+		return false
+	}
+
+	return true
 }
 
-// getBlueprint handles GET /api/chats/{id}/blueprint.
+// getBlueprint handles GET /api/chats/{id}/blueprint and records the view's
+// cost.spent_usd on the session.
 func (h *chatHandlers) getBlueprint(w http.ResponseWriter, r *http.Request) {
 	sess, ok := h.blueprintSession(w, r)
 	if !ok {
 		return
 	}
 
-	h.proxyBlueprintRead(w, r, "/blueprints/"+url.PathEscape(sess.ID), nil)
+	var view bytes.Buffer
+	if !h.proxyBlueprintRead(w, r, "/blueprints/"+url.PathEscape(sess.ID), nil, &view) {
+		return
+	}
+
+	spent, ok := readSpend(view.Bytes())
+	if !ok {
+		return
+	}
+
+	// The response is already written, so a caller leaving now must not cancel the write.
+	if err := h.mgr.RecordBlueprintSpend(context.WithoutCancel(r.Context()), sess.ID, spent); err != nil {
+		ctxlog.Logger(r.Context()).Warn("blueprint view: record spend failed", "session_id", sess.ID, "error", err)
+	}
+}
+
+// readSpend reads cost.spent_usd from a blueprint view body; ok is false when
+// the body is not JSON or carries no cost or no spend.
+func readSpend(body []byte) (float64, bool) {
+	var view struct {
+		Cost *struct {
+			SpentUSD *float64 `json:"spent_usd"`
+		} `json:"cost"`
+	}
+
+	if err := json.Unmarshal(body, &view); err != nil || view.Cost == nil || view.Cost.SpentUSD == nil {
+		return 0, false
+	}
+
+	return *view.Cost.SpentUSD, true
+}
+
+// ArchitectSpendReader reads a blueprint's cost.spent_usd with one signed
+// GET /blueprints/{id}, bounded by architectReadTimeout. A non-200 answer is
+// an error; ok is false when the view carries no spend.
+func ArchitectSpendReader(baseURL, key string) func(ctx context.Context, sessionID string) (float64, bool, error) {
+	upstream := newArchitectUpstream(baseURL, key)
+
+	return func(ctx context.Context, sessionID string) (float64, bool, error) {
+		ctx, cancel := context.WithTimeout(ctx, upstream.readTimeout)
+		defer cancel()
+
+		path := "/blueprints/" + url.PathEscape(sessionID)
+
+		resp, err := upstream.get(ctx, path, nil, "application/json")
+		if err != nil {
+			return 0, false, err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return 0, false, fmt.Errorf("architect GET %s: status %d", path, resp.StatusCode)
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return 0, false, fmt.Errorf("architect GET %s: read body: %w", path, err)
+		}
+
+		spent, ok := readSpend(body)
+
+		return spent, ok, nil
+	}
 }
 
 // getBlueprintArtifact handles
@@ -202,7 +280,7 @@ func (h *chatHandlers) getBlueprintArtifact(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	h.proxyBlueprintRead(w, r, "/blueprints/"+url.PathEscape(sess.ID)+"/artifacts/"+stage+"/"+strconv.Itoa(version), query)
+	h.proxyBlueprintRead(w, r, "/blueprints/"+url.PathEscape(sess.ID)+"/artifacts/"+stage+"/"+strconv.Itoa(version), query, nil)
 }
 
 // blueprintSliceQuery reads the optional slice parameter: absent forwards
