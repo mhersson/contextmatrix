@@ -210,9 +210,10 @@ board. Promote-to-autonomous lives in that tab.
   chat is gone). The sidebar marks blueprint sessions with an aqua
   drafting-compass icon. The pane header shows a blueprint's mode and cost cap,
   and the architect's spend from the blueprint view (the figure the scale bar
-  shows) where a chat's header shows its cost (the gateway's reported cost per turn, else CM's estimate from token counts). Once
-  the view loads, the header's mode is the view's too, so a switch the architect
-  refused never shows there. A blueprint created in plain language shows a Plain
+  shows) where a chat's header shows its cost (the gateway's reported cost per
+  turn, else CM's estimate from token counts). Once the view loads, the
+  header's mode is the view's too, so a switch the architect refused never
+  shows there. A blueprint created in plain language shows a Plain
   language badge beside the pill; once the view loads the badge follows the
   view, so an architect that does not run plain language shows none. The admin
   Chats page lists every session's kind, mode and cap as the session row holds
@@ -492,8 +493,9 @@ you, in the main area like the dashboard and playbooks.
   title with a status dot (green while active and yellow while warm-idle, as in
   the sidebar), the project or projects, the mode as stored (Blueprints only),
   the cost and the last activity. The cost follows the one-cost rule: a chat's
-  is CM's estimate from its token counts, a blueprint's is the architect's
-  recorded spend and "-" until one is recorded, never CM's estimate.
+  is the gateway's reported cost per turn, else CM's estimate from token
+  counts; a blueprint's is the architect's recorded spend and "-" until one is
+  recorded, never CM's estimate.
 - Clicking a row, or its title from the keyboard, opens the session as a pane
   on `/chat`, as the sidebar does. The tick box and the pin do not open it; the
   pin pins or unpins the session.

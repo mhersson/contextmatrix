@@ -361,10 +361,10 @@ Every mutation follows validate -> store write -> commit -> event publish. The
 heartbeat timeout checker lives here rather than in `lock` because it
 coordinates store, git and events; it also reaps abandoned parents (see
 [data model](data-model.md)). `CardService` satisfies `chat.Pricer`
-(`PriceTokens`), so chat usage frames without a gateway-reported cost use the same
-cache-tier formula as card-scoped `report_usage`, and holds a `chatCostSummarizer`
-(`SetChatCostSummarizer`) that `GetDashboard` calls to append server-wide
-chat-cost aggregates.
+(`PriceTokens`), so chat usage frames without a gateway-reported cost use the
+same cache-tier formula as card-scoped `report_usage`, and holds a
+`chatCostSummarizer` (`SetChatCostSummarizer`) that `GetDashboard` calls to
+append server-wide chat-cost aggregates.
 
 ### PlaybookService
 
@@ -407,13 +407,13 @@ order matches seq order.
   (one `message.usage` block per assistant turn, not cumulative totals).
   `handleUsageEntry` takes the frame's gateway-reported `cost_usd` when it is
   above 0 and prices through `chat.Pricer` only otherwise; existing figures
-  are not recomputed. It persists via `Store.IncrementSessionCost`, a single atomic `UPDATE ... RETURNING`. On
-  success a `session_updated` event carries the running totals
-  (`prompt_tokens`, `completion_tokens`, `cache_read_tokens`,
-  `cache_creation_tokens`, `estimated_cost_usd`); on persist error nothing is
-  published. `GetChatCostSummary` aggregates a 30-day UTC window and caches
-  it for 30 seconds (`chatCostCacheTTL`) so the All Projects view's
-  per-project dashboard fan-out does not amplify SQL.
+  are not recomputed. It persists via `Store.IncrementSessionCost`, a single
+  atomic `UPDATE ... RETURNING`. On success a `session_updated` event carries
+  the running totals (`prompt_tokens`, `completion_tokens`,
+  `cache_read_tokens`, `cache_creation_tokens`, `estimated_cost_usd`); on
+  persist error nothing is published. `GetChatCostSummary` aggregates a 30-day
+  UTC window and caches it for 30 seconds (`chatCostCacheTTL`) so the All
+  Projects view's per-project dashboard fan-out does not amplify SQL.
 - **Blueprint spend.** A blueprint's cost is the architect's
   `cost.spent_usd`, stored in `spent_usd`. The blueprint view proxy records it
   on every read, and an architect `idle` status frame makes CM re-read the
@@ -435,8 +435,8 @@ order matches seq order.
   the pool. The unique index on `(session_id, seq)` backs the in-memory seq
   cache. `DeleteSession` archives cost columns to `chat_cost_archive` before
   the hard delete, and `AggregateCost` unions both tables. Both use one cost
-  per session: a chat's cost (gateway-reported per frame, else the rate-table estimate), a blueprint's recorded `spent_usd` (0 until
-  recorded).
+  per session: a chat's cost (gateway-reported per frame, else the rate-table
+  estimate), a blueprint's recorded `spent_usd` (0 until recorded).
 - **IdleReaper.** Periodically ends `warm-idle` chat sessions older than the idle
   TTL (blueprints are exempt) and sweeps sessions stuck in rehydration past the
   rehydration timeout.
