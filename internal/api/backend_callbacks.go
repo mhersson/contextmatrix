@@ -141,7 +141,8 @@ func tokenExpiryString(t time.Time) string {
 }
 
 // getGitCredentials handles GET /api/<backend>/git-credentials - re-mints the
-// project-scoped git token for a running card. Long runs outlive ~1h GitHub
+// git token for a running card, scoped to the project's repository only (a
+// PAT is returned unchanged; an App token for an unparseable repo URL fails). Long runs outlive ~1h GitHub
 // App installation tokens, so the backend calls this mid-run to refresh.
 // HMAC-signed like every backend callback.
 //
@@ -190,7 +191,16 @@ func (h *backendHandlers) getGitCredentials(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	token, expiresAt, err := provider.GenerateToken(r.Context())
+	projectCfg, err := h.svc.GetProject(r.Context(), project)
+	if err != nil {
+		handleServiceError(w, r, err)
+
+		return
+	}
+
+	repoName, _ := repoNameFromURL(projectCfg.Repo)
+
+	token, expiresAt, err := provider.GenerateRepoToken(r.Context(), repoName)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, ErrCodeInternalError, "token mint failed", sanitizeErrorDetails(err))
 

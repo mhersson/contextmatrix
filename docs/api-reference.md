@@ -2161,7 +2161,9 @@ value decides whether the worker opens a pull request. The worker pushes its
 own `cm/<lowercase-card-id>` branch (`cm/<lowercase-card-id>-<KEY>` for a
 Jira-imported card, key uppercase); `report_push` afterward sets the stored
 `branch_name` to the worker-reported value. The trigger payload carries a
-project-scoped git token (`git_token`, `git_token_expires_at`) and the `llm_endpoint`.
+git token (`git_token`, `git_token_expires_at`) and the `llm_endpoint`. For a GitHub
+App credential the token covers the project's repository only; a PAT is passed
+through unchanged.
 
 Returns **202 Accepted** with the updated card (`worker_status: "queued"`) as
 soon as the backend webhook is accepted; the container is provisioned
@@ -2392,14 +2394,17 @@ is absent for PAT-backed credentials (no server-managed TTL; absent means
 
 ### GET /api/agent/git-credentials
 
-Re-mints the project-scoped git token mid-run - App installation tokens live
+Re-mints the git token mid-run - App installation tokens live
 about an hour while card runs can go far longer.
 
 Query parameters `project` and `card_id` are both required (400). The card
 must exist and have `worker_status: running`, so the endpoint is not a free
 token faucet. The token is minted from the project's `github_credential`
 binding (or the instance credential when unbound); a broken binding fails
-closed and never substitutes the instance credential.
+closed and never substitutes the instance credential. The token covers the
+project's repository only (the repository named by the project's `repo`); a PAT
+is returned unchanged, and an App credential whose project `repo` is not an
+`owner/repo` remote gets a 502.
 
 ```json
 { "token": "ghs_...", "expires_at": "2026-07-05T13:00:00Z" }
