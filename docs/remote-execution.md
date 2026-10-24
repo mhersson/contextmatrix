@@ -683,7 +683,7 @@ Signed GET with `project` and `card_id` query parameters. Re-mints the
 project-scoped git token so a long run can refresh past the GitHub App
 installation-token TTL. The card must exist and be `running` (`409`
 otherwise). A broken project binding fails closed with `409`; a mint failure
-is `502`. PAT-backed credentials carry no `expires_at`.
+is `502`. The token is scoped to the project's repo. PAT-backed credentials carry no `expires_at`.
 
 #### GET /api/agent/task-skills-source
 
@@ -892,10 +892,12 @@ Inside the agent:
 The task backend receives a short-lived `git_token` in `/trigger`. A GitHub
 App installation token lives about an hour and a run can outlast it, so the
 backend re-mints mid-run from `GET /api/agent/git-credentials` (card-scoped,
-fail-closed). PAT-backed credentials carry no expiry and need no refresh.
+fail-closed) and scoped to the project's repo. PAT-backed credentials carry no
+expiry and need no refresh.
 
 The chat backend uses no upfront token: a per-session bearer fetches per-repo
-credentials on demand from `GET /api/worker/git-credentials`. See the
+credentials on demand from `GET /api/worker/git-credentials`, each token
+scoped to the requested repo. See the
 [chat-start payload](#post-chat_urlchatstart) and the
 [API reference](api-reference.md#get-apiworkergit-credentials).
 

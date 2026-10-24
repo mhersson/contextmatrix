@@ -697,6 +697,7 @@ func main() {
 		AgentBackendCfg:        agentCfg,
 		MCPAPIKey:              cfg.MCPAPIKey,
 		GitHubTokenProvider:    tokenProvider,
+		WorkerDeniedRepoURLs:   workerDeniedRepoURLs(cfg, boards, taskSkillsGit),
 		TaskSkillsDir:          cfg.TaskSkills.Dir,
 		TaskSkillsGitRemoteURL: cfg.TaskSkills.GitRemoteURL,
 		GitHubAPIBaseURL:       ghAPIBase,

@@ -250,3 +250,28 @@ func TestBuildBoards_LeavesLeftoversWhenAutoCommitOff(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "seed", strings.TrimSpace(msg))
 }
+
+func TestWorkerDeniedRepoURLs(t *testing.T) {
+	dir := t.TempDir()
+	wireProject(t, dir, "alpha", "ALPHA")
+
+	cfg := &config.Config{Boards: config.Boards{wireEntry("one", dir)}}
+	cfg.TaskSkills.GitRemoteURL = "https://github.com/acme/task-skills.git"
+
+	boards, err := buildBoards(cfg, wireProvider(t), 30*time.Minute, clock.Real())
+	require.NoError(t, err)
+
+	defer func() {
+		for _, q := range boards.queues() {
+			_ = q.Close(t.Context())
+		}
+	}()
+
+	const origin = "https://github.com/acme/boards-by-hand.git"
+	require.NoError(t, boards.repos[0].git.AddRemote(t.Context(), "origin", origin))
+
+	got := workerDeniedRepoURLs(cfg, boards, nil)
+
+	assert.Contains(t, got, origin)
+	assert.Contains(t, got, "https://github.com/acme/task-skills.git")
+}

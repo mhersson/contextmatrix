@@ -164,9 +164,13 @@ type RouterConfig struct {
 	// AgentBackendCfg is the resolved agent backend entry. nil when Backend is
 	// nil; normalized to an empty config at construction so handlers can read
 	// fields without nil checks (an empty APIKey fails callback auth closed).
-	AgentBackendCfg        *config.AgentBackendConfig
-	MCPAPIKey              string
-	GitHubTokenProvider    githubauth.TokenGenerator
+	AgentBackendCfg     *config.AgentBackendConfig
+	MCPAPIKey           string
+	GitHubTokenProvider githubauth.TokenGenerator
+	// WorkerDeniedRepoURLs are the git remotes CM pushes to itself (boards,
+	// task-skills). The worker git-credentials endpoint refuses their repo
+	// names.
+	WorkerDeniedRepoURLs   []string
 	TaskSkillsDir          string // absolute path to the task-skills directory; empty disables the skills selector
 	TaskSkillsGitRemoteURL string // configured git remote URL for the task-skills repo; fallback when dir is not a checkout
 	GitHubAPIBaseURL       string
@@ -787,7 +791,14 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			liveness:           cfg.ChatManager,
 			providerForProject: cfg.ProviderForProject,
 			instanceProvider:   cfg.GitHubTokenProvider,
+			deniedRepoNames:    map[string]bool{},
 		}
+		for _, u := range cfg.WorkerDeniedRepoURLs {
+			if name, ok := repoNameFromURL(u); ok {
+				wch.deniedRepoNames[strings.ToLower(name)] = true
+			}
+		}
+
 		if cfg.Service != nil {
 			wch.listProjects = cfg.Service.ListProjects
 		}

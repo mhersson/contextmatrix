@@ -2450,9 +2450,15 @@ dots, and `.git` suffixes normalized) against every project's `repo` or
 `repos`; only an exact `owner/repo` match selects a project. A matched
 project resolves through its `github_credential` binding (fail-closed on a
 broken binding; an unbound project uses the instance credential). No match
-resolves to the instance-wide `github.*` credential. Both parameters omitted
-(the shape a repo-less `gh` call sends) skips matching and also resolves to
-the instance credential; exactly one present is 400.
+resolves to the instance-wide `github.*` credential. Either way the minted
+token covers only the requested repository (the bare repo name; a PAT is
+returned unchanged), never the whole installation. A request is refused with
+403 when both parameters are omitted, when `path` is not exactly
+`owner/repo`, or when the repo name is that of a repository CM pushes to
+itself (a boards repo or the task-skills repo). The deny check compares the
+bare name only, because GitHub scopes an installation token by name inside
+the installation's account: a same-named repo under another owner or host is
+refused too. Exactly one parameter present is 400.
 
 ```json
 { "username": "x-access-token", "token": "ghs_...", "expires_at": "2026-07-05T13:00:00Z" }
@@ -2465,11 +2471,12 @@ for PAT-backed credentials.
 | ------ | -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | 400    | `BAD_REQUEST`        | Exactly one of `host`/`path` is missing                                                                                    |
 | 401    | `UNAUTHORIZED`       | Bearer absent, malformed, fails the HMAC comparison against every configured key, or was minted for the other session kind |
+| 403    | `FORBIDDEN`          | Both `host`/`path` omitted, `path` is not `owner/repo`, or the repo name is a boards or task-skills repo                  |
 | 404    | `CHAT_NOT_FOUND`     | The session id embedded in the bearer does not exist                                                                       |
 | 409    | `WORKER_NOT_RUNNING` | The session exists but is cold (chat container gone, or blueprint ended)                                                   |
 | 409    | `VALIDATION_ERROR`   | Matched project's binding is broken, or no provider is configured at all                                                   |
 | 500    | `INTERNAL_ERROR`     | Session-liveness lookup failed for another reason                                                                          |
-| 502    | `INTERNAL_ERROR`     | A provider resolved but minting failed                                                                                     |
+| 502    | `INTERNAL_ERROR`     | A provider resolved but the scoped mint failed                                                                             |
 
 Neither the bearer nor any minted token is ever logged or echoed in
 `details`. The route is registered when the chat manager is wired and at

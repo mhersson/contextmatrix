@@ -59,7 +59,7 @@ shape when execution should be isolated from the coordination layer.
 
 Workers obtain project-repo access from CM at run time: the agent backend
 refreshes the running card's token from `GET /api/agent/git-credentials` into
-`/run/cm-secrets`; chat workers fetch a per-repo token with their per-session
+`/run/cm-secrets`; chat workers fetch a token scoped to the requested repo with their per-session
 bearer from `GET /api/worker/git-credentials`. If the VM cannot reach CM,
 workers cannot clone.
 
