@@ -192,6 +192,22 @@ jobs:
         with:
           dockerfile: Dockerfile
 
+      # A case-insensitive checkout (macOS) resolves two paths, or two module
+      # names (a file name without its extension), that differ only in case
+      # to one file; a Linux build never notices.
+      - name: No paths that differ only in case
+        env:
+          LC_ALL: C
+        run: |
+          clashes=$(git ls-files \
+            | awk -F/ '{ p = ""; for (i = 1; i <= NF; i++) { p = p (i > 1 ? "/" : "") $i; n = p; if (i == NF) sub(/\.[^.\/]*$/, "", n); print n } }' \
+            | sort -u | sort -f | uniq -Di)
+          if [ -n "$clashes" ]; then
+            echo "::error::Paths that differ only in case (extensions dropped):"
+            echo "$clashes"
+            exit 1
+          fi
+
   image-scan:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest

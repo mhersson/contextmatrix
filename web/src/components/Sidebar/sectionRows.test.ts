@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SECTION_ROW_CAP, sectionRows } from './sessionSections';
+import { SECTION_ROW_CAP, sectionRows } from './sectionRows';
 import type { ChatSession, ChatStatus, SessionKind } from '../../types';
 
 function s(

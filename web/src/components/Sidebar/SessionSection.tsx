@@ -5,7 +5,7 @@ import { useSessionPin } from '../../hooks/useSessionPin';
 import { SESSIONS_TAB } from '../../lib/sessions';
 import { safeGetString, safeSetString } from '../../utils/safeStorage';
 import type { ChatSession, SessionKind } from '../../types';
-import { sectionRows } from './sessionSections';
+import { sectionRows } from './sectionRows';
 import { SessionRow } from './SessionRow';
 
 const SECTIONS = {
