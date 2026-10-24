@@ -571,6 +571,7 @@ func TestGetWorkerGitCredentials_Refusals_NeverMint(t *testing.T) {
 		{name: "denied boards other owner and case", host: "github.com", path: "someone-else/BOARDS"},
 		{name: "denied task-skills other host", host: "evil.example", path: "x/task-skills"},
 		{name: "denied with git suffix", host: "github.com", path: "/acme/boards.git/"},
+		{name: "double git suffix", host: "github.com", path: "acme/boards.git.git"},
 	}
 
 	for _, tt := range tests {
@@ -1136,4 +1137,24 @@ func TestWorkerGitCredentials_RegisteredWithArchitectBackendOnly(t *testing.T) {
 			assert.Equal(t, tt.want, resp.StatusCode)
 		})
 	}
+}
+
+func TestNewWorkerCredentialsHandlers_WiresDenyList(t *testing.T) {
+	instanceProvider := &countingTokenProvider{inner: &fakeTokenProvider{token: "instance-token"}}
+
+	h := newWorkerCredentialsHandlers(RouterConfig{
+		ChatWorkerAPIKey:     "chat-key",
+		GitHubTokenProvider:  instanceProvider,
+		WorkerDeniedRepoURLs: []string{"https://github.com/acme/boards.git"},
+	}, "")
+	h.liveness = &stubSessionLiveness{live: true}
+
+	rec := doWorkerGitCredentialsRequest(t, h, WorkerCredentialsToken("chat-key", "sess-1"), "github.com", "acme/boards")
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeForbidden, apiErr.Code)
+	assert.Zero(t, instanceProvider.calls.Load())
+	assert.Zero(t, instanceProvider.repoCalls.Load())
 }

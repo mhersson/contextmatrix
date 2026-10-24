@@ -100,6 +100,12 @@ func (c *CachingProvider) GenerateRepoToken(ctx context.Context, repo string) (s
 		return "", time.Time{}, err
 	}
 
+	// A non-expiring token (PAT) needs no cache, and caching it would grow the
+	// map with every caller-chosen name.
+	if exp.Equal(patExpiry) {
+		return token, exp, nil
+	}
+
 	c.repoTokens[key] = cachedToken{token: token, expires: exp}
 
 	return token, exp, nil

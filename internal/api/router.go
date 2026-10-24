@@ -785,18 +785,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	}
 
 	if cfg.ChatManager != nil && (cfg.ChatWorkerAPIKey != "" || architectWorkerAPIKey != "") {
-		wch := &workerCredentialsHandlers{
-			chatAPIKey:         cfg.ChatWorkerAPIKey,
-			architectAPIKey:    architectWorkerAPIKey,
-			liveness:           cfg.ChatManager,
-			providerForProject: cfg.ProviderForProject,
-			instanceProvider:   cfg.GitHubTokenProvider,
-			deniedRepoNames:    workerDeniedRepoNames(cfg.WorkerDeniedRepoURLs),
-		}
-
-		if cfg.Service != nil {
-			wch.listProjects = cfg.Service.ListProjects
-		}
+		wch := newWorkerCredentialsHandlers(cfg, architectWorkerAPIKey)
 
 		mux.HandleFunc("GET /api/worker/git-credentials", wch.getGitCredentials)
 	}
@@ -1349,4 +1338,23 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 // handleHealthz responds to health checks.
 func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// newWorkerCredentialsHandlers wires the worker git-credentials handlers from
+// the router config; a function so a test can pin the deny-list wiring.
+func newWorkerCredentialsHandlers(cfg RouterConfig, architectKey string) *workerCredentialsHandlers {
+	wch := &workerCredentialsHandlers{
+		chatAPIKey:         cfg.ChatWorkerAPIKey,
+		architectAPIKey:    architectKey,
+		liveness:           cfg.ChatManager,
+		providerForProject: cfg.ProviderForProject,
+		instanceProvider:   cfg.GitHubTokenProvider,
+		deniedRepoNames:    workerDeniedRepoNames(cfg.WorkerDeniedRepoURLs),
+	}
+
+	if cfg.Service != nil {
+		wch.listProjects = cfg.Service.ListProjects
+	}
+
+	return wch
 }

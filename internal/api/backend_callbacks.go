@@ -142,9 +142,9 @@ func tokenExpiryString(t time.Time) string {
 
 // getGitCredentials handles GET /api/<backend>/git-credentials - re-mints the
 // git token for a running card, scoped to the project's repository only (a
-// PAT is returned unchanged; an App token for an unparseable repo URL fails). Long runs outlive ~1h GitHub
-// App installation tokens, so the backend calls this mid-run to refresh.
-// HMAC-signed like every backend callback.
+// PAT is returned unchanged; an App token for an unparseable repo URL fails).
+// Long runs outlive ~1h GitHub App installation tokens, so the backend calls
+// this mid-run to refresh. HMAC-signed like every backend callback.
 //
 // Fail-closed on the project binding, mirroring rejectLaunchForCredentialFailure:
 // a broken/unresolvable providerForProject NEVER falls back to the instance

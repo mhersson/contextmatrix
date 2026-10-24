@@ -259,3 +259,22 @@ func TestCachingProvider_RepoTokens(t *testing.T) {
 		assert.Equal(t, int32(2), inner.repoCalls.Load())
 	})
 }
+
+func TestCachingProvider_GenerateRepoToken_DoesNotCacheNonExpiringToken(t *testing.T) {
+	pat, err := NewPATProvider("pat-token")
+	require.NoError(t, err)
+
+	c := NewCachingProvider(pat)
+
+	for i := range 5 {
+		tok, exp, err := c.GenerateRepoToken(context.Background(), fmt.Sprintf("repo-%d", i))
+		require.NoError(t, err)
+		assert.Equal(t, "pat-token", tok)
+		assert.True(t, exp.Equal(patExpiry))
+	}
+
+	c.repoMu.Lock()
+	defer c.repoMu.Unlock()
+
+	assert.Empty(t, c.repoTokens)
+}

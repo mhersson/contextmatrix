@@ -7,10 +7,12 @@ import (
 
 // repoNameFromPath returns the repository name from an owner/repo path that
 // normalizeWorkerRepoPath has already normalized. Anything but exactly two
-// non-empty segments is not ok.
+// non-empty segments is not ok, nor is a name still ending in ".git" (a
+// doubled suffix must not slip past the deny list as "boards.git").
 func repoNameFromPath(path string) (string, bool) {
 	owner, name, found := strings.Cut(path, "/")
-	if !found || owner == "" || name == "" || strings.Contains(name, "/") {
+	if !found || owner == "" || name == "" || strings.Contains(name, "/") ||
+		strings.HasSuffix(strings.ToLower(name), ".git") {
 		return "", false
 	}
 

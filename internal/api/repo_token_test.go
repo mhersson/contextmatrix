@@ -45,6 +45,8 @@ func TestRepoNameFromURL(t *testing.T) {
 		{"local path", "/srv/repos/widgets", "", false},
 		{"owner only", "https://github.com/acme", "", false},
 		{"single segment", "http://host.docker.internal:9999/work.git", "", false},
+		{"double git suffix", "https://github.com/acme/boards.git.git", "", false},
+		{"double git suffix mixed case", "https://github.com/acme/boards.GIT.git", "", false},
 		{"nested path", "https://gitlab.example/g/sub/widgets", "", false},
 	}
 
