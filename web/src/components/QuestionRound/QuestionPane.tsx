@@ -65,7 +65,7 @@ export function QuestionPane({ round, question, draft, own, mode, expanded, onOp
               disabled={mode !== 'open'}
               onChange={(e) => onOwn(e.target.value)}
             />
-            <ByteCount bytes={utf8Length(own.trim())} max={ROUND_ANSWER_MAX_BYTES} className="mt-1" />
+            <ByteCount bytes={utf8Length(own.trim())} max={ROUND_ANSWER_MAX_BYTES} className="mt-1" tint />
           </div>
         </div>
       </div>

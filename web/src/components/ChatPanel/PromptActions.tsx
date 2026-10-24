@@ -200,7 +200,7 @@ export function PromptActions({ prompt, status, answer, onReply, recommendedPrim
             >
               Cancel
             </button>
-            <ByteCount bytes={feedbackBytes} max={BLUEPRINT_MESSAGE_MAX_BYTES} className="ml-auto self-center px-1 rounded" tint />
+            <ByteCount bytes={feedbackBytes} max={BLUEPRINT_MESSAGE_MAX_BYTES} className="ml-auto self-center" tint />
           </div>
         </div>
       )}

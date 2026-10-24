@@ -1,4 +1,5 @@
-import { formatBytes, ROUND_ANSWER_MAX_BYTES, utf8Length } from '../ChatPanel/chatEntryUtils';
+import { ByteCount } from '../ChatPanel/ByteCount';
+import { ROUND_ANSWER_MAX_BYTES, utf8Length } from '../ChatPanel/chatEntryUtils';
 import type { Round } from './parseRound';
 import { answerLabel, answeredCount, effectiveAnswer, effectiveDecision, hasUnsent, itemCount, type RoundDraft } from './roundDraft';
 import type { RoundMode } from './roundView';
@@ -37,8 +38,8 @@ export function SubmitPane({ round, draft, mode, phase, error, onSend }: SubmitP
               {!a ? (
                 <td className="missing">not answered</td>
               ) : bytes > ROUND_ANSWER_MAX_BYTES ? (
-                <td className="missing">
-                  {formatBytes(bytes)} / {formatBytes(ROUND_ANSWER_MAX_BYTES)}, too long to send
+                <td>
+                  <ByteCount bytes={bytes} max={ROUND_ANSWER_MAX_BYTES} className="inline-block" tint />, too long to send
                 </td>
               ) : (
                 <td>{answerLabel(q, a)}</td>

@@ -14,7 +14,7 @@ export function ByteCount({ bytes, max, className = '', tint = false }: ByteCoun
   const tone = bytes > max ? 'red' : 'yellow';
   const style = tint ? { background: `var(--bg-${tone})`, color: 'var(--fg)' } : { color: `var(--${tone})` };
   return (
-    <div className={`text-xs font-mono ${className}`} style={style}>
+    <div className={`text-xs font-mono ${tint ? 'w-fit px-1 rounded ' : ''}${className}`} style={style}>
       {formatBytes(bytes)} / {formatBytes(max)}
     </div>
   );

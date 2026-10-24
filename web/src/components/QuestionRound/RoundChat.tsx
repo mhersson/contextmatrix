@@ -113,7 +113,7 @@ export function RoundChat({ round, disabled, sent = [], onSendChat }: RoundChatP
                 {sending ? 'Sending…' : 'Send'}
               </button>
             </div>
-            <ByteCount bytes={bytes} max={BLUEPRINT_MESSAGE_MAX_BYTES} className="mt-1" />
+            <ByteCount bytes={bytes} max={BLUEPRINT_MESSAGE_MAX_BYTES} className="mt-1" tint />
             {error && (
               <div role="alert" className="qb-error">
                 {error}
