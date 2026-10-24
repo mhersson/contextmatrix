@@ -485,9 +485,9 @@ you, in the main area like the dashboard and playbooks.
   value opens Chats.
 - Search matches titles, ignoring case. The filters are Project (a chat's
   project, or any project in a blueprint's workspace), Status (live is active
-  or warm-idle, idle is everything else) and Pinned only; they combine. A tab
-  without sessions and filters that hide every row each show an empty state,
-  the latter with Clear filters.
+  or warm-idle, not live is everything else) and Pinned only; they combine. A
+  tab without sessions and filters that hide every row each show an empty
+  state, the latter with Clear filters.
 - Rows sort newest activity first. The columns are a tick box, the pin, the
   title with a status dot (green while active and yellow while warm-idle, as in
   the sidebar), the project or projects, the mode as stored (Blueprints only),

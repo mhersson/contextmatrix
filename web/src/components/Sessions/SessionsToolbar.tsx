@@ -46,7 +46,7 @@ export function SessionsToolbar({ sessions, filter, onChange }: SessionsToolbarP
         >
           <option value="any">any</option>
           <option value="live">live</option>
-          <option value="idle">idle</option>
+          <option value="idle">not live</option>
         </select>
       </label>
       <button

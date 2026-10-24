@@ -1,6 +1,9 @@
 import type { ChatSession, ChatStatus, SessionKind } from '../types';
 import { formatCost } from './format';
 
+/** The `?tab=` value of each kind's Sessions page tab. */
+export const SESSIONS_TAB: Record<SessionKind, string> = { chat: 'chats', architect: 'blueprints' };
+
 export function sessionKind(s: ChatSession): SessionKind {
   return s.kind === 'architect' ? 'architect' : 'chat';
 }

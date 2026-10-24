@@ -2,6 +2,7 @@ import { useId, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useMobileSidebar } from '../../context/MobileSidebarContext';
 import { useSessionPin } from '../../hooks/useSessionPin';
+import { SESSIONS_TAB } from '../../lib/sessions';
 import { safeGetString, safeSetString } from '../../utils/safeStorage';
 import type { ChatSession, SessionKind } from '../../types';
 import { sectionRows } from './sessionSections';
@@ -13,7 +14,6 @@ const SECTIONS = {
     storageKey: 'sidebar.chat_section_collapsed',
     empty: 'No chats yet.',
     all: 'All chats',
-    tab: 'chats',
     newLabel: 'New chat',
   },
   architect: {
@@ -21,7 +21,6 @@ const SECTIONS = {
     storageKey: 'sidebar.blueprint_section_collapsed',
     empty: 'No blueprints yet.',
     all: 'All blueprints',
-    tab: 'blueprints',
     newLabel: 'New blueprint',
   },
 } as const;
@@ -103,7 +102,7 @@ export function SessionSection({ kind, sessions, onNew, loaded = true }: Session
                   />
                 ))}
               </ul>
-              <Link to={`/sessions?tab=${cfg.tab}`} onClick={mobileSidebar.close} className="sb-all">
+              <Link to={`/sessions?tab=${SESSIONS_TAB[kind]}`} onClick={mobileSidebar.close} className="sb-all">
                 <span>
                   {cfg.all} <span aria-hidden="true">→</span>
                 </span>

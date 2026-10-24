@@ -4,7 +4,7 @@ import { api } from '../../api/client';
 import { notifyChatSessionsChanged, useChatSessions } from '../../hooks/useChatSessions';
 import { useSessionPin } from '../../hooks/useSessionPin';
 import { useToast } from '../../hooks/useToast';
-import { sessionKind } from '../../lib/sessions';
+import { SESSIONS_TAB, sessionKind } from '../../lib/sessions';
 import type { SessionKind } from '../../types';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 import { PageBar } from '../SidebarMenuButton/PageBar';
@@ -15,13 +15,11 @@ import { SESSIONS_PANEL_ID, SessionsTabs } from './SessionsTabs';
 import { SessionsTable } from './SessionsTable';
 import { SessionsToolbar } from './SessionsToolbar';
 
-const TAB_PARAM: Record<SessionKind, string> = { chat: 'chats', architect: 'blueprints' };
-
 const plural = (n: number) => `${n} session${n === 1 ? '' : 's'}`;
 
 export function SessionsPage() {
   const [params, setParams] = useSearchParams();
-  const tab: SessionKind = params.get('tab') === TAB_PARAM.architect ? 'architect' : 'chat';
+  const tab: SessionKind = params.get('tab') === SESSIONS_TAB.architect ? 'architect' : 'chat';
   const navigate = useNavigate();
   const { sessions, error, loaded } = useChatSessions();
   const pin = useSessionPin();
@@ -50,7 +48,7 @@ export function SessionsPage() {
   const switchTab = (next: SessionKind) => {
     setParams((prev) => {
       const p = new URLSearchParams(prev);
-      p.set('tab', TAB_PARAM[next]);
+      p.set('tab', SESSIONS_TAB[next]);
       return p;
     }, { replace: true });
   };
