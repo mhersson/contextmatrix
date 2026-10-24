@@ -2608,10 +2608,10 @@ Returns the session. `404 CHAT_NOT_FOUND` if unknown.
 
 ### PATCH /api/chats/{id}
 
-Renames and/or pins a session. Both fields are optional. Pinning writes only
-the pin, so `last_active`, `status` and `container_id` stay as they were. Body
-is decoded before the ownership check, so bad JSON is 400 even for an unknown
-id.
+Renames and/or pins a session. Both fields are optional; with neither, nothing
+is written and the session comes back unchanged. Pinning writes only the pin,
+so `last_active`, `status` and `container_id` stay as they were. Body is
+decoded before the ownership check, so bad JSON is 400 even for an unknown id.
 
 ```json
 { "title": "Renamed: auth-flow regression", "pinned": true }

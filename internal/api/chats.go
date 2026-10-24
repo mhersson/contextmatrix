@@ -890,10 +890,8 @@ func (h *chatHandlers) patchChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if body.Title != nil || body.Pinned == nil {
-		if body.Title != nil {
-			sess.Title = *body.Title
-		}
+	if body.Title != nil {
+		sess.Title = *body.Title
 
 		if err := h.mgr.UpdateSessionMetadata(r.Context(), sess); err != nil {
 			handleChatError(w, r, err)
