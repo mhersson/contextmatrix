@@ -22,7 +22,7 @@ const sessionColumns = `id, title, project, status, created_at, last_active, cre
     container_id, workspace, model, context_tokens, context_tokens_updated_at, rehydration_active,
     rehydration_started_at, prompt_tokens, completion_tokens, cache_read_tokens,
     cache_creation_tokens, estimated_cost_usd, kind, mode, cost_cap_usd, plain_language,
-    origin_chat, origin_seq`
+    origin_chat, origin_seq, pinned, spent_usd`
 
 func (s *Store) CreateSession(ctx context.Context, sess chat.Session) error {
 	workspaceJSON, err := json.Marshal(sess.Workspace)
@@ -272,6 +272,45 @@ func (s *Store) UpdateSessionCostCap(ctx context.Context, sessionID string, capU
 		capUSD, sessionID)
 	if err != nil {
 		return fmt.Errorf("chat: update session cost cap: %w", err)
+	}
+
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return chat.ErrSessionNotFound
+	}
+
+	return nil
+}
+
+// UpdateSessionPinned writes only the pinned column, so pinning never moves
+// last_active or races a status flip.
+func (s *Store) UpdateSessionPinned(ctx context.Context, sessionID string, pinned bool) error {
+	v := 0
+	if pinned {
+		v = 1
+	}
+
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE chat_sessions SET pinned = ? WHERE id = ?`, v, sessionID)
+	if err != nil {
+		return fmt.Errorf("chat: update session pinned: %w", err)
+	}
+
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return chat.ErrSessionNotFound
+	}
+
+	return nil
+}
+
+// UpdateSessionSpend writes only the spent_usd column (a recorded zero is
+// distinct from the NULL of never recorded).
+func (s *Store) UpdateSessionSpend(ctx context.Context, sessionID string, spentUSD float64) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE chat_sessions SET spent_usd = ? WHERE id = ?`, spentUSD, sessionID)
+	if err != nil {
+		return fmt.Errorf("chat: update session spend: %w", err)
 	}
 
 	n, _ := res.RowsAffected()
@@ -573,6 +612,8 @@ func scanSession(sc scanner) (chat.Session, error) {
 		kind, mode                  string
 		costCapUSD                  float64
 		plainLanguage               int
+		pinned                      int
+		spentUSD                    sql.NullFloat64
 	)
 
 	if err := sc.Scan(
@@ -582,7 +623,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 		&rehydrationStartedAt,
 		&promptTokens, &completionTokens, &cacheReadTokens, &cacheCreationTokens,
 		&estimatedCostUSD, &kind, &mode, &costCapUSD, &plainLanguage,
-		&s.OriginChat, &s.OriginSeq,
+		&s.OriginChat, &s.OriginSeq, &pinned, &spentUSD,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return chat.Session{}, chat.ErrSessionNotFound
@@ -598,6 +639,13 @@ func scanSession(sc scanner) (chat.Session, error) {
 	s.Mode = mode
 	s.CostCapUSD = costCapUSD
 	s.PlainLanguage = plainLanguage != 0
+	s.Pinned = pinned != 0
+
+	if spentUSD.Valid {
+		v := spentUSD.Float64
+		s.SpentUSD = &v
+	}
+
 	s.CreatedAt = time.Unix(createdAt, 0).UTC()
 	s.LastActive = time.Unix(lastActive, 0).UTC()
 	s.Model = model.String

@@ -62,6 +62,14 @@ type Store interface {
 	// ErrSessionNotFound if no row matches.
 	UpdateSessionCostCap(ctx context.Context, sessionID string, capUSD float64) error
 
+	// UpdateSessionPinned writes only the pinned column. Returns
+	// ErrSessionNotFound if no row matches.
+	UpdateSessionPinned(ctx context.Context, sessionID string, pinned bool) error
+
+	// UpdateSessionSpend writes only the spent_usd column. Returns
+	// ErrSessionNotFound if no row matches.
+	UpdateSessionSpend(ctx context.Context, sessionID string, spentUSD float64) error
+
 	// UpdateSessionMode writes only the mode column. Returns
 	// ErrSessionNotFound if no row matches.
 	UpdateSessionMode(ctx context.Context, sessionID, mode string) error

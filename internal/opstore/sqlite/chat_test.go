@@ -1060,3 +1060,96 @@ func TestStore_LastSeqOfKind(t *testing.T) {
 		assert.Equal(t, want, got, kind)
 	}
 }
+
+func TestUpdateSessionPinned_WritesOnlyThePin(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	last := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
+
+	sess := sessionRow("P1")
+	sess.Status = chat.StatusActive
+	sess.ContainerID = "c1"
+	sess.LastActive = last
+	sess.Title = "keep"
+	require.NoError(t, s.CreateSession(ctx, sess))
+
+	require.NoError(t, s.UpdateSessionPinned(ctx, "P1", true))
+
+	got, err := s.GetSession(ctx, "P1")
+	require.NoError(t, err)
+	assert.True(t, got.Pinned)
+	assert.Equal(t, chat.StatusActive, got.Status)
+	assert.Equal(t, "c1", got.ContainerID)
+	assert.True(t, last.Equal(got.LastActive))
+	assert.Equal(t, "keep", got.Title)
+
+	list, err := s.ListSessions(ctx, chat.SessionFilter{})
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.True(t, list[0].Pinned)
+
+	require.NoError(t, s.UpdateSessionPinned(ctx, "P1", false))
+
+	got, err = s.GetSession(ctx, "P1")
+	require.NoError(t, err)
+	assert.False(t, got.Pinned)
+
+	assert.ErrorIs(t, s.UpdateSessionPinned(ctx, "missing", true), chat.ErrSessionNotFound)
+}
+
+func TestUpdateSessionSpend_RecordsAndOverwrites(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	sess := sessionRow("S1")
+	sess.Kind = chat.KindArchitect
+	require.NoError(t, s.CreateSession(ctx, sess))
+
+	_, _, _, _, _, err := s.IncrementSessionCost(ctx, "S1", 1, 1, 0, 0, 0.5, "m")
+	require.NoError(t, err)
+
+	got, err := s.GetSession(ctx, "S1")
+	require.NoError(t, err)
+	assert.Nil(t, got.SpentUSD)
+
+	require.NoError(t, s.UpdateSessionSpend(ctx, "S1", 1.25))
+
+	got, err = s.GetSession(ctx, "S1")
+	require.NoError(t, err)
+	require.NotNil(t, got.SpentUSD)
+	assert.InDelta(t, 1.25, *got.SpentUSD, 1e-9)
+	assert.InDelta(t, 0.5, got.EstimatedCostUSD, 1e-9)
+
+	require.NoError(t, s.UpdateSessionSpend(ctx, "S1", 0))
+
+	got, err = s.GetSession(ctx, "S1")
+	require.NoError(t, err)
+	require.NotNil(t, got.SpentUSD)
+	assert.Zero(t, *got.SpentUSD)
+
+	assert.ErrorIs(t, s.UpdateSessionSpend(ctx, "missing", 1), chat.ErrSessionNotFound)
+}
+
+func TestUpdateSession_KeepsPinAndSpend(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	sess := sessionRow("K1")
+	sess.Kind = chat.KindArchitect
+	require.NoError(t, s.CreateSession(ctx, sess))
+	require.NoError(t, s.UpdateSessionPinned(ctx, "K1", true))
+	require.NoError(t, s.UpdateSessionSpend(ctx, "K1", 2.0))
+
+	got, err := s.GetSession(ctx, "K1")
+	require.NoError(t, err)
+
+	got.Title = "renamed"
+	require.NoError(t, s.UpdateSession(ctx, got))
+
+	got, err = s.GetSession(ctx, "K1")
+	require.NoError(t, err)
+	assert.Equal(t, "renamed", got.Title)
+	assert.True(t, got.Pinned)
+	require.NotNil(t, got.SpentUSD)
+	assert.InDelta(t, 2.0, *got.SpentUSD, 1e-9)
+}

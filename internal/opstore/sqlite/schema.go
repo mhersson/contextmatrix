@@ -64,7 +64,9 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			cost_cap_usd              REAL NOT NULL DEFAULT 0,
 			plain_language            INTEGER NOT NULL DEFAULT 0,
 			origin_chat               TEXT NOT NULL DEFAULT '',
-			origin_seq                INTEGER NOT NULL DEFAULT 0
+			origin_seq                INTEGER NOT NULL DEFAULT 0,
+			pinned                    INTEGER NOT NULL DEFAULT 0,
+			spent_usd                 REAL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_sessions_last_active ON chat_sessions(last_active)`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_sessions_status ON chat_sessions(status)`,
@@ -149,6 +151,8 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		{"plain_language", "INTEGER NOT NULL DEFAULT 0"},
 		{"origin_chat", "TEXT NOT NULL DEFAULT ''"},
 		{"origin_seq", "INTEGER NOT NULL DEFAULT 0"},
+		{"pinned", "INTEGER NOT NULL DEFAULT 0"},
+		{"spent_usd", "REAL"},
 	} {
 		if err := addColumnIfMissing(ctx, db, "chat_sessions", col.name, col.decl); err != nil {
 			return err

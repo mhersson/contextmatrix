@@ -75,8 +75,12 @@ type Session struct {
 	PlainLanguage bool `json:"plain_language,omitempty"`
 	// OriginChat and OriginSeq name the chat and its handoff row a blueprint
 	// was started from; empty and 0 otherwise. Set at creation, never changed.
-	OriginChat             string    `json:"origin_chat,omitempty"`
-	OriginSeq              int64     `json:"origin_seq,omitempty"`
+	OriginChat string `json:"origin_chat,omitempty"`
+	OriginSeq  int64  `json:"origin_seq,omitempty"`
+	// Pinned keeps the session in its sidebar section. SpentUSD is the
+	// architect's recorded spend; nil until CM records it.
+	Pinned                 bool      `json:"pinned,omitempty"`
+	SpentUSD               *float64  `json:"spent_usd,omitempty"`
 	Status                 Status    `json:"status"`
 	CreatedAt              time.Time `json:"created_at"`
 	LastActive             time.Time `json:"last_active"`

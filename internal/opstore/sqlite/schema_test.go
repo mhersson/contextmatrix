@@ -331,3 +331,41 @@ func indexExists(t *testing.T, db *sql.DB, name string) bool {
 
 	return n > 0
 }
+
+func TestEnsureSchema_AddsPinAndSpendWithoutABump(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ops.db")
+
+	s, err := Open(path)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	db, err := sql.Open("sqlite", sqliteutil.DSN(path, sqliteutil.WithForeignKeys()))
+	require.NoError(t, err)
+	_, err = db.Exec("ALTER TABLE chat_sessions DROP COLUMN pinned")
+	require.NoError(t, err)
+	_, err = db.Exec("ALTER TABLE chat_sessions DROP COLUMN spent_usd")
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	s2, err := Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s2.Close() })
+
+	assert.True(t, columnExists(t, s2.db, "chat_sessions", "pinned"))
+	assert.True(t, columnExists(t, s2.db, "chat_sessions", "spent_usd"))
+
+	var v int
+
+	require.NoError(t, s2.db.QueryRow("PRAGMA user_version").Scan(&v))
+	assert.Equal(t, schemaVersion, v)
+
+	_, err = s2.db.Exec(`INSERT INTO chat_sessions
+		(id, title, status, created_at, last_active, created_by)
+		VALUES ('OLD', 'old', 'cold', 1, 1, 'human:web')`)
+	require.NoError(t, err)
+
+	old, err := s2.GetSession(context.Background(), "OLD")
+	require.NoError(t, err)
+	assert.False(t, old.Pinned)
+	assert.Nil(t, old.SpentUSD)
+}

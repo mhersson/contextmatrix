@@ -1223,6 +1223,8 @@ and a unique index on `(session_id, seq)`.
 | `plain_language`            | INTEGER | `0`     | `1` for an architect session created in plain language; never changed after creation. |
 | `origin_chat`               | TEXT    | `''`    | The chat a blueprint was started from; empty otherwise. Never changed after creation. |
 | `origin_seq`                | INTEGER | `0`     | The `handoff` row in `origin_chat` the blueprint was started from; `0` otherwise. |
+| `pinned`                    | INTEGER | `0`     | `1` keeps the session in its sidebar section. |
+| `spent_usd`                 | REAL    | `NULL`  | The architect's recorded spend for a blueprint; `NULL` until CM first reads the blueprint view. |
 
 A partial unique index on `(origin_chat, origin_seq) WHERE origin_chat != ''`
 allows one blueprint per hand-off; deleting the blueprint frees the hand-off.
