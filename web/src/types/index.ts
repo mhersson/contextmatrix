@@ -900,12 +900,14 @@ export interface SelectorPreview {
 
 export type ChatStatus = 'cold' | 'active' | 'warm-idle' | 'ending';
 
+export type SessionKind = 'chat' | 'architect';
+
 export interface ChatSession {
   id: string;
   title: string;
   project?: string;
   /** Session kind; absent on servers older than the architect backend (treat as 'chat'). */
-  kind?: 'chat' | 'architect';
+  kind?: SessionKind;
   /** Architect autonomy mode; architect sessions only. */
   mode?: string;
   /** Architect cost cap in USD; architect sessions only. */
@@ -932,6 +934,10 @@ export interface ChatSession {
   cache_creation_tokens?: number;
   /** Running total in USD. Precision floor ~$0.0001. */
   estimated_cost_usd?: number;
+  /** Pinned sessions stay in the sidebar; omitted when false. */
+  pinned?: boolean;
+  /** Architect sessions only: the spend CM recorded from the architect; absent until recorded (0 is a recorded 0). */
+  spent_usd?: number;
   /** True while a turn is in flight for this session. In-memory server state. */
   assistant_working?: boolean;
   /** RFC3339 UTC start of the in-flight turn. Absent when not working. */

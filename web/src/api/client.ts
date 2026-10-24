@@ -604,6 +604,14 @@ class APIClient {
     });
   }
 
+  /** Renames and/or pins a session; pinning leaves last_active alone. */
+  async updateChat(id: string, patch: { title?: string; pinned?: boolean }): Promise<ChatSession> {
+    return this.request<ChatSession>(`/chats/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+  }
+
   /** Sets a blueprint session's cost cap in USD (0 removes it); the architect's republished view carries the new cap. */
   async setChatCostCap(id: string, costCapUSD: number): Promise<ChatSession> {
     return this.request<ChatSession>(`/chats/${encodeURIComponent(id)}/cap`, {

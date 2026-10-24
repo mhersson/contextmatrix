@@ -1,0 +1,25 @@
+import type { ChatSession, SessionKind } from '../types';
+import { formatCost } from './format';
+
+export function sessionKind(s: ChatSession): SessionKind {
+  return s.kind === 'architect' ? 'architect' : 'chat';
+}
+
+export function isLive(s: ChatSession): boolean {
+  return s.status === 'active' || s.status === 'warm-idle';
+}
+
+export function sessionProjects(s: ChatSession): string[] {
+  if (sessionKind(s) === 'architect') return s.workspace ?? [];
+  return s.project ? [s.project] : [];
+}
+
+/** A blueprint's cost is the architect's recorded spend, never CM's estimate; undefined until recorded. */
+export function sessionCostUSD(s: ChatSession): number | undefined {
+  return sessionKind(s) === 'architect' ? s.spent_usd : (s.estimated_cost_usd ?? 0);
+}
+
+export function formatSessionCost(s: ChatSession): string {
+  const v = sessionCostUSD(s);
+  return v === undefined ? '-' : formatCost(v);
+}

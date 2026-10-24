@@ -195,7 +195,7 @@ board. Promote-to-autonomous lives in that tab.
   language badge beside the pill; once the view loads the badge follows the
   view, so an architect that does not run plain language shows none. The admin
   Chats page lists every session's kind, mode and cap as the session row holds
-  them. The architect's questions and gates show reply buttons under the
+  them, and its cost: a blueprint's being the architect's recorded spend. The architect's questions and gates show reply buttons under the
   message. On a plain-language blueprint a prompt reads in plain words with
   plain buttons (such as Continue anyway and Stop) that send the architect's
   usual replies, and its technical text is folded under a Technical detail line.

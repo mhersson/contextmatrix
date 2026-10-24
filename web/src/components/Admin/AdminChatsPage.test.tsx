@@ -114,4 +114,20 @@ describe('AdminChatsPage', () => {
     expect(within(screen.getByText('plain chat').closest('tr')!).getByText('Chat')).toBeInTheDocument();
     expect(within(screen.getByText('legacy chat').closest('tr')!).getByText('Chat')).toBeInTheDocument();
   });
+
+  it("shows a blueprint's recorded spend, never its estimate", async () => {
+    mocks.adminListChats.mockResolvedValue([
+      sess({ id: 'S1', title: 'recorded', kind: 'architect', estimated_cost_usd: 9, spent_usd: 2 }),
+      sess({ id: 'S2', title: 'unrecorded', kind: 'architect', estimated_cost_usd: 9 }),
+    ]);
+
+    render(<AdminChatsPage />);
+
+    await waitFor(() => expect(screen.getByText('recorded')).toBeInTheDocument());
+    const recorded = within(screen.getByText('recorded').closest('tr')!);
+    expect(recorded.getByText('$2.00')).toBeInTheDocument();
+    expect(screen.queryByText('$9.00')).not.toBeInTheDocument();
+    const unrecorded = screen.getByText('unrecorded').closest('tr')!;
+    expect(unrecorded.textContent).not.toMatch(/\$/);
+  });
 });
