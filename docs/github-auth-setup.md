@@ -264,8 +264,10 @@ provided the App or PAT has access on both.
   permission-update request is approved, the gates fail exactly as if the
   permission were missing.
 - **App not installed on every relevant repo.** Issue import on such a repo
-  returns 404; clone or push returns 403; a worker token for that repo fails
-  the same way.
+  returns 404; clone or push returns 403. Tokens are minted for one repository
+  at a time, so the mint itself fails: `POST .../run` returns `409` before the
+  worker starts, and a token refresh or a worker credentials request returns
+  `502`.
 - **Token committed to YAML.** Use env vars for secrets in production.
 - **Expired PAT.** The day it expires every GitHub operation fails, including
   the tokens CM hands to workers. App credentials do not expire; CM caches
