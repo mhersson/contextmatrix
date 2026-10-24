@@ -342,7 +342,10 @@ func extractBearerToken(r *http.Request) (token string, ok bool) {
 func normalizeWorkerRepoPath(path string) string {
 	path = strings.TrimSpace(path)
 	path = strings.Trim(path, "/")
-	path = strings.TrimSuffix(path, ".git")
+
+	if n := len(path); n >= 4 && strings.EqualFold(path[n-4:], ".git") {
+		path = path[:n-4]
+	}
 
 	return path
 }

@@ -636,21 +636,34 @@ func TestGetWorkerGitCredentials_EmptyHostAndPath_BadBearer_Unauthorized(t *test
 }
 
 func TestGetWorkerGitCredentials_MintFailure_BadGateway(t *testing.T) {
+	instance := &scopedFailProvider{fakeTokenProvider: fakeTokenProvider{token: "broad-token"}, scopedErr: errors.New("request token: github api returned status 401")}
+
 	h := &workerCredentialsHandlers{
 		chatAPIKey:       "chat-key",
 		liveness:         &stubSessionLiveness{live: true},
 		listProjects:     noProjects,
-		instanceProvider: &fakeTokenProvider{err: errors.New("request token: github api returned status 401")},
+		instanceProvider: instance,
 	}
 
 	token := WorkerCredentialsToken("chat-key", "sess-1")
 	rec := doWorkerGitCredentialsRequest(t, h, token, "github.com", "acme/unrelated")
 
 	assert.Equal(t, http.StatusBadGateway, rec.Code)
+	assert.Zero(t, instance.calls.Load(), "a failed scoped mint must never fall back to the broad token")
 
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeInternalError, apiErr.Code)
+}
+
+// scopedFailProvider succeeds on the broad mint and fails the scoped one.
+type scopedFailProvider struct {
+	fakeTokenProvider
+	scopedErr error
+}
+
+func (p *scopedFailProvider) GenerateRepoToken(context.Context, string) (string, time.Time, error) {
+	return "", time.Time{}, p.scopedErr
 }
 
 func TestGetWorkerGitCredentials_ExpiresAtOmittedWhenEmpty(t *testing.T) {
@@ -721,6 +734,7 @@ func TestGetWorkerGitCredentials_RepoMatching_CaseInsensitiveAndGitSuffix(t *tes
 	}{
 		{name: "exact https match", projectRepo: "https://github.com/acme/widgets", reqHost: "github.com", reqPath: "acme/widgets"},
 		{name: "project side .git suffix", projectRepo: "https://github.com/acme/widgets.git", reqHost: "github.com", reqPath: "acme/widgets"},
+		{name: "request side upper-case .GIT suffix", projectRepo: "https://github.com/acme/widgets", reqHost: "github.com", reqPath: "acme/widgets.GIT"},
 		{name: "request side .git suffix", projectRepo: "https://github.com/acme/widgets", reqHost: "github.com", reqPath: "acme/widgets.git"},
 		{name: "case-insensitive host", projectRepo: "https://GitHub.com/acme/widgets", reqHost: "github.com", reqPath: "acme/widgets"},
 		{name: "case-insensitive path", projectRepo: "https://github.com/Acme/Widgets", reqHost: "github.com", reqPath: "acme/widgets"},

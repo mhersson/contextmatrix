@@ -296,3 +296,15 @@ func TestGitCredentials_AppWithUnparseableRepoFailsClosed(t *testing.T) {
 	assert.Equal(t, http.StatusBadGateway, status)
 	assert.Zero(t, hits.Load())
 }
+
+func TestWorkerDeniedRepoNames(t *testing.T) {
+	got := workerDeniedRepoNames([]string{
+		"https://github.com/acme/Boards.git",
+		"git@github.com:acme/task-skills.git",
+		"",
+		"::not-a-url::",
+		"https://github.com/onlyowner",
+	})
+
+	assert.Equal(t, map[string]bool{"boards": true, "task-skills": true}, got)
+}

@@ -791,12 +791,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			liveness:           cfg.ChatManager,
 			providerForProject: cfg.ProviderForProject,
 			instanceProvider:   cfg.GitHubTokenProvider,
-			deniedRepoNames:    map[string]bool{},
-		}
-		for _, u := range cfg.WorkerDeniedRepoURLs {
-			if name, ok := repoNameFromURL(u); ok {
-				wch.deniedRepoNames[strings.ToLower(name)] = true
-			}
+			deniedRepoNames:    workerDeniedRepoNames(cfg.WorkerDeniedRepoURLs),
 		}
 
 		if cfg.Service != nil {

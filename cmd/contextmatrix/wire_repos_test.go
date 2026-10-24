@@ -252,11 +252,15 @@ func TestBuildBoards_LeavesLeftoversWhenAutoCommitOff(t *testing.T) {
 }
 
 func TestWorkerDeniedRepoURLs(t *testing.T) {
-	dir := t.TempDir()
-	wireProject(t, dir, "alpha", "ALPHA")
+	oneDir, twoDir := t.TempDir(), t.TempDir()
+	wireProject(t, oneDir, "alpha", "ALPHA")
+	wireProject(t, twoDir, "beta", "BETA")
 
-	cfg := &config.Config{Boards: config.Boards{wireEntry("one", dir)}}
-	cfg.TaskSkills.GitRemoteURL = "https://github.com/acme/task-skills.git"
+	one := wireEntry("one", oneDir)
+	one.GitRemoteURL = "https://github.com/acme/boards-configured.git"
+
+	cfg := &config.Config{Boards: config.Boards{one, wireEntry("two", twoDir)}}
+	cfg.TaskSkills.GitRemoteURL = "https://github.com/acme/skills-configured.git"
 
 	boards, err := buildBoards(cfg, wireProvider(t), 30*time.Minute, clock.Real())
 	require.NoError(t, err)
@@ -267,11 +271,19 @@ func TestWorkerDeniedRepoURLs(t *testing.T) {
 		}
 	}()
 
-	const origin = "https://github.com/acme/boards-by-hand.git"
-	require.NoError(t, boards.repos[0].git.AddRemote(t.Context(), "origin", origin))
+	const boardsOrigin = "https://github.com/acme/boards-by-hand.git"
+	require.NoError(t, boards.repos[1].git.AddRemote(t.Context(), "origin", boardsOrigin))
 
-	got := workerDeniedRepoURLs(cfg, boards, nil)
+	skillsGit, err := gitops.NewManager(t.TempDir(), "", "task-skills", wireProvider(t))
+	require.NoError(t, err)
 
-	assert.Contains(t, got, origin)
-	assert.Contains(t, got, "https://github.com/acme/task-skills.git")
+	const skillsOrigin = "https://github.com/acme/skills-by-hand.git"
+	require.NoError(t, skillsGit.AddRemote(t.Context(), "origin", skillsOrigin))
+
+	assert.ElementsMatch(t, []string{
+		"https://github.com/acme/boards-configured.git",
+		boardsOrigin,
+		"https://github.com/acme/skills-configured.git",
+		skillsOrigin,
+	}, workerDeniedRepoURLs(cfg, boards, skillsGit))
 }

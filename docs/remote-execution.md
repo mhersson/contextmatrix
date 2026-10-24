@@ -683,7 +683,8 @@ Signed GET with `project` and `card_id` query parameters. Re-mints the
 project-scoped git token so a long run can refresh past the GitHub App
 installation-token TTL. The card must exist and be `running` (`409`
 otherwise). A broken project binding fails closed with `409`; a mint failure
-is `502`. The token is scoped to the project's repo. PAT-backed credentials carry no `expires_at`.
+is `502`. The token is scoped to the project's repo. PAT-backed credentials
+carry no `expires_at`.
 
 #### GET /api/agent/task-skills-source
 
