@@ -1697,12 +1697,12 @@ present; `card_count` counts cards with a `token_usage` record.
   (approximate - claim history is not tracked). Cards that pre-date
   state-change logging fall back to their current `state`.
 - `chat_cost_*` fields are **server-wide** aggregates riding on the
-  per-project payload. They sum each chat session's cost (a chat's `estimated_cost_usd`,
-  a blueprint's `spent_usd`, 0 until recorded; archived rows keep the figure
-  stored at delete time) across all chat sessions
-  bucketed by `last_active` on UTC midnight; today occupies
-  `chat_cost_series_30d[29]`. The summary is cached for 30 seconds, so the
-  fan-out requests the All Projects view makes return identical values.
+  per-project payload. They sum each session's cost (a chat's
+  `estimated_cost_usd`, a blueprint's `spent_usd`, 0 until recorded;
+  archived rows keep the figure stored at delete time), bucketed by
+  `last_active` on UTC midnight; today occupies `chat_cost_series_30d[29]`.
+  The summary is cached for 30 seconds, so the fan-out requests the All
+  Projects view makes return identical values.
   `chat_cost_series_30d` is omitted when empty; treat missing as `0`.
 
 Prometheus counters related to chat cost (admin `/metrics` listener):
