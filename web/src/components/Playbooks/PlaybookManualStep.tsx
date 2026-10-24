@@ -38,15 +38,20 @@ export function PlaybookManualStep({ entry, onToggleDone, onSaveText }: Playbook
           ref={textareaRef}
           autoFocus
           rows={1}
+          aria-label="Step text"
           value={draft}
           onChange={(e) => setDraft(e.target.value.replace(/[\r\n]+/g, ' '))}
           // The whole row is the drag handle; keep presses here so text can be selected.
           onPointerDown={(e) => e.stopPropagation()}
           onTouchStart={(e) => e.stopPropagation()}
-          onBlur={() => { setEditing(false); onSaveText(entry.id, draft.trim()); }}
+          onBlur={() => {
+            setEditing(false);
+            const text = draft.trim();
+            if (text && text !== entry.text) onSaveText(entry.id, text);
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); }
-            else if (e.key === 'Escape') { setDraft(entry.text ?? ''); setEditing(false); }
+            else if (e.key === 'Escape') setEditing(false);
           }}
           className="flex-1 min-w-0 px-1 rounded resize-none overflow-hidden"
           style={{ backgroundColor: 'var(--bg2)', border: '1px solid var(--bg3)', color: 'var(--fg)' }}
@@ -54,7 +59,8 @@ export function PlaybookManualStep({ entry, onToggleDone, onSaveText }: Playbook
       ) : (
         <button
           type="button"
-          onClick={() => setEditing(true)}
+          // Seed from the live text: an SSE refresh may have changed it since the last edit.
+          onClick={() => { setDraft(entry.text ?? ''); setEditing(true); }}
           className="min-w-0 text-left wrap-anywhere"
           style={{ color: 'var(--fg)', background: 'none', border: 'none', padding: 0, cursor: 'text' }}
         >

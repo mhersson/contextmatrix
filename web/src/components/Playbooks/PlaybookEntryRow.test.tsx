@@ -99,7 +99,7 @@ describe('PlaybookEntryRowView', () => {
   it('renders a long card title in full without truncating it', () => {
     const title = 'Rework the import pipeline so that every stage reports progress to the board and retries on transient failures';
     renderRow(cardEntry({ card_title: title }));
-    expect(screen.getByText(title)).not.toHaveClass('truncate');
+    expect(screen.getByText(title)).toHaveClass('wrap-anywhere');
   });
 });
 
@@ -113,7 +113,7 @@ describe('PlaybookEntryRowView manual step text', () => {
   function openEditor(onSaveText = vi.fn()) {
     renderRow(manualEntry(), { onSaveText });
     fireEvent.click(screen.getByRole('button', { name: longStep }));
-    return { textbox: screen.getByRole('textbox') as HTMLTextAreaElement, onSaveText };
+    return { textbox: screen.getByRole('textbox', { name: 'Step text' }) as HTMLTextAreaElement, onSaveText };
   }
 
   // jsdom has no layout; the stub shadows Element.prototype's getter, so deleting it restores that.
@@ -125,7 +125,7 @@ describe('PlaybookEntryRowView manual step text', () => {
 
   it('renders the full step text without truncating it', () => {
     renderRow(manualEntry());
-    expect(screen.getByRole('button', { name: longStep })).not.toHaveClass('truncate');
+    expect(screen.getByRole('button', { name: longStep })).toHaveClass('wrap-anywhere');
   });
 
   it('opens a textarea holding the full text when clicked', () => {
@@ -139,8 +139,9 @@ describe('PlaybookEntryRowView manual step text', () => {
     const { textbox, onSaveText } = openEditor();
     fireEvent.change(textbox, { target: { value: '  redeploy the stack  ' } });
     expect(fireEvent.keyDown(textbox, { key: 'Enter' })).toBe(false);
+    expect(onSaveText).toHaveBeenCalledTimes(1);
     expect(onSaveText).toHaveBeenCalledWith('e2', 'redeploy the stack');
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Step text' })).not.toBeInTheDocument();
   });
 
   it('cancels on Escape and restores the original text', () => {
@@ -148,9 +149,9 @@ describe('PlaybookEntryRowView manual step text', () => {
     fireEvent.change(textbox, { target: { value: 'something else' } });
     fireEvent.keyDown(textbox, { key: 'Escape' });
     expect(onSaveText).not.toHaveBeenCalled();
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Step text' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: longStep }));
-    expect(screen.getByRole('textbox')).toHaveValue(longStep);
+    expect(screen.getByRole('textbox', { name: 'Step text' })).toHaveValue(longStep);
   });
 
   it('saves the trimmed text on blur', () => {
@@ -158,6 +159,30 @@ describe('PlaybookEntryRowView manual step text', () => {
     fireEvent.change(textbox, { target: { value: ' run the smoke test ' } });
     fireEvent.blur(textbox);
     expect(onSaveText).toHaveBeenCalledWith('e2', 'run the smoke test');
+  });
+
+  it('does not save when the text is left unchanged', () => {
+    const { textbox, onSaveText } = openEditor();
+    fireEvent.change(textbox, { target: { value: `  ${longStep} ` } });
+    fireEvent.blur(textbox);
+    expect(onSaveText).not.toHaveBeenCalled();
+  });
+
+  it('never saves an empty step and restores the text instead', () => {
+    const { textbox, onSaveText } = openEditor();
+    fireEvent.change(textbox, { target: { value: '   ' } });
+    fireEvent.blur(textbox);
+    expect(onSaveText).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: longStep })).toBeInTheDocument();
+  });
+
+  it('opens the editor on the current text after the entry changes', () => {
+    const props = { index: 0, isFrontier: false, ...noop };
+    const { rerender } = render(<MemoryRouter><PlaybookEntryRowView entry={manualEntry()} {...props} /></MemoryRouter>);
+    const updated = { ...manualEntry(), text: 'Run the migration on staging first' };
+    rerender(<MemoryRouter><PlaybookEntryRowView entry={updated} {...props} /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: updated.text }));
+    expect(screen.getByRole('textbox', { name: 'Step text' })).toHaveValue(updated.text);
   });
 
   it('keeps a pasted multi-line step on one line', () => {
@@ -223,7 +248,7 @@ describe('PlaybookEntryRow drag handle and editors', () => {
     renderDraggable({ id: 'e2', type: 'manual', text: 'redeploy', complete: false });
     fireEvent.click(screen.getByRole('button', { name: 'redeploy' }));
     presses.length = 0;
-    press(screen.getByRole('textbox'));
+    press(screen.getByRole('textbox', { name: 'Step text' }));
     expect(presses).toEqual([]);
   });
 
