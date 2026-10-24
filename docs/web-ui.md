@@ -232,7 +232,9 @@ board. Promote-to-autonomous lives in that tab.
   it. A click sends that reply as your message, a feedback action such as Reject
   asks for text first, in a box labelled with the architect's question when it
   sends one (an approval over critical findings asks why), and typing the reply
-  works too. A prompt closes when a reply answers it, when the architect's
+  works too. The reply and its feedback text together take up to 64 KiB, with
+  the size and Send as in the message box.
+  A prompt closes when a reply answers it, when the architect's
   decision line answers it (it decided the prompt itself, as at a waiting
   sign-off after a switch to Auto + emit or Yolo), or when a later prompt
   replaces it. It then shows a one-line summary instead of buttons, and a closed
@@ -251,7 +253,10 @@ board. Promote-to-autonomous lives in that tab.
   · N sources" link shows them (links and code paths; with the architect's
   research off, its code paths and "model knowledge" instead of links) and
   "hide" folds them; each option opens on its own. The last option on every
-  question is "Type your own answer". The Assumptions tab accepts each
+  question is "Type your own answer", which takes up to 32 KiB in bytes: from 90
+  percent it shows its size against the limit, and while an answer is over it
+  its row on the Submit tab shows that size and the tab's buttons are disabled;
+  nothing is cut. The Assumptions tab accepts each
   assumption or turns it into a question; on a plain-language blueprint each
   entry is what a decision means for you, with the technical decision behind it
   folded under Technical detail; "Accept all" above the list accepts every one,
@@ -263,7 +268,8 @@ board. Promote-to-autonomous lives in that tab.
   closed, the round's summary are its record; a reply whose round is not loaded
   shows as a plain message. Under a dotted line on every tab, "Chat about these
   questions" holds the thread about the round and is the pane's only text box
-  while the round is open; the thread scrolls on its own, so the box and the
+  while the round is open, taking up to 64 KiB as the message box does; the
+  thread scrolls on its own, so the box and the
   foot stay in view. What you type there reaches the architect as a plain
   message, so session commands still work, and shows in the round's thread, not
   as a transcript bubble: right away as your line, until the architect

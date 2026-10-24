@@ -119,6 +119,30 @@ describe('PromptActions', () => {
     expect(onReply).toHaveBeenCalledWith('reject needs a cache layer');
   });
 
+  it('keeps long feedback whole and holds Send while the reply with it is over 64 KiB', () => {
+    const onReply = vi.fn().mockResolvedValue(undefined);
+    render(<PromptActions prompt={gate} status="open" onReply={onReply} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Reject' }));
+    const box = screen.getByRole('textbox', { name: /Reject/ }) as HTMLTextAreaElement;
+    const send = screen.getByRole('button', { name: 'Send' });
+
+    // 65530 bytes fit alone; "reject " in front takes the message to 65537.
+    const fits = '€'.repeat(21843);
+    fireEvent.change(box, { target: { value: `${fits}a` } });
+    // jsdom never enforces maxlength, so its absence is what keeps a browser from cutting the paste.
+    expect(box).not.toHaveAttribute('maxlength');
+    expect(box.value).toHaveLength(21844);
+    expect(send).toBeDisabled();
+    expect(screen.getByText('64.1 KiB / 64 KiB')).toBeInTheDocument();
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onReply).not.toHaveBeenCalled();
+
+    fireEvent.change(box, { target: { value: fits } });
+    expect(send).toBeEnabled();
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onReply).toHaveBeenCalledWith(`reject ${fits}`);
+  });
+
   it('cancels feedback on Escape and returns focus to the action', () => {
     render(<PromptActions prompt={gate} status="open" onReply={vi.fn()} />);
     const reject = screen.getByRole('button', { name: 'Reject' });

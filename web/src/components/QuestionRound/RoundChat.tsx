@@ -1,5 +1,6 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react';
-import { MAX_MESSAGE_LENGTH } from '../ChatPanel/chatEntryUtils';
+import { ByteCount } from '../ChatPanel/ByteCount';
+import { BLUEPRINT_MESSAGE_MAX_BYTES, utf8Length } from '../ChatPanel/chatEntryUtils';
 import type { Round, RoundChatMessage } from './parseRound';
 import { RoundThread } from './RoundThread';
 
@@ -26,6 +27,8 @@ export function RoundChat({ round, disabled, sent = [], onSendChat }: RoundChatP
   // The box is the only text input while a round is open, so it stays enabled; this ref blocks a double send.
   const inFlight = useRef(false);
   const canType = onSendChat !== undefined && !disabled;
+  const bytes = utf8Length(text.trim());
+  const over = bytes > BLUEPRINT_MESSAGE_MAX_BYTES;
 
   useLayoutEffect(() => {
     const el = threadRef.current;
@@ -35,7 +38,7 @@ export function RoundChat({ round, disabled, sent = [], onSendChat }: RoundChatP
   const send = async () => {
     const sentText = text;
     const t = sentText.trim();
-    if (!canType || t === '' || inFlight.current) return;
+    if (!canType || t === '' || over || inFlight.current) return;
     inFlight.current = true;
     setSending(true);
     setError(null);
@@ -88,7 +91,6 @@ export function RoundChat({ round, disabled, sent = [], onSendChat }: RoundChatP
                 aria-label="Message about these questions"
                 placeholder="Ask about these questions, or type a command (Enter to send)"
                 value={text}
-                maxLength={MAX_MESSAGE_LENGTH}
                 disabled={!canType}
                 onChange={(e) => {
                   setText(e.target.value);
@@ -105,12 +107,13 @@ export function RoundChat({ round, disabled, sent = [], onSendChat }: RoundChatP
                 ref={sendRef}
                 type="button"
                 className="bf-btn-primary"
-                disabled={!canType || sending || text.trim() === ''}
+                disabled={!canType || sending || text.trim() === '' || over}
                 onClick={() => void send()}
               >
                 {sending ? 'Sending…' : 'Send'}
               </button>
             </div>
+            <ByteCount bytes={bytes} max={BLUEPRINT_MESSAGE_MAX_BYTES} className="mt-1" />
             {error && (
               <div role="alert" className="qb-error">
                 {error}

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { MAX_MESSAGE_LENGTH } from './chatEntryUtils';
+import { ByteCount } from './ByteCount';
+import { BLUEPRINT_MESSAGE_MAX_BYTES, utf8Length } from './chatEntryUtils';
 import type { ChatPrompt, PromptAction, PromptState } from './prompts';
 
 interface PromptActionsProps {
@@ -84,6 +85,10 @@ export function PromptActions({ prompt, status, answer, onReply, recommendedPrim
 
   const disabled = status !== 'open' || !onReply || phase !== 'idle';
   const feedbackText = feedback.trim();
+  // Prompts are stored on blueprint sessions only, so a reply takes the blueprint limit.
+  const feedbackMessage = feedbackFor ? `${feedbackFor.reply} ${feedbackText}` : '';
+  const feedbackBytes = utf8Length(feedbackMessage);
+  const feedbackOver = feedbackBytes > BLUEPRINT_MESSAGE_MAX_BYTES;
   const stacked = prompt.kind !== 'gate';
 
   const send = async (text: string) => {
@@ -109,8 +114,8 @@ export function PromptActions({ prompt, status, answer, onReply, recommendedPrim
   };
 
   const sendFeedback = () => {
-    if (!feedbackFor || feedbackText === '' || disabled) return;
-    void send(`${feedbackFor.reply} ${feedbackText}`);
+    if (!feedbackFor || feedbackText === '' || feedbackOver || disabled) return;
+    void send(feedbackMessage);
   };
 
   const cancelFeedback = () => {
@@ -166,7 +171,6 @@ export function PromptActions({ prompt, status, answer, onReply, recommendedPrim
             className="bf-input"
             rows={2}
             value={feedback}
-            maxLength={MAX_MESSAGE_LENGTH - feedbackFor.reply.length - 1}
             disabled={disabled}
             onChange={(e) => setFeedback(e.target.value)}
             onKeyDown={(e) => {
@@ -183,7 +187,7 @@ export function PromptActions({ prompt, status, answer, onReply, recommendedPrim
             <button
               type="button"
               className="bf-btn-ghost bf-btn-sm"
-              disabled={disabled || feedbackText === ''}
+              disabled={disabled || feedbackText === '' || feedbackOver}
               onClick={sendFeedback}
             >
               Send
@@ -196,6 +200,7 @@ export function PromptActions({ prompt, status, answer, onReply, recommendedPrim
             >
               Cancel
             </button>
+            <ByteCount bytes={feedbackBytes} max={BLUEPRINT_MESSAGE_MAX_BYTES} className="ml-auto self-center px-1 rounded" tint />
           </div>
         </div>
       )}
