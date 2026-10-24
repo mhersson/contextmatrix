@@ -2500,6 +2500,7 @@ management lives under `/api/admin/chats`.
 | `rehydration_active`, `rehydration_started_at`                                     | omitempty | `true` between a cold reopen and the agent's `chat_rehydration_complete` call              |
 | `prompt_tokens`, `completion_tokens`, `cache_read_tokens`, `cache_creation_tokens` | omitempty | Cumulative totals across usage frames                                                      |
 | `estimated_cost_usd`                                                               | omitempty | Running cost, same cache-tier formula as card-scoped `report_usage`                        |
+| `pinned`                                                                           | omitempty | `true` once pinned; set through `PATCH /api/chats/{id}`                                    |
 | `assistant_working`, `assistant_working_since`                                     | omitempty | In-memory presence derived from `status` log frames                                        |
 
 ### POST /api/chats
@@ -2606,11 +2607,13 @@ Returns the session. `404 CHAT_NOT_FOUND` if unknown.
 
 ### PATCH /api/chats/{id}
 
-Renames a session. Body is decoded before the ownership check, so bad JSON
-is 400 even for an unknown id.
+Renames and/or pins a session. Both fields are optional. Pinning writes only
+the pin, so `last_active`, `status` and `container_id` stay as they were. Body
+is decoded before the ownership check, so bad JSON is 400 even for an unknown
+id.
 
 ```json
-{ "title": "Renamed: auth-flow regression" }
+{ "title": "Renamed: auth-flow regression", "pinned": true }
 ```
 
 **Response:** 200 with the updated session.

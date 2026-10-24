@@ -2753,6 +2753,15 @@ func (m *Manager) UpdateSessionMetadata(ctx context.Context, s Session) error {
 	return m.store.UpdateSession(ctx, s)
 }
 
+// SetPinned sets only the pin; it never touches last_active or status.
+func (m *Manager) SetPinned(ctx context.Context, sessionID string, pinned bool) error {
+	if err := m.store.UpdateSessionPinned(ctx, sessionID, pinned); err != nil {
+		return fmt.Errorf("set pinned: %w", err)
+	}
+
+	return nil
+}
+
 // ListMessages returns the transcript slice (seq > sinceSeq, oldest-first,
 // bounded by limit). Used by the REST bootstrap endpoint that backfills the
 // browser ring buffer beyond what the SSE in-memory ring can replay.
