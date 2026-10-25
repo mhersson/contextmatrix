@@ -1096,11 +1096,10 @@ func TestManager_SendUserMessage_BackendErrorDoesNotPersist(t *testing.T) {
 	assert.Empty(t, msgs, "no user message must be persisted when Backend.SendChatMessage fails")
 }
 
-// TestManager_SendUserMessage_AutoRecoverColdOnRepeatedBackendUnreachable:
-// the chat reconcile sweep is deliberately gated to backend topology, so a
-// dead dedicated chat-backend worker is only detectable via repeated send
-// failures. After maxConsecutiveSendFailures the session must flip to cold
-// so the next send resumes via the existing cold-open (Path-B) machinery.
+// TestManager_SendUserMessage_AutoRecoverColdOnRepeatedBackendUnreachable: an
+// unreachable chat backend is only detectable via repeated send failures.
+// After maxConsecutiveSendFailures the session must flip to cold so the next
+// send resumes through the cold open.
 func TestManager_SendUserMessage_AutoRecoverColdOnRepeatedBackendUnreachable(t *testing.T) {
 	mgr, backend, store := newManagerWithStubs(t)
 	ctx := context.Background()
@@ -5102,30 +5101,123 @@ func TestManager_SendUserMessage_ArchitectRetriesOnce(t *testing.T) {
 	}
 }
 
-func TestManager_SendUserMessage_ChatDoesNotRestartOnUnknownSession(t *testing.T) {
-	mgr, backend, _ := newManagerWithStubs(t)
+// openChatWithMessage opens a chat session by sending it a first message, so a
+// later cold open has a transcript to resume.
+func openChatWithMessage(t *testing.T, mgr *chat.Manager) chat.Session {
+	t.Helper()
+
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Project: "alpha", CreatedBy: "x"})
 	require.NoError(t, err)
-	_, err = mgr.OpenSession(ctx, sess.ID)
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "first")
 	require.NoError(t, err)
 
-	starts := backend.startCalls.Load()
-	sends := backend.sendCalls.Load()
+	return sess
+}
+
+func userRows(t *testing.T, store chat.Store, sessionID, content string) []chat.Message {
+	t.Helper()
+
+	msgs, err := store.ListMessages(context.Background(), sessionID, 0, 100)
+	require.NoError(t, err)
+
+	var out []chat.Message
+
+	for _, m := range msgs {
+		if m.Role == chat.RoleUser && m.Content == content {
+			out = append(out, m)
+		}
+	}
+
+	return out
+}
+
+func TestManager_SendUserMessage_ChatReopensColdOnUnknownSession(t *testing.T) {
+	mgr, backend, store := newManagerWithStubs(t)
+	ctx := context.Background()
+	sess := openChatWithMessage(t, mgr)
 
 	backend.mu.Lock()
-	backend.sendErr = errSessionUnknown()
+	backend.sendErrSeq = []error{nil, errSessionUnknown()}
 	backend.mu.Unlock()
 
-	_, err = mgr.SendUserMessage(ctx, sess.ID, "hi")
-	require.Error(t, err)
-	assert.Equal(t, starts, backend.startCalls.Load(), "chat sessions take today's path")
-	assert.Equal(t, sends+1, backend.sendCalls.Load(), "the message is not re-sent")
+	msgID, err := mgr.SendUserMessage(ctx, sess.ID, "second")
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(1), backend.endCalls.Load(), "the session was ended")
+	assert.Equal(t, int64(2), backend.startCalls.Load(), "and opened cold once")
+
+	backend.mu.Lock()
+	resume := backend.lastOpts.Resume
+	sends := append([]sendArg(nil), backend.sendArgs...)
+	backend.mu.Unlock()
+
+	require.NotNil(t, resume, "the reopen resumes the transcript")
+
+	var resumed []string
+	for _, turn := range resume.Turns {
+		resumed = append(resumed, turn.Content)
+	}
+
+	assert.Equal(t, []string{"first"}, resumed, "the unsent message is not in the resume")
+
+	require.Len(t, sends, 3)
+	assert.Equal(t, msgID, sends[1].MessageID)
+	assert.Equal(t, msgID, sends[2].MessageID, "the same message id")
+
+	rows := userRows(t, store, sess.ID, "second")
+	require.Len(t, rows, 1, "persisted once")
+	assert.False(t, rows[0].RehydrationPhase, "the message ends the reopen's rehydration phase")
 
 	got, err := mgr.GetSession(ctx, sess.ID)
 	require.NoError(t, err)
 	assert.Equal(t, chat.StatusActive, got.Status)
+	assert.True(t, got.AssistantWorking, "the re-sent message starts a turn")
+}
+
+func TestManager_SendUserMessage_ChatResendsOnce(t *testing.T) {
+	mgr, backend, store := newManagerWithStubs(t)
+	ctx := context.Background()
+	sess := openChatWithMessage(t, mgr)
+
+	backend.mu.Lock()
+	backend.sendErrSeq = []error{nil, errSessionUnknown(), errSessionUnknown(), nil}
+	backend.mu.Unlock()
+
+	_, err := mgr.SendUserMessage(ctx, sess.ID, "second")
+	require.ErrorIs(t, err, chat.ErrSessionUnknown)
+	assert.Equal(t, int64(3), backend.sendCalls.Load(), "one re-send, no loop")
+	assert.Equal(t, int64(2), backend.startCalls.Load(), "one cold open")
+	assert.Empty(t, userRows(t, store, sess.ID, "second"), "a failed send persists nothing")
+
+	got, err := mgr.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.False(t, got.AssistantWorking, "the indicator is disarmed")
+}
+
+func TestManager_SendUserMessage_ChatReopenFailureIsNotResent(t *testing.T) {
+	mgr, backend, store := newManagerWithStubs(t)
+	ctx := context.Background()
+	sess := openChatWithMessage(t, mgr)
+
+	startErr := fmt.Errorf("chat: /chat/start: status 404: %w", chat.ErrSessionUnknown)
+
+	backend.mu.Lock()
+	backend.sendErrSeq = []error{nil, errSessionUnknown()}
+	backend.startErr = startErr
+	backend.mu.Unlock()
+
+	_, err := mgr.SendUserMessage(ctx, sess.ID, "second")
+	require.ErrorIs(t, err, startErr, "the reopen's failure surfaces")
+	assert.Equal(t, int64(2), backend.sendCalls.Load(), "no re-send after a failed reopen")
+	assert.Equal(t, int64(2), backend.startCalls.Load())
+	assert.Empty(t, userRows(t, store, sess.ID, "second"), "a failed send persists nothing")
+
+	got, err := mgr.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, chat.StatusCold, got.Status)
 }
 
 func TestManager_SendUserMessage_ArchitectRestartFailureIsNotResent(t *testing.T) {

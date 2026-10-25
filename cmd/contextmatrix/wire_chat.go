@@ -206,8 +206,8 @@ func wireChat(
 	// the UI can't see worker output even though the container is still
 	// up. Reattach is idempotent and tolerant of dead containers - a chat
 	// consumer retries with backoff and stops on a clean close, an architect
-	// consumer reconnects and re-sends the start; the reconcile sweep below
-	// flips orphaned sessions to cold.
+	// consumer reconnects and re-sends the start, and a send to a chat session
+	// whose worker is gone reopens it cold.
 	go func() {
 		rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()

@@ -2133,8 +2133,8 @@ func (m *Manager) Reattach(ctx context.Context, sessionID string) (Session, erro
 
 // MarkWarmIdle transitions an active session to warm-idle. No-op if the
 // session is not active. Tolerant of ErrSessionNotFound - a grace timer
-// fired against a session that was already deleted (DeleteSession,
-// reconcile sweep) is a benign race, not an error.
+// fired against a session that was already deleted is a benign race, not an
+// error.
 func (m *Manager) MarkWarmIdle(ctx context.Context, sessionID string) error {
 	// Hold the per-session status lock across the read-modify-write window
 	// so a concurrent MarkActive (fired from OnSubscribe) serialises cleanly
@@ -2432,22 +2432,7 @@ func (m *Manager) DeleteSession(ctx context.Context, id string) error {
 	return nil
 }
 
-// SendUserMessage forwards a user message to the backend first; only on a
-// successful backend call is the message persisted and fanned out via the
-// SSE hub. If the backend is unreachable the caller gets an error and the
-// UI can retry - the alternative (snappy echo, then backend failure) used
-// to leave the user staring at their own message with no reply path.
-// Cold-state sessions are opened first. Returns the generated message_id
-// used for backend-side echo dedup.
-//
-// If the session is currently in its rehydration phase, the user typing
-// ends the phase as a belt-and-suspenders safety net for agents that
-// forget to call chat_rehydration_complete. The flag is flipped BEFORE
-// AppendMessage so the user's message itself is persisted as non-phase.
-// ensureRunningForSend promotes a cold or warm-idle session to running so a
-// user message can be dispatched. Cold sessions are opened via OpenSession;
-// warm-idle sessions are flipped to active via MarkActive. Active sessions
-// are a no-op. Returns nil when the session is ready to receive messages.
+// ensureRunningForSend opens a cold session and promotes a warm-idle one before a send.
 func (m *Manager) ensureRunningForSend(ctx context.Context, sess Session) error {
 	switch sess.Status {
 	case StatusCold:
@@ -2466,10 +2451,8 @@ func (m *Manager) ensureRunningForSend(ctx context.Context, sess Session) error 
 
 // maxConsecutiveSendFailures is the number of consecutive
 // backend-unreachable SendUserMessage failures tolerated before a session
-// is auto-flipped to cold. This is the only self-healing path available
-// with the dedicated chat backend: the reconcile sweep's chat half is
-// wired only when the task backend also serves chat, because a standalone
-// chat backend exposes no /containers endpoint to reconcile against.
+// is auto-flipped to cold. This is the only self-healing path for an
+// unreachable chat backend.
 const maxConsecutiveSendFailures = 3
 
 // recordSendFailure increments the consecutive-failure counter for
@@ -2511,6 +2494,52 @@ func (m *Manager) clearSendFailures(sessionID string) {
 	m.mu.Unlock()
 }
 
+// endRehydrationForSend ends the session's rehydration phase before a user
+// message is sent, as a safety net for agents that forget to call
+// chat_rehydration_complete. It runs before the row is appended so the
+// message itself is persisted as non-phase.
+func (m *Manager) endRehydrationForSend(ctx context.Context, sessionID string) {
+	if !m.isRehydrationActive(ctx, sessionID) {
+		return
+	}
+
+	if err := m.setRehydrationActive(ctx, sessionID, false); err != nil {
+		m.logger.Warn("chat: SendUserMessage: clear rehydration flag failed",
+			"session_id", sessionID, "error", err)
+	} else {
+		m.logger.Info("chat: rehydration ended by user message",
+			"session_id", sessionID)
+	}
+}
+
+// reopenCold ends a chat session its backend no longer holds and opens it
+// again through the cold-open resume.
+func (m *Manager) reopenCold(ctx context.Context, sessionID string) error {
+	m.logger.Warn("chat: backend does not hold the session, reopening it cold", "session_id", sessionID)
+
+	if err := m.EndSession(ctx, sessionID); err != nil {
+		return err
+	}
+
+	if _, err := m.OpenSession(ctx, sessionID); err != nil {
+		return err
+	}
+
+	m.endRehydrationForSend(ctx, sessionID)
+
+	return nil
+}
+
+// SendUserMessage forwards a user message to the backend first; only on a
+// successful backend call is the message persisted and fanned out via the
+// SSE hub, so a failed send leaves no row and the UI can retry. Cold-state
+// sessions are opened first. Returns the generated message_id used for
+// backend-side echo dedup.
+//
+// A backend that no longer holds the session gets it back once before the
+// message is re-sent: an architect by a re-sent start, a chat backend by an
+// end and a cold-open resume. The resume carries only persisted rows, so it
+// never holds the message being sent.
 func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string) (string, error) {
 	return m.sendMessage(ctx, sessionID, content, userSend{})
 }
@@ -2647,15 +2676,7 @@ func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us
 		return "", err
 	}
 
-	if m.isRehydrationActive(ctx, sessionID) {
-		if err := m.setRehydrationActive(ctx, sessionID, false); err != nil {
-			m.logger.Warn("chat: SendUserMessage: clear rehydration flag failed",
-				"session_id", sessionID, "error", err)
-		} else {
-			m.logger.Info("chat: rehydration ended by user message",
-				"session_id", sessionID)
-		}
-	}
+	m.endRehydrationForSend(ctx, sessionID)
 
 	msgID := NewID()
 	payload := protocol.MessagePayload{SessionID: sessionID, Content: content, MessageID: msgID, Round: us.round, Mockup: us.mockup}
@@ -2729,6 +2750,18 @@ func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us
 			// The architect's replay cache already holds the first send's
 			// whole-second (timestamp, signature) pair despite the 404, so
 			// the re-send must sign in a later second.
+			err = backend.SendChatMessage(ctx, payload)
+		}
+	}
+
+	// A chat backend that restarted, or whose worker exited, no longer holds
+	// the session: reopen it cold and re-send once, with the same id.
+	if err != nil && sess.Kind != KindArchitect && errors.Is(err, ErrSessionUnknown) {
+		if rerr := m.reopenCold(ctx, sessionID); rerr != nil {
+			err = errors.Join(err, rerr)
+		} else {
+			// The reopen's EndSession dropped the indicator this send armed.
+			armed = m.setWorking(sessionID, true)
 			err = backend.SendChatMessage(ctx, payload)
 		}
 	}
