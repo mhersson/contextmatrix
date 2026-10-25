@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -135,6 +136,72 @@ func TestUpdateWorkerStatus_RunningDoesNotReplaceKilled(t *testing.T) {
 	got, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "container started")
 	require.NoError(t, err)
 	assert.Equal(t, "running", got.WorkerStatus)
+}
+
+// TestUpdateWorkerStatus_KilledWorkerReports pins which backend reports may
+// replace killed: a late running or failed on a live card may not, completed
+// clears it, and a failed on a done card is the cleanup normalization.
+func TestUpdateWorkerStatus_KilledWorkerReports(t *testing.T) {
+	tests := []struct {
+		name    string
+		done    bool
+		status  string
+		want    string
+		ignored bool
+	}{
+		{name: "running over killed", status: "running", want: "killed", ignored: true},
+		{name: "failed over killed", status: "failed", want: "killed", ignored: true},
+		{name: "completed over killed", status: "completed", want: ""},
+		{name: "failed over killed on a done card", done: true, status: "failed", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, gitMgr := setupDeferredTest(t)
+			ctx := context.Background()
+
+			card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "killed run", Type: "task", Priority: "medium"})
+			require.NoError(t, err)
+
+			if tt.done {
+				_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateInProgress)
+				require.NoError(t, err)
+				_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateDone)
+				require.NoError(t, err)
+			}
+
+			// Seed through the store: a killed report on a done card would
+			// itself normalize to completed.
+			seeded, err := svc.store.GetCard(ctx, "test-project", card.ID)
+			require.NoError(t, err)
+
+			seeded.WorkerStatus = "killed"
+			require.NoError(t, svc.store.UpdateCard(ctx, "test-project", seeded))
+
+			before, err := svc.GetCard(ctx, "test-project", card.ID)
+			require.NoError(t, err)
+
+			msgBefore, err := gitMgr.GetLastCommitMessage()
+			require.NoError(t, err)
+
+			_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, tt.status, "late report")
+			require.NoError(t, err)
+
+			after, err := svc.GetCard(ctx, "test-project", card.ID)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, after.WorkerStatus)
+
+			msgAfter, err := gitMgr.GetLastCommitMessage()
+			require.NoError(t, err)
+
+			if tt.ignored {
+				assert.Equal(t, before.ActivityLog, after.ActivityLog, "an ignored report writes no log entry")
+				assert.Equal(t, msgBefore, msgAfter, "an ignored report commits nothing")
+			} else {
+				assert.NotEqual(t, msgBefore, msgAfter)
+			}
+		})
+	}
 }
 
 // TestFailLostWorker pins the guard: only a queued or running worker on a card

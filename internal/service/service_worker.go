@@ -489,12 +489,14 @@ func (s *CardService) updateWorkerStatus(
 		return card, nil
 	}
 
-	// A late running report must not revive a killed worker; a new launch
-	// goes through MarkQueued, which replaces killed.
-	if status == "running" && card.WorkerStatus == "killed" {
+	// A late running or failed report (the killed run's exit callback) must not
+	// replace killed; a new launch goes through MarkQueued. A failed on a
+	// terminal card is left to the cleanup normalization below.
+	if card.WorkerStatus == "killed" &&
+		(status == "running" || (status == "failed" && !board.IsTerminalState(card.State))) {
 		s.writeMu.Unlock()
 
-		ctxlog.Logger(ctx).Info("worker status ignored: running report on a killed worker",
+		ctxlog.Logger(ctx).Info("worker status ignored: report on a killed worker",
 			"card_id", cardID, "project", project, "status", status)
 
 		return card, nil
