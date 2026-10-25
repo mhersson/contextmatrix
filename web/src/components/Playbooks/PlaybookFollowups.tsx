@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react';
+import { useRef, useState, type CSSProperties } from 'react';
 import {
   DndContext,
   closestCorners,
@@ -94,12 +94,13 @@ function FollowupRow({ followup, locked, onToggle, onSaveText, onRemove }: Follo
 function AddCheck({ onAdd }: { onAdd: (text: string) => void }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
+  const cancelled = useRef(false);
 
   if (!open) {
     return (
       <button
         type="button"
-        onClick={() => { setDraft(''); setOpen(true); }}
+        onClick={() => { setDraft(''); cancelled.current = false; setOpen(true); }}
         className="text-xs py-1"
         style={{ color: 'var(--aqua)', background: 'none', border: 'none', cursor: 'pointer' }}
       >
@@ -117,11 +118,11 @@ function AddCheck({ onAdd }: { onAdd: (text: string) => void }) {
       onBlur={() => {
         setOpen(false);
         const text = draft.trim();
-        if (text) onAdd(text);
+        if (text && !cancelled.current) onAdd(text);
       }}
       onKeyDown={(e) => {
         if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); }
-        else if (e.key === 'Escape') { setDraft(''); setOpen(false); }
+        else if (e.key === 'Escape') { cancelled.current = true; setDraft(''); setOpen(false); }
       }}
       className="w-full px-1 rounded resize-none overflow-hidden"
       style={{ backgroundColor: 'var(--bg2)', border: '1px solid var(--bg3)', color: 'var(--fg)' }}

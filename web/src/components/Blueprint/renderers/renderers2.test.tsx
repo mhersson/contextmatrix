@@ -482,6 +482,14 @@ describe('follow-ups apart from run stops', () => {
     expect(screen.queryByRole('heading', { name: /^Manual checks/ })).toBeNull();
   });
 
+  it('CardsSheet on one card keeps an in-order manual check apart from the follow-ups', () => {
+    const one = { ...(CARDS_V1.data as { cards: object[] }) };
+    show(cards({ cards: one.cards.slice(0, 1), order: ['M1', 'D1'], manual, followups: ['M2'] }));
+    expect(within(sectionOf(/^Manual checks/)).getByText('Check the page in a browser.')).toBeInTheDocument();
+    expect(within(sectionOf(/^After the run \(follow-ups\)/)).getByText('Approve the DNS change.')).toBeInTheDocument();
+    expect(within(sectionOf(/^Manual checks/)).queryByText('Approve the DNS change.')).toBeNull();
+  });
+
   it('CardsSheet without followups keeps the Manual checks table', () => {
     show(cards({ order: ['D1', 'D2', 'D3'], manual: [{ id: 'M1', text: 'Run curl against the server.' }] }));
     expect(within(sectionOf(/^Manual checks/)).getByText('Run curl against the server.')).toBeInTheDocument();

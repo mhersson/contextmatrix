@@ -45,11 +45,19 @@ export function CardsSheet({ artifact, previous, mode }: RendererProps) {
         <CardBlock key={c.id} card={c} version={artifact.version} />
       ))}
       <TableSection
-        title={followups ? 'After the run (follow-ups)' : 'Manual checks'}
+        title="Manual checks"
         columns={MANUAL_COLUMNS}
-        rows={data.manual.filter((m) => (followups ? followups.has(m.id) : !orderedIds.has(m.id)))}
+        rows={data.manual.filter((m) => !orderedIds.has(m.id) && !followups?.has(m.id))}
         rowKey={(m) => m.id}
       />
+      {followups && (
+        <TableSection
+          title="After the run (follow-ups)"
+          columns={MANUAL_COLUMNS}
+          rows={data.manual.filter((m) => followups.has(m.id))}
+          rowKey={(m) => m.id}
+        />
+      )}
     </>
   );
 }

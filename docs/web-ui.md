@@ -365,9 +365,9 @@ board. Promote-to-autonomous lives in that tab.
     (and their outcomes when any check names one), and each slice's edge cases
     with the criteria or checks that settle each or why it does not apply; the
     cards sheet's manual checks outside the playbook order with the checks
-    they cover (titled "After the run (follow-ups)" when the payload lists
-    `followups`, the manual ids that become playbook follow-ups instead of run
-    steps); on the readiness sheet the problems found across the blueprint
+    they cover, plus, when the payload lists `followups` (the manual ids that
+    become playbook follow-ups instead of run steps), a second table titled
+    "After the run (follow-ups)" holding those; on the readiness sheet the problems found across the blueprint
     (between decisions, contracts, cards and assumptions), each with its id,
     severity, finding and the ids it names, critical first, above the cards; and
     on the sign-off the same table at the top, then, when readiness ran out of
