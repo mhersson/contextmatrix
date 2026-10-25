@@ -651,8 +651,8 @@ selection admin page's tier ladders for whichever rung keeps emptying.
 card is configured for automatic selection. ContextMatrix stores the flag and
 ships it in the trigger payload; the agent backend consumes it as
 `selection.Input.MaxCapability` (contextmatrix-protocol), a run-level field set
-once when the registry is built. Every automatic pick in the run inherits it: the coder, the planner's
-model floor, the review-panel seats, the judge, the verify/propose step, and mob
+once when the registry is built. Every automatic pick in the run inherits it:
+the coder, the planner's model floor, the review-panel seats, the judge, the verify/propose step, and mob
 and Best-of-N seats. Only a resolvable card pin escapes it.
 
 - A card pin (step 1) still wins. Note that a card can carry both: the
@@ -912,5 +912,6 @@ endpoints, and the equal prompt+completion price weighting.
   `favorites` in `.board.yaml`.
 - [Configuration](configuration.md) and `config.yaml.example` - every key
   above with full comments and env names.
-- The `contextmatrix-agent` repository - the selection algorithm's source
-  (`internal/registry`) and its `serve.yaml.example`.
+- The `contextmatrix-protocol` repository (`selection`) - the selection
+  algorithm's source; the `contextmatrix-agent` repository applies it
+  (`internal/registry`) and ships `serve.yaml.example`.

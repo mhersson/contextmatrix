@@ -241,7 +241,8 @@ Full detail and examples: `docs/data-model.md`.
     `autonomous: true`, logs, and commits, then sends the backend's `/promote`
     webhook (reverting the flip on failure). Idempotent; rejects terminal cards
     with 409. The `promote_to_autonomous` MCP tool is the same operation, also
-    human-only (`agent_id` must start with `human:`). The backend re-reads the flag, fail-closed.
+    human-only (`agent_id` must start with `human:`). The backend re-reads the
+    flag, fail-closed.
 14. **`assignee`** - human-only informational responsibility label (a bare
     username), fully independent of `assigned_agent` (the execution claim).
     Never a permission boundary. Validated against the user roster in multi

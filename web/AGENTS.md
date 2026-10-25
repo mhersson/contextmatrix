@@ -167,8 +167,9 @@ interactions.
 - **Architect prompts are the only reply buttons.** `PromptActions` renders a
   stored `kind: "prompt"` row's actions; a click sends an ordinary user message.
   Whether a prompt is open is derived in the browser (`derivePromptStates`),
-  never stored, and agent and chat backends never emit one. Behaviour:
-  `docs/web-ui.md#global-chat`.
+  never stored, and agent and chat backends never emit one: `AskUserQuestion`
+  stays denied at the MCP gate, with no `user_question` log type or question
+  card. Behaviour: `docs/web-ui.md#global-chat`.
 - **Routing catch-all:** keep `<Route path="*" element={<NotFound />} />` as the
   **last** route at both levels - `App.tsx` (top-level) and `ProjectShell.tsx`
   (nested project routes). The Go backend serves `index.html` for all non-API
