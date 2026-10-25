@@ -174,6 +174,11 @@ func copyCard(c *board.Card) *board.Card {
 		cp.LastHeartbeat = &ts
 	}
 
+	if c.ClaimedAt != nil {
+		ts := *c.ClaimedAt
+		cp.ClaimedAt = &ts
+	}
+
 	if c.Subtasks != nil {
 		cp.Subtasks = slices.Clone(c.Subtasks)
 	}
@@ -197,6 +202,14 @@ func copyCard(c *board.Card) *board.Card {
 
 	if c.Labels != nil {
 		cp.Labels = slices.Clone(c.Labels)
+	}
+
+	if c.MobPhases != nil {
+		cp.MobPhases = slices.Clone(c.MobPhases)
+	}
+
+	if c.MobGuests != nil {
+		cp.MobGuests = slices.Clone(c.MobGuests)
 	}
 
 	if c.Source != nil {

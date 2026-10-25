@@ -1186,6 +1186,10 @@ func TestFilesystemStore_CardCache_DeepCopyContract(t *testing.T) {
 	card.Subtasks = []string{"SUB-001"}
 	card.Context = []string{"ctx-a"}
 	card.LastHeartbeat = &now
+	claimedAt := now
+	card.ClaimedAt = &claimedAt
+	card.MobPhases = []string{"review"}
+	card.MobGuests = []string{"guest/model"}
 	card.Source = &board.Source{System: "jira", ExternalID: "JIRA-1", ExternalURL: "http://example"}
 	card.TokenUsage = &board.TokenUsage{PromptTokens: 100, CompletionTokens: 50}
 	card.Custom = map[string]any{"key": "value"}
@@ -1203,6 +1207,9 @@ func TestFilesystemStore_CardCache_DeepCopyContract(t *testing.T) {
 	got1.Subtasks[0] = "mutated"
 	got1.Context[0] = "mutated"
 	*got1.LastHeartbeat = now.Add(24 * time.Hour)
+	*got1.ClaimedAt = now.Add(24 * time.Hour)
+	got1.MobPhases[0] = "mutated"
+	got1.MobGuests[0] = "mutated"
 	got1.Source.ExternalID = "mutated"
 	got1.TokenUsage.PromptTokens = 99999
 	got1.Custom["key"] = "mutated"
@@ -1220,6 +1227,10 @@ func TestFilesystemStore_CardCache_DeepCopyContract(t *testing.T) {
 	assert.Equal(t, []string{"ctx-a"}, got2.Context)
 	require.NotNil(t, got2.LastHeartbeat)
 	assert.True(t, got2.LastHeartbeat.Equal(now), "LastHeartbeat should be unchanged")
+	require.NotNil(t, got2.ClaimedAt)
+	assert.True(t, got2.ClaimedAt.Equal(now), "ClaimedAt should be unchanged")
+	assert.Equal(t, []string{"review"}, got2.MobPhases)
+	assert.Equal(t, []string{"guest/model"}, got2.MobGuests)
 	require.NotNil(t, got2.Source)
 	assert.Equal(t, "JIRA-1", got2.Source.ExternalID)
 	require.NotNil(t, got2.TokenUsage)
