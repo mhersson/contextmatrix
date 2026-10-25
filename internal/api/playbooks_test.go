@@ -91,12 +91,21 @@ transitions:
 
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil, true, false)
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           git,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	pbStore, err := storage.NewFilesystemPlaybookStore(boardsDir)
 	require.NoError(t, err)
 
-	pbSvc := service.NewPlaybookService(pbStore, store, bus, nil, false) // gitAutoCommit=false: API tests skip git
+	// No git auto-commit: API tests skip git.
+	pbSvc, err := service.NewPlaybookServiceRepos(pbStore, store, bus, nil, &service.PlaybookRepo{Name: service.DefaultRepoName})
+	require.NoError(t, err)
 
 	svc.SetPlaybookLister(pbStore)
 	pbSvc.SetCardForcer(svc)

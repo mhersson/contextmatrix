@@ -171,12 +171,20 @@ func newImportEnv(t *testing.T, projectMap map[string]config.JiraProjectMapping)
 	require.NoError(t, err)
 
 	bus := events.NewBus()
-	cards := service.NewCardService(store, gitMgr, lock.NewManager(store, 30*time.Minute), bus, boardsDir, nil, true, false)
+	cards, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lock.NewManager(store, 30*time.Minute),
+	})
+	require.NoError(t, err)
 
 	pbStore, err := storage.NewFilesystemPlaybookStore(boardsDir)
 	require.NoError(t, err)
 
-	pbs := service.NewPlaybookService(pbStore, store, bus, nil, false)
+	pbs, err := service.NewPlaybookServiceRepos(pbStore, store, bus, nil, &service.PlaybookRepo{Name: service.DefaultRepoName})
+	require.NoError(t, err)
 	cards.SetPlaybookLister(pbStore)
 	pbs.SetCardForcer(cards)
 

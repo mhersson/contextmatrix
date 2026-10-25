@@ -78,7 +78,14 @@ func setupMCP(t *testing.T, opts ...func(*ServerConfig)) *testEnv {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	svc := service.NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	// Create workflow-skills directory with stub skill files (including Agent Configuration for model parsing)
 	workflowSkillsDir := filepath.Join(tmpDir, "workflow-skills")
@@ -1834,7 +1841,14 @@ func setupMCPWithCosts(t *testing.T) *testEnv {
 	tokenCosts := map[string]service.ModelRate{
 		"claude-opus-4-7": {Prompt: 0.000005, Completion: 0.000025},
 	}
-	svc := service.NewCardService(store, gitMgr, lockMgr, bus, boardsDir, tokenCosts, true, false)
+	svc, err := service.NewCardServiceRepos(store, bus, tokenCosts, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	workflowSkillsDir := filepath.Join(tmpDir, "workflow-skills")
 	require.NoError(t, os.MkdirAll(workflowSkillsDir, 0o755))

@@ -319,7 +319,7 @@ type PlaybookService struct {
 	githubHosts []string
 }
 
-// NewPlaybookServiceRepos creates a PlaybookService over several boards
+// NewPlaybookServiceRepos creates a PlaybookService over one or more boards
 // repositories. store routes by playbook ID; each repo carries its own
 // commit queue. A nil clk defaults to clock.Real().
 func NewPlaybookServiceRepos(
@@ -351,30 +351,6 @@ func NewPlaybookServiceRepos(
 		store: store, cards: cards, bus: bus, clk: clk, repos: repos, repoIndex: index,
 		githubHosts: []string{"github.com"},
 	}, nil
-}
-
-// NewPlaybookService creates a PlaybookService over one boards repository
-// named boards. A nil clk defaults to clock.Real().
-func NewPlaybookService(store PlaybookStore, cards storage.Store, bus *events.Bus, clk clock.Clock, gitAutoCommit bool) *PlaybookService {
-	s, err := NewPlaybookServiceRepos(store, cards, bus, clk, &PlaybookRepo{Name: DefaultRepoName, GitAutoCommit: gitAutoCommit})
-	if err != nil {
-		panic(err) // one named repo cannot fail validation
-	}
-
-	return s
-}
-
-// SetCommitQueue registers the commit queue of the first configured repo.
-// Passing nil disables git commits there (mutations still apply to the
-// store; see enqueueCommit).
-func (s *PlaybookService) SetCommitQueue(q *gitops.CommitQueue) {
-	s.repos[0].Queue = q
-}
-
-// SetOnCommit registers the callback invoked after each successful git
-// commit in the first configured repo.
-func (s *PlaybookService) SetOnCommit(fn func()) {
-	s.repos[0].onCommit = fn
 }
 
 // SetOnCommitFor registers the callback for one repo.
@@ -583,15 +559,11 @@ func (p *RepoPlaybooks) Reload(ctx context.Context) error {
 	return p.svc.ReloadRepo(ctx, p.repo)
 }
 
-// SetSyncRunner routes playbook creation in the first configured repo
-// through the syncer so the slug is allocated against the merged playbooks
-// directory. commit is the direct commit path used inside the cycle. Must be
-// called before the server starts accepting requests.
-func (s *PlaybookService) SetSyncRunner(run SyncRunner, commit DirectCommit) {
-	s.repos[0].runner, s.repos[0].directCommit = run, commit
-}
-
-// SetSyncRunnerFor is SetSyncRunner for one repo.
+// SetSyncRunnerFor routes playbook creation in repo through the syncer so
+// the slug is allocated against the merged playbooks directory. commit is the
+// direct commit path used inside the cycle; run and commit are set together
+// or not at all (ErrSyncRunnerPair). Must be called before the server starts
+// accepting requests.
 func (s *PlaybookService) SetSyncRunnerFor(repo string, run SyncRunner, commit DirectCommit) error {
 	r, err := s.repoNamed(repo)
 	if err != nil {

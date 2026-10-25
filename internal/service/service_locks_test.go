@@ -44,10 +44,14 @@ func newStalledTestService(t *testing.T) (*CardService, *clock.FakeClock, func()
 	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 	lockMgr := lock.NewManagerWithClock(store, 1*time.Millisecond, fake)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
-
 	commitQueue := gitops.NewCommitQueue(gitMgr, 0)
-	svc.SetCommitQueue(commitQueue)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+		Queue:         commitQueue,
+	})
 
 	cleanup := func() {
 		_ = commitQueue.Close(context.Background())

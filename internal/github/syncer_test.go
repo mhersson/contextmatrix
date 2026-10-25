@@ -149,7 +149,14 @@ func setupTestProject(t *testing.T, projectName string, ghCfg *board.GitHubImpor
 
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
-	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil, true, false)
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           git,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	return boardsDir, svc, store
 }
@@ -423,7 +430,14 @@ func TestSyncAll_SetClientFor_SkipsProjectOnResolveError(t *testing.T) {
 
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
-	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil, true, false)
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           git,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	issues := []Issue{
 		{Number: 1, Title: "Issue for proj-b", HTMLURL: "https://github.com/testorg/proj-b/issues/1"},
@@ -498,7 +512,14 @@ func TestSyncAll_SkipsAProjectHiddenBehindAnotherRepo(t *testing.T) {
 	git, err := gitops.NewManager(dirOne, "", "ssh", nil)
 	require.NoError(t, err)
 
-	svc := service.NewCardService(composite, git, lock.NewManager(composite, 30*time.Minute), events.NewBus(), dirOne, nil, true, false)
+	svc, err := service.NewCardServiceRepos(composite, events.NewBus(), nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           git,
+		Dir:           dirOne,
+		GitAutoCommit: true,
+		Lock:          lock.NewManager(composite, 30*time.Minute),
+	})
+	require.NoError(t, err)
 
 	p, err := githubauth.NewPATProvider("t")
 	require.NoError(t, err)

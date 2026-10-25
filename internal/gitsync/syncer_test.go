@@ -87,7 +87,14 @@ func setupSyncTest(t *testing.T) (syncer *Syncer, upstream, clone string, bus *e
 
 	bus = events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
-	svc := service.NewCardService(store, gitMgr, lockMgr, bus, clone, nil, true, false)
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           gitMgr,
+		Dir:           clone,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	syncer = NewSyncer(gitMgr, store, svc, bus, clone, true, true, time.Minute)
 	require.NotNil(t, syncer)

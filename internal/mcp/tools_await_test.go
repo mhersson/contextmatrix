@@ -65,7 +65,14 @@ func setupAwaitMCP(t *testing.T, awaitMax time.Duration) *awaitEnv {
 	fake := clock.Fake(start)
 	// The service adopts the lock manager's clock, so the fake must go in here.
 	lockMgr := lock.NewManagerWithClock(store, 30*time.Minute, fake)
-	svc := service.NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	server := NewServer(ServerConfig{
 		Service:           svc,

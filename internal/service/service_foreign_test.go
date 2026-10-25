@@ -16,7 +16,7 @@ func TestForeignStall_PushVerifiedAfterTheLeaseTimeout(t *testing.T) {
 	defer cleanup()
 
 	runner := &fakeRunner{svc: svc}
-	svc.SetSyncRunner(runner.run)
+	require.NoError(t, svc.SetSyncRunnerFor(DefaultRepoName, runner.run))
 
 	ctx := context.Background()
 	card := createShared(t, svc)
@@ -61,7 +61,7 @@ func TestForeignStall_RequiresARecentPull(t *testing.T) {
 	defer cleanup()
 
 	runner := &fakeRunner{svc: svc}
-	svc.SetSyncRunner(runner.run)
+	require.NoError(t, svc.SetSyncRunnerFor(DefaultRepoName, runner.run))
 
 	ctx := context.Background()
 	card := createShared(t, svc)
@@ -85,7 +85,7 @@ func TestForeignStall_RenewedLeaseInsideTheCycleCancelsIt(t *testing.T) {
 	defer cleanup()
 
 	runner := &fakeRunner{svc: svc}
-	svc.SetSyncRunner(runner.run)
+	require.NoError(t, svc.SetSyncRunnerFor(DefaultRepoName, runner.run))
 
 	ctx := context.Background()
 	card := createShared(t, svc)
@@ -117,7 +117,7 @@ func TestForeignStall_UndoneWhenThePushNeverLands(t *testing.T) {
 	defer cleanup()
 
 	runner := &fakeRunner{svc: svc, failAfter: true}
-	svc.SetSyncRunner(runner.run)
+	require.NoError(t, svc.SetSyncRunnerFor(DefaultRepoName, runner.run))
 
 	ctx := context.Background()
 

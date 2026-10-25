@@ -135,7 +135,8 @@ func TestApplyCardMutation_RollbackOnCommitFailure_CancelledContext(t *testing.T
 	failQueue := gitops.NewCommitQueueWithCommitter(committer, 0)
 
 	t.Cleanup(func() { _ = failQueue.Close(context.Background()) })
-	svc.SetCommitQueue(failQueue)
+
+	svc.repos[0].Queue = failQueue
 
 	newTitle := "Should Not Stick"
 	newBody := "Should not persist"
@@ -216,7 +217,7 @@ func TestApplyCardMutation_RollbackOnCommitFailure(t *testing.T) {
 
 	t.Cleanup(func() { _ = failQueue.Close(context.Background()) })
 
-	svc.SetCommitQueue(failQueue)
+	svc.repos[0].Queue = failQueue
 
 	// Mutate the card via PatchCard (routes through applyCardMutation).
 	newTitle := "Mutated Title"
@@ -270,7 +271,7 @@ func TestApplyCardMutation_RollbackOnCommitFailure_DiskConsistent(t *testing.T) 
 
 	t.Cleanup(func() { _ = failQueue.Close(context.Background()) })
 
-	svc.SetCommitQueue(failQueue)
+	svc.repos[0].Queue = failQueue
 
 	newTitle := "Mutated Title"
 	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
@@ -311,7 +312,8 @@ func TestAddLogEntry_RollbackOnCommitFailure(t *testing.T) {
 	failQueue := gitops.NewCommitQueueWithCommitter(failing, 0)
 
 	t.Cleanup(func() { _ = failQueue.Close(context.Background()) })
-	svc.SetCommitQueue(failQueue)
+
+	svc.repos[0].Queue = failQueue
 
 	_, err = svc.AddLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{
 		Agent:   "human:alice",
@@ -389,7 +391,8 @@ func TestParentAutoTransition_FailedCommitIncrementsCounter(t *testing.T) {
 	selQueue := gitops.NewCommitQueueWithCommitter(selective, 0)
 
 	t.Cleanup(func() { _ = selQueue.Close(context.Background()) })
-	svc.SetCommitQueue(selQueue)
+
+	svc.repos[0].Queue = selQueue
 
 	inProgress := "in_progress"
 	_, err = svc.PatchCard(ctx, "test-project", child.ID, PatchCardInput{
@@ -506,7 +509,8 @@ func TestUpdateProject_RollbackOnCommitFailure(t *testing.T) {
 	failQueue := gitops.NewCommitQueueWithCommitter(failing, 0)
 
 	t.Cleanup(func() { _ = failQueue.Close(context.Background()) })
-	svc.SetCommitQueue(failQueue)
+
+	svc.repos[0].Queue = failQueue
 
 	// Attempt an update that SHOULD fail and rollback.
 	input := UpdateProjectInput{
@@ -567,7 +571,8 @@ func TestUpdateProject_RollbackRestoresPOC(t *testing.T) {
 	failQueue := gitops.NewCommitQueueWithCommitter(failing, 0)
 
 	t.Cleanup(func() { _ = failQueue.Close(context.Background()) })
-	svc.SetCommitQueue(failQueue)
+
+	svc.repos[0].Queue = failQueue
 
 	_, err := svc.UpdateProject(ctx, "test-project", pocBaseInput(new(true)))
 	require.ErrorIs(t, err, sentinel)
@@ -649,7 +654,8 @@ func TestDeleteProject_RollbackOnCommitFailure(t *testing.T) {
 	failQueue := gitops.NewCommitQueueWithCommitter(failing, 0)
 
 	t.Cleanup(func() { _ = failQueue.Close(context.Background()) })
-	svc.SetCommitQueue(failQueue)
+
+	svc.repos[0].Queue = failQueue
 
 	err = svc.DeleteProject(ctx, "test-project")
 	require.Error(t, err, "commit failure must propagate to caller")
@@ -703,7 +709,8 @@ func TestDeleteProject_HappyPathNoRollback(t *testing.T) {
 	queue := gitops.NewCommitQueue(gitMgr, 0)
 
 	t.Cleanup(func() { _ = queue.Close(context.Background()) })
-	svc.SetCommitQueue(queue)
+
+	svc.repos[0].Queue = queue
 
 	// Create a project. CreateProject auto-commits via CommitAll directly
 	// (not through the queue) - this is fine for test setup.

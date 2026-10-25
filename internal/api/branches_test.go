@@ -58,7 +58,14 @@ transitions:
 
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
-	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil, true, false)
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           git,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	return svc, bus, func() {}
 }

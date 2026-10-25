@@ -101,7 +101,14 @@ transitions:
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
 	// Initialize service
-	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil, true, false)
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           git,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	cleanup := func() {
 		// Temp directory is automatically cleaned up by t.TempDir()
@@ -715,7 +722,14 @@ transitions:
 
 	bus2 := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
-	svc2 := service.NewCardService(store, git, lockMgr, bus2, boardsDir, nil, true, false)
+	svc2, err := service.NewCardServiceRepos(store, bus2, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           git,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	router := NewRouter(RouterConfig{Service: svc2, Bus: bus2})
 
@@ -1884,7 +1898,14 @@ func emptyTestSetup(t *testing.T) (*service.CardService, *events.Bus) {
 
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
-	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil, true, false)
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           git,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	return svc, bus
 }
@@ -2590,7 +2611,14 @@ func testSetupWithRemoteExecution(t *testing.T, boardConfigYAML string) (*servic
 
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
-	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil, true, false)
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           git,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	return svc, bus, func() {}
 }

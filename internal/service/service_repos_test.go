@@ -181,23 +181,6 @@ func TestNewCardServiceRepos_Rejects(t *testing.T) {
 	}
 }
 
-func TestNewCardService_IsAOneRepoServiceNamedBoards(t *testing.T) {
-	svc, _, cleanup := setupTest(t)
-	defer cleanup()
-
-	repos := svc.Repos()
-	require.Len(t, repos, 1)
-	assert.Equal(t, DefaultRepoName, repos[0].Name)
-	assert.NotNil(t, repos[0].Queue, "SetCommitQueue lands on the one repo")
-
-	svc.SetSharedRepo(true)
-	svc.SetLease("lap-a", time.Hour, time.Minute)
-	assert.True(t, repos[0].Shared)
-	assert.Equal(t, "lap-a", repos[0].Instance)
-	assert.Equal(t, time.Hour, repos[0].LeaseTimeout)
-	assert.Equal(t, time.Minute, repos[0].PullInterval)
-}
-
 func TestLockWrites_QuiescesOnlyThatRepoQueue(t *testing.T) {
 	tr, cleanup := newTwoRepoService(t)
 	defer cleanup()

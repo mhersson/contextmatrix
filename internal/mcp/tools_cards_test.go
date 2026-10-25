@@ -654,7 +654,14 @@ func setupMCPTwoProjects(t *testing.T) *testEnv {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	svc := service.NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	workflowSkillsDir := filepath.Join(tmpDir, "workflow-skills")
 	require.NoError(t, os.MkdirAll(workflowSkillsDir, 0o755))

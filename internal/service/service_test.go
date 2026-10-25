@@ -82,10 +82,14 @@ func setupTestTB(tb testing.TB) (*CardService, string, func()) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
-
 	commitQueue := gitops.NewCommitQueue(gitMgr, 0)
-	svc.SetCommitQueue(commitQueue)
+	svc := newTestCardService(tb, store, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+		Queue:         commitQueue,
+	})
 
 	cleanup := func() {
 		// Drain the queue so deferred commit workers do not leak into
@@ -708,7 +712,12 @@ func TestTimeoutCheckerIntegration(t *testing.T) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManagerWithClock(store, 50*time.Millisecond, fake)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
 
 	ctx := t.Context()
 
@@ -1007,10 +1016,14 @@ func setupTestWithReview(t *testing.T) (*CardService, string, func()) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
-
 	commitQueue := gitops.NewCommitQueue(gitMgr, 0)
-	svc.SetCommitQueue(commitQueue)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+		Queue:         commitQueue,
+	})
 
 	return svc, tmpDir, func() {
 		_ = commitQueue.Close(context.Background())
@@ -1253,7 +1266,12 @@ func setupTestWithCosts(t *testing.T) (*CardService, string, func()) {
 		"claude-opus-4-7":   {Prompt: 0.000005, Completion: 0.000025},
 	}
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, tokenCosts, true, false)
+	svc := newTestCardService(t, store, bus, tokenCosts, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
 
 	return svc, tmpDir, func() {}
 }
@@ -1800,7 +1818,12 @@ func setupEmptyTest(t *testing.T) (*CardService, string) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
 
 	return svc, boardsDir
 }
@@ -2657,7 +2680,11 @@ func TestGitAutoCommitDisabled(t *testing.T) {
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
 	// Create service with gitAutoCommit disabled
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, false, false)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:  gitMgr,
+		Dir:  boardsDir,
+		Lock: lockMgr,
+	})
 	ctx := context.Background()
 
 	// Create a card - should write file but not commit
@@ -2701,8 +2728,13 @@ func setupDeferredTest(t *testing.T) (*CardService, *gitops.Manager) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	// gitAutoCommit=true, gitDeferredCommit=true
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, true)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:               gitMgr,
+		Dir:               boardsDir,
+		GitAutoCommit:     true,
+		GitDeferredCommit: true,
+		Lock:              lockMgr,
+	})
 
 	return svc, gitMgr
 }
@@ -3009,7 +3041,13 @@ func TestDeferredCommitFlushOnStalled(t *testing.T) {
 	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 	lockMgr := lock.NewManagerWithClock(store, 1*time.Millisecond, fake)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, true)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:               gitMgr,
+		Dir:               boardsDir,
+		GitAutoCommit:     true,
+		GitDeferredCommit: true,
+		Lock:              lockMgr,
+	})
 	ctx := context.Background()
 
 	// Create and claim a card.
@@ -3380,7 +3418,12 @@ func TestReportUsageUnknownModelEndToEnd(t *testing.T) {
 		"claude-opus-4-7": {Prompt: 0.000005, Completion: 0.000025},
 	}
 
-	svc2 := NewCardService(store2, gitMgr2, lockMgr2, bus2, boardsDir, costsWithOpus, true, false)
+	svc2 := newTestCardService(t, store2, bus2, costsWithOpus, &BoardsRepo{
+		Git:           gitMgr2,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr2,
+	})
 
 	result, err := svc2.RecalculateCosts(ctx, "test-project", "")
 	require.NoError(t, err)
@@ -3691,7 +3734,13 @@ func setupDeferredTestWithReview(t *testing.T) (*CardService, *gitops.Manager) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, true)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:               gitMgr,
+		Dir:               boardsDir,
+		GitAutoCommit:     true,
+		GitDeferredCommit: true,
+		Lock:              lockMgr,
+	})
 
 	return svc, gitMgr
 }
@@ -4301,7 +4350,12 @@ func TestNotPlannedDoesNotAppearInStalledDetection(t *testing.T) {
 	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 	lockMgr := lock.NewManagerWithClock(store, 1*time.Millisecond, fake)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
 	ctx := context.Background()
 
 	// Create, claim, then immediately move to not_planned.
@@ -4353,7 +4407,12 @@ func TestDoneCardWithLiveClaimIsNotStalled(t *testing.T) {
 	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 	lockMgr := lock.NewManagerWithClock(store, 1*time.Millisecond, fake)
 
-	svc := NewCardService(store, gitMgr, lockMgr, events.NewBus(), boardsDir, nil, true, false)
+	svc := newTestCardService(t, store, events.NewBus(), nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
 	ctx := context.Background()
 
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
@@ -5003,7 +5062,12 @@ func TestRecordPush_BranchName_CommitFailureRollback(t *testing.T) {
 	gitMgr, err := gitops.NewManager(boardsDir, "", "test", gitopsTestProvider(t))
 	require.NoError(t, err)
 
-	svc := NewCardService(realStore, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+	svc := newTestCardService(t, realStore, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
 
 	// Create and claim a card using the real store + git.
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
@@ -5034,7 +5098,8 @@ func TestRecordPush_BranchName_CommitFailureRollback(t *testing.T) {
 	failingQueue := gitops.NewCommitQueueWithCommitter(failOnCommit, 0)
 
 	t.Cleanup(func() { _ = failingQueue.Close(ctx) })
-	svc.SetCommitQueue(failingQueue)
+
+	svc.repos[0].Queue = failingQueue
 
 	// Attempt push with the failing queue.
 	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "cm/rollback-test-001", "https://github.com/org/repo/pull/99")
@@ -5504,8 +5569,13 @@ func TestDeferredCommitPathsPreservedOnFailure(t *testing.T) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	// gitAutoCommit=true, gitDeferredCommit=true
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, true)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:               gitMgr,
+		Dir:               boardsDir,
+		GitAutoCommit:     true,
+		GitDeferredCommit: true,
+		Lock:              lockMgr,
+	})
 	ctx := context.Background()
 
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
@@ -6560,7 +6630,12 @@ func TestStartTimeoutCheckerPanicRecovery(t *testing.T) {
 
 	bus := events.NewBus()
 	lockMgr := lock.NewManagerWithClock(store, 30*time.Minute, fake)
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
 
 	ctx := t.Context()
 
@@ -6676,7 +6751,12 @@ func TestCreateCard_RollbackErrorsJoined(t *testing.T) {
 		saveErr:   saveErr,
 	}
 
-	svc := NewCardService(wrappedStore, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+	svc := newTestCardService(t, wrappedStore, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
 
 	ctx := context.Background()
 
@@ -7100,7 +7180,12 @@ func TestProcessStalled_IncrementsStallCardsMarked(t *testing.T) {
 	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 	lockMgr := lock.NewManagerWithClock(store, 1*time.Millisecond, fake)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
 
 	ctx := context.Background()
 
@@ -7322,12 +7407,17 @@ func newTwoProjectServiceWithGate(
 
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
 
 	// Use a real queue for setup writes (CreateCard, ClaimCard) so they land
 	// without blocking the test.
 	setupQueue := gitops.NewCommitQueue(gitMgr, 0)
-	svc.SetCommitQueue(setupQueue)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+		Queue:         setupQueue,
+	})
 
 	cleanup := func() {
 		_ = setupQueue.Close(context.Background())
@@ -7373,7 +7463,8 @@ func TestTransitionTo_DoesNotHoldWriteMuAcrossCommit(t *testing.T) {
 
 		_ = gateQueue.Close(context.Background())
 	})
-	svc.SetCommitQueue(gateQueue)
+
+	svc.repos[0].Queue = gateQueue
 
 	first := make(chan error, 1)
 	second := make(chan error, 1)
@@ -7462,7 +7553,7 @@ func TestLockWrites_SharedRepoDrainsBufferedCommits(t *testing.T) {
 	svc.Repos()[0].Queue.Pause()
 	done := enqueueBufferedCardCommit(t, svc, "test-project", card.ID)
 
-	svc.SetSharedRepo(true)
+	svc.repos[0].Shared = true
 	svc.LockWrites("")
 
 	after, err := svc.Repos()[0].Git.CommitCount()

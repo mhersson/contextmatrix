@@ -16,8 +16,8 @@ import (
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
-// DefaultRepoName is the name the single-repo constructor gives its one
-// boards repository. It matches the config default for the map form.
+// DefaultRepoName is the config default name of a single boards repository
+// (the map form).
 const DefaultRepoName = "boards"
 
 // ErrUnknownBoardsRepo is returned when a caller names a boards repo that is
@@ -113,12 +113,13 @@ var (
 	_ repoReloader   = (*storage.Composite)(nil)
 )
 
-// NewCardServiceRepos creates a CardService over several boards
+// NewCardServiceRepos creates a CardService over one or more boards
 // repositories. store is the composite that routes by project name; each
 // repo carries its own git manager, queue and lock manager. Every lock
 // manager must share one clock and one heartbeat timeout: stall detection,
 // the timeout-checker ticker and the lease rules compare timestamps against
-// the same monotonic reading. See NewCardService for the single-repo form.
+// the same monotonic reading. The service adopts that clock, so a test that
+// fakes time builds its lock managers with lock.NewManagerWithClock.
 func NewCardServiceRepos(store storage.Store, bus *events.Bus, tokenCosts map[string]ModelRate, repos ...*BoardsRepo) (*CardService, error) {
 	if len(repos) == 0 {
 		return nil, errors.New("card service: at least one boards repo is required")

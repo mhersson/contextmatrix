@@ -4073,8 +4073,17 @@ func testSetupSharedBoards(t *testing.T, instance string) (*service.CardService,
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 	lockMgr.SetShared(instance, time.Minute, time.Hour)
 
-	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil, true, false)
-	svc.SetLease(instance, time.Hour, time.Minute)
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           git,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+		Instance:      instance,
+		LeaseTimeout:  time.Hour,
+		PullInterval:  time.Minute,
+	})
+	require.NoError(t, err)
 
 	return svc, bus, store
 }

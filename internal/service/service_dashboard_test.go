@@ -209,10 +209,14 @@ func setupDashboardServiceAt(t *testing.T, now time.Time) (*CardService, string,
 	bus := events.NewBus()
 	lockMgr := lock.NewManagerWithClock(store, 30*time.Minute, fake)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
-
 	commitQueue := gitops.NewCommitQueue(gitMgr, 0)
-	svc.SetCommitQueue(commitQueue)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+		Queue:         commitQueue,
+	})
 
 	cleanup := func() {
 		_ = commitQueue.Close(context.Background())
