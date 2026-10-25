@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime/debug"
+	"slices"
 	"sync"
 	"time"
 
@@ -212,15 +213,8 @@ func (s *Syncer) syncProject(ctx context.Context, cfg *board.ProjectConfig, clie
 			continue
 		}
 
-		cardType := cfg.GitHub.CardType
-		if cardType == "" {
-			cardType = "task"
-		}
-
-		priority := cfg.GitHub.DefaultPriority
-		if priority == "" {
-			priority = "medium"
-		}
+		cardType := importDefault(cfg.GitHub.CardType, "task", cfg.Types)
+		priority := importDefault(cfg.GitHub.DefaultPriority, "medium", cfg.Priorities)
 
 		var labels []string
 		for _, l := range issue.Labels {
@@ -296,4 +290,17 @@ func resolveOwnerRepo(cfg *board.ProjectConfig, allowedHosts []string) (owner, r
 	}
 
 	return "", ""
+}
+
+// importDefault resolves an unset importer setting to preferred when the board
+// lists it, else to the board's first entry, so every create stays valid.
+func importDefault(set, preferred string, listed []string) string {
+	switch {
+	case set != "":
+		return set
+	case len(listed) == 0 || slices.Contains(listed, preferred):
+		return preferred
+	default:
+		return listed[0]
+	}
 }

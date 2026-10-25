@@ -28,20 +28,26 @@ Per-project opt-in in the project's `.board.yaml`:
 repo: git@github.com:acme/widgets.git
 github:
   import_issues: true
-  card_type: task          # optional, default task
-  default_priority: medium # optional, default medium
+  card_type: task          # optional, see the default rule below
+  default_priority: medium # optional, see the default rule below
   labels: [triaged, agent] # optional; only issues carrying ALL of these
   # owner: acme            # optional override, see below
   # repo: widgets
 ```
 
-| Key                | Default  | Meaning                                                        |
-| ------------------ | -------- | -------------------------------------------------------------- |
-| `import_issues`    | `false`  | Include this project in every sync cycle                       |
-| `card_type`        | `task`   | Type given to imported cards; must be one of the board's types |
-| `default_priority` | `medium` | Priority given to imported cards                               |
-| `labels`           | none     | GitHub label filter; an issue must carry every listed label    |
-| `owner`, `repo`    | derived  | Explicit GitHub owner and repository name                      |
+| Key                | Default       | Meaning                                                                 |
+| ------------------ | ------------- | ----------------------------------------------------------------------- |
+| `import_issues`    | `false`       | Include this project in every sync cycle                                |
+| `card_type`        | board default | Type given to imported cards; must be one of the board's types          |
+| `default_priority` | board default | Priority given to imported cards; must be one of the board's priorities |
+| `labels`           | none          | GitHub label filter; an issue must carry every listed label             |
+| `owner`, `repo`    | derived       | Explicit GitHub owner and repository name                               |
+
+The board default for an unset `card_type` is `task` when the board lists it,
+else the board's first type; for an unset `default_priority` it is `medium`
+when listed, else the board's first priority. A project save that sets either
+key to a value outside the board's lists is rejected with 422
+`VALIDATION_ERROR`.
 
 ## Owner and repo resolution
 

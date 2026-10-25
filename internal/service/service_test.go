@@ -2334,6 +2334,53 @@ func TestUpdateProject_RemoteExecutionImageValidation(t *testing.T) {
 	}
 }
 
+// TestUpdateProject_GitHubImportSettingsMustBeListed: an importer card_type or
+// default_priority outside the board's lists would have every import create
+// refused, so the save is rejected and .board.yaml keeps its prior content.
+func TestUpdateProject_GitHubImportSettingsMustBeListed(t *testing.T) {
+	tests := []struct {
+		name    string
+		github  board.GitHubImportConfig
+		wantErr error
+	}{
+		{"unset", board.GitHubImportConfig{ImportIssues: true}, nil},
+		{"listed", board.GitHubImportConfig{ImportIssues: true, CardType: "bug", DefaultPriority: "high"}, nil},
+		{"unlisted card_type", board.GitHubImportConfig{ImportIssues: true, CardType: "epic"}, board.ErrInvalidType},
+		{"unlisted default_priority", board.GitHubImportConfig{ImportIssues: true, DefaultPriority: "urgent"}, board.ErrInvalidPriority},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, tmpDir, cleanup := setupTest(t)
+			defer cleanup()
+
+			ctx := context.Background()
+			boardFile := filepath.Join(tmpDir, "boards", "test-project", ".board.yaml")
+
+			before, err := os.ReadFile(boardFile)
+			require.NoError(t, err)
+
+			input := remoteExecBaseInput(nil)
+			input.GitHub = &tt.github
+
+			_, err = svc.UpdateProject(ctx, "test-project", input)
+			if tt.wantErr == nil {
+				require.NoError(t, err)
+
+				return
+			}
+
+			var ve *board.ValidationError
+			require.ErrorAs(t, err, &ve)
+			require.ErrorIs(t, err, tt.wantErr)
+
+			after, err := os.ReadFile(boardFile)
+			require.NoError(t, err)
+			assert.Equal(t, string(before), string(after))
+		})
+	}
+}
+
 // TestUpdateProject_MCPShapePreservesFields is the regression for the MCP
 // update_project fix: the read-modify-write shape the fixed handler now sends
 // (DefaultSkills backfilled from the current config, Repo backfilled when the

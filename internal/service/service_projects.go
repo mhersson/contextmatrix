@@ -315,6 +315,35 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 	return cfg, nil
 }
 
+// validateGitHubImport rejects an importer card_type or default_priority the
+// board does not list: every import create would be refused.
+func validateGitHubImport(cfg *board.ProjectConfig) error {
+	gh := cfg.GitHub
+	if gh == nil {
+		return nil
+	}
+
+	if gh.CardType != "" && !slices.Contains(cfg.Types, gh.CardType) {
+		return fmt.Errorf("validate project: %w", &board.ValidationError{
+			Err:     board.ErrInvalidType,
+			Field:   "github.card_type",
+			Value:   gh.CardType,
+			Message: fmt.Sprintf("github card_type %q is not one of the project's types", gh.CardType),
+		})
+	}
+
+	if gh.DefaultPriority != "" && !slices.Contains(cfg.Priorities, gh.DefaultPriority) {
+		return fmt.Errorf("validate project: %w", &board.ValidationError{
+			Err:     board.ErrInvalidPriority,
+			Field:   "github.default_priority",
+			Value:   gh.DefaultPriority,
+			Message: fmt.Sprintf("github default_priority %q is not one of the project's priorities", gh.DefaultPriority),
+		})
+	}
+
+	return nil
+}
+
 // commitQueuedProjectConfig commits a project's .board.yaml through the commit
 // queue when configured, so ordering is preserved with concurrent card
 // commits; otherwise it commits inline.
@@ -405,6 +434,10 @@ func (s *CardService) updateProjectLocked(
 	cfg.Transitions = input.Transitions
 	if input.GitHub != nil {
 		cfg.GitHub = input.GitHub
+	}
+
+	if err := validateGitHubImport(cfg); err != nil {
+		return nil, nil, err
 	}
 
 	if input.GitHubCredential != nil {

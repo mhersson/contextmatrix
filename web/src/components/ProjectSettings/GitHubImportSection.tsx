@@ -72,7 +72,7 @@ export function GitHubImportSection({ github, onChange, types, priorities }: Git
                 onChange={(e) => update({ card_type: e.target.value || undefined })}
                 className="bf-state-select"
               >
-                <option value="">task (default)</option>
+                <option value="">Board default</option>
                 {types.map((t) => (
                   <option key={t} value={t}>
                     {t}
@@ -90,7 +90,7 @@ export function GitHubImportSection({ github, onChange, types, priorities }: Git
                 onChange={(e) => update({ default_priority: e.target.value || undefined })}
                 className="bf-state-select"
               >
-                <option value="">medium (default)</option>
+                <option value="">Board default</option>
                 {priorities.map((p) => (
                   <option key={p} value={p}>
                     {p}
