@@ -102,6 +102,15 @@ func main() {
 
 	configPath := flag.String("config", "", "path to config file")
 
+	flag.Usage = func() {
+		out := flag.CommandLine.Output()
+
+		fmt.Fprintf(out, "usage: %s [-config path]\n\n", os.Args[0])
+		flag.PrintDefaults()
+		fmt.Fprintf(out, "\nsubcommands:\n  config defaults          print the complete default configuration as YAML\n"+
+			"  config validate <file>   load <file> as the server would; exit 1 on the first error\n")
+	}
+
 	flag.Parse()
 
 	if *configPath == "" {
@@ -278,14 +287,12 @@ func main() {
 	httpCtx, httpCancel := context.WithCancel(ctx)
 	defer httpCancel()
 
-	// The timeout checker's interval is configurable so test harnesses can
-	// shrink it for fast heartbeat-timeout scenarios; production default is
-	// 1m. Validate ensures the duration parses and is positive.
+	// Validate guarantees stalled_check_interval parses and is positive.
 	stalledTick, err := cfg.StalledCheckIntervalDuration()
 	if err != nil {
-		slog.Error("invalid stalled_check_interval; falling back to 1m", "error", err)
-
-		stalledTick = time.Minute
+		slog.Error("invalid stalled_check_interval", "error", err)
+		cancel()
+		os.Exit(1) //nolint:gocritic // cancel called explicitly above
 	}
 
 	// Initialize git sync

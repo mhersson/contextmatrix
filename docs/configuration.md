@@ -73,10 +73,15 @@ github: # required: auth_mode must be "app" or "pat"
     token: github_pat_... # or CONTEXTMATRIX_GITHUB_PAT_TOKEN
 ```
 
-`github.auth_mode` is validated at startup even when nothing talks to GitHub:
-`app` needs `app_id`, `installation_id` and `private_key_path`; `pat` needs a
-non-empty `token`. The token is only used when a git remote, issue import,
-branch listing, or a worker run needs it. See
+The `github` block is required at startup: `auth_mode` must be `app` or `pat`,
+and the config is rejected without it. `app` needs `app_id`,
+`installation_id` and `private_key_path`; `pat` needs a non-empty `token`.
+ContextMatrix is the GitHub token authority for its consumers - the git
+tokens it hands to workers for card runs and chats, branch listing, issue
+import and the boards remote - so a server without a provider could not run
+cards. Making the block optional would mean a nil provider at every consumer.
+For a first start, set `auth_mode: pat` with a token. The token is minted only
+when one of those consumers needs it. See
 [GitHub auth setup](github-auth-setup.md).
 
 `auth.mode` defaults to `multi` (login required). Set `auth.mode: none` for
@@ -107,6 +112,7 @@ Exceptions to the rule:
 | YAML path                        | Env var                                    | Note                                      |
 | -------------------------------- | ------------------------------------------ | ----------------------------------------- |
 | `backends.<name>.<field>`        | `CONTEXTMATRIX_BACKEND_<NAME>_<FIELD>`     | Singular `BACKEND`; NAME is `AGENT`, `CHAT` or `ARCHITECT` |
+| `github.app.app_id`              | `CONTEXTMATRIX_GITHUB_APP_ID`              | No `APP_` segment                         |
 | `github.app.installation_id`     | `CONTEXTMATRIX_GITHUB_INSTALLATION_ID`     | No `APP_` segment                         |
 | `github.app.private_key_path`    | `CONTEXTMATRIX_GITHUB_PRIVATE_KEY_PATH`    | No `APP_` segment                         |
 | `backends.agent.model_allowlist` | `CONTEXTMATRIX_BACKEND_AGENT_MODEL_ALLOWLIST` | Comma-separated list                   |
@@ -204,8 +210,6 @@ unset, so a free cache rate cannot be expressed. Config file only.
 - **`make build`, `make test-frontend` or `make lint-frontend` fail with a
   missing `vite` or `eslint`** - run `make install-frontend` to populate
   `web/node_modules`.
-- **Leftover `backends.runner` entry** - the runner backend is retired; the
-  entry (or any `CONTEXTMATRIX_BACKEND_RUNNER_*` variable) fails startup.
 
 ## See also
 
