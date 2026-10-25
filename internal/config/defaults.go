@@ -30,6 +30,10 @@ func Defaults() *Config {
 	applyJiraDefaults(cfg)
 	applyBackendDefaults(cfg)
 
+	// Load applies this default only when issue importing is enabled, so the
+	// key is set here for the printed output.
+	cfg.GitHub.IssueImporting.SyncInterval = "5m"
+
 	disabled := false
 	cfg.Backends.Agent.Enabled = &disabled
 	cfg.Backends.Chat.Enabled = &disabled

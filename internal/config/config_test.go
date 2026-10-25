@@ -2355,48 +2355,27 @@ backends:
 	}
 }
 
-// TestValidateRejectsRunnerBackend pins the removal of the runner backend:
-// any declared backends.runner entry - enabled or not - fails Load with the
-// dedicated removal error, never a silent skip or a generic name error. The
-// rejection fires during Load's YAML parse (Backends.UnmarshalYAML carries
-// the closed key set), not in Validate.
-func TestValidateRejectsRunnerBackend(t *testing.T) {
-	apiKey := strings.Repeat("k", 32)
-
+// TestBackendUnknownNameFailsAtLoad pins the closed backend key set: any
+// other name, enabled or not, fails Load's YAML parse and the error names
+// the offending value.
+func TestBackendUnknownNameFailsAtLoad(t *testing.T) {
 	cases := []struct {
 		name string
 		yaml string
+		bad  string
 	}{
-		{
-			name: "enabled runner entry",
-			yaml: `
-backends:
-  runner:
-    url: http://localhost:9090
-    api_key: "` + apiKey + `"
-`,
-		},
-		{
-			// The name check applies to ALL entries, enabled or not - a
-			// disabled leftover entry must still fail loudly.
-			name: "disabled runner entry still rejected",
-			yaml: `
-backends:
-  runner:
-    enabled: false
-`,
-		},
+		{name: "enabled entry", yaml: "backends:\n  runner:\n    url: http://localhost:9090\n", bad: "runner"},
+		{name: "disabled entry still rejected", yaml: "backends:\n  nope:\n    enabled: false\n", bad: "nope"},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			boardsDir := t.TempDir()
-			path := writeConfigFile(t, dir, minValidBase(boardsDir)+tc.yaml)
+			path := writeConfigFile(t, t.TempDir(), minValidBase(t.TempDir())+tc.yaml)
 
 			_, err := Load(path)
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "the runner backend has been removed")
+			assert.Contains(t, err.Error(), "invalid backend name")
+			assert.Contains(t, err.Error(), tc.bad)
 		})
 	}
 }
