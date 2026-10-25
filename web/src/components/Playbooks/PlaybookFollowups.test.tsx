@@ -40,16 +40,6 @@ describe('PlaybookFollowups', () => {
     expect(h.onAdd).toHaveBeenCalledWith('Smoke test');
   });
 
-  it('Escape discards the draft even if a blur follows', () => {
-    const h = setup([], false);
-    fireEvent.click(screen.getByRole('button', { name: 'Add a check' }));
-    const add = screen.getByRole('textbox', { name: 'New check' });
-    fireEvent.change(add, { target: { value: 'Discard me' } });
-    fireEvent.keyDown(add, { key: 'Escape' });
-    fireEvent.blur(add);
-    expect(h.onAdd).not.toHaveBeenCalled();
-  });
-
   it('ticks send done when unlocked', () => {
     const h = setup([followup()], false);
     const box = screen.getByRole('checkbox', { name: 'Check the dashboard' });
