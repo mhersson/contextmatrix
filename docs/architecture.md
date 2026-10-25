@@ -582,10 +582,10 @@ and playbook creation picks the repo, defaulting to the first entry.
 **Shared repos.** Several instances may share one boards repo through its
 remote (`boards.shared: true`). Each instance commits as
 `ContextMatrix <contextmatrix@<instance.id>>`. Conflicts are resolved by
-`internal/boardmerge` with card-aware three-way rules: terminal state
-absorbs, later `updated` breaks scalar ties, usage is additive, lists are set
-unions, activity logs union, delete wins, and on an add/add the remote keeps
-the ID and the local card is re-minted. Field, state, body, re-mint and
+`internal/boardmerge` with card-aware three-way rules: a move into a terminal
+state absorbs, later `updated` breaks scalar ties, usage is additive, lists
+are set unions, activity logs union, delete wins, and on an add/add the remote
+keeps the ID and the local card is re-minted. Field, state, body, re-mint and
 invariant overrides write a `merge` activity entry on the surviving card;
 every resolution appears under `resolutions` in `GET /api/sync`. Claims on a
 shared board are owned by `(assigned_agent, claimed_via)` plus a
