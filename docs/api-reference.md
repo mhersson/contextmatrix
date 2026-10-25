@@ -2597,15 +2597,15 @@ project in `projects`, a valid `mode` (`default`, `auto`, `auto+emit` or
 language: the person is asked only what they want and how it should look and
 work, and sees each technical decision as what it means for them. It is fixed
 at creation and ignored on a chat session. `unattended` (default `false`)
-sets the blueprint to run without asking the person questions along the way. It
-is fixed at creation, no endpoint changes it, and it is ignored on a chat
-session. `model` is not defaulted at create
-for architect sessions: the cold open uses `backends.architect.default_model`.
-A `model` equal to that default is accepted without catalog validation,
-exactly like an omitted one; any other model is validated against the catalog
-as for chat sessions. Violations are 400 `INVALID_CHAT_INPUT` with the reason
-in `details`; a create with no architect backend configured is 409
-`CHAT_KIND_UNAVAILABLE`.
+has the architect plan so the playbook run never stops for a person except at
+a real gate, and put the checks a person makes after the run in the playbook's
+follow-ups. It is fixed at creation, no endpoint changes it, and it is ignored
+on a chat session. `model` is not defaulted at create for architect sessions:
+the cold open uses `backends.architect.default_model`. A `model` equal to that
+default is accepted without catalog validation, exactly like an omitted one;
+any other model is validated against the catalog as for chat sessions.
+Violations are 400 `INVALID_CHAT_INPUT` with the reason in `details`; a create
+with no architect backend configured is 409 `CHAT_KIND_UNAVAILABLE`.
 
 `origin_chat` and `origin_seq` start a blueprint from a hand-off: `origin_chat`
 must be the caller's own plain chat and `origin_seq` the seq of its newest
