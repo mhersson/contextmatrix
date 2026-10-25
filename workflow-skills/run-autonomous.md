@@ -61,9 +61,9 @@ Call `claim_card(card_id, agent_id)` before determining the starting point.
 Hold this claim through the entire lifecycle.
 
 If the error starts with `remote unreachable:`, wait 10 seconds and retry, at
-most 3 times. The same rule applies to every `create_card` call in Phase 2:
-the server deduplicates an identically titled subtask, so a retry never
-creates a duplicate.
+most 3 times. The same rule applies to every `create_card` call in Phase 2. A
+subtask retry never creates a duplicate: the server deduplicates an
+identically titled subtask under the parent.
 
 ## Step 1: Create feature branch
 
@@ -85,7 +85,7 @@ Based on the card's current state and body content:
 | `todo` or `in_progress`, has `## Plan` but no subtasks | Phase 2: Subtask Creation (inline) |
 | `todo` or `in_progress`, has subtasks, not all done | Phase 3: Execution |
 | `in_progress`, all subtasks done, no `## Review Findings` section (any round) | Phase 4: Documentation |
-| `review`, body has a `## PR Gates` section | PR Gates section (the section's counters carry the rounds already used), then Phase 6 steps 21-23 |
+| `review`, body has a `## PR Gates` section | PR Gates section (the section's counters carry the rounds already used), then Phase 6 steps 20-22 |
 | `review` | Phase 5: Review |
 | `done` | Nothing to do - inform the user |
 
@@ -129,14 +129,15 @@ Based on the card's current state and body content:
    your context.
 
    If the body has a `## Split` section, execute it before creating subtasks:
-   - For each split entry, call `create_card` (no parent) with its title and
-     self-contained body. Set `depends_on` to this card's ID (plus earlier
-     split cards) only where ordering is real. A split card has no parent and
-     is not deduplicated: on retry, `list_cards` for its title first.
-   - Copy this card's `autonomous` flag onto each new card with `update_card`.
+   - For each split entry without a `Created:` line, call `create_card` (no
+     parent) with its title and self-contained body. Set `depends_on` to this
+     card's ID (plus earlier split cards) only where ordering is real. Then
+     upsert the `Split` section with `Created: <card ID>` added to that entry.
+   - Copy this card's `autonomous` flag onto each newly created card with
+     `update_card`.
    - Narrow this card's body to the first deliverable with `update_card`.
-   - Call `add_log` on this card listing the created card IDs and the reason
-     for the split.
+   - When cards were created, call `add_log` on this card listing their IDs
+     and the reason for the split.
    - Continue planning ONLY this (narrowed) card.
 
    Then call `list_cards(project=<project>, parent=<card_id>)` to fetch
@@ -211,25 +212,25 @@ Based on the card's current state and body content:
 
 ## Phase 4: Documentation (always sub-agent)
 
-13. Call `get_skill(skill_name='document-task', card_id='<card_id>',
+12. Call `get_skill(skill_name='document-task', card_id='<card_id>',
     caller_model='<your_model>')`.
-14. Release the parent card claim (`release_card`), spawn a documentation
+13. Release the parent card claim (`release_card`), spawn a documentation
     sub-agent with the returned `model`, wait for `DOCS_WRITTEN`, then
     reclaim (`claim_card`).
 
 ## Phase 5: Review (inline)
 
-15. Call `start_review(card_id='<card_id>', agent_id=<your_agent_id>)`. The
+14. Call `start_review(card_id='<card_id>', agent_id=<your_agent_id>)`. The
     response always has `inline: true` - review-task is forced to inline
     because it spawns specialist sub-agents via the `Agent` tool, which only
     the top-level (your) session has.
-16. Execute the returned `content` inline. Do NOT release your claim.
+15. Execute the returned `content` inline. Do NOT release your claim.
     The skill runs Pass 1 (test/lint gate); if Pass 1 passes, spawns three
     specialist agents in parallel (Correctness, Design & Maintainability,
     Security & Performance) or, on a POC project without mob review, one
     generic reviewer; synthesizes their reports; writes findings to the
     parent card body; and prints `REVIEW_FINDINGS`.
-17. Parse the `recommendation` from the printed `REVIEW_FINDINGS`. The cycle
+16. Parse the `recommendation` from the printed `REVIEW_FINDINGS`. The cycle
     budget is **`MAX_REVISION_PASSES = 3`** (initial review + up to two
     revisions; the third review is the final decision).
 
@@ -287,8 +288,8 @@ Based on the card's current state and body content:
 
 ## Phase 6: Finalization
 
-18. Commit any remaining changes in a conventional commit with a bullet-point body. **No card IDs in commit messages.** Skip if nothing to commit. Then call `report_usage` with your token consumption so far.
-19. If the card has a `branch_name`:
+17. Commit any remaining changes in a conventional commit with a bullet-point body. **No card IDs in commit messages.** Skip if nothing to commit. Then call `report_usage` with your token consumption so far.
+18. If the card has a `branch_name`:
     a. Push the feature branch: `git push -u origin <branch_name>`.
     b. If `create_pr` is enabled, create a PR using `gh pr create` with a body
        referencing the card title and summarizing the work. If the card has a
@@ -296,14 +297,14 @@ Based on the card's current state and body content:
        the PR targets the correct branch.
     c. Call `report_push(card_id, agent_id, branch, pr_url)` with the PR URL (if a PR
        was created) or just the branch name.
-20. If the card context shows a PR-gate flag, run the PR Gates section now. If
+19. If the card context shows a PR-gate flag, run the PR Gates section now. If
     it parks the card, stop here - do not transition to done.
-21. Transition the card to `done`:
+20. Transition the card to `done`:
     `transition_card(card_id='<card_id>', new_state='done')`.
-22. Release the card claim:
+21. Release the card claim:
     `release_card(card_id='<card_id>', agent_id=<your_agent_id>)`.
     **Mandatory.** Skipping this orphans the card until heartbeat timeout (30 min).
-23. Print structured output:
+22. Print structured output:
     ```
     AUTONOMOUS_COMPLETE
     card_id: <card_id>
@@ -395,8 +396,8 @@ Gates` section's counters carry the rounds already used; never reset them.
 ## Git Workflow
 
 Orchestrator checks out the feature branch in Step 1. Execute-task
-sub-agents and the doc sub-agent leave changes in the working tree;
-orchestrator commits all remaining changes at Phase 6 step 18, pushes,
+sub-agents leave changes in the working tree; the doc sub-agent commits doc
+files; orchestrator commits remaining changes at Phase 6 step 17, pushes,
 and opens the PR when `create_pr` is enabled.
 
 ## Rules

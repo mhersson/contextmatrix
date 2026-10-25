@@ -72,14 +72,12 @@ You commit on the feature branch only. Never push, never open a PR - the
 orchestrator handles those phases (Phase 6 in run-autonomous, Phase 9 in
 create-plan), always, without exception, regardless of card flags.
 
-When invoked directly by a human, your only commit responsibility is the doc
-files you wrote in Step 3.
+Your only commit responsibility is the doc files you wrote in Step 3.
 
 ### Decision
 
 1. **Was I spawned by an orchestrator (Agent tool) or invoked directly by a human?**
-   - **Orchestrator:** leave the doc changes uncommitted and report the files
-     written. The orchestrator commits and handles push/PR.
+   - **Orchestrator:** stop after committing the doc. The orchestrator handles push/PR.
    - **Direct human:** continue to step 2.
 
 2. **(Direct human only) Is there a Branch field on the card?**
@@ -87,7 +85,7 @@ files you wrote in Step 3.
      the doc files you wrote/updated, and commit with a `docs(scope): summary`
      conventional message + blank line + bullet-point list of files changed. No
      card IDs in commit messages.
-   - **No Branch field:** the doc lives in the boards repo only; commit and stop.
+   - **No Branch field:** leave the doc changes uncommitted and report the files written.
 
 In all cases this skill never pushes and never creates a PR.
 

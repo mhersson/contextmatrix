@@ -42,10 +42,7 @@ If the card is not already claimed by you, call `claim_card(card_id, agent_id)`.
 Hold this claim through Phase 5 step 5.
 
 If the error starts with `remote unreachable:`, wait 10 seconds and retry, at
-most 3 times. The same rule applies to each subtask `create_card` call in
-Phase 3: the server deduplicates an identically titled subtask, so a retry
-never creates a duplicate. A split card has no parent and is not
-deduplicated: `list_cards` for its title before retrying it.
+most 3 times. The same rule applies to `create_card` in Phase 3.
 
 ## Step 1: Check the autonomous flag
 
@@ -259,15 +256,17 @@ the plan lives on the card, not in your context.
 If the plan draft contains a `## Split` section, execute it before creating
 subtasks:
 
-1. For each split entry, call `create_card` (no parent) with its title and
-   self-contained body. Set `depends_on` to the original card's ID (plus
-   earlier split cards) only where ordering is real.
-2. Copy the original card's `autonomous` flag onto each new card with
-   `update_card`.
+1. For each split entry without a `Created:` line, call `create_card` (no
+   parent) with its title and self-contained body. Set `depends_on` to the
+   original card's ID (plus earlier split cards) only where ordering is real.
+   Then upsert the `Split` section with `Created: <card ID>` added to that
+   entry.
+2. Copy the original card's `autonomous` flag onto each newly created card
+   with `update_card`.
 3. Narrow the original card's body to the first deliverable with
    `update_card`; in HITL mode, confirm the narrowed scope with the human.
-4. Call `add_log` on the original card listing the created card IDs and the
-   reason for the split.
+4. When cards were created, call `add_log` on the original card listing their
+   IDs and the reason for the split.
 5. Continue planning ONLY the original (narrowed) card.
 
 For each subtask described in the `## Plan` section:
@@ -429,7 +428,8 @@ claim during the block, so call no `heartbeat` until you reclaim.
 
 On `DOCS_WRITTEN`, call `report_usage`, then reclaim the parent card:
 `claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`, then call
-`heartbeat`.
+`heartbeat`. If `claim_card` fails or `get_card` shows the card `stalled`,
+recover per the Heartbeat section.
 
 ---
 

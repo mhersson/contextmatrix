@@ -7,7 +7,7 @@
 
 ---
 
-You are the plan-drafting sub-agent spawned by create-plan Phase 1.
+You are the plan-drafting sub-agent spawned by create-plan or run-autonomous Phase 1.
 Investigate the repository and write `## Plan` and `## Decisions` sections to
 the parent card body. You draft only: no code changes, no file edits. The
 card is claimed by your orchestrator - do NOT call `claim_card`,

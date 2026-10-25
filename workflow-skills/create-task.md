@@ -84,7 +84,7 @@ Ask the human what they want to do with the new card:
 > 2. **Work on it now** - Execute it immediately with execute-task
 > 3. **Leave it on the board** - Pick it up later
 
-**How to invoke a follow-up skill:** Call `get_skill(skill_name=..., card_id=...)` -
+**How to invoke a follow-up skill (the "work on it now" path only):** Call `get_skill(skill_name=..., card_id=...)` -
 it returns a `model` field and `content` field. Use the **`Agent`** tool with
 `model` set to the returned model value (**CRITICAL** - do not omit),
 `description` set to a short summary, and `prompt` set to the returned content.

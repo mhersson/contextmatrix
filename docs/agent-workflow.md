@@ -64,7 +64,7 @@ and agents.
 | `create-task.md`          | `/contextmatrix:create-task`      | Interview, runs inline in the main session |
 | `init-project.md`         | `/contextmatrix:init-project`     | Interview, runs inline                     |
 | `create-plan.md`          | `start_workflow`, `get_skill`     | HITL orchestrator; inline                  |
-| `plan-draft.md`           | `get_skill`                       | Sub-agent spawned by create-plan Phase 1   |
+| `plan-draft.md`           | `get_skill`                       | Sub-agent spawned by create-plan or run-autonomous Phase 1 |
 | `execute-task.md`         | `get_skill`                       | One sub-agent per subtask                  |
 | `review-task.md`          | `start_review` (also `get_skill`) | Always inline                              |
 | `document-task.md`        | `get_skill`                       | Sub-agent                                  |
@@ -370,11 +370,10 @@ unblocked subtasks and waits again. Phase 5 ends with `release_card`.
 **4. Documentation** (Phase 6) - always a sub-agent, for context isolation.
 It claims the parent (continuing without the claim on 409), reads parent and
 subtasks, decides whether external docs are needed at all, writes them to
-disk, leaves them uncommitted when an orchestrator spawned it (the
-orchestrator commits them in Phase 9; invoked directly by a human it commits
-only those files on the feature branch), never pushes or opens a PR, calls
-`report_usage` and `release_card`, and returns `DOCS_WRITTEN` with the files
-written. The orchestrator then reclaims the parent.
+disk, commits only those files on the feature branch (never pushes or opens a
+PR; with no branch it leaves them uncommitted), calls `report_usage` and
+`release_card`, and returns `DOCS_WRITTEN` with the files written. The
+orchestrator then reclaims the parent.
 
 **5. Review** (Phase 7) - `start_review(card_id, agent_id)`
 atomically transitions the parent to `review` and returns `review-task` with
@@ -531,7 +530,7 @@ its stdin message. Agents cannot self-promote.
 - **Review (inline)** evaluates the work, writes
   `## Review Findings (Round N)` via `update_card`, prints `REVIEW_FINDINGS`
   and keeps the claim. It never asks the user; the orchestrator does.
-- **Documentation agent** writes documentation files only. It
+- **Documentation agent** writes and commits documentation files only. It
   claims and releases the parent but never changes its state or body.
 
 ## Sub-agent structured output
@@ -630,7 +629,7 @@ Parent cards accumulate sections per phase:
 ## Review Findings (Round N)  <- one numbered heading per review round
 ## Copilot Review (Round N)   <- PR gates
 ## PR Gates                   <- PR gates, when parked
-## Split                      <- agent backend deliverable split
+## Split                      <- deliverable split (plan-draft or agent backend)
 ## Unreachable Criteria       <- agent backend planner
 ```
 
