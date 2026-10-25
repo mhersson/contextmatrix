@@ -15,7 +15,7 @@ Auto-loaded when working in `web/`. Backend conventions live in the root
   text or surface colour in a component (modal backdrops keep their
   `bg-black/50` scrim).
 - Files: `PascalCase.tsx` components, `useX.ts` hooks, `types/index.ts` shared
-  types. Split components over ~150 lines.
+  types. One job per component; split when a component does two jobs.
 - **One EventSource per distinct URL.** `SSEProvider`
   (`web/src/hooks/useSSEBus.tsx`) owns the only `EventSource('/api/events')`;
   consumers call `useSSEBus()` and register handlers via
@@ -44,11 +44,6 @@ Auto-loaded when working in `web/`. Backend conventions live in the root
   `contextmatrix-about-seen` (About ContextMatrix: the newest change shown per
   component, `{number, merged_at}`).
   Adding a key means adding it here.
-- Comments explain only non-obvious decisions, constraints, safety invariants,
-  or workarounds. Do not narrate what code does or record change history; git
-  holds history. Keep comments to one or two tight lines unless a longer
-  explanation is genuinely necessary. Rewrite or delete if you find comments
-  that don't follow this rule.
 
 ## Color palettes
 
@@ -92,7 +87,7 @@ keeps the hamburger and a way back to the board.
 | Accents      | `--red --orange --yellow --green --aqua --blue --purple` | Priority / state / type accents (mapping below)                  |
 | Chat         | `--chat-assistant-bg/-ring`, `--chat-user-ring`        | Chat bubble fill and rings, shared by every palette                |
 | Prompt       | `--prompt-question-accent`, `--prompt-question-bg`, `--prompt-question-hover-bg`, `--prompt-question-ring`, `--chat-option-hover-bg` | Architect question accent (pink dark, rose to maroon light) and the light wash of the red/purple hue over the bubble for the bubble and option hover; neutral option hover mixes `--fg` into the bubble |
-| Blueprint    | `--blueprint-done`, `--blueprint-cloud`, `--blueprint-quiet`, `--blueprint-quiet-strong`, `--blueprint-ink-red/-orange/-green/-aqua/-blue/-accent` | Done segments and their gate notches on the blueprint scale bar; the dashed revision cloud on the sheet; muted text at 4.5:1 in the blueprint pane and architect prompts: quiet on the `--bg0` paper and bars, quiet-strong on `--bg1`, `--bg2`, `--bg-dim`, `--bg-red` and other prompt bubbles; tone text (statuses, readiness, lists, links, errors) at 4.5:1 on `--bg0` to `--bg2` in the ink tokens, the tone lifted toward `white` in dark palettes (green needs no lift) and deepened toward `black` in light ones; on a tint, tone text takes `--fg` (as do architect prompt errors), and on the question wash (question bubbles, the gate bar) muted and tone text take it. Pane borders, rules and underlines keep `--grey1` or the plain tone, except the neutral slice group label's rule, which matches its quiet label. All derive from palette tokens, plus `white` and `black` for the inks |
+| Blueprint    | `--blueprint-done`, `--blueprint-cloud`, `--blueprint-quiet`, `--blueprint-quiet-strong`, `--blueprint-ink-red/-orange/-green/-aqua/-blue/-accent` | Blueprint pane and architect prompt colours; derived from palette tokens; muted/tone text meets 4.5:1 |
 
 **UI semantic mapping:**
 
@@ -169,39 +164,11 @@ interactions.
   (`web/src/components/ConfirmModal/ConfirmModal.tsx`), never `window.confirm()`.
   `variant="danger"` for destructive actions. Reference integrations:
   `CardChat.tsx` (promote), `CardPanel/CardPanelDangerZone.tsx` (delete).
-- **Architect prompts are the only reply buttons.** The architect marks a
-  question or gate as a `text` frame with a `prompt` field; CM stores it on an
-  architect session as a `kind: "prompt"` row and `PromptActions` renders its
-  actions. The bubble shows the prompt's `Text` when set (else the envelope
-  text); `Kind` `"gate"` keeps compact buttons, any other kind stacks
-  full-width wrapping options, and `"question"` adds the accent: a tinted
-  bubble, a 5px left bar, an accent ring and accent option borders. A click
-  sends the action's reply as an ordinary user message. A blueprint pane's
-  gate bar repeats the open gate prompt's `PromptActions`, matched on
-  `view.open.prompt_id`, with the same reply path. A closed non-gate
-  prompt shows its options as a static list above the summary.
-  A prompt of kind `"round"` is a question round instead: `deriveRounds`
-  (`QuestionRound/rounds.ts`) keeps only the newest frame per prompt id; the
-  current round is the one whose id appeared last, so a late frame of an
-  older round never displaces it. The waiting round docks as `RoundBlock` in
-  place of `ChatComposer`, a closed or superseded one renders as
-  `RoundSummary`, and a responder round renders read-only inline. Its answers
-  go as a structured `round` on `POST /api/chats/{id}/messages`
-  (`onSendRound`); text typed in its chat box goes with the round's prompt id
-  in `round_chat` (`onSendRoundChat`), and its `kind: "round_chat"` row
-  renders in the transcript only when no round waited where it was stored
-  (`stray`): otherwise the docked block shows it after the round's thread,
-  which scrolls on its own above the chat box, until a newer frame of the
-  round arrives. A closed round's summary keeps the thread behind a collapsed
-  toggle.
-  The mockup sheet's "Use this design" and "Skip mockups" are reply buttons
-  too, driven by `view.open.kind === 'mockup'` with no `LogPrompt` behind
-  them; they send a structured `mockup` reply, and the composer adds
-  `mockupChatExtra` to its messages while a mockup waits.
+- **Architect prompts are the only reply buttons.** `PromptActions` renders a
+  stored `kind: "prompt"` row's actions; a click sends an ordinary user message.
   Whether a prompt is open is derived in the browser (`derivePromptStates`),
-  never stored. Agent and chat backends never emit a prompt:
-  `AskUserQuestion` stays denied at the MCP gate, and there is no
-  `user_question` log type or question card.
+  never stored, and agent and chat backends never emit one. Behaviour:
+  `docs/web-ui.md#global-chat`.
 - **Routing catch-all:** keep `<Route path="*" element={<NotFound />} />` as the
   **last** route at both levels - `App.tsx` (top-level) and `ProjectShell.tsx`
   (nested project routes). The Go backend serves `index.html` for all non-API
