@@ -14,8 +14,7 @@ function RadioItem({ label, checked, onSelect }: { label: string; checked: boole
   return (
     <button
       type="button"
-      role="menuitemradio"
-      aria-checked={checked}
+      aria-pressed={checked}
       onClick={onSelect}
       className="w-full flex items-center gap-2 text-left px-3 py-1.5 text-sm hover:opacity-80"
       style={{ color: checked ? 'var(--fg)' : 'var(--grey2)', fontWeight: checked ? 600 : 400 }}

@@ -35,7 +35,6 @@ export function SettingsMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        aria-haspopup="menu"
         aria-expanded={open}
         className="w-full flex items-center gap-2 rounded px-2 py-1.5 text-sm"
         style={{ color: 'var(--grey2)', backgroundColor: open ? 'var(--bg2)' : 'transparent' }}
@@ -66,7 +65,8 @@ export function SettingsMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
 
       {open && (
         <div
-          role="menu"
+          role="group"
+          aria-label="Settings menu"
           className="absolute bottom-full left-0 right-0 mb-1 rounded border overflow-hidden z-10"
           style={{ backgroundColor: 'var(--bg2)', borderColor: 'var(--bg3)' }}
         >
@@ -79,7 +79,6 @@ export function SettingsMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
           ].map((item) => (
             <button
               key={item.path}
-              role="menuitem"
               onClick={() => goto(item.path)}
               className="w-full text-left px-3 py-1.5 text-sm hover:opacity-80"
               style={{ color: 'var(--fg)' }}
@@ -91,7 +90,6 @@ export function SettingsMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
           <AppearanceMenuItems />
           <div className="border-t my-1" style={{ borderColor: 'var(--bg3)' }} aria-hidden="true" />
           <button
-            role="menuitem"
             onClick={() => {
               // The item unmounts with the menu; focus the trigger so the dialog's focus trap restores to it.
               triggerRef.current?.focus();

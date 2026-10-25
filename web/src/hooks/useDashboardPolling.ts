@@ -26,13 +26,16 @@ export function useDashboardPolling(project: string | null | undefined, interval
     if (!project) return;
     let cancelled = false;
     const isCancelled = () => cancelled;
-    fetchDashboard(project, setDashboard, isCancelled);
-    const interval = setInterval(() => {
-      fetchDashboard(project, setDashboard, isCancelled);
-    }, intervalMs);
+    const poll = () => {
+      if (document.visibilityState === 'visible') fetchDashboard(project, setDashboard, isCancelled);
+    };
+    poll();
+    const interval = setInterval(poll, intervalMs);
+    document.addEventListener('visibilitychange', poll);
     return () => {
       cancelled = true;
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', poll);
     };
   }, [project, intervalMs]);
 

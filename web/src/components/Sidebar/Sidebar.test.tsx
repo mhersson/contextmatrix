@@ -282,9 +282,9 @@ describe('Sidebar footer appearance slot', () => {
     renderSidebar();
     const chip = screen.getByRole('button', { name: /settings/i });
     fireEvent.click(chip);
-    expect(screen.getByRole('menuitem', { name: 'Model selection' })).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: 'Chats' })).toBeInTheDocument();
-    expect(screen.getByRole('menuitemradio', { name: 'Dark' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Model selection' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Chats' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Dark' })).toBeInTheDocument();
     expect(screen.queryByTitle(/^signed in as/i)).toBeNull();
   });
 
@@ -307,7 +307,7 @@ describe('Sidebar footer appearance slot', () => {
     expect(screen.queryByRole('button', { name: /^appearance$/i })).toBeNull();
     expect(screen.getByTitle(/^signed in as alice/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Alice/ }));
-    expect(screen.getByRole('menuitemradio', { name: 'Dark' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Dark' })).toBeInTheDocument();
   });
 });
 

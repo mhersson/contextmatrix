@@ -48,7 +48,6 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
       <button
         ref={triggerRef}
         onClick={() => setOpen((v) => !v)}
-        aria-haspopup="menu"
         aria-expanded={open}
         className="w-full flex items-center gap-2 rounded px-2 py-1.5 text-sm"
         style={{ color: 'var(--grey2)', backgroundColor: open ? 'var(--bg2)' : 'transparent' }}
@@ -70,7 +69,8 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
 
       {open && (
         <div
-          role="menu"
+          role="group"
+          aria-label="Account menu"
           className="absolute bottom-full left-0 right-0 mb-1 rounded border overflow-hidden z-10"
           style={{ backgroundColor: 'var(--bg2)', borderColor: 'var(--bg3)' }}
         >
@@ -90,7 +90,6 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
               ].map((item) => (
                 <button
                   key={item.path}
-                  role="menuitem"
                   onClick={() => goto(item.path)}
                   className="w-full text-left px-3 py-1.5 text-sm hover:opacity-80"
                   style={{ color: 'var(--fg)' }}
@@ -104,7 +103,6 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
           <AppearanceMenuItems />
           <div className="border-t my-1" style={{ borderColor: 'var(--bg3)' }} aria-hidden="true" />
           <button
-            role="menuitem"
             onClick={() => {
               // The item unmounts with the menu; focus the trigger so the dialog's focus trap restores to it.
               triggerRef.current?.focus();
@@ -118,7 +116,6 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
             {hasUnseen && <NewDot label="(new changes)" />}
           </button>
           <button
-            role="menuitem"
             onClick={() => {
               setOpen(false);
               setChangeOpen(true);
@@ -129,7 +126,6 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
             Change password
           </button>
           <button
-            role="menuitem"
             onClick={() => void logout()}
             className="w-full text-left px-3 py-1.5 text-sm hover:opacity-80"
             style={{ color: 'var(--red)' }}
