@@ -1137,6 +1137,7 @@ func TestRunCard_NoProviderForProject_UsesTheInstanceProvider(t *testing.T) {
 	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 	assert.Equal(t, "instance-token", receivedPayload.GitToken)
 	assert.Equal(t, int32(1), instance.repoCalls.Load())
+	assert.Nil(t, receivedPayload.LLMEndpoint, "no llm_endpoint configured, so the trigger carries none")
 }
 
 // TestRunCard_LLMEndpoint_PresentWhenConfigured asserts that a configured

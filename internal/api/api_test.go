@@ -54,10 +54,7 @@ func doGet(t *testing.T, url string) *http.Response {
 	return resp
 }
 
-// testSetup creates a test environment with all dependencies.
-// newTestRouter is NewRouter with a GitHub credential filled in when the
-// config sets none, as production always has one. The fake mints an empty
-// token, so payloads look as they do without one.
+// newTestRouter is NewRouter with an empty-token fake GitHub provider filled in when the config sets none.
 func newTestRouter(cfg RouterConfig) http.Handler {
 	if cfg.GitHubTokenProvider == nil && cfg.ProviderForProject == nil {
 		cfg.GitHubTokenProvider = &fakeTokenProvider{}
@@ -66,6 +63,7 @@ func newTestRouter(cfg RouterConfig) http.Handler {
 	return NewRouter(cfg)
 }
 
+// testSetup creates a test environment with all dependencies.
 func testSetup(t *testing.T) (*service.CardService, *events.Bus, func()) {
 	t.Helper()
 
