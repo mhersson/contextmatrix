@@ -78,6 +78,9 @@ DELETE /api/playbooks/{id}                             # delete playbook
 POST   /api/playbooks/{id}/entries                     # append entry (card reference or manual step)
 PATCH  /api/playbooks/{id}/entries/{entryId}            # update entry (done/note/text/position)
 DELETE /api/playbooks/{id}/entries/{entryId}            # remove entry
+POST   /api/playbooks/{id}/followups                   # add follow-up (text, cards?, position?)
+PATCH  /api/playbooks/{id}/followups/{followupId}       # update follow-up (done/text/cards/position)
+DELETE /api/playbooks/{id}/followups/{followupId}       # remove follow-up
 POST   /api/playbooks/{id}/run                         # run or resume a runnable playbook (human-only; MCP equivalent: `run_playbook`)
 POST   /api/playbooks/{id}/stop                        # stop the run and kill every live worker of its cards on this instance (human-only)
 
@@ -291,6 +294,7 @@ the request's `request_id`.
 | `REMOTE_UNREACHABLE`          | 503     | Shared boards: a push-verified write could not reach the remote; the board is unchanged, retry                                                                                             |
 | `PLAYBOOK_NOT_FOUND`          | 404     | Unknown playbook id                                                                                                                                                                        |
 | `PLAYBOOK_ENTRY_NOT_FOUND`    | 404     | Unknown entry id                                                                                                                                                                           |
+| `PLAYBOOK_FOLLOWUP_NOT_FOUND` | 404     | Unknown follow-up id                                                                                                                                                                       |
 | `PLAYBOOK_ENTRY_EXISTS`       | 409     | Duplicate `{project, card}` entry                                                                                                                                                          |
 | `PLAYBOOK_RUN_ACTIVE`         | 409     | `runnable: false` or `base_branch` while a run is `running` or `waiting`; a card's own run trigger while its owning playbook run is active; deleting the playbook while its run is active  |
 | `PLAYBOOK_RUN_INACTIVE`       | 409     | `POST .../stop` when the playbook has no active run                                                                                                                                        |
@@ -1994,6 +1998,10 @@ and not yet vetted by a human. All entry fields except `id`, `type`, and
 `source` (`{system, external_id, external_url}`) is present on a playbook
 imported from a Jira epic.
 
+`followups` is always present (`[]` when there are none). Each follow-up is
+`{id, text, cards, done, done_by?, done_at?}` with `cards` always an array of
+`{project, card}` labels. Follow-ups never count in `complete` or `total`.
+
 **Errors:** 404 `PLAYBOOK_NOT_FOUND`.
 
 ### PATCH /api/playbooks/{id}
@@ -2090,6 +2098,44 @@ detail (the playbook still exists). **Errors:** 404 `PLAYBOOK_NOT_FOUND`,
 404 `PLAYBOOK_ENTRY_NOT_FOUND`, 409 `PLAYBOOK_RUN_ACTIVE` (the entry is the
 run's current card, or a non-terminal card with a queued or running worker;
 stop the run first).
+
+### POST /api/playbooks/{id}/followups
+
+Adds one follow-up: a check a person makes after the run. Follow-ups are not
+human-gated, never run as steps, and are accepted during a run; they never
+change run state. `cards` is an optional list of `{project, card}` labels (the
+cards need not be entries); `position` inserts at that index (omitted appends,
+beyond the end clamps).
+
+```json
+{ "text": "Check the dashboard", "cards": [{ "project": "project-alpha", "card": "ALPHA-101" }] }
+```
+
+Response **201** with the full detail.
+
+| Status | Code                 | When                                                                  |
+| ------ | -------------------- | --------------------------------------------------------------------- |
+| 404    | `PLAYBOOK_NOT_FOUND` | Unknown playbook id                                                   |
+| 422    | `VALIDATION_ERROR`   | Empty `text`, a card ref missing `project` or `card`, negative `position` |
+
+### PATCH /api/playbooks/{id}/followups/{followupId}
+
+Patches one follow-up's `done`, `text`, `cards`, or `position`. Checking
+`done` stamps `done_by`/`done_at` from the caller identity and server clock;
+unchecking clears both. `cards` replaces the list when present (`[]` clears
+it). `position` is the final index after the move. Allowed during a run.
+Response **200** with the full detail.
+
+| Status | Code                          | When                                                         |
+| ------ | ----------------------------- | ------------------------------------------------------------ |
+| 404    | `PLAYBOOK_NOT_FOUND`          | Unknown playbook id                                          |
+| 404    | `PLAYBOOK_FOLLOWUP_NOT_FOUND` | Unknown follow-up id                                         |
+| 422    | `VALIDATION_ERROR`            | Empty `text`, an incomplete card ref, negative `position`    |
+
+### DELETE /api/playbooks/{id}/followups/{followupId}
+
+Removes one follow-up; its id is never reused. Response **200** with the full
+detail. **Errors:** 404 `PLAYBOOK_NOT_FOUND`, 404 `PLAYBOOK_FOLLOWUP_NOT_FOUND`.
 
 **Attribution** (`created_by`, `done_by`): the same resolved identity as
 cards - session in multi mode, else `X-Agent-ID`, falling back to

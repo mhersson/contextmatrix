@@ -130,15 +130,17 @@ const (
 	ErrCodePlaybookNotFound      = "PLAYBOOK_NOT_FOUND"
 	ErrCodePlaybookEntryNotFound = "PLAYBOOK_ENTRY_NOT_FOUND"
 	ErrCodePlaybookEntryExists   = "PLAYBOOK_ENTRY_EXISTS"
-	ErrCodePlaybookRunActive     = "PLAYBOOK_RUN_ACTIVE"
-	ErrCodePlaybookLocked        = "PLAYBOOK_LOCKED"
-	ErrCodePlaybookCardOwned     = "PLAYBOOK_CARD_OWNED"
-	ErrCodePlaybookProjectNoRepo = "PLAYBOOK_PROJECT_NO_REPO"
-	ErrCodePlaybookCardNotVetted = "PLAYBOOK_CARD_NOT_VETTED"
-	ErrCodePlaybookCardForce     = "PLAYBOOK_CARD_FORCE_FAILED"
-	ErrCodePlaybookNotRunnable   = "PLAYBOOK_NOT_RUNNABLE"
-	ErrCodePlaybookRunInactive   = "PLAYBOOK_RUN_INACTIVE"
-	ErrCodePlaybookMoveDuringRun = "PLAYBOOK_MOVE_DURING_RUN"
+	// ErrCodePlaybookFollowupNotFound -> 404 (unknown follow-up id).
+	ErrCodePlaybookFollowupNotFound = "PLAYBOOK_FOLLOWUP_NOT_FOUND"
+	ErrCodePlaybookRunActive        = "PLAYBOOK_RUN_ACTIVE"
+	ErrCodePlaybookLocked           = "PLAYBOOK_LOCKED"
+	ErrCodePlaybookCardOwned        = "PLAYBOOK_CARD_OWNED"
+	ErrCodePlaybookProjectNoRepo    = "PLAYBOOK_PROJECT_NO_REPO"
+	ErrCodePlaybookCardNotVetted    = "PLAYBOOK_CARD_NOT_VETTED"
+	ErrCodePlaybookCardForce        = "PLAYBOOK_CARD_FORCE_FAILED"
+	ErrCodePlaybookNotRunnable      = "PLAYBOOK_NOT_RUNNABLE"
+	ErrCodePlaybookRunInactive      = "PLAYBOOK_RUN_INACTIVE"
+	ErrCodePlaybookMoveDuringRun    = "PLAYBOOK_MOVE_DURING_RUN"
 
 	// PLAYBOOK_UNCHECK_DURING_RUN -> 409 (a done manual entry unchecked while
 	// a run is running or waiting). CARD_REOPEN_DURING_RUN -> 409 (a card
@@ -481,6 +483,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("POST /api/playbooks/{id}/entries", pbh.addEntry)
 		mux.HandleFunc("PATCH /api/playbooks/{id}/entries/{entryId}", pbh.patchEntry)
 		mux.HandleFunc("DELETE /api/playbooks/{id}/entries/{entryId}", pbh.deleteEntry)
+		mux.HandleFunc("POST /api/playbooks/{id}/followups", pbh.addFollowup)
+		mux.HandleFunc("PATCH /api/playbooks/{id}/followups/{followupId}", pbh.patchFollowup)
+		mux.HandleFunc("DELETE /api/playbooks/{id}/followups/{followupId}", pbh.deleteFollowup)
 		mux.HandleFunc("POST /api/playbooks/{id}/run", pbh.run)
 		mux.HandleFunc("POST /api/playbooks/{id}/stop", pbh.stop)
 	}
@@ -1219,6 +1224,8 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusNotFound, ErrCodePlaybookNotFound, "playbook not found", "")
 	case errors.Is(err, service.ErrPlaybookEntryNotFound):
 		writeError(w, http.StatusNotFound, ErrCodePlaybookEntryNotFound, "playbook entry not found", "")
+	case errors.Is(err, service.ErrPlaybookFollowupNotFound):
+		writeError(w, http.StatusNotFound, ErrCodePlaybookFollowupNotFound, "playbook follow-up not found", "")
 
 	// --- Conflict sentinels (409) ---
 	case errors.Is(err, storage.ErrProjectExists):
@@ -1306,7 +1313,7 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusUnprocessableEntity, ErrCodePlaybookCardNotVetted, "cards must be vetted before the playbook can run", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrPlaybookCardForce):
 		writeError(w, http.StatusUnprocessableEntity, ErrCodePlaybookCardForce, "could not apply playbook settings to cards", sanitizeErrorDetails(err))
-	case errors.Is(err, service.ErrInvalidPlaybookEntry), errors.Is(err, board.ErrInvalidPlaybook):
+	case errors.Is(err, service.ErrInvalidPlaybookEntry), errors.Is(err, service.ErrInvalidPlaybookFollowup), errors.Is(err, board.ErrInvalidPlaybook):
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid playbook input", sanitizeErrorDetails(err))
 	case errors.Is(err, board.ErrInvalidProjectConfig),
 		errors.Is(err, board.ErrMissingStalledState),

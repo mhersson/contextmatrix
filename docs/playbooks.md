@@ -250,7 +250,7 @@ is skipped with a warning.
 ## API and MCP
 
 Playbook tools and routes are registered only while the subsystem is enabled.
-Eight MCP tools are ungated; `run_playbook` is a ninth, gated on a `human:`
+Eleven MCP tools are ungated; `run_playbook` is a twelfth, gated on a `human:`
 `agent_id` and registered only when a task backend is configured. The human-only nature of notes is a contract
 the agent-facing context honours, not a permission check. `agent_id` is
 required on mutations for `created_by` and `done_by` attribution.
@@ -259,12 +259,15 @@ required on mutations for `created_by` and `done_by` attribution.
 | ----------------------- | ---------------------------------------------- | ------------------------------------------------------------------------ |
 | `list_playbooks`        | `GET /api/playbooks`                           | Summaries: progress, segments, project count, gates, next entry          |
 | `get_playbook`          | `GET /api/playbooks/{id}`                      | Full detail with every entry resolved against the card store             |
-| `create_playbook`       | `POST /api/playbooks`                          | `title`, `description`, `boards_repo`, initial `entries`; all-or-nothing |
+| `create_playbook`       | `POST /api/playbooks`                          | `title`, `description`, `boards_repo`, initial `entries` and (MCP only) `followups`; all-or-nothing |
 | `update_playbook`       | `PATCH /api/playbooks/{id}`                    | Title, description; humans also set runnable and base_branch             |
 | `delete_playbook`       | `DELETE /api/playbooks/{id}`                   | Removes the file, never during an active run; cards untouched            |
 | `add_playbook_entry`    | `POST /api/playbooks/{id}/entries`             | Appends one card or manual entry                                         |
 | `update_playbook_entry` | `PATCH /api/playbooks/{id}/entries/{entryId}`  | `done` and `text` (manual only), `note` (both), `position`               |
 | `remove_playbook_entry` | `DELETE /api/playbooks/{id}/entries/{entryId}` | Removes one entry                                                        |
+| `add_playbook_followup` | `POST /api/playbooks/{id}/followups`           | Appends one follow-up, or inserts it at `position`                       |
+| `update_playbook_followup` | `PATCH /api/playbooks/{id}/followups/{followupId}` | `done`, `text`, `cards`, `position`; allowed during a run          |
+| `remove_playbook_followup` | `DELETE /api/playbooks/{id}/followups/{followupId}` | Removes one follow-up                                             |
 | `run_playbook`          | `PATCH /api/playbooks/{id}` (`runnable`) then `POST /api/playbooks/{id}/run` | Human-only; makes it runnable if it is not, then runs it  |
 
 `position` is the entry's final index after the move; values past the end

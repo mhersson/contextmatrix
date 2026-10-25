@@ -84,7 +84,7 @@ Every phase and gate is specified in [agent workflow](agent-workflow.md).
 
 ## Tools
 
-The server registers up to 42 tools. The eight playbook tools are absent while a
+The server registers up to 45 tools. The eleven playbook tools are absent while a
 project named `playbooks` disables the playbook subsystem, `run_card`
 registers only when a task backend is configured, and `run_playbook` registers
 only when a task backend is configured and the playbook subsystem is enabled.
@@ -171,12 +171,15 @@ vetted cards see the real title.
 | ----------------------- | ---------------------------------------------------- | ------ |
 | `list_playbooks`        | Slim list view with per-entry status                 | any    |
 | `get_playbook`          | Full detail with entries resolved against cards      | any    |
-| `create_playbook`       | Create with entries; all-or-nothing; `boards_repo`   | any    |
+| `create_playbook`       | Create with entries and optional `followups`; all-or-nothing; `boards_repo` | any    |
 | `update_playbook`       | Title and description; `runnable`, `base_branch` and run state are not accepted and are preserved | any    |
 | `delete_playbook`       | Delete; refused while a run is active; cards untouched | any    |
 | `add_playbook_entry`    | Append a card reference or manual gate step; human-only on a runnable playbook for card entries | any    |
 | `update_playbook_entry` | Done state, note, text, or position                  | any    |
 | `remove_playbook_entry` | Remove one entry; its id is never reused             | any    |
+| `add_playbook_followup` | Append (or insert at `position`) an after-run check for a person, with optional related `cards` | any    |
+| `update_playbook_followup` | `done`, `text`, `cards` (replaces; `[]` clears), or `position`; allowed during a run | any    |
+| `remove_playbook_followup` | Remove one follow-up; its id is never reused      | any    |
 
 Making a playbook runnable and running it are available to a `human:` caller
 through `run_playbook`; stopping a run and setting the base branch stay web UI

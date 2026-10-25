@@ -620,3 +620,172 @@ func TestPlaybookTools_RedactUnvettedTitles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, secret, d.Entries[1].CardTitle)
 }
+
+func TestPlaybookTools_CreateWithFollowups(t *testing.T) {
+	env := setupMCPWithPlaybooks(t)
+
+	result := callTool(t, env, "create_playbook", map[string]any{
+		"agent_id": "human:alice",
+		"title":    "With Followups",
+		"entries":  []map[string]any{{"type": "manual", "text": "gate"}},
+		"followups": []map[string]any{
+			{"text": "check the dashboard", "cards": []map[string]any{{"project": "test-project", "card": "TEST-001"}}},
+			{"text": "tell the team"},
+		},
+	})
+	require.False(t, result.IsError)
+
+	got := callTool(t, env, "get_playbook", map[string]any{"agent_id": "human:alice", "id": "with-followups"})
+	require.False(t, got.IsError)
+
+	var detail service.PlaybookDetail
+	unmarshalResult(t, got, &detail)
+	require.Len(t, detail.Followups, 2)
+	assert.Equal(t, "f1", detail.Followups[0].ID)
+	assert.Equal(t, "check the dashboard", detail.Followups[0].Text)
+	assert.Equal(t, []board.PlaybookCardRef{{Project: "test-project", Card: "TEST-001"}}, detail.Followups[0].Cards)
+	assert.Equal(t, "f2", detail.Followups[1].ID)
+	assert.NotNil(t, detail.Followups[1].Cards)
+	assert.Equal(t, 1, detail.Total, "follow-ups never count as entries")
+}
+
+func TestPlaybookTools_CreateWithInvalidFollowupCreatesNothing(t *testing.T) {
+	cases := map[string][]map[string]any{
+		"blank text":    {{"text": ""}},
+		"half card ref": {{"text": "check", "cards": []map[string]any{{"project": "test-project"}}}},
+	}
+
+	for name, followups := range cases {
+		t.Run(name, func(t *testing.T) {
+			env := setupMCPWithPlaybooks(t)
+
+			res, err := callToolRaw(t, env, "create_playbook", map[string]any{
+				"agent_id":  "human:alice",
+				"title":     "Bad Followup",
+				"entries":   []map[string]any{{"type": "manual", "text": "gate"}},
+				"followups": followups,
+			})
+			assert.True(t, resultIsError(res, err), "invalid follow-up must reject the call")
+
+			list := callTool(t, env, "list_playbooks", map[string]any{"agent_id": "human:alice"})
+
+			var out listPlaybooksOutput
+			unmarshalResult(t, list, &out)
+			assert.Empty(t, out.Playbooks, "all-or-nothing: no playbook is written")
+		})
+	}
+}
+
+func TestPlaybookTools_FollowupLifecycle(t *testing.T) {
+	env := setupMCPWithPlaybooks(t)
+	ctx := context.Background()
+
+	_, err := env.pb.Create(ctx, service.CreatePlaybookInput{
+		Title: "Lifecycle", AgentID: "human:alice",
+		Entries: []service.PlaybookEntryInput{{Type: board.EntryTypeManual, Text: "gate"}},
+	})
+	require.NoError(t, err)
+
+	add := func(text string) {
+		t.Helper()
+
+		res := callTool(t, env, "add_playbook_followup", map[string]any{
+			"agent_id": "agent-1", "playbook": "lifecycle", "text": text,
+			"cards": []map[string]any{{"project": "test-project", "card": "TEST-001"}},
+		})
+		require.False(t, res.IsError)
+	}
+
+	add("first")
+	add("second")
+
+	res := callTool(t, env, "update_playbook_followup", map[string]any{
+		"agent_id": "agent-1", "playbook": "lifecycle", "followup": "f1", "done": true,
+	})
+	require.False(t, res.IsError)
+
+	detail, err := env.pb.Get(ctx, "lifecycle")
+	require.NoError(t, err)
+	require.Len(t, detail.Followups, 2)
+	assert.True(t, detail.Followups[0].Done)
+	assert.Equal(t, "agent-1", detail.Followups[0].DoneBy, "non-human callers may tick a follow-up")
+	assert.Len(t, detail.Followups[0].Cards, 1, "omitted cards leave the list unchanged")
+
+	res = callTool(t, env, "update_playbook_followup", map[string]any{
+		"agent_id": "agent-1", "playbook": "lifecycle", "followup": "f1", "cards": []map[string]any{},
+	})
+	require.False(t, res.IsError)
+
+	detail, err = env.pb.Get(ctx, "lifecycle")
+	require.NoError(t, err)
+	assert.Empty(t, detail.Followups[0].Cards, "an empty cards list clears")
+	assert.NotNil(t, detail.Followups[0].Cards)
+
+	res = callTool(t, env, "update_playbook_followup", map[string]any{
+		"agent_id": "agent-1", "playbook": "lifecycle", "followup": "f2", "position": 0,
+	})
+	require.False(t, res.IsError)
+
+	detail, err = env.pb.Get(ctx, "lifecycle")
+	require.NoError(t, err)
+	assert.Equal(t, "f2", detail.Followups[0].ID)
+
+	for _, id := range []string{"f1", "f2"} {
+		res = callTool(t, env, "remove_playbook_followup", map[string]any{
+			"agent_id": "agent-1", "playbook": "lifecycle", "followup": id,
+		})
+		require.False(t, res.IsError)
+	}
+
+	detail, err = env.pb.Get(ctx, "lifecycle")
+	require.NoError(t, err)
+	assert.Empty(t, detail.Followups)
+
+	res, err = callToolRaw(t, env, "update_playbook_followup", map[string]any{
+		"agent_id": "agent-1", "playbook": "lifecycle", "followup": "f9", "done": true,
+	})
+	assert.True(t, resultIsError(res, err), "unknown follow-up is an error")
+}
+
+func TestPlaybookTools_FollowupsDuringActiveRun(t *testing.T) {
+	env := setupMCPWithPlaybooks(t)
+	ctx := context.Background()
+
+	_, err := env.pb.Create(ctx, service.CreatePlaybookInput{
+		Title: "Active", AgentID: "human:alice",
+		Entries: []service.PlaybookEntryInput{{Type: board.EntryTypeManual, Text: "gate"}},
+	})
+	require.NoError(t, err)
+
+	yes := true
+	_, err = env.pb.UpdateMeta(ctx, "active", service.UpdatePlaybookInput{Runnable: &yes}, "human:alice")
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	_, err = env.pb.SetRunIf(ctx, "active", nil, &board.PlaybookRun{Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now, Entry: "e1"}, "human:alice")
+	require.NoError(t, err)
+
+	for _, call := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"add_playbook_followup", map[string]any{"text": "after"}},
+		{"update_playbook_followup", map[string]any{"followup": "f1", "done": true}},
+		{"remove_playbook_followup", map[string]any{"followup": "f1"}},
+	} {
+		args := map[string]any{"agent_id": "agent-1", "playbook": "active"}
+		for k, v := range call.args {
+			args[k] = v
+		}
+
+		res := callTool(t, env, call.tool, args)
+		require.False(t, res.IsError, call.tool)
+
+		detail, err := env.pb.Get(ctx, "active")
+		require.NoError(t, err)
+		require.NotNil(t, detail.Run)
+		assert.Equal(t, board.RunStatusWaiting, detail.Run.Status, call.tool)
+		assert.Equal(t, "e1", detail.Run.Entry, call.tool)
+		assert.Equal(t, 1, detail.Total, call.tool)
+	}
+}

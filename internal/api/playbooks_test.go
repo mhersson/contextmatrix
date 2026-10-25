@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -449,6 +450,19 @@ func TestPlaybooksAPI_SessionGuard(t *testing.T) {
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	})
+
+	t.Run("follow-up routes - 401 without a session", func(t *testing.T) {
+		for _, rt := range []struct{ method, path string }{
+			{http.MethodPost, "/api/playbooks/x/followups"},
+			{http.MethodPatch, "/api/playbooks/x/followups/f1"},
+			{http.MethodDelete, "/api/playbooks/x/followups/f1"},
+		} {
+			resp := doJSON(t, rt.method, server.URL+rt.path, map[string]any{"text": "t"}, "")
+			closeBody(t, resp.Body)
+
+			assert.Equal(t, http.StatusUnauthorized, resp.StatusCode, rt.method+" "+rt.path)
+		}
 	})
 
 	cookie := login(t, server, "root", "root password1")
@@ -1089,4 +1103,70 @@ func TestPlaybooksAPI_MakeRunnableUnvetted(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodePlaybookCardNotVetted, apiErr.Code)
 	assert.Contains(t, apiErr.Details, card.ID)
+}
+
+func TestPlaybooksAPI_Followups(t *testing.T) {
+	svc, pbSvc, bus, cleanup := playbookTestSetup(t)
+	defer cleanup()
+
+	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc}))
+	defer server.Close()
+
+	decode := func(t *testing.T, resp *http.Response) service.PlaybookDetail {
+		t.Helper()
+
+		defer closeBody(t, resp.Body)
+
+		var d service.PlaybookDetail
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&d))
+
+		return d
+	}
+
+	create := doJSON(t, http.MethodPost, server.URL+"/api/playbooks", map[string]any{"title": "Rollout"}, "human:alice")
+	require.Equal(t, http.StatusCreated, create.StatusCode)
+	closeBody(t, create.Body)
+
+	// A playbook with none serializes followups as [], never null.
+	getResp := doGet(t, server.URL+"/api/playbooks/rollout")
+	raw, err := io.ReadAll(getResp.Body)
+	closeBody(t, getResp.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"followups":[]`)
+
+	postResp := doJSON(t, http.MethodPost, server.URL+"/api/playbooks/rollout/followups", map[string]any{"text": "check the dashboard"}, "human:alice")
+	require.Equal(t, http.StatusCreated, postResp.StatusCode)
+
+	added := decode(t, postResp)
+	require.Len(t, added.Followups, 1)
+	assert.Equal(t, "f1", added.Followups[0].ID)
+	assert.NotNil(t, added.Followups[0].Cards)
+
+	patchResp := doJSON(t, http.MethodPatch, server.URL+"/api/playbooks/rollout/followups/f1", map[string]any{"done": true}, "agent-1")
+	require.Equal(t, http.StatusOK, patchResp.StatusCode)
+
+	patched := decode(t, patchResp)
+	require.Len(t, patched.Followups, 1)
+	assert.True(t, patched.Followups[0].Done)
+	assert.Equal(t, "agent-1", patched.Followups[0].DoneBy)
+
+	missing := doJSON(t, http.MethodPatch, server.URL+"/api/playbooks/rollout/followups/f9", map[string]any{"done": true}, "agent-1")
+	defer closeBody(t, missing.Body)
+
+	assert.Equal(t, http.StatusNotFound, missing.StatusCode)
+
+	var errBody struct {
+		Code string `json:"code"`
+	}
+	require.NoError(t, json.NewDecoder(missing.Body).Decode(&errBody))
+	assert.Equal(t, ErrCodePlaybookFollowupNotFound, errBody.Code)
+
+	blank := doJSON(t, http.MethodPost, server.URL+"/api/playbooks/rollout/followups", map[string]any{"text": ""}, "human:alice")
+	defer closeBody(t, blank.Body)
+
+	assert.Equal(t, http.StatusUnprocessableEntity, blank.StatusCode)
+
+	delResp := doJSON(t, http.MethodDelete, server.URL+"/api/playbooks/rollout/followups/f1", nil, "human:alice")
+	require.Equal(t, http.StatusOK, delResp.StatusCode)
+	assert.Empty(t, decode(t, delResp).Followups)
 }
