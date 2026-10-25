@@ -397,6 +397,32 @@ func (s *Syncer) Wait() {
 	s.wg.Wait()
 }
 
+// PushPending pushes once if the branch is ahead of its remote. Shutdown calls
+// it after the loops stop, so a commit whose push notification the cancelled
+// listener never served still reaches the remote. Only a private auto-push
+// repo qualifies: a shared repo's push belongs to a merge cycle.
+func (s *Syncer) PushPending(ctx context.Context) error {
+	if !s.autoPush || s.shared {
+		return nil
+	}
+
+	branch, err := s.git.CurrentBranch()
+	if err != nil {
+		return fmt.Errorf("current branch: %w", err)
+	}
+
+	ahead, err := s.aheadCount(ctx, branch)
+	if err != nil {
+		return fmt.Errorf("count unpushed commits: %w", err)
+	}
+
+	if ahead == 0 {
+		return nil
+	}
+
+	return s.pushWithRetry(ctx)
+}
+
 // NotifyCommit signals that a new commit was made and should be pushed.
 // Non-blocking: rapid commits are coalesced into a single push.
 func (s *Syncer) NotifyCommit() {

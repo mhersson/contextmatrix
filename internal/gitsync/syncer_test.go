@@ -975,3 +975,43 @@ func TestSyncer_PullRebaseLogsHiddenProject(t *testing.T) {
 	require.Len(t, hidden, 1)
 	assert.Equal(t, storage.HiddenProject{Name: "private-project", Repo: "team", VisibleIn: "private"}, hidden[0])
 }
+
+func TestPushPending(t *testing.T) {
+	tests := []struct {
+		name       string
+		commit     bool
+		autoPush   bool
+		shared     bool
+		wantPushed bool
+	}{
+		{name: "ahead on a private auto-push repo", commit: true, autoPush: true, wantPushed: true},
+		{name: "not ahead", commit: false, autoPush: true},
+		{name: "auto push off", commit: true, autoPush: false},
+		{name: "shared repo", commit: true, autoPush: true, shared: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			syncer, upstream, clone, _ := setupSyncTest(t)
+			syncer.autoPush = tt.autoPush
+			syncer.shared = tt.shared
+
+			if tt.commit {
+				require.NoError(t, os.WriteFile(filepath.Join(clone, "note.txt"), []byte("x"), 0o644))
+				run(t, clone, "git", "add", "-A")
+				run(t, clone, "git", "commit", "-m", "late commit")
+			}
+
+			require.NoError(t, syncer.PushPending(context.Background()))
+
+			local := strings.TrimSpace(run(t, clone, "git", "rev-parse", "HEAD"))
+			remote := strings.TrimSpace(run(t, upstream, "git", "rev-parse", "HEAD"))
+
+			if tt.wantPushed {
+				assert.Equal(t, local, remote)
+			} else {
+				assert.Equal(t, tt.commit, local != remote)
+			}
+		})
+	}
+}
