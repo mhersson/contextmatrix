@@ -107,8 +107,11 @@ func main() {
 
 		fmt.Fprintf(out, "usage: %s [-config path]\n\n", os.Args[0])
 		flag.PrintDefaults()
-		fmt.Fprintf(out, "\nsubcommands:\n  config defaults          print the complete default configuration as YAML\n"+
-			"  config validate <file>   load <file> as the server would; exit 1 on the first error\n")
+		fmt.Fprint(out, "\nsubcommands:\n"+
+			"  config defaults                               print the complete default configuration as YAML\n"+
+			"  config validate <file>                        load <file> as the server would; exit 1 on the first error\n"+
+			"  auth reset-admin [--config PATH] <username>   issue a password-reset link for a locked-out admin\n"+
+			"  auth rotate-master-key [--config PATH]        re-encrypt the credential pool under a fresh master key\n")
 	}
 
 	flag.Parse()
