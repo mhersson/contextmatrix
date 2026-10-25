@@ -1152,16 +1152,26 @@ func TestTrimActivityLog(t *testing.T) {
 		return out
 	}
 
+	messages := func(es []ActivityEntry) []string {
+		out := make([]string, len(es))
+		for i, e := range es {
+			out[i] = e.Message
+		}
+
+		return out
+	}
+
 	t.Run("under cap unchanged", func(t *testing.T) {
 		in := mk(10, "log")
 		assert.Equal(t, in, TrimActivityLog(in))
 	})
 	t.Run("drops oldest non-state first", func(t *testing.T) {
-		in := append(mk(60, "log"), ActivityEntry{Action: StateChangedAction, Message: "keep"})
+		in := append([]ActivityEntry{{Action: StateChangedAction, Message: "keep"}}, mk(60, "log")...)
 		out := TrimActivityLog(in)
 		require.Len(t, out, MaxActivityLogEntries)
-		assert.Equal(t, "keep", out[len(out)-1].Message)
-		assert.Equal(t, "11", out[0].Message)
+		assert.Equal(t, "keep", out[0].Message, "the oldest transition outlives older plain entries")
+		assert.Equal(t, "11", out[1].Message)
+		assert.NotContains(t, messages(out), "0")
 	})
 	t.Run("falls back to dropping oldest state entries when all are state changes", func(t *testing.T) {
 		in := mk(60, StateChangedAction)
