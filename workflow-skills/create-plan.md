@@ -50,8 +50,8 @@ Call `get_card(card_id=<parent_id>)`. The top-level `autonomous` field
 is the ONLY source of truth for mode.
 
 - **If `autonomous: true`:** the brainstorming branch (Branch C below) is
-  skipped; Branches A and B still apply. Phase 1 Step 2.5 is the fallback for vague designs in autonomous
-  creative cards.
+  skipped; Branches A and B still apply. the drafting sub-agent's placeholder scan (Phase 1 Step 2) is the
+  fallback for vague designs in autonomous creative cards.
 - **If `autonomous: false` (HITL):** all three branches are available.
 
 Proceed to Step 1.5 to pick the branch.
@@ -112,8 +112,8 @@ card to `blocked` with the reason and stop.
 
 ### Branch C - Creative work, run brainstorming (HITL only)
 
-**In autonomous mode, this branch is skipped.** Proceed directly to Phase 1; Phase 1 Step 2.5 catches vague
-designs in autonomous creative cards.
+**In autonomous mode, this branch is skipped.** Proceed directly to Phase 1; the drafting sub-agent's placeholder
+scan (Phase 1 Step 2) catches vague designs in autonomous creative cards.
 
 **In HITL mode**, call:
 
@@ -256,18 +256,18 @@ the plan lives on the card, not in your context.
 If the plan draft contains a `## Split` section, execute it before creating
 subtasks:
 
-1. For each split entry without a `Created:` line, call `create_card` (no
-   parent) with its title and self-contained body. Set `depends_on` to the
-   original card's ID (plus earlier split cards) only where ordering is real.
-2. Copy the original card's `autonomous` flag onto each newly created card
-   with `update_card`, then upsert the `Split` section with
+1. Handle each split entry without a `Created:` line completely before the
+   next: call `create_card` (no parent) with its title and self-contained
+   body, setting `depends_on` to the original card's ID (plus earlier split
+   cards) only where ordering is real; copy the original card's `autonomous`
+   flag onto it with `update_card`; upsert the `Split` section with
    `Created: <card ID>` added to that entry.
-3. When cards were created, narrow the original card's body to the first
+2. When cards were created, narrow the original card's body to the first
    deliverable with `update_card`; in HITL mode, confirm the narrowed scope
    with the human.
-4. When cards were created, call `add_log` on the original card listing their
+3. When cards were created, call `add_log` on the original card listing their
    IDs and the reason for the split.
-5. Continue planning ONLY the original (narrowed) card.
+4. Continue planning ONLY the original (narrowed) card.
 
 For each subtask described in the `## Plan` section:
 
