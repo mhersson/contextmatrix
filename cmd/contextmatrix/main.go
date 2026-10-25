@@ -300,7 +300,7 @@ func main() {
 	if err != nil {
 		slog.Error("failed to wire git sync", "error", err)
 		cancel()
-		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+		os.Exit(1)
 	}
 
 	// After the sync wiring: on a shared board the checker's stall writes are
@@ -323,7 +323,7 @@ func main() {
 		if err != nil {
 			slog.Error("failed to load auth master key", "path", cfg.Auth.MasterKeyFile, "error", err)
 			cancel()
-			os.Exit(1) //nolint:gocritic // cancel called explicitly above
+			os.Exit(1)
 		}
 
 		if keyCreated {
@@ -335,7 +335,7 @@ func main() {
 		if err != nil {
 			slog.Error("failed to open auth store", "path", cfg.Auth.DBPath, "error", err)
 			cancel()
-			os.Exit(1) //nolint:gocritic // cancel called explicitly above
+			os.Exit(1)
 		}
 		defer authStore.Close()
 
@@ -346,7 +346,7 @@ func main() {
 			// Unreachable: Validate() parses it. Belt and suspenders.
 			slog.Error("invalid auth.session_idle_ttl", "error", err)
 			cancel()
-			os.Exit(1) //nolint:gocritic // cancel called explicitly above
+			os.Exit(1)
 		}
 
 		authSvc = auth.NewService(authStore, idleTTL)
@@ -355,7 +355,7 @@ func main() {
 		if err != nil {
 			slog.Error("failed to derive credential key", "error", err)
 			cancel()
-			os.Exit(1) //nolint:gocritic // cancel called explicitly above
+			os.Exit(1)
 		}
 
 		authSvc.SetCredentialKey(credKey)
@@ -367,7 +367,7 @@ func main() {
 		if err != nil {
 			slog.Error("failed to check for existing users", "error", err)
 			cancel()
-			os.Exit(1) //nolint:gocritic // cancel called explicitly above
+			os.Exit(1)
 		}
 
 		if len(users) == 0 {
@@ -375,7 +375,7 @@ func main() {
 			if err != nil {
 				slog.Error("failed to issue bootstrap token", "error", err)
 				cancel()
-				os.Exit(1) //nolint:gocritic // cancel called explicitly above
+				os.Exit(1)
 			}
 
 			slog.Info("=======================================================================")
@@ -471,7 +471,7 @@ func main() {
 	if err != nil {
 		slog.Error("failed to initialize image store", "path", cfg.Images.DBPath, "error", err)
 		cancel()
-		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+		os.Exit(1)
 	}
 	defer imageStore.Close()
 
@@ -485,7 +485,7 @@ func main() {
 	if err != nil {
 		slog.Error("failed to open op store", "path", cfg.OpStore.DBPath, "error", err)
 		cancel()
-		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+		os.Exit(1)
 	}
 	defer opStore.Close()
 
@@ -649,7 +649,7 @@ func main() {
 	if err != nil {
 		slog.Error("failed to construct jira client", "error", err)
 		cancel()
-		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+		os.Exit(1)
 	}
 
 	if jiraClient != nil {
@@ -666,7 +666,7 @@ func main() {
 	if err != nil {
 		slog.Error("failed to start jira writeback", "error", err)
 		cancel()
-		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+		os.Exit(1)
 	}
 
 	if jiraWriteback != nil {
@@ -804,7 +804,7 @@ func main() {
 	if err != nil {
 		slog.Error("failed to create dist filesystem", "error", err)
 		cancel()
-		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+		os.Exit(1)
 	}
 
 	handler := newSPAHandler(mux, distFS)

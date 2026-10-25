@@ -137,7 +137,7 @@ func (s *Service) Login(ctx context.Context, username, password, clientIP string
 		return nil, "", &RateLimitedError{RetryAfter: retry}
 	}
 
-	fail := func() (*authstore.User, string, error) { //nolint:unparam // always returns nil user on failure
+	fail := func() (*authstore.User, string, error) {
 		s.limiter.Failure(key)
 
 		return nil, "", ErrInvalidCredentials

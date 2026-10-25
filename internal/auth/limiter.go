@@ -75,7 +75,7 @@ func (l *Limiter) Failure(key string) {
 		// guard below: it is negative, zero (shift ≥ 55 pushes all set bits
 		// out), or a positive multiple of 2^43 ns (~2.4h) - so each arm
 		// clamps it to limiterMaxBlock, never a shorter-than-intended block.
-		block := time.Second << uint(e.failures-limiterFreeFailures) //nolint:gosec // overflow clamped below
+		block := time.Second << uint(e.failures-limiterFreeFailures)
 		if block > limiterMaxBlock || block <= 0 {
 			block = limiterMaxBlock
 		}

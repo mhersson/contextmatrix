@@ -152,7 +152,7 @@ func fetchAAPage(ctx context.Context, client *http.Client, base *url.URL, key st
 	if err != nil {
 		return aaPage{}, fmt.Errorf("AA page %d: %w", page, err)
 	}
-	defer resp.Body.Close() //nolint:errcheck
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return aaPage{}, fmt.Errorf("AA page %d: unexpected status %d", page, resp.StatusCode)

@@ -361,7 +361,7 @@ func lintCardMutation(ctx context.Context, svc *service.CardService, project, ca
 		Action:  "self_containment_warning",
 		Message: fmt.Sprintf("%s with %d self-containment warning(s) - body references the card author's environment", verb, len(warnings)),
 	}
-	_, _ = svc.AddLogEntry(ctx, project, cardID, entry) //nolint:errcheck // advisory note; must not fail the mutation
+	_, _ = svc.AddLogEntry(ctx, project, cardID, entry)
 
 	return warnings
 }

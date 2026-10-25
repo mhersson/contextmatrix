@@ -47,7 +47,7 @@ func (s *Store) SelectorLadders(ctx context.Context) (map[string]map[string]floa
 		return nil, time.Time{}, fmt.Errorf("read selector ladders: %w", err)
 	}
 
-	defer rows.Close() //nolint:errcheck
+	defer rows.Close()
 
 	out := map[string]map[string]float64{}
 

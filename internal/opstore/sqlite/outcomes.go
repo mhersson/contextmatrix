@@ -100,7 +100,7 @@ func (s *Store) ModelOutcomeStats(ctx context.Context) ([]OutcomeStats, error) {
 	if err != nil {
 		return nil, fmt.Errorf("model outcome stats: %w", err)
 	}
-	defer rows.Close() //nolint:errcheck
+	defer rows.Close()
 
 	var out []OutcomeStats
 

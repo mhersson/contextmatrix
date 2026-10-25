@@ -56,7 +56,7 @@ func (s *Store) BlacklistedSlugs(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("list blacklist: %w", err)
 	}
 
-	defer rows.Close() //nolint:errcheck
+	defer rows.Close()
 
 	var out []string
 
@@ -93,7 +93,7 @@ func (s *Store) BlacklistEntries(ctx context.Context) ([]BlacklistEntry, error) 
 		return nil, fmt.Errorf("list blacklist entries: %w", err)
 	}
 
-	defer rows.Close() //nolint:errcheck
+	defer rows.Close()
 
 	var out []BlacklistEntry
 

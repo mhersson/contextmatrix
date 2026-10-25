@@ -685,7 +685,7 @@ func TestBlueprintView_RecordsTheSpend(t *testing.T) {
 			mux.ServeHTTP(rec, jsonReq(t, http.MethodGet, "/api/chats/"+bp.ID+"/blueprint", ""))
 
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-			assert.Equal(t, tt.body, rec.Body.String(), "the relay stays byte for byte") //nolint:testifylint // byte identity is the contract
+			assert.Equal(t, tt.body, rec.Body.String(), "the relay stays byte for byte")
 
 			got, err := mgr.GetSession(t.Context(), bp.ID)
 			require.NoError(t, err)

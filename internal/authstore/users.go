@@ -197,7 +197,7 @@ func (s *Store) SetDisabledGuarded(ctx context.Context, id int64, now time.Time)
 }
 
 func (s *Store) guardedAdminUpdate(ctx context.Context, id int64, setClause string, now time.Time) error {
-	// nolint:gosec // setClause is an internal constant built by callers above, not user input
+	//nolint:gosec // setClause is an internal constant built by callers above, not user input
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE users SET `+setClause+`, updated_at = ?
 		 WHERE id = ?
@@ -268,7 +268,7 @@ func (s *Store) scanUser(row rowScanner) (*User, error) {
 // updateUser applies one SET clause plus the updated_at bump, mapping
 // zero-rows-affected to ErrNotFound.
 func (s *Store) updateUser(ctx context.Context, id int64, setClause string, value any, now time.Time) error {
-	// nolint:gosec // setClause is an internal constant built by callers above, not user input
+	//nolint:gosec // setClause is an internal constant built by callers above, not user input
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE users SET `+setClause+`, updated_at = ? WHERE id = ?`,
 		value, toUnix(now), id,
