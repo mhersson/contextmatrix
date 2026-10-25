@@ -164,9 +164,11 @@ func TestListBranches_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	bh := &branchHandlers{
-		svc:             svc,
-		provider:        provider,
-		allowedHosts:    []string{"github.com"},
+		svc:          svc,
+		allowedHosts: []string{"github.com"},
+		providerForProject: func(context.Context, string) (githubauth.TokenGenerator, string, error) {
+			return provider, "", nil
+		},
 		newBranchClient: func(_ githubauth.TokenGenerator, _ string) BranchFetcher { return mock },
 	}
 
@@ -198,9 +200,11 @@ func TestListBranches_FetchError(t *testing.T) {
 	require.NoError(t, err)
 
 	bh := &branchHandlers{
-		svc:             svc,
-		provider:        provider,
-		allowedHosts:    []string{"github.com"},
+		svc:          svc,
+		allowedHosts: []string{"github.com"},
+		providerForProject: func(context.Context, string) (githubauth.TokenGenerator, string, error) {
+			return provider, "", nil
+		},
 		newBranchClient: func(_ githubauth.TokenGenerator, _ string) BranchFetcher { return mock },
 	}
 
@@ -255,19 +259,15 @@ func TestBranchHandler_UsesProviderToken(t *testing.T) {
 	assert.Equal(t, "Bearer test-token", gotAuth)
 }
 
-// TestBranchHandler_ProviderForProject_UsesBoundProvider asserts that when
-// providerForProject is set, the branch handler resolves the token provider
-// and API base URL per request (by project) instead of using the fixed
-// fallback provider/baseURL - and that the resolved (bound) provider's token
-// is what actually gets used.
+// TestBranchHandler_ProviderForProject_UsesBoundProvider asserts that the
+// branch handler resolves the token provider and API base URL per request (by
+// project) and that the resolved (bound) provider's token is what actually
+// gets used.
 func TestBranchHandler_ProviderForProject_UsesBoundProvider(t *testing.T) {
 	svc, _, cleanup := testSetupWithGitHubRepo(t, "https://github.com/owner/repo")
 	defer cleanup()
 
 	mock := &mockBranchFetcher{branches: []string{"main"}}
-
-	fallbackProvider, err := githubauth.NewPATProvider("fallback-token")
-	require.NoError(t, err)
 
 	boundProvider, err := githubauth.NewPATProvider("bound-token")
 	require.NoError(t, err)
@@ -279,10 +279,8 @@ func TestBranchHandler_ProviderForProject_UsesBoundProvider(t *testing.T) {
 	)
 
 	bh := &branchHandlers{
-		svc:              svc,
-		provider:         fallbackProvider,
-		githubAPIBaseURL: "http://fallback.invalid",
-		allowedHosts:     []string{"github.com"},
+		svc:          svc,
+		allowedHosts: []string{"github.com"},
 		providerForProject: func(_ context.Context, project string) (githubauth.TokenGenerator, string, error) {
 			gotProject = project
 

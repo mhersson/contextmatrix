@@ -1098,11 +1098,10 @@ func TestRunCard_ProviderForProject_NoneMode_ReturnsInstanceProvider(t *testing.
 	assert.Equal(t, "instance-token", receivedPayload.GitToken)
 }
 
-// TestRunCard_NoProviderForProject_BackwardsCompat asserts that when
-// ProviderForProject is not wired (pre-token-authority configs, and most
-// existing tests), runCard neither attaches a git token nor rejects the
-// trigger - the payload goes out exactly as it did before token authority.
-func TestRunCard_NoProviderForProject_BackwardsCompat(t *testing.T) {
+// TestRunCard_NoGitHubCredential_SendsNoToken asserts that a router with no
+// GitHub credential at all neither attaches a git token nor rejects the
+// trigger; refusing a token-less run is the backend's call.
+func TestRunCard_NoGitHubCredential_SendsNoToken(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
@@ -1124,7 +1123,7 @@ func TestRunCard_NoProviderForProject_BackwardsCompat(t *testing.T) {
 
 	backendClient := backend.NewClient(mockBackend.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 
-	// No ProviderForProject set.
+	// Neither ProviderForProject nor GitHubTokenProvider set.
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Backend: backendClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -1153,6 +1152,52 @@ func TestRunCard_NoProviderForProject_BackwardsCompat(t *testing.T) {
 	for _, entry := range updated.ActivityLog {
 		assert.NotEqual(t, "run-rejected", entry.Action)
 	}
+}
+
+// TestRunCard_NoProviderForProject_UsesTheInstanceProvider asserts that a
+// router built without ProviderForProject mints the trigger's git token from
+// GitHubTokenProvider.
+func TestRunCard_NoProviderForProject_UsesTheInstanceProvider(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
+	defer cleanup()
+
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Task", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	var receivedPayload backend.TriggerPayload
+
+	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
+
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+	}))
+	defer mockBackend.Close()
+
+	instance := &fakeTokenProvider{token: "instance-token"}
+
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus,
+		Backend:             backend.NewClient(mockBackend.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"),
+		AgentBackendCfg:     &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		GitHubTokenProvider: instance,
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
+	assert.Equal(t, "instance-token", receivedPayload.GitToken)
+	assert.Equal(t, int32(1), instance.repoCalls.Load())
 }
 
 // TestRunCard_LLMEndpoint_PresentWhenConfigured asserts that a configured

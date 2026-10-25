@@ -280,10 +280,6 @@ func (h *workerCredentialsHandlers) resolveProvider(ctx context.Context, host, p
 		return h.instanceProvider, nil
 	}
 
-	if h.providerForProject == nil {
-		return nil, nil
-	}
-
 	provider, _, err := h.providerForProject(ctx, project.Name)
 	if err != nil {
 		return nil, err // fail closed: matched project, broken binding
