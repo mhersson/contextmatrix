@@ -22,7 +22,7 @@ import (
 
 func TestClient_Trigger_Success(t *testing.T) {
 	var (
-		received    TriggerPayload
+		received    protocol.TriggerPayload
 		receivedSig string
 	)
 
@@ -38,7 +38,7 @@ func TestClient_Trigger_Success(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "test-key")
-	err := c.Trigger(context.Background(), TriggerPayload{
+	err := c.Trigger(context.Background(), protocol.TriggerPayload{
 		CardID:  "TEST-001",
 		Project: "test-project",
 		RepoURL: "git@github.com:org/repo.git",
@@ -70,12 +70,12 @@ func TestClient_Trigger_VerifiesHMAC(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, apiKey)
-	err := c.Trigger(context.Background(), TriggerPayload{CardID: "TEST-001", Project: "p"})
+	err := c.Trigger(context.Background(), protocol.TriggerPayload{CardID: "TEST-001", Project: "p"})
 	require.NoError(t, err)
 }
 
 func TestTriggerPayload_BaseBranch(t *testing.T) {
-	var received TriggerPayload
+	var received protocol.TriggerPayload
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -87,7 +87,7 @@ func TestTriggerPayload_BaseBranch(t *testing.T) {
 	c := NewClient(srv.URL, "test-key")
 
 	// With base_branch set: should appear in JSON.
-	err := c.Trigger(context.Background(), TriggerPayload{
+	err := c.Trigger(context.Background(), protocol.TriggerPayload{
 		CardID:     "TEST-001",
 		Project:    "test-project",
 		RepoURL:    "git@github.com:org/repo.git",
@@ -107,7 +107,7 @@ func TestTriggerPayload_BaseBranch(t *testing.T) {
 	defer srvOmit.Close()
 
 	c2 := NewClient(srvOmit.URL, "test-key")
-	err = c2.Trigger(context.Background(), TriggerPayload{
+	err = c2.Trigger(context.Background(), protocol.TriggerPayload{
 		CardID:  "TEST-001",
 		Project: "test-project",
 	})
@@ -118,7 +118,7 @@ func TestTriggerPayload_BaseBranch(t *testing.T) {
 }
 
 func TestClient_Kill_Success(t *testing.T) {
-	var received KillPayload
+	var received protocol.KillPayload
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/kill", r.URL.Path)
@@ -129,7 +129,7 @@ func TestClient_Kill_Success(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "key")
-	err := c.Kill(context.Background(), KillPayload{CardID: "TEST-001", Project: "p"})
+	err := c.Kill(context.Background(), protocol.KillPayload{CardID: "TEST-001", Project: "p"})
 	require.NoError(t, err)
 	assert.Equal(t, "TEST-001", received.CardID)
 }
@@ -155,8 +155,8 @@ func TestClient_EndSessionAndKill_DistinctSignatures(t *testing.T) {
 	c := NewClient(srv.URL, apiKey)
 	ctx := context.Background()
 
-	require.NoError(t, c.EndSession(ctx, EndSessionPayload{CardID: "TEST-001", Project: "p"}))
-	require.NoError(t, c.Kill(ctx, KillPayload{CardID: "TEST-001", Project: "p"}))
+	require.NoError(t, c.EndSession(ctx, protocol.EndSessionPayload{CardID: "TEST-001", Project: "p"}))
+	require.NoError(t, c.Kill(ctx, protocol.KillPayload{CardID: "TEST-001", Project: "p"}))
 
 	require.Len(t, capturedSigs, 2)
 	assert.NotEqual(t, capturedSigs[0], capturedSigs[1],
@@ -164,7 +164,7 @@ func TestClient_EndSessionAndKill_DistinctSignatures(t *testing.T) {
 }
 
 func TestClient_StopAll_Success(t *testing.T) {
-	var received StopAllPayload
+	var received protocol.StopAllPayload
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/stop-all", r.URL.Path)
@@ -175,7 +175,7 @@ func TestClient_StopAll_Success(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "key")
-	err := c.StopAll(context.Background(), StopAllPayload{Project: "test-project"})
+	err := c.StopAll(context.Background(), protocol.StopAllPayload{Project: "test-project"})
 	require.NoError(t, err)
 	assert.Equal(t, "test-project", received.Project)
 }
@@ -201,7 +201,7 @@ func TestClient_RetryOn500(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	err := c.Trigger(ctx, TriggerPayload{CardID: "TEST-001", Project: "p"})
+	err := c.Trigger(ctx, protocol.TriggerPayload{CardID: "TEST-001", Project: "p"})
 	require.NoError(t, err)
 	assert.Equal(t, int32(3), attempts.Load())
 }
@@ -217,7 +217,7 @@ func TestClient_NoRetryOn400(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "key")
-	err := c.Trigger(context.Background(), TriggerPayload{CardID: "TEST-001", Project: "p"})
+	err := c.Trigger(context.Background(), protocol.TriggerPayload{CardID: "TEST-001", Project: "p"})
 	require.Error(t, err)
 	assert.Equal(t, int32(1), attempts.Load(), "should not retry on 4xx")
 	assert.Contains(t, err.Error(), "400")
@@ -234,7 +234,7 @@ func TestClient_ContextCancellation(t *testing.T) {
 	cancel() // Cancel immediately.
 
 	c := NewClient(srv.URL, "key")
-	err := c.Trigger(ctx, TriggerPayload{CardID: "TEST-001", Project: "p"})
+	err := c.Trigger(ctx, protocol.TriggerPayload{CardID: "TEST-001", Project: "p"})
 	require.Error(t, err)
 }
 
@@ -245,7 +245,7 @@ func TestClient_BackendReturnsNotOK(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "key")
-	err := c.Trigger(context.Background(), TriggerPayload{CardID: "TEST-001", Project: "p"})
+	err := c.Trigger(context.Background(), protocol.TriggerPayload{CardID: "TEST-001", Project: "p"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "container_limit")
 	assert.Contains(t, err.Error(), "container limit reached")
@@ -253,7 +253,7 @@ func TestClient_BackendReturnsNotOK(t *testing.T) {
 
 func TestTriggerPayload_InteractiveOmitempty(t *testing.T) {
 	// interactive=false should be omitted from JSON.
-	p := TriggerPayload{CardID: "TEST-001", Project: "p"}
+	p := protocol.TriggerPayload{CardID: "TEST-001", Project: "p"}
 	raw, err := json.Marshal(p)
 	require.NoError(t, err)
 	assert.NotContains(t, string(raw), "interactive", "interactive should be omitted when false")
@@ -267,7 +267,7 @@ func TestTriggerPayload_InteractiveOmitempty(t *testing.T) {
 
 func TestClient_Message_Success(t *testing.T) {
 	var (
-		received                MessagePayload
+		received                protocol.MessagePayload
 		receivedSig, receivedTS string
 	)
 
@@ -284,7 +284,7 @@ func TestClient_Message_Success(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "test-key")
-	payload := MessagePayload{
+	payload := protocol.MessagePayload{
 		CardID:    "TEST-001",
 		Project:   "test-project",
 		Content:   "hello from agent",
@@ -303,7 +303,7 @@ func TestClient_Message_Success(t *testing.T) {
 
 func TestClient_Promote_Success(t *testing.T) {
 	var (
-		received                PromotePayload
+		received                protocol.PromotePayload
 		receivedSig, receivedTS string
 	)
 
@@ -320,7 +320,7 @@ func TestClient_Promote_Success(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "test-key")
-	payload := PromotePayload{
+	payload := protocol.PromotePayload{
 		CardID:  "TEST-001",
 		Project: "test-project",
 	}
@@ -344,7 +344,7 @@ func TestClient_Message_NoRetryOn404(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "key")
-	err := c.Message(context.Background(), MessagePayload{CardID: "TEST-001", Project: "p", Content: "hi", MessageID: "m1"})
+	err := c.Message(context.Background(), protocol.MessagePayload{CardID: "TEST-001", Project: "p", Content: "hi", MessageID: "m1"})
 	require.Error(t, err)
 	assert.Equal(t, int32(1), attempts.Load(), "should not retry on 404")
 	assert.Contains(t, err.Error(), "404")
@@ -361,7 +361,7 @@ func TestClient_Promote_NoRetryOn404(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "key")
-	err := c.Promote(context.Background(), PromotePayload{CardID: "TEST-001", Project: "p"})
+	err := c.Promote(context.Background(), protocol.PromotePayload{CardID: "TEST-001", Project: "p"})
 	require.Error(t, err)
 	assert.Equal(t, int32(1), attempts.Load(), "should not retry on 404")
 	assert.Contains(t, err.Error(), "404")
@@ -375,13 +375,13 @@ func TestClient_RetryOn503(t *testing.T) {
 		{
 			name: "Message",
 			fn: func(c *Client, ctx context.Context) error {
-				return c.Message(ctx, MessagePayload{CardID: "TEST-001", Project: "p", Content: "hi", MessageID: "m1"})
+				return c.Message(ctx, protocol.MessagePayload{CardID: "TEST-001", Project: "p", Content: "hi", MessageID: "m1"})
 			},
 		},
 		{
 			name: "Promote",
 			fn: func(c *Client, ctx context.Context) error {
-				return c.Promote(ctx, PromotePayload{CardID: "TEST-001", Project: "p"})
+				return c.Promote(ctx, protocol.PromotePayload{CardID: "TEST-001", Project: "p"})
 			},
 		},
 	}
@@ -421,7 +421,7 @@ func TestClient_WebhookMetrics_Success(t *testing.T) {
 	beforeFailure := testutil.ToFloat64(metrics.BackendWebhookTotal.WithLabelValues("failure"))
 
 	c := NewClient(srv.URL, "key")
-	err := c.Trigger(context.Background(), TriggerPayload{CardID: "TEST-001", Project: "p"})
+	err := c.Trigger(context.Background(), protocol.TriggerPayload{CardID: "TEST-001", Project: "p"})
 	require.NoError(t, err)
 
 	assert.GreaterOrEqual(t, testutil.ToFloat64(metrics.BackendWebhookTotal.WithLabelValues("success"))-beforeSuccess, float64(1),
@@ -443,7 +443,7 @@ func TestClient_WebhookMetrics_Failure(t *testing.T) {
 	beforeFailure := testutil.ToFloat64(metrics.BackendWebhookTotal.WithLabelValues("failure"))
 
 	c := NewClient(srv.URL, "key")
-	err := c.Trigger(context.Background(), TriggerPayload{CardID: "TEST-001", Project: "p"})
+	err := c.Trigger(context.Background(), protocol.TriggerPayload{CardID: "TEST-001", Project: "p"})
 	require.Error(t, err)
 
 	assert.InDelta(t, 0, testutil.ToFloat64(metrics.BackendWebhookTotal.WithLabelValues("success"))-beforeSuccess, 0.0,
@@ -533,7 +533,7 @@ func TestClient_ListContainers_BackendError(t *testing.T) {
 
 func TestTriggerPayload_TaskSkillsField(t *testing.T) {
 	t.Run("nil omitted", func(t *testing.T) {
-		p := TriggerPayload{CardID: "X", Project: "P", RepoURL: "u"}
+		p := protocol.TriggerPayload{CardID: "X", Project: "P", RepoURL: "u"}
 		body, err := json.Marshal(p)
 		require.NoError(t, err)
 		assert.NotContains(t, string(body), "task_skills",
@@ -542,7 +542,7 @@ func TestTriggerPayload_TaskSkillsField(t *testing.T) {
 
 	t.Run("populated emitted", func(t *testing.T) {
 		skills := []string{"go-development"}
-		p := TriggerPayload{CardID: "X", Project: "P", RepoURL: "u", TaskSkills: &skills}
+		p := protocol.TriggerPayload{CardID: "X", Project: "P", RepoURL: "u", TaskSkills: &skills}
 		body, err := json.Marshal(p)
 		require.NoError(t, err)
 		assert.Contains(t, string(body), `"task_skills":["go-development"]`)
@@ -550,7 +550,7 @@ func TestTriggerPayload_TaskSkillsField(t *testing.T) {
 
 	t.Run("empty list emitted", func(t *testing.T) {
 		empty := []string{}
-		p := TriggerPayload{CardID: "X", Project: "P", RepoURL: "u", TaskSkills: &empty}
+		p := protocol.TriggerPayload{CardID: "X", Project: "P", RepoURL: "u", TaskSkills: &empty}
 		body, err := json.Marshal(p)
 		require.NoError(t, err)
 		assert.Contains(t, string(body), `"task_skills":[]`,
@@ -583,7 +583,7 @@ func TestClient_DecodesProtocolErrorCode(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "k")
-	err := c.Kill(context.Background(), KillPayload{CardID: "CM-001", Project: "p"})
+	err := c.Kill(context.Background(), protocol.KillPayload{CardID: "CM-001", Project: "p"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "conflict")
 	assert.Contains(t, err.Error(), "card already tracked")
@@ -601,7 +601,7 @@ func TestClient_DecodesProtocolErrorCodeOn4xx(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "k")
-	err := c.Kill(context.Background(), KillPayload{CardID: "CM-001", Project: "p"})
+	err := c.Kill(context.Background(), protocol.KillPayload{CardID: "CM-001", Project: "p"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "conflict")
 	assert.Contains(t, err.Error(), "card already tracked")
@@ -694,7 +694,7 @@ func TestClient_RetryOn500_UsesFreshHMAC(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	err := c.Trigger(ctx, TriggerPayload{CardID: "TEST-001", Project: "p"})
+	err := c.Trigger(ctx, protocol.TriggerPayload{CardID: "TEST-001", Project: "p"})
 	require.NoError(t, err)
 	require.Equal(t, int32(2), attempts.Load(),
 		"second attempt with fresh signature should succeed")
@@ -724,7 +724,7 @@ func TestClient_Retry_TimestampAdvances(t *testing.T) {
 	defer cancel()
 
 	// All retries will fail; we just care about the captured timestamps.
-	_ = c.Trigger(ctx, TriggerPayload{CardID: "TEST-001", Project: "p"})
+	_ = c.Trigger(ctx, protocol.TriggerPayload{CardID: "TEST-001", Project: "p"})
 
 	require.Len(t, capturedTS, maxRetries, "should have made all retry attempts")
 
@@ -753,7 +753,7 @@ func TestClient_Trigger_CorrelationIDHeader(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "key")
-	err := c.Trigger(context.Background(), TriggerPayload{CardID: "TEST-001", Project: "p"})
+	err := c.Trigger(context.Background(), protocol.TriggerPayload{CardID: "TEST-001", Project: "p"})
 	require.NoError(t, err)
 
 	assert.NotEmpty(t, correlationID, "trigger request must carry a non-empty X-Correlation-ID header")
@@ -783,7 +783,7 @@ func TestClient_Trigger_CorrelationIDUniquePerCall(t *testing.T) {
 
 	c := NewClient(srv.URL, "key")
 	ctx := context.Background()
-	payload := TriggerPayload{CardID: "TEST-001", Project: "p"}
+	payload := protocol.TriggerPayload{CardID: "TEST-001", Project: "p"}
 
 	require.NoError(t, c.Trigger(ctx, payload))
 	require.NoError(t, c.Trigger(ctx, payload))
@@ -825,7 +825,7 @@ func TestClient_Trigger_CorrelationIDFreshPerAttempt(t *testing.T) {
 	defer cancel()
 
 	// All retries fail; we only care about the captured correlation ids.
-	_ = c.Trigger(ctx, TriggerPayload{CardID: "TEST-001", Project: "p"})
+	_ = c.Trigger(ctx, protocol.TriggerPayload{CardID: "TEST-001", Project: "p"})
 
 	require.Len(t, captured, maxRetries, "should have made all retry attempts")
 
@@ -854,7 +854,7 @@ func TestClient_Kill_NoCorrelationIDHeader(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "key")
-	require.NoError(t, c.Kill(context.Background(), KillPayload{CardID: "TEST-001", Project: "p"}))
+	require.NoError(t, c.Kill(context.Background(), protocol.KillPayload{CardID: "TEST-001", Project: "p"}))
 }
 
 func TestClientHealth_ReadsBuildAndWorkerImage(t *testing.T) {

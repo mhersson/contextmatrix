@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/backend"
 )
 
@@ -87,7 +88,7 @@ func TestHealthProbeCache_SingleflightDeduplicatesConcurrentProbes(t *testing.T)
 
 	var (
 		wg      sync.WaitGroup
-		results = make([]backend.HealthInfo, callers)
+		results = make([]protocol.HealthResponse, callers)
 		errs    = make([]error, callers)
 	)
 
@@ -132,7 +133,7 @@ func TestHealthProbeCache_DetachedContextSurvivesCallerCancellation(t *testing.T
 	ctx1, cancel1 := context.WithCancel(context.Background())
 
 	type result struct {
-		info backend.HealthInfo
+		info protocol.HealthResponse
 		err  error
 	}
 

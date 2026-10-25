@@ -241,7 +241,7 @@ func TestRunCard_NonAutonomousCardNowSucceeds(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var receivedPayload backend.TriggerPayload
+	var receivedPayload protocol.TriggerPayload
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -618,7 +618,7 @@ func TestRunCard_ProviderForProject_MintsGitToken(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var receivedPayload backend.TriggerPayload
+	var receivedPayload protocol.TriggerPayload
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -676,7 +676,7 @@ func TestRunCard_ProviderForProject_PATZeroExpiry_ExpiryOmitted(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var receivedPayload backend.TriggerPayload
+	var receivedPayload protocol.TriggerPayload
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -1061,7 +1061,7 @@ func TestRunCard_ProviderForProject_NoneMode_ReturnsInstanceProvider(t *testing.
 	// End to end: the trigger-mint path (runCard) actually uses this
 	// resolver's result - the token that reaches the wire is the instance
 	// provider's token.
-	var receivedPayload backend.TriggerPayload
+	var receivedPayload protocol.TriggerPayload
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -1107,7 +1107,7 @@ func TestRunCard_NoGitHubCredential_SendsNoToken(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var receivedPayload backend.TriggerPayload
+	var receivedPayload protocol.TriggerPayload
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -1161,7 +1161,7 @@ func TestRunCard_NoProviderForProject_UsesTheInstanceProvider(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var receivedPayload backend.TriggerPayload
+	var receivedPayload protocol.TriggerPayload
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -1208,7 +1208,7 @@ func TestRunCard_LLMEndpoint_PresentWhenConfigured(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var receivedPayload backend.TriggerPayload
+	var receivedPayload protocol.TriggerPayload
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -2115,7 +2115,7 @@ func TestMessageCard_HappyPath(t *testing.T) {
 	svc, bus, cleanup, card := newRunningCardSetup(t)
 	defer cleanup()
 
-	var receivedPayload backend.MessagePayload
+	var receivedPayload protocol.MessagePayload
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -2545,7 +2545,7 @@ func TestRunCard_AutonomousForcesNonInteractive(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var receivedPayload backend.TriggerPayload
+	var receivedPayload protocol.TriggerPayload
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -2588,7 +2588,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 		defer cleanup()
 
-		var receivedPayload backend.TriggerPayload
+		var receivedPayload protocol.TriggerPayload
 
 		mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -2633,7 +2633,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 		defer cleanup()
 
-		var receivedPayload backend.TriggerPayload
+		var receivedPayload protocol.TriggerPayload
 
 		mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -2677,7 +2677,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 		defer cleanup()
 
-		var receivedPayload backend.TriggerPayload
+		var receivedPayload protocol.TriggerPayload
 
 		mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -2728,7 +2728,7 @@ func TestRunCard_Interactive(t *testing.T) {
 
 		var (
 			triggerCount    int
-			receivedPayload backend.TriggerPayload
+			receivedPayload protocol.TriggerPayload
 		)
 
 		mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2880,7 +2880,7 @@ func TestRunCard_ModelInPayload(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
-	var capturedPayload backend.TriggerPayload
+	var capturedPayload protocol.TriggerPayload
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
@@ -3147,10 +3147,10 @@ default_skills:
   - go-development
 `
 
-	triggerCard := func(t *testing.T, svc *service.CardService, bus *events.Bus, cardID string) backend.TriggerPayload {
+	triggerCard := func(t *testing.T, svc *service.CardService, bus *events.Bus, cardID string) protocol.TriggerPayload {
 		t.Helper()
 
-		var capturedPayload backend.TriggerPayload
+		var capturedPayload protocol.TriggerPayload
 
 		mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
@@ -3329,7 +3329,7 @@ favorites:
 		"complex": {All: []string{candidateSlug}},
 	}
 
-	var capturedPayload backend.TriggerPayload
+	var capturedPayload protocol.TriggerPayload
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
@@ -3416,7 +3416,7 @@ func TestRunCardEmptyLadderStoreSendsNoTierBars(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var capturedPayload backend.TriggerPayload
+	var capturedPayload protocol.TriggerPayload
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
@@ -3466,7 +3466,7 @@ func TestRunCardTypedNilCatalogDoesNotPanic(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var capturedPayload backend.TriggerPayload
+	var capturedPayload protocol.TriggerPayload
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
@@ -3546,7 +3546,7 @@ func TestRunCardBestOfNPayload(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			var capturedPayload backend.TriggerPayload
+			var capturedPayload protocol.TriggerPayload
 
 			mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
@@ -3616,7 +3616,7 @@ func TestRunCardMaxCapabilityPayload(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			var capturedPayload backend.TriggerPayload
+			var capturedPayload protocol.TriggerPayload
 
 			mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				_ = json.NewDecoder(r.Body).Decode(&capturedPayload)

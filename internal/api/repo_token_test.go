@@ -63,7 +63,7 @@ func TestRepoNameFromURL(t *testing.T) {
 type triggerOutcome struct {
 	status        int
 	code          string
-	payload       backend.TriggerPayload
+	payload       protocol.TriggerPayload
 	backendCalled bool
 	workerStatus  string
 }

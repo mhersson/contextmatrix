@@ -8,7 +8,6 @@ import (
 	"slices"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
-	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/playbookrun"
@@ -123,7 +122,7 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 	// cannot push an autonomous card down the HITL path).
 	interactive := opts.interactive && !card.Autonomous
 
-	payload := backend.TriggerPayload{
+	payload := protocol.TriggerPayload{
 		CardID:      id,
 		Project:     project,
 		RepoURL:     projectCfg.Repo,
@@ -313,7 +312,7 @@ func (h *backendHandlers) stop(ctx context.Context, project, id string) (*board.
 			"card is not being executed by a worker", fmt.Sprintf("worker_status: %q", card.WorkerStatus))
 	}
 
-	if err := h.backend.Kill(ctx, backend.KillPayload{CardID: id, Project: project}); err != nil {
+	if err := h.backend.Kill(ctx, protocol.KillPayload{CardID: id, Project: project}); err != nil {
 		ctxlog.Logger(ctx).Error("backend kill webhook failed", "card_id", id, "project", project, "error", err)
 
 		return nil, launchRefused(http.StatusBadGateway, ErrCodeBackendUnavailable, "failed to stop backend task", "")

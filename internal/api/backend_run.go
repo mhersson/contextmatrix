@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
-	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 )
@@ -94,7 +93,7 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 // takes trigger-time priority over Best-of-N: a live execute phase zeroes
 // payload.BestOfN with a warning; with the flag off, execute is dropped
 // (also with a warning) and Best-of-N is left untouched.
-func (h *backendHandlers) attachMob(ctx context.Context, payload *backend.TriggerPayload, card *board.Card, project, id string) {
+func (h *backendHandlers) attachMob(ctx context.Context, payload *protocol.TriggerPayload, card *board.Card, project, id string) {
 	if card.MobParticipants < 2 {
 		return
 	}

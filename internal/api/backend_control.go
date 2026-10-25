@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/mhersson/contextmatrix/internal/backend"
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -77,7 +77,7 @@ func (h *backendHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	messageID := uuid.New().String()
-	if err := h.backend.Message(r.Context(), backend.MessagePayload{
+	if err := h.backend.Message(r.Context(), protocol.MessagePayload{
 		CardID:    id,
 		Project:   project,
 		MessageID: messageID,
@@ -152,7 +152,7 @@ func (h *backendHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.backend.Promote(r.Context(), backend.PromotePayload{
+	if err := h.backend.Promote(r.Context(), protocol.PromotePayload{
 		CardID:  id,
 		Project: project,
 	}); err != nil {
@@ -260,7 +260,7 @@ func (h *backendHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send stop-all webhook.
-	if err := h.backend.StopAll(r.Context(), backend.StopAllPayload{Project: project}); err != nil {
+	if err := h.backend.StopAll(r.Context(), protocol.StopAllPayload{Project: project}); err != nil {
 		ctxlog.Logger(r.Context()).Error("backend stop-all webhook failed", "project", project, "error", err)
 		writeError(w, http.StatusBadGateway, ErrCodeBackendUnavailable,
 			"failed to stop all backend tasks", "")

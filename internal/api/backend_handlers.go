@@ -138,7 +138,7 @@ type backendHandlers struct {
 type healthProbeCache struct {
 	mu      sync.Mutex
 	expires time.Time
-	info    backend.HealthInfo
+	info    protocol.HealthResponse
 	err     error
 
 	flight singleflight.Group
