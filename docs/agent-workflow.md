@@ -351,7 +351,8 @@ inline and never in a worktree. Each sub-agent:
 4. works, keeping `## Progress` current and calling `report_usage` after
    each unit of work;
 5. self-reviews and leaves changes uncommitted on the feature branch;
-6. `complete_task`, then prints `TASK_COMPLETE` or `TASK_BLOCKED`.
+6. `complete_task`, then prints `TASK_COMPLETE`; when blocked it instead moves
+   the card to `blocked`, calls `release_card`, and prints `TASK_BLOCKED`.
 
 The service layer moves the parent `todo → in_progress` when the first
 subtask goes `in_progress`. When every subtask is `done` the parent stays

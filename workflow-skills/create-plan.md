@@ -109,7 +109,8 @@ Heartbeat section.
 When the sub-agent prints `DIAGNOSIS_COMPLETE`, re-read the card body
 via `get_card` to confirm the `## Diagnosis` section is present, then
 proceed to Phase 1. If it prints `DIAGNOSIS_BLOCKED`, transition the
-card to `blocked` with the reason and stop.
+card to `blocked` with the reason, call `release_card(card_id=<parent_id>,
+agent_id=<your_agent_id>)`, and stop.
 
 ### Branch C - Creative work, run brainstorming (HITL only)
 
@@ -204,7 +205,8 @@ confirm the `## Plan` section is present, then proceed to Phase 2. If it
 prints `PLAN_BLOCKED`: in HITL mode surface the reason to the user, ask how
 to proceed, and treat the answer as revision feedback - re-spawn per the
 Phase 2 adjustments contract; in autonomous mode transition the card to
-`blocked` with the reason and stop.
+`blocked` with the reason, call `release_card(card_id=<parent_id>,
+agent_id=<your_agent_id>)`, and stop.
 
 ---
 
