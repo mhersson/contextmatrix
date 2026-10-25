@@ -79,7 +79,7 @@ func TestReconciliationSweep_SkipsNonTerminalCard(t *testing.T) {
 
 	backend.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
 
-	time.Sleep(150 * time.Millisecond)
+	waitForListCount(t, fc, 2)
 	assert.Empty(t, fc.KillCalls(), "sweep must not kill in-progress card's container")
 }
 
@@ -198,7 +198,7 @@ func TestReconciliationSweep_BackendListFailureSkipsTick(t *testing.T) {
 
 	backend.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
 
-	time.Sleep(150 * time.Millisecond)
+	waitForListCount(t, fc, 2)
 	// Not kill and not panic - the ListContainers error just skips the tick.
 	assert.Empty(t, fc.KillCalls(), "no kills on backend list failure")
 }
@@ -233,7 +233,7 @@ func TestReconciliationSweep_TransientCardErrorLeavesContainerAlone(t *testing.T
 
 	backend.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
 
-	time.Sleep(150 * time.Millisecond)
+	waitForListCount(t, fc, 2)
 	assert.Empty(t, fc.KillCalls(), "transient card-store error must not trigger a kill")
 }
 
@@ -313,7 +313,7 @@ func TestReconciliationSweep_SkipsChatContainers(t *testing.T) {
 
 	backend.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
 
-	time.Sleep(150 * time.Millisecond)
+	waitForListCount(t, fc, 2)
 	assert.Empty(t, fc.KillCalls(),
 		"card sweep must skip chat containers (those carry SessionID, not CardID)")
 	assert.Empty(t, fc.Calls(),
