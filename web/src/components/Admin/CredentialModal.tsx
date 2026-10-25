@@ -38,8 +38,8 @@ export function CredentialModal({ open, mode, existing, onClose, onSaved }: Cred
 
   useFocusTrap(dialogRef, open);
 
-  // Fresh fields every time the dialog opens (render-time pattern - see
-  // useBoard.ts / web/AGENTS.md § rail sync for why this isn't a useEffect).
+  // Fresh fields every time the dialog opens (render-time reset: avoids a
+  // stale-field flash that an effect would paint first).
   // The secret/private-key field always starts blank, even in rotate mode.
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {

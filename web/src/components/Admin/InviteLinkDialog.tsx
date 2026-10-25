@@ -22,7 +22,7 @@ export function InviteLinkDialog({ open, token, purpose, onClose }: InviteLinkDi
   useFocusTrap(dialogRef, open);
 
   // Fresh "Copied!" state every time the dialog reopens (render-time
-  // pattern - see useBoard.ts / web/AGENTS.md § rail sync).
+  // reset: avoids a stale flash that an effect would paint first).
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
