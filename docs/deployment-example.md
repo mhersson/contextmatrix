@@ -104,7 +104,7 @@ strategy and one ReadWriteOnce PVC holding all of them:
 | Path        | Holds                                                                                                                                  | Env override                     |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
 | boards repo | cards, `.board.yaml`, playbooks; cloned on an empty dir when `boards.git_clone_on_empty: true` (default `false`, otherwise `git init`) | `CONTEXTMATRIX_BOARDS_DIR`       |
-| `ops.db`    | chat sessions and transcripts, model blacklist, model outcomes, chat cost archive                                                      | `CONTEXTMATRIX_OP_STORE_DB_PATH` |
+| `ops.db`    | tables: see configuration.md                                                                                                        | `CONTEXTMATRIX_OP_STORE_DB_PATH` |
 | `auth.db`   | users, sessions, one-time tokens, encrypted credential pool                                                                            | `CONTEXTMATRIX_AUTH_DB_PATH`     |
 | `images.db` | pasted card images (private boards repos and project-less uploads)                                                                     | `CONTEXTMATRIX_IMAGES_DB_PATH`   |
 

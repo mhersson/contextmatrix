@@ -96,7 +96,7 @@ The "Caller" column uses these values:
 | human      | `agent_id` must start with `human:`.                             |
 | claim      | Caller must hold the card's active claim.                        |
 | owner      | Checked against the claim only when the card is claimed.         |
-| session    | Chat containers only; the session ID must match the caller's.    |
+| session    | A caller sending `X-CM-Chat-Session` must pass that same session ID; without the header the check is skipped. |
 | chat       | Chat containers only; acts on the calling chat named by `X-CM-Chat-Session`, refused without it. |
 
 ### Cards

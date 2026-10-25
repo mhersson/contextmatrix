@@ -455,10 +455,11 @@ Assembly rules:
 
 ## How the agent picks
 
-Everything in this section is **agent side** - implemented in the
-`contextmatrix-agent` repository (`internal/registry` and
-`internal/orchestrator`). ContextMatrix ships the inputs only; check that
-repository when a constant here drifts.
+Everything in this section is **agent side**. The selection rule lives in
+`contextmatrix-protocol/selection` (the run-level cap is
+`selection.Input.MaxCapability`); the `contextmatrix-agent` repository
+(`internal/registry` and `internal/orchestrator`) applies it. ContextMatrix
+ships the inputs only; check those repositories when a constant here drifts.
 
 ### Tiers are quality floors, not buckets
 
@@ -649,8 +650,8 @@ selection admin page's tier ladders for whichever rung keeps emptying.
 `max_capability` (a per-card, human-set flag) narrows this sequence when the
 card is configured for automatic selection. ContextMatrix stores the flag and
 ships it in the trigger payload; the agent backend consumes it as
-`registry.Selection.MaxCapability`, a run-level field set once when the registry
-is built. Every automatic pick in the run inherits it: the coder, the planner's
+`selection.Input.MaxCapability` (contextmatrix-protocol), a run-level field set
+once when the registry is built. Every automatic pick in the run inherits it: the coder, the planner's
 model floor, the review-panel seats, the judge, the verify/propose step, and mob
 and Best-of-N seats. Only a resolvable card pin escapes it.
 

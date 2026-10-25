@@ -105,7 +105,9 @@ into real enforcement.
 `FORBIDDEN` for a non-admin and gates: user management
 (`/api/admin/users*`, invite regeneration), the credential pool
 (`/api/admin/credentials*`), admin chat management (`/api/admin/chats*`),
-the model-outcomes and model-blacklist admin endpoints, and project
+the model-outcomes, model-blacklist and selector
+(`/api/admin/selector/*`: ladders, candidates, preview) admin endpoints,
+`GET /api/backends/{backend}/images`, and project
 management (`POST`/`PUT`/`DELETE /api/projects*`,
 `POST /api/projects/{project}/recalculate-costs`; see `authEnabled` in
 `internal/api/projects.go`). Card work needs only a session. The store
@@ -384,7 +386,7 @@ failure the service layer closes the gap:
 | `mcp`               | `NewServer`, tools, prompts                          | MCP over Streamable HTTP on `/mcp` (`POST`, `GET`, `DELETE`); tools call `CardService`; prompts serve `workflow-skills/`.                                                |
 | `backend`           | client, reconcile, `sessionlog.Manager`              | Task-backend webhook client, reconcile sweep, end-session subscriber, HMAC signature cache, per-card session-log buffer and fan-out hub.                                 |
 | `chat`              | `Manager`, `Store`, `SSEHub`, `IdleReaper`, `transcript` | Global chat sessions: lifecycle, transcript persistence, per-session SSE, cost accumulation, cold-reopen resume payloads.                                            |
-| `opstore`           | `sqlite.Store`                                       | `ops.db`: chat sessions and messages, cost archive, model blacklist, Best-of-N outcomes, Jira writeback outbox. Schema is `CREATE TABLE IF NOT EXISTS` with no migration ledger.               |
+| `opstore`           | `sqlite.Store`                                       | `ops.db` (tables: see configuration.md). Schema is `CREATE TABLE IF NOT EXISTS` with no migration ledger.               |
 | `images`            | `Store`, `Layered`, `RepoIndex`, `Process`           | Content-hashed image store: `images.db` plus `<project>/images/` files in shared repos.                                                                                 |
 | `modelcatalog`      | `Builder`                                            | Fetches and rates model candidates (Artificial Analysis joined with OpenRouter or an OpenAI-compatible endpoint); 6h TTL, last-good fallback. See [model selection](model-selection.md). |
 | `auth`, `authstore` | `Service`, `Store`                                   | Multi-mode auth: argon2id, sessions, one-time tokens (48h TTL), credential-pool crypto, master key; `auth.db` tables `users`, `sessions`, `one_time_tokens`, `credentials`. |

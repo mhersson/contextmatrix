@@ -55,12 +55,7 @@ name: my-project                   # required; directory name; immutable
 display_name: My Project           # optional label shown in the UI
 prefix: MYPROJ                     # required; card ids are MYPROJ-001, ...
 next_id: 1                         # required, >= 1; the server increments it
-repo: https://github.com/org/my-project.git   # single code repo
-repos:                             # or several; https only, at most one primary
-  - name: api
-    url: https://github.com/org/my-project.git
-    primary: true
-  - url: https://github.com/org/my-project-web.git   # name derived from URL
+repo: https://github.com/org/my-project.git   # code repo
 states: [todo, in_progress, blocked, review, done, stalled, not_planned]
 types: [task, bug, feature]        # subtask is built in; do not list it
 priorities: [low, medium, high, critical]   # least to most urgent
@@ -106,9 +101,9 @@ Rules the validator applies on load and on every save:
 - `name`, `prefix` and `next_id >= 1` are required.
 - `stalled` and `not_planned` must appear in `states` and have a `transitions`
   entry. Every transition target must be a listed state.
-- `repos` entries need an `https://` URL, unique names and at most one
-  `primary`; the first entry becomes primary when none is marked. A `repo`
-  string is shorthand for one primary entry.
+- `repos` is reserved (see the field table in `data-model.md`); its entries need an
+  `https://` URL, unique names and at most one `primary`, and the first entry
+  becomes primary when none is marked.
 - `card_defaults.mob_participants` must be 0 or 2..`mob.max_participants` and
   `mob_phases` a subset of plan/review/execute when saved through the API;
   hand-edited values are loaded as written.

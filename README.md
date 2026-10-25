@@ -99,7 +99,7 @@ Each bullet links to the document that covers it in full.
 
 **Agents and execution**
 
-- **MCP-first agent interface** - 39 MCP tools and 3 slash commands give
+- **MCP-first agent interface** - MCP tools and slash commands give
   agents structured access to the board. Agents work through MCP, never the
   REST API. [MCP integration](docs/mcp.md)
 - **Agent coordination** - exclusive claims, heartbeats, automatic stall

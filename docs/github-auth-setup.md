@@ -65,7 +65,7 @@ The gate rows apply only to cards that set `await_ci` or
   checking by hand use the REST endpoint: `gh pr view --json reviewRequests`
   drops Bot-typed reviewers and never shows Copilot. If the reviewer is still
   unlisted after the request, the gate waits for the review anyway (default
-  1200 s, `CMX_GATES_COPILOT_WAIT_TIMEOUT_SECONDS` on the agent backend). A
+  1200 s, `gates_copilot_wait_timeout_seconds` in the agent's serve.yaml (env CMX_GATES_COPILOT_WAIT_TIMEOUT_SECONDS)). A
   422 "Copilot isn't available for this repository" response records the
   reason on the card and passes the gate without waiting. A review that lands
   late is picked up by one more probe after the enabled gates.
