@@ -1320,6 +1320,9 @@ func (m *Manager) ClearContext(ctx context.Context, sessionID string) error {
 // clearGroup.Do to prevent concurrent clears from interleaving on the same
 // session. The session-not-running guard is checked before entering
 // clearGroup, so this function can assume the session is active or warm-idle.
+// It stays separate from appendMessageWithKind because store.ClearTranscriptAtomic
+// flags the pre-clear rows rehydration_phase=true and inserts the divider in one
+// transaction, which a plain AppendMessage cannot do.
 func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
 	sess, err := m.store.GetSession(ctx, sessionID)
 	if err != nil {

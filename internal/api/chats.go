@@ -89,11 +89,9 @@ type chatHandlers struct {
 	mgr *chat.Manager
 	hub *chat.SSEHub
 
-	// openRouter is true when the dedicated chat backend (contextmatrix-chat,
-	// OpenRouter) serves chat. In that mode the chat.models allowlist does not
-	// apply: the picker pulls the live OpenRouter catalog and slugs are accepted
-	// as-is. False only in legacy configurations without a dedicated chat
-	// backend.
+	// openRouter is true when a chat backend is configured; false means no
+	// chat backend. Without endpointModels, true selects the OpenRouter catalog
+	// for the picker and the create-time model check.
 	openRouter bool
 	// orDefault is the default OpenRouter slug (backends.chat.default_model),
 	// used to seed the picker and as the empty-model fallback in openRouter mode.
@@ -1067,11 +1065,10 @@ func (h *chatHandlers) streamChat(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// writeChatSSEEvent serialises one event onto the SSE wire. Different event
-// kinds use the SSE "event:" header so the browser's EventSource can route
-// to different listeners (transcript messages vs. session-state pushes).
-// The default kind ("") is treated as the message wire (backwards-compatible
-// with clients written before Wave 4 of the rehydration feature).
+// writeChatSSEEvent serialises one event onto the SSE wire. A session update
+// goes out as "event: session_updated"; every other event is a transcript
+// message with no "event:" header, so the browser's EventSource delivers it to
+// its unnamed message listener.
 func writeChatSSEEvent(w http.ResponseWriter, e chat.SSEEvent) {
 	switch e.Kind {
 	case chat.SSEKindSessionUpdate:
@@ -1086,12 +1083,9 @@ func writeChatSSEEvent(w http.ResponseWriter, e chat.SSEEvent) {
 			_, _ = w.Write([]byte("data: {}\n\n"))
 		}
 	default:
-		// Backwards-compatible default: emit data without an event: header
-		// so older clients listening on the unnamed message stream keep
-		// working. rehydration_phase is included so the UI can group
-		// agent rehydration messages distinctly from normal turns. kind
-		// (omitempty) carries structural markers like "divider" for the
-		// Clear Context sentinel - empty for regular messages.
+		// rehydration_phase lets the UI group agent rehydration messages apart
+		// from normal turns. kind (omitempty) carries structural markers like
+		// "divider" for the Clear Context sentinel - empty for regular messages.
 		b, _ := json.Marshal(struct {
 			Seq              int64     `json:"seq"`
 			Role             chat.Role `json:"role"`

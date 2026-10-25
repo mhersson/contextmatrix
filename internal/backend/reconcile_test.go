@@ -295,11 +295,10 @@ func TestReconciliationSweep_WrappedStorageNotFoundErrorIsKill(t *testing.T) {
 	waitForKillCalls(t, fc, 1)
 }
 
-// TestReconciliationSweep_SkipsChatContainers guards the boundary between the
-// card-mode sweep and the chat-mode sweep: after Wave 2.2, /containers also
-// reports chat containers (LabelSessionID, no LabelCardID). The card sweep
-// must skip those rows - calling decideKill on a chat container with an empty
-// CardID would route a malformed /end-session against the backend.
+// TestReconciliationSweep_SkipsChatContainers: /containers can also report
+// chat containers (LabelSessionID, no LabelCardID). The card sweep must skip
+// those rows - calling decideKill on a chat container with an empty CardID
+// would route a malformed /end-session against the backend.
 func TestReconciliationSweep_SkipsChatContainers(t *testing.T) {
 	ctx := t.Context()
 
