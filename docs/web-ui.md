@@ -365,7 +365,9 @@ board. Promote-to-autonomous lives in that tab.
     (and their outcomes when any check names one), and each slice's edge cases
     with the criteria or checks that settle each or why it does not apply; the
     cards sheet's manual checks outside the playbook order with the checks
-    they cover; on the readiness sheet the problems found across the blueprint
+    they cover (titled "After the run (follow-ups)" when the payload lists
+    `followups`, the manual ids that become playbook follow-ups instead of run
+    steps); on the readiness sheet the problems found across the blueprint
     (between decisions, contracts, cards and assumptions), each with its id,
     severity, finding and the ids it names, critical first, above the cards; and
     on the sign-off the same table at the top, then, when readiness ran out of
@@ -374,7 +376,12 @@ board. Promote-to-autonomous lives in that tab.
     a note with your reason when you approved over open findings (a critical
     finding or cards readiness left not ready), the run order, the assumptions
     (your answer, status, basis and source chips, and the stage that stated
-    each) and the manual checks after the run. The sign-off and the board show
+    each) and the manual checks after the run (titled "After the run
+    (follow-ups)" and holding only the follow-ups when the payload lists
+    `followups`, so a run stop stays in the run order). On an Unattended
+    blueprint the sign-off carries a note under the run order: that the run
+    will not stop for a person, or each step it still stops at with the reason
+    and any finding that the stop is needless. The sign-off and the board show
     the steps to take before the cards run in a yellow box, and notices (what
     will happen without a step from you, such as the verify command an agent
     picks itself) in a blue box. The board's cards carry their type colour and

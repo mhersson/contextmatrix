@@ -18,6 +18,7 @@ export function CardsSheet({ artifact, previous, mode }: RendererProps) {
   const orderShown = data.cards.length > 1 && data.order.length > 0;
   const manualIds = new Set(data.manual.map((m) => m.id));
   const orderedIds = new Set(orderShown ? data.order : []);
+  const followups = data.followups ? new Set(data.followups) : null;
   return (
     <>
       {summary}
@@ -44,9 +45,9 @@ export function CardsSheet({ artifact, previous, mode }: RendererProps) {
         <CardBlock key={c.id} card={c} version={artifact.version} />
       ))}
       <TableSection
-        title="Manual checks"
+        title={followups ? 'After the run (follow-ups)' : 'Manual checks'}
         columns={MANUAL_COLUMNS}
-        rows={data.manual.filter((m) => !orderedIds.has(m.id))}
+        rows={data.manual.filter((m) => (followups ? followups.has(m.id) : !orderedIds.has(m.id)))}
         rowKey={(m) => m.id}
       />
     </>
