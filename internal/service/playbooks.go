@@ -920,7 +920,13 @@ func (s *PlaybookService) UpdateMeta(ctx context.Context, id string, input Updat
 		}
 
 		switch {
-		case *input.Runnable && !p.Runnable:
+		case *input.Runnable:
+			// Also re-asserts on an already-runnable playbook: a card added by
+			// hand-editing the file, or edited through an unguarded path, gets
+			// the settings again. Goes through the same validate-then-force
+			// path as first make-runnable - a hand-added entry never passed
+			// AddEntry's ownership check, so it may already belong to another
+			// runnable playbook.
 			names, err := s.makeRunnable(ctx, p, agentID)
 			forced = append(forced, names...)
 
@@ -929,19 +935,6 @@ func (s *PlaybookService) UpdateMeta(ctx context.Context, id string, input Updat
 			}
 
 			p.Runnable = true
-		case *input.Runnable && p.Runnable:
-			// Re-assert: a card added by hand-editing the file, or a card
-			// edited through an unguarded path, gets the settings again.
-			// Goes through the same validate-then-force path as first make-
-			// runnable - a hand-added entry never passed AddEntry's
-			// ownership check, so it may already belong to another runnable
-			// playbook.
-			names, err := s.makeRunnable(ctx, p, agentID)
-			forced = append(forced, names...)
-
-			if err != nil {
-				return err
-			}
 		case !*input.Runnable && p.Runnable:
 			if p.RunActive() {
 				return fmt.Errorf("%w: stop the run before making the playbook not runnable", ErrPlaybookRunActive)
