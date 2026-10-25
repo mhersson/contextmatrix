@@ -717,9 +717,11 @@ set, plus:
   count - a 3-model tier with a 4-candidate race runs one model twice, marked
   as the duplicate it is. If even the first seat has nothing selectable, the
   whole panel comes back empty.
-- The review panel is 3 seats (correctness, design, security lenses) and
-  excludes every model that wrote the code under review plus any model marked
-  incapable during the run - a model does not review its own work.
+- The review panel is 3 seats (correctness, design, security lenses). It
+  excludes every model that wrote the code under review while any other model
+  is selectable, and always excludes models marked incapable during the run
+  or blacklisted. When only a coder's model is selectable, that model reviews
+  and the card log says so.
 - In a Best-of-N race, a card's coder pin occupies slot 1 and seeds the
   vendor-diversity walk for the remaining seats.
 
