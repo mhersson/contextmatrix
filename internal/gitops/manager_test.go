@@ -497,43 +497,6 @@ func TestCommitFile_InSubdirectory(t *testing.T) {
 	assert.Contains(t, msg, "ALPHA-001")
 }
 
-func TestDeleteFile(t *testing.T) {
-	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir, "", "test", staticTestProvider(t))
-	require.NoError(t, err)
-
-	// Create and commit a file
-	testFile := "test.txt"
-	err = os.WriteFile(filepath.Join(tmpDir, testFile), []byte("content"), 0o644)
-	require.NoError(t, err)
-	err = mgr.CommitFile(context.Background(), testFile, "add file")
-	require.NoError(t, err)
-
-	// Delete the file
-	err = mgr.DeleteFile(context.Background(), testFile)
-	require.NoError(t, err)
-
-	// File should not exist
-	_, err = os.Stat(filepath.Join(tmpDir, testFile))
-	assert.True(t, os.IsNotExist(err))
-
-	// Should have uncommitted changes (staged deletion)
-	hasChanges, err := mgr.HasUncommittedChanges()
-	require.NoError(t, err)
-	assert.True(t, hasChanges)
-}
-
-func TestDeleteFile_NonExistent(t *testing.T) {
-	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir, "", "test", staticTestProvider(t))
-	require.NoError(t, err)
-
-	// Deleting non-existent file should not error (file already removed)
-	err = mgr.DeleteFile(context.Background(), "nonexistent.txt")
-	// This will error because the file isn't tracked
-	assert.Error(t, err)
-}
-
 func TestCommitMessageFormat(t *testing.T) {
 	tmpDir := t.TempDir()
 	mgr, err := NewManager(tmpDir, "", "test", staticTestProvider(t))

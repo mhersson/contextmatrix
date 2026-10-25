@@ -642,37 +642,6 @@ func TestHeartbeatCard(t *testing.T) {
 		"heartbeat must not go backwards")
 }
 
-func TestGetCardContext(t *testing.T) {
-	svc, tmpDir, cleanup := setupTest(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Create template
-	templateDir := filepath.Join(tmpDir, "boards", "test-project", "templates")
-	require.NoError(t, os.MkdirAll(templateDir, 0o755))
-	require.NoError(t, os.WriteFile(
-		filepath.Join(templateDir, "task.md"),
-		[]byte("## Plan\n\n## Progress\n"),
-		0o644,
-	))
-
-	createInput := CreateCardInput{
-		Title:    "Test",
-		Type:     "task",
-		Priority: "medium",
-	}
-	card, err := svc.CreateCard(ctx, "test-project", createInput)
-	require.NoError(t, err)
-
-	cardCtx, err := svc.GetCardContext(ctx, "test-project", card.ID)
-	require.NoError(t, err)
-
-	assert.Equal(t, card.ID, cardCtx.Card.ID)
-	assert.Equal(t, "test-project", cardCtx.Project.Name)
-	assert.Equal(t, "## Plan\n\n## Progress\n", cardCtx.Template)
-}
-
 func TestConcurrentCardCreation(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
@@ -3589,12 +3558,6 @@ func TestCaseInsensitiveCardID(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "Patched via lowercase", patched.Title)
-	})
-
-	t.Run("GetCardContext", func(t *testing.T) {
-		cardCtx, err := svc.GetCardContext(ctx, "test-project", lowercaseID)
-		require.NoError(t, err)
-		assert.Equal(t, "TEST-001", cardCtx.Card.ID)
 	})
 
 	t.Run("AddLogEntry", func(t *testing.T) {

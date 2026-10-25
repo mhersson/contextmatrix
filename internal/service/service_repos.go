@@ -176,7 +176,6 @@ func NewCardServiceRepos(store storage.Store, bus *events.Bus, tokenCosts map[st
 		validator:        board.NewValidator(),
 		clk:              clk,
 		configs:          make(map[string]*board.ProjectConfig),
-		templates:        make(map[string]map[string]string),
 	}
 	svc.stalledFn = svc.processStalled
 	svc.validateStalledCardFn = svc.validator.ValidateCard

@@ -145,13 +145,6 @@ type SectionPatch struct {
 	Content string
 }
 
-// CardContext contains a card with its project configuration and template.
-type CardContext struct {
-	Card     *board.Card
-	Project  *board.ProjectConfig
-	Template string // Template body for the card's type
-}
-
 // appendStateChangeLog records a state transition on card.ActivityLog. The
 // caller must have already validated that oldState != newState. An empty
 // agent string is normalised to "system" for transitions driven by the
@@ -1635,32 +1628,6 @@ func (s *CardService) addLogEntry(ctx context.Context, project, id string, entry
 	s.enrichDependenciesMet(ctx, card)
 
 	return card, nil
-}
-
-// GetCardContext returns a card with its project configuration and template.
-func (s *CardService) GetCardContext(ctx context.Context, project, id string) (*CardContext, error) {
-	id = strings.ToUpper(id)
-
-	card, err := s.store.GetCard(ctx, project, id)
-	if err != nil {
-		return nil, fmt.Errorf("get card: %w", err)
-	}
-
-	cfg, err := s.getConfig(ctx, project)
-	if err != nil {
-		return nil, fmt.Errorf("get project config: %w", err)
-	}
-
-	templates, err := s.getTemplates(project)
-	if err != nil {
-		return nil, fmt.Errorf("load templates: %w", err)
-	}
-
-	return &CardContext{
-		Card:     card,
-		Project:  cfg,
-		Template: templates[card.Type],
-	}, nil
 }
 
 // mutationOpts controls the behaviour of applyCardMutation.

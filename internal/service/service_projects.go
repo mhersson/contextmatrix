@@ -739,7 +739,6 @@ func (s *CardService) deleteProjectLocked(
 	// Purge all caches
 	s.mu.Lock()
 	delete(s.configs, name)
-	delete(s.templates, name)
 	s.mu.Unlock()
 
 	return snapshot, nil
@@ -1138,29 +1137,4 @@ func (s *CardService) getConfigLocked(ctx context.Context, project string) (*boa
 	s.configs[project] = cfg
 
 	return cfg, nil
-}
-
-// getTemplates returns the cached templates for a project, loading them if necessary.
-func (s *CardService) getTemplates(project string) (map[string]string, error) {
-	s.mu.RLock()
-	templates, ok := s.templates[project]
-	s.mu.RUnlock()
-
-	if ok {
-		return templates, nil
-	}
-
-	// Load from filesystem
-	projectDir := filepath.Join(s.repoOf(project).Dir, project)
-
-	templates, err := board.LoadTemplates(projectDir)
-	if err != nil {
-		return nil, err
-	}
-
-	s.mu.Lock()
-	s.templates[project] = templates
-	s.mu.Unlock()
-
-	return templates, nil
 }

@@ -7,7 +7,7 @@
 //   - service.go           - CardService struct, constructor, lifecycle
 //     accessors, TransitionTo orchestrator, HealthCheck.
 //   - service_cards.go     - Card CRUD + applyCardMutation driver + helpers.
-//   - service_projects.go  - Project CRUD + config/template accessors.
+//   - service_projects.go  - Project CRUD + config accessors.
 //   - service_locks.go     - Claim/Release/Heartbeat + stall detection.
 //   - service_usage.go     - Token usage + cost aggregation/recalculation.
 //   - service_worker.go    - Worker lifecycle (push, review attempts, status,
@@ -148,9 +148,8 @@ type CardService struct {
 	playbooks PlaybookLister
 
 	// Per-project caches
-	mu        sync.RWMutex
-	configs   map[string]*board.ProjectConfig
-	templates map[string]map[string]string // project -> type -> template
+	mu      sync.RWMutex
+	configs map[string]*board.ProjectConfig
 }
 
 // PlaybookLister is the slice of the playbook store card reads need to
@@ -280,14 +279,13 @@ func (s *CardService) SetOnCommit(fn func()) {
 	s.repos[0].onCommit = fn
 }
 
-// ClearCaches resets all per-project caches (validators, configs, templates).
-// Called after a git pull that may have changed project files.
+// ClearCaches resets the per-project config cache. Called after a git pull
+// that may have changed project files.
 func (s *CardService) ClearCaches() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.configs = make(map[string]*board.ProjectConfig)
-	s.templates = make(map[string]map[string]string)
 }
 
 // SetSharedRepo switches LockWrites to a full queue drain, required before

@@ -706,47 +706,6 @@ func (m *Manager) CommitCount() (int, error) {
 	return count, nil
 }
 
-// DeleteFile removes a file from the working tree and stages the deletion.
-//
-// Ordering: wt.Remove runs first because it both stages the deletion and
-// removes the file from the worktree via go-git's filesystem layer. If
-// it fails (file untracked, repository broken, etc.) we have not yet
-// touched disk, so the working tree stays consistent. If wt.Remove
-// succeeds but the on-disk file is still present (rare - go-git
-// occasionally leaves the file on disk for untracked entries), we
-// best-effort os.Remove as a follow-up and tolerate ErrNotExist.
-func (m *Manager) DeleteFile(ctx context.Context, path string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	m.worktreeMu.Lock()
-	defer m.worktreeMu.Unlock()
-
-	wt, err := m.repo.Worktree()
-	if err != nil {
-		return fmt.Errorf("get worktree: %w", err)
-	}
-
-	// Stage the deletion via go-git. This implies removing the file from
-	// the worktree on success; on failure we have NOT touched disk yet,
-	// so the working tree remains consistent.
-	if _, err := wt.Remove(path); err != nil {
-		return fmt.Errorf("stage deletion %s: %w", path, err)
-	}
-
-	// Belt-and-suspenders: if go-git left the file behind on disk (e.g.
-	// for filesystem-specific edge cases), remove it. os.Remove returns
-	// ErrNotExist when the file is already gone, which is the expected
-	// outcome - swallow that error only.
-	fullPath := filepath.Join(m.repoPath, path)
-	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove file: %w", err)
-	}
-
-	return nil
-}
-
 // AuthEnv returns the four-element GIT_CONFIG_* env slice that injects
 // an http.extraheader Authorization Bearer header derived from the
 // configured TokenGenerator. The token is freshly minted (or returned
