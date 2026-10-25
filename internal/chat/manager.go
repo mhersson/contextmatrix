@@ -451,8 +451,7 @@ func (m *Manager) statusLock(sessionID string) *sync.Mutex {
 }
 
 // withStatusLock acquires the per-session status mutex, runs fn, then
-// releases it via defer. All five lifecycle callers (MarkActive,
-// MarkWarmIdle, OpenSession, openCold, EndSession) route through this
+// releases it via defer. Every status read-modify-write routes through this
 // helper so the acquire/release pattern is uniform and an early return
 // inside fn cannot leak the lock.
 func (m *Manager) withStatusLock(sessionID string, fn func() error) error {
@@ -2121,9 +2120,32 @@ func (m *Manager) Reattach(ctx context.Context, sessionID string) (Session, erro
 		return sess, nil
 	}
 
-	sess.LastActive = m.clk.Now().UTC().Truncate(time.Second)
-	if err := m.store.UpdateSession(ctx, sess); err != nil {
-		return Session{}, fmt.Errorf("chat: Reattach: persist last-active: %w", err)
+	// Re-read under the status lock so a racing EndSession's cold row is never
+	// overwritten by the snapshot above.
+	if err := m.withStatusLock(sessionID, func() error {
+		fresh, err := m.store.GetSession(ctx, sessionID)
+		if err != nil {
+			return fmt.Errorf("chat: Reattach re-read: %w", err)
+		}
+
+		sess = fresh
+
+		if fresh.Status != StatusActive && fresh.Status != StatusWarmIdle {
+			return nil
+		}
+
+		sess.LastActive = m.clk.Now().UTC().Truncate(time.Second)
+		if err := m.store.UpdateSession(ctx, sess); err != nil {
+			return fmt.Errorf("chat: Reattach: persist last-active: %w", err)
+		}
+
+		return nil
+	}); err != nil {
+		return Session{}, err
+	}
+
+	if sess.Status != StatusActive && sess.Status != StatusWarmIdle {
+		return sess, nil
 	}
 
 	m.startConsumer(sess.ID, true)
@@ -2804,9 +2826,13 @@ func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us
 	return msgID, nil
 }
 
-// UpdateSessionMetadata writes session metadata changes (title, last_active).
-func (m *Manager) UpdateSessionMetadata(ctx context.Context, s Session) error {
-	return m.store.UpdateSession(ctx, s)
+// SetTitle sets only the title; it never touches last_active or status.
+func (m *Manager) SetTitle(ctx context.Context, sessionID, title string) error {
+	if err := m.store.UpdateSessionTitle(ctx, sessionID, title); err != nil {
+		return fmt.Errorf("set title: %w", err)
+	}
+
+	return nil
 }
 
 // SetPinned sets only the pin; it never touches last_active or status.

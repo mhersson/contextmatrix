@@ -893,13 +893,13 @@ func (h *chatHandlers) patchChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.Title != nil {
-		sess.Title = *body.Title
-
-		if err := h.mgr.UpdateSessionMetadata(r.Context(), sess); err != nil {
+		if err := h.mgr.SetTitle(r.Context(), sess.ID, *body.Title); err != nil {
 			handleChatError(w, r, err)
 
 			return
 		}
+
+		sess.Title = *body.Title
 	}
 
 	if body.Pinned != nil {

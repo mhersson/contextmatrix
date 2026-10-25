@@ -363,6 +363,50 @@ func TestManager_Reattach_Idempotent(t *testing.T) {
 	assert.Equal(t, int64(1), backend.streamCalls.Load(), "exactly one consumer")
 }
 
+// staleReadStore hands out one stale read: the armed GetSession reads the
+// row, runs during, then returns the row it read before during ran.
+type staleReadStore struct {
+	chat.Store
+	during atomic.Pointer[func()]
+}
+
+func (s *staleReadStore) GetSession(ctx context.Context, id string) (chat.Session, error) {
+	sess, err := s.Store.GetSession(ctx, id)
+	if fn := s.during.Swap(nil); fn != nil && err == nil {
+		(*fn)()
+	}
+
+	return sess, err
+}
+
+func TestManager_Reattach_RacingEndSessionKeepsTheSessionCold(t *testing.T) {
+	inner, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = inner.Close() })
+
+	store := &staleReadStore{Store: inner}
+	mgr := newManager(t, chat.Config{Store: store, Backend: &stubBackend{}, Clock: clock.Real(), IdleTTL: time.Hour})
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	// EndSession commits between Reattach's read and its write.
+	end := func() { require.NoError(t, mgr.EndSession(ctx, sess.ID)) }
+	store.during.Store(&end)
+
+	got, err := mgr.Reattach(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, chat.StatusCold, got.Status)
+
+	stored, err := inner.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, chat.StatusCold, stored.Status, "the stale read does not restore the old status")
+	assert.Empty(t, stored.ContainerID)
+}
+
 func TestManager_EndSession_ActiveTransitionsToCold(t *testing.T) {
 	mgr, backend, store := newManagerWithStubs(t)
 	ctx := context.Background()
@@ -1155,15 +1199,14 @@ func TestManager_SendUserMessage_OpensColdSession(t *testing.T) {
 	assert.Equal(t, int64(1), backend.sendCalls.Load())
 }
 
-func TestManager_UpdateSessionMetadata_ChangesTitle(t *testing.T) {
+func TestManager_SetTitle_ChangesTitle(t *testing.T) {
 	mgr, _, store := newManagerWithStubs(t)
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "old", CreatedBy: "x"})
 	require.NoError(t, err)
 
-	sess.Title = "new title"
-	require.NoError(t, mgr.UpdateSessionMetadata(ctx, sess))
+	require.NoError(t, mgr.SetTitle(ctx, sess.ID, "new title"))
 
 	got, err := store.GetSession(ctx, sess.ID)
 	require.NoError(t, err)

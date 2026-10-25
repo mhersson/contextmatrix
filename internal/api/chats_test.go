@@ -98,6 +98,8 @@ type fixtureOpts struct {
 	onLive func(*blueprintLive)
 	// onArchitect receives the architect stub when architectBackendCfg is set.
 	onArchitect func(*chatStubBackend)
+	// wrapStore, when set, wraps the store the manager uses.
+	wrapStore func(chat.Store) chat.Store
 }
 
 // defaultFixtureOpts is the no-backend topology: no chat backend configured
@@ -152,9 +154,14 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 		archDefault = opts.architectBackendCfg.DefaultModel
 	}
 
+	var mgrStore chat.Store = store
+	if opts.wrapStore != nil {
+		mgrStore = opts.wrapStore(store)
+	}
+
 	backend := &chatStubBackend{}
 	mgr := chat.NewManager(chat.Config{
-		Store:                 store,
+		Store:                 mgrStore,
 		Backend:               backend,
 		Clock:                 clock.Real(),
 		IdleTTL:               time.Hour,
@@ -336,6 +343,55 @@ func TestPatchChat_UpdatesTitle(t *testing.T) {
 	var got chat.Session
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&got))
 	assert.Equal(t, "new", got.Title)
+}
+
+// staleReadStore hands out one stale read: the armed GetSession reads the
+// row, runs during, then returns the row it read before during ran.
+type staleReadStore struct {
+	chat.Store
+	during atomic.Pointer[func()]
+}
+
+func (s *staleReadStore) GetSession(ctx context.Context, id string) (chat.Session, error) {
+	sess, err := s.Store.GetSession(ctx, id)
+	if fn := s.during.Swap(nil); fn != nil && err == nil {
+		(*fn)()
+	}
+
+	return sess, err
+}
+
+func TestPatchChat_RenameRacingEndSessionKeepsTheSessionCold(t *testing.T) {
+	var store *staleReadStore
+
+	opts := defaultFixtureOpts()
+	opts.wrapStore = func(s chat.Store) chat.Store {
+		store = &staleReadStore{Store: s}
+
+		return store
+	}
+
+	mux, mgr := newChatFixture(t, opts)
+	ctx := t.Context()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "old", Project: "alpha", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	// EndSession commits between the handler's read and its write.
+	end := func() { require.NoError(t, mgr.EndSession(ctx, sess.ID)) }
+	store.during.Store(&end)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, jsonReq(t, http.MethodPatch, "/api/chats/"+sess.ID, `{"title":"new"}`))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	stored, err := mgr.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "new", stored.Title)
+	assert.Equal(t, chat.StatusCold, stored.Status, "the stale read does not restore the old status")
+	assert.Empty(t, stored.ContainerID)
 }
 
 func TestPatchChat_EmptyBodyLeavesSessionUnchanged(t *testing.T) {
