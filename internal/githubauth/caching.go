@@ -36,27 +36,13 @@ type cachedToken struct {
 // Compile-time check.
 var _ TokenGenerator = (*CachingProvider)(nil)
 
-// WithRefreshSkew overrides the default 5-minute refresh window.
-func WithRefreshSkew(d time.Duration) CacheOption {
-	return func(c *CachingProvider) {
-		if d > 0 {
-			c.refreshSkew = d
-		}
-	}
-}
-
 // NewCachingProvider wraps inner with a cache.
-func NewCachingProvider(inner TokenGenerator, opts ...CacheOption) *CachingProvider {
-	c := &CachingProvider{
+func NewCachingProvider(inner TokenGenerator) *CachingProvider {
+	return &CachingProvider{
 		inner:       inner,
 		refreshSkew: defaultRefreshSkew,
 		repoTokens:  make(map[string]cachedToken),
 	}
-	for _, opt := range opts {
-		opt(c)
-	}
-
-	return c
 }
 
 // GenerateToken returns the cached token if it has more than refreshSkew

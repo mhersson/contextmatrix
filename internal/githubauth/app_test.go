@@ -50,13 +50,13 @@ func TestNewAppProvider_OK(t *testing.T) {
 	key := genTestKey(t)
 	path := writeKeyToTempFile(t, key)
 
-	p, err := NewAppProvider(123, 456, path)
+	p, err := NewAppProvider(123, 456, path, "")
 	require.NoError(t, err)
 	require.NotNil(t, p)
 }
 
 func TestNewAppProvider_BadKeyPath(t *testing.T) {
-	_, err := NewAppProvider(123, 456, "/does/not/exist/key.pem")
+	_, err := NewAppProvider(123, 456, "/does/not/exist/key.pem", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "read private key")
 }
@@ -66,7 +66,7 @@ func TestNewAppProvider_BadKeyContent(t *testing.T) {
 	path := filepath.Join(dir, "bad.pem")
 	require.NoError(t, os.WriteFile(path, []byte("not a pem"), 0o600))
 
-	_, err := NewAppProvider(123, 456, path)
+	_, err := NewAppProvider(123, 456, path, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "parse private key")
 }
@@ -173,24 +173,23 @@ func TestAppProvider_GenerateToken_EmptyToken(t *testing.T) {
 	assert.Contains(t, err.Error(), "empty token")
 }
 
-func TestAppProvider_WithAPIBaseURL_TrailingSlash(t *testing.T) {
-	called := false
+func TestAppProvider_APIBaseURL_TrailingSlashTrimmed(t *testing.T) {
+	var gotPath string
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		called = true
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
 
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"token": "x", "expires_at": "2026-04-25T00:00:00Z"}`))
 	}))
 	defer server.Close()
 
-	// Pass URL with trailing slash; provider should trim it.
 	p, err := NewAppProviderWithKey(123, 456, genTestKey(t), server.URL+"/")
 	require.NoError(t, err)
 
 	_, _, err = p.GenerateToken(context.Background())
 	require.NoError(t, err)
-	assert.True(t, called, "mock server should have received the request")
+	assert.Equal(t, "/app/installations/456/access_tokens", gotPath)
 }
 
 func TestAppProvider_GenerateRepoToken_SendsRepositories(t *testing.T) {

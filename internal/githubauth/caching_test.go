@@ -109,7 +109,8 @@ func TestCachingProvider_CustomSkew(t *testing.T) {
 	}
 	// With a 30-minute skew, a 10-minute-out token is already considered
 	// stale and triggers a refresh on every call.
-	cp := NewCachingProvider(inner, WithRefreshSkew(30*time.Minute))
+	cp := NewCachingProvider(inner)
+	cp.refreshSkew = 30 * time.Minute
 
 	_, _, _ = cp.GenerateToken(context.Background())
 	_, _, _ = cp.GenerateToken(context.Background())

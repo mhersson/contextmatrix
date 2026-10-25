@@ -21,9 +21,3 @@ type TokenGenerator interface {
 	GenerateToken(ctx context.Context) (token string, expiresAt time.Time, err error)
 	GenerateRepoToken(ctx context.Context, repo string) (token string, expiresAt time.Time, err error)
 }
-
-// Option configures an AppProvider.
-type Option func(*AppProvider)
-
-// CacheOption configures a CachingProvider.
-type CacheOption func(*CachingProvider)

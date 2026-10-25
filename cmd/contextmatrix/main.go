@@ -151,7 +151,7 @@ func main() {
 			cfg.GitHub.App.AppID,
 			cfg.GitHub.App.InstallationID,
 			cfg.GitHub.App.PrivateKeyPath,
-			githubauth.WithAPIBaseURL(cfg.GitHub.ResolvedAPIBaseURL()),
+			cfg.GitHub.ResolvedAPIBaseURL(),
 		)
 	case "pat":
 		inner, err = githubauth.NewPATProvider(cfg.GitHub.PAT.Token)
