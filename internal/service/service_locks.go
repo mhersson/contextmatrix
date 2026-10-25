@@ -581,7 +581,7 @@ func (s *CardService) StartTimeoutChecker(ctx context.Context, interval time.Dur
 //
 // A repo whose scan fails never short-circuits the sweep: its error is logged
 // and the remaining repos still get their stalls applied, as do the
-// abandoned-parent reap and the foreign-stall pass. The joined scan error is
+// abandoned-run reap and the foreign-stall pass. The joined scan error is
 // returned only when every repo failed, so the timeout checker's caller
 // logging keeps a signal that the whole sweep is broken.
 func (s *CardService) processStalled(ctx context.Context) error {
@@ -632,18 +632,19 @@ func (s *CardService) processStalled(ctx context.Context) error {
 }
 
 // SweepStalled runs one stall pass now: heartbeat timeouts on this instance's
-// claims, abandoned parents, and expired leases of other instances' claims.
+// claims, abandoned in_progress cards, and expired leases of other instances' claims.
 func (s *CardService) SweepStalled(ctx context.Context) error {
 	return s.processStalled(ctx)
 }
 
-// processAbandonedParents reaps parent cards left in_progress + unclaimed after
-// their whole run died. FindStalled only flags claimed cards, but a parent is
-// never itself claimed (only its subtasks are), so a dead run strands the
-// parent in_progress with no heartbeat to ever time out. A parent is abandoned
-// only when it is in_progress AND unclaimed AND untouched within the stall
-// timeout AND has no active subtask - the last two guards prevent reaping a
-// parent that is merely between subtask claims.
+// processAbandonedParents reaps an in_progress card with no claim and no active
+// subtask (a parent whose run died, or a standalone card worked without a
+// claim). FindStalled only flags claimed cards, but a parent is never itself
+// claimed (only its subtasks are), so a dead run strands the parent in_progress
+// with no heartbeat to ever time out. A card is abandoned only when it is
+// in_progress AND unclaimed AND untouched within the stall timeout AND has no
+// active subtask - the last two guards prevent reaping a parent that is merely
+// between subtask claims.
 func (s *CardService) processAbandonedParents(ctx context.Context) error {
 	cutoff := s.clk.Now().Add(-s.heartbeatTimeout)
 
@@ -714,7 +715,7 @@ func (s *CardService) hasActiveSubtask(ctx context.Context, project, parentID st
 	return false, nil
 }
 
-// reapAbandonedParent stalls a single abandoned parent. It re-reads the card and
+// reapAbandonedParent stalls a single abandoned in_progress card. It re-reads the card and
 // re-validates every abandonment guard under writeMu - a claim, transition, or
 // subtask update may have landed since the unlocked scan - before delegating the
 // mutation to stallCardLocked. writeMu is released on every return path.
