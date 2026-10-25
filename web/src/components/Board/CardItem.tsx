@@ -334,4 +334,3 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
 }
 
 export const CardItem = memo(CardItemImpl);
-export default CardItem;
