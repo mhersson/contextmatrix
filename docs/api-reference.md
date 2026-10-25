@@ -1241,16 +1241,16 @@ Partial update - only keys present in the body are applied.
 { "state": "in_progress", "labels": ["urgent"], "depends_on": ["PROJ-001"], "skills_clear": true }
 ```
 
-| Field                                                                                                 | Semantics                                                                                                  |
-| ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `title`, `type`, `state`, `priority`, `body`, `assignee`, `base_branch`, `phase`                      | string; `state` runs transition validation                                                                 |
-| `labels`, `mob_phases`, `mob_guests`                                                                  | `[]` clears; omitted leaves unchanged                                                                      |
-| `depends_on`                                                                                          | Replaces the list; `[]` clears; cycles, self, cross-project, or unknown IDs are 409 `DEPENDENCIES_NOT_MET` |
-| `skills`                                                                                              | Explicit list or `[]`                                                                                      |
-| `skills_clear`                                                                                        | `true` resets `skills` to absent (project default) - JSON cannot distinguish an omitted key from `null`    |
-| `autonomous`, `create_pr`, `await_ci`, `await_copilot_review`, `merge_pr`, `vetted`, `max_capability` | bool                                                                                                       |
-| `model_orchestrator`, `model_coder`, `model_reviewer`, `best_of_n`, `mob_participants`                | Pins and counts; mob fields are validated against the resulting card                                       |
-| `verify`                                                                                              | Replaces the whole object; a zero-value object clears it                                                   |
+| Field                                                                                                 | Semantics                                                                                                                  |
+| ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `title`, `type`, `state`, `priority`, `body`, `assignee`, `base_branch`, `phase`                      | string; `state` runs transition validation                                                                                 |
+| `labels`, `mob_phases`, `mob_guests`                                                                  | `[]` clears; omitted leaves unchanged                                                                                      |
+| `depends_on`                                                                                          | Replaces the list; `[]` clears; cycles, self, cross-project, or unknown IDs the change adds are 409 `DEPENDENCIES_NOT_MET` |
+| `skills`                                                                                              | Explicit list or `[]`                                                                                                      |
+| `skills_clear`                                                                                        | `true` resets `skills` to absent (project default) - JSON cannot distinguish an omitted key from `null`                    |
+| `autonomous`, `create_pr`, `await_ci`, `await_copilot_review`, `merge_pr`, `vetted`, `max_capability` | bool                                                                                                                       |
+| `model_orchestrator`, `model_coder`, `model_reviewer`, `best_of_n`, `mob_participants`                | Pins and counts; mob fields are validated against the resulting card                                                       |
+| `verify`                                                                                              | Replaces the whole object; a zero-value object clears it                                                                   |
 
 A `state` change goes through transition validation, and a card leaving
 `done` or `not_planned` is refused while a playbook holding it has a `running`
@@ -1273,13 +1273,12 @@ Deletes the card file (git history keeps it). **204 No Content**.
 caller does not own; 422 `VALIDATION_ERROR` when the card still has subtasks
 ("cannot delete card with N subtask(s)") or a card that is not `done` or
 `not_planned` lists it in `depends_on` (the message names those cards); 409
-`WORKER_CONFLICT` while a card that
-is not `done` or `not_planned` has its worker `queued` or `running`. Stop the
-worker first. When the reconcile sweep is enabled (a non-zero
-`reconcile_interval`), it marks a worker the backend no longer has `failed`
-once the card has gone 10 minutes without a change;
-`POST /api/projects/{project}/stop-all` clears it sooner, and force-release marks
-a claimed card's worker `failed`.
+`WORKER_CONFLICT` while a card that is not `done` or `not_planned` has its
+worker `queued` or `running`. Stop the worker first. When the reconcile sweep
+is enabled (a non-zero `reconcile_interval`), it marks a worker the backend no
+longer has `failed` once the card has gone 10 minutes without a change;
+`POST /api/projects/{project}/stop-all` clears it sooner, and force-release
+marks a claimed card's worker `failed`.
 
 ### POST /api/projects/{project}/cards/{id}/claim
 
