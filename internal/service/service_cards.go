@@ -514,7 +514,7 @@ func (s *CardService) commitQueued(ctx context.Context, paths []string, message 
 }
 
 // CreateCard creates a new card in the project.
-// Flow: allocate ID → build card → dedup guard → store+commit → publish event.
+// Flow: build card → dedup guard → allocate ID → store+commit → publish event.
 // On a shared board the whole write runs inside a sync cycle so the ID is
 // allocated against the merged next_id and the response carries the ID the
 // merge settled on.
@@ -566,27 +566,18 @@ func (s *CardService) createCardLocked(
 		return nil, false, err
 	}
 
-	// Lock to ensure atomic ID generation.
 	s.mu.Lock()
-
 	cfg, err := s.getConfigLocked(ctx, project)
-	if err != nil {
-		s.mu.Unlock()
+	s.mu.Unlock()
 
+	if err != nil {
 		return nil, false, fmt.Errorf("get project config: %w", err)
 	}
 
-	cardID := board.GenerateCardID(cfg)
-
-	if err := s.store.SaveProject(ctx, cfg); err != nil {
-		s.mu.Unlock()
-
-		return nil, false, fmt.Errorf("save project config: %w", err)
-	}
-
-	s.mu.Unlock()
-
-	card, err := s.buildNewCardFromInput(ctx, project, cardID, cfg, input)
+	// The card is built and deduped against the id next_id would mint, and
+	// that id is allocated only afterwards, so a refused create burns none.
+	// writeMu keeps next_id still in between.
+	card, err := s.buildNewCardFromInput(ctx, project, board.NextCardID(cfg), cfg, input)
 	if err != nil {
 		return nil, false, err
 	}
@@ -595,6 +586,15 @@ func (s *CardService) createCardLocked(
 		return nil, false, dedupErr
 	} else if deduped {
 		return existing, false, nil
+	}
+
+	s.mu.Lock()
+	cfg.NextID++
+	err = s.store.SaveProject(ctx, cfg)
+	s.mu.Unlock()
+
+	if err != nil {
+		return nil, false, fmt.Errorf("save project config: %w", err)
 	}
 
 	committed, err := s.commitNewCardWithNextID(ctx, project, card, commit)

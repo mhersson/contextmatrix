@@ -3930,6 +3930,66 @@ func TestCreateCard_RejectsSubtaskWithoutParent(t *testing.T) {
 	}
 }
 
+// TestCreateCard_RefusedOrDedupedCreateKeepsNextID: a create the validator
+// refuses or the duplicate guard answers with an existing card allocates no
+// ID, so .board.yaml stays as committed and the next create takes the number.
+func TestCreateCard_RefusedOrDedupedCreateKeepsNextID(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   func(parentID string) CreateCardInput
+		refused bool
+	}{
+		{
+			name:    "unknown type",
+			input:   func(string) CreateCardInput { return CreateCardInput{Title: "Bad", Type: "epic", Priority: "medium"} },
+			refused: true,
+		},
+		{
+			name: "duplicate subtask",
+			input: func(parentID string) CreateCardInput {
+				return CreateCardInput{Title: " step one ", Type: "task", Priority: "medium", Parent: parentID}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, tmpDir, cleanup := setupTest(t)
+			defer cleanup()
+
+			ctx := context.Background()
+
+			parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "Parent", Type: "task", Priority: "medium"})
+			require.NoError(t, err)
+
+			sub, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+				Title: "Step one", Type: "task", Priority: "medium", Parent: parent.ID,
+			})
+			require.NoError(t, err)
+
+			boardFile := filepath.Join(tmpDir, "boards", "test-project", ".board.yaml")
+			before, err := os.ReadFile(boardFile)
+			require.NoError(t, err)
+
+			got, err := svc.CreateCard(ctx, "test-project", tt.input(parent.ID))
+			if tt.refused {
+				require.ErrorIs(t, err, board.ErrInvalidType)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, sub.ID, got.ID)
+			}
+
+			after, err := os.ReadFile(boardFile)
+			require.NoError(t, err)
+			assert.Equal(t, string(before), string(after), ".board.yaml must not change")
+
+			next, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "Next", Type: "task", Priority: "medium"})
+			require.NoError(t, err)
+			assert.Equal(t, "TEST-003", next.ID, "the next create takes the unburned number")
+		})
+	}
+}
+
 // TestCreateCard_RejectsSubtaskAsParent verifies that a subtask cannot be used
 // as a parent for another card (no subtask-of-subtask chains).
 func TestCreateCard_RejectsSubtaskAsParent(t *testing.T) {

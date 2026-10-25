@@ -11,7 +11,9 @@ live in [architecture](architecture.md); the HTTP surface in the
 
 1. **Card IDs** are `PREFIX-NNN`, zero-padded to three digits and growing
    past three when needed (`ALPHA-001`, `ALPHA-1000`). The server allocates
-   them from `next_id` in `.board.yaml`. Immutable.
+   them from `next_id` in `.board.yaml` only after the create passes
+   validation and the duplicate guards, so a refused or deduplicated create
+   leaves `next_id` unchanged. Immutable.
 
 2. **State transitions are enforced.** Transitions come from `.board.yaml`
    `transitions`; an invalid one returns 409 Conflict. `stalled` and
@@ -177,7 +179,7 @@ live in [architecture](architecture.md); the HTTP surface in the
     special case. This keeps an agent that re-enters subtask creation after a
     crash or context reset from orphaning duplicates.
     - The check runs under `writeMu`; no TOCTOU race.
-    - `next_id` still increments; the gap is harmless.
+    - `next_id` is left unchanged.
     - A matching subtask that is `done` or `not_planned` does not block:
       re-doing finished work is intentional.
 
@@ -196,7 +198,7 @@ live in [architecture](architecture.md); the HTTP surface in the
     - A card whose `custom.jira_issue_id` is set and differs from the
       create's is another Jira issue under the same key and does not match.
     - No `card.created` event is published for the returned card, and
-      `next_id` still increments.
+      `next_id` is left unchanged.
 
 14. **Card deletion requires no subtasks and no open dependents.**
     `DELETE .../cards/{id}` removes the file (`os.Remove`) and enqueues a
