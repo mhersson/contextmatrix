@@ -2845,6 +2845,51 @@ func TestDeferredCommitUnclaimedMutationCommitsImmediately(t *testing.T) {
 	}
 }
 
+// TestDeferredCommitTransitionToFollowsTheClaim: TransitionTo on an unclaimed
+// card has no flush point, so it commits at once; a claimed card's step stays
+// in the claimed batch.
+func TestDeferredCommitTransitionToFollowsTheClaim(t *testing.T) {
+	for _, claimed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("claimed=%v", claimed), func(t *testing.T) {
+			svc, gitMgr := setupDeferredTest(t)
+			ctx := context.Background()
+
+			card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+				Title: "Transitioned", Type: "task", Priority: "medium",
+			})
+			require.NoError(t, err)
+
+			if claimed {
+				_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+				require.NoError(t, err)
+			}
+
+			_, err = svc.TransitionTo(ctx, "test-project", card.ID, "in_progress")
+			require.NoError(t, err)
+
+			svc.writeMu.Lock()
+			_, deferred := svc.deferredPaths[card.ID]
+			svc.writeMu.Unlock()
+
+			_, dirty, err := gitMgr.IsClean(ctx)
+			require.NoError(t, err)
+
+			if claimed {
+				assert.True(t, deferred, "a claimed card's step stays in the batch")
+
+				return
+			}
+
+			assert.False(t, deferred, "an unclaimed transition must not be parked in deferredPaths")
+			assert.NotContains(t, dirty, svc.cardPath("test-project", card.ID), "card file must be committed")
+
+			msg, err := gitMgr.GetLastCommitMessage()
+			require.NoError(t, err)
+			assert.Equal(t, "[contextmatrix] "+card.ID+": transitioned to in_progress", strings.TrimSpace(msg))
+		})
+	}
+}
+
 // TestDeferredCommitUnclaimedAddLogCommitsImmediately covers the MCP lint
 // path: update_card / create_card append an advisory note to a card nobody
 // has claimed. That log entry must not be parked in deferredPaths either.

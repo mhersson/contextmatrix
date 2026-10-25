@@ -533,7 +533,7 @@ func (s *CardService) transitionStep(
 
 	// Enqueue under writeMu so the per-project worker preserves order
 	// with any other write that is racing for the same project.
-	commitDone, notify := s.enqueueCardCommit(ctx, project, cardID, "", "transitioned to "+state)
+	commitDone, notify := s.enqueueCardCommitFor(ctx, stepSnapshot, project, cardID, "", "transitioned to "+state)
 
 	// Flush deferred commits on not_planned/review under writeMu so
 	// the shared deferredPaths map stays serialized; the flush itself
