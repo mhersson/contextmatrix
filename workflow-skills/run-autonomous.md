@@ -395,8 +395,8 @@ Gates` section's counters carry the rounds already used; never reset them.
 ## Git Workflow
 
 Orchestrator checks out the feature branch in Step 1. Execute-task
-sub-agents leave changes in the working tree; the doc sub-agent commits doc
-files; orchestrator commits remaining changes at Phase 6 step 18, pushes,
+sub-agents and the doc sub-agent leave changes in the working tree;
+orchestrator commits all remaining changes at Phase 6 step 18, pushes,
 and opens the PR when `create_pr` is enabled.
 
 ## Rules
