@@ -222,12 +222,13 @@ func mergePlaybooks(base, ours, theirs *board.Playbook, path string, c Context) 
 	entries, entryRes := mergePlaybookEntries(base.Entries, ours.Entries, theirs.Entries, &out, path, later == ours, c.Renames)
 	out.Entries = entries
 
-	var followupRes []Resolution
-
 	res = append(res, entryRes...)
 
 	out.NextFollowupID = max(ours.NextFollowupID, theirs.NextFollowupID)
-	out.Followups, followupRes = mergePlaybookFollowups(base.Followups, ours.Followups, theirs.Followups, &out, path, later == ours, c.Renames)
+
+	followups, followupRes := mergePlaybookFollowups(base.Followups, ours.Followups, theirs.Followups, &out, path, later == ours, c.Renames)
+	out.Followups = followups
+
 	res = append(res, followupRes...)
 	res = append(res, keepRunEntry(&out, base, ours, theirs, path, c.Renames)...)
 	res = append(res, clearDanglingRunEntry(&out, path)...)
@@ -278,7 +279,7 @@ func mergeRecords[T any](base, ours, theirs []T, ops recordOps[T], path string, 
 		case inBase && reflect.DeepEqual(oe, be):
 			merged = append(merged, te) // only theirs changed it
 		case inBase && reflect.DeepEqual(te, be):
-			merged = append(merged, oe) // only ours changed it
+			merged = append(merged, ops.rename(oe)) // only ours changed it
 		case !inBase:
 			// same id added on both sides with different content: keep theirs,
 			// re-mint ours under a fresh id.
@@ -295,7 +296,7 @@ func mergeRecords[T any](base, ours, theirs []T, ops recordOps[T], path string, 
 			})
 
 			if oursLater {
-				merged = append(merged, oe)
+				merged = append(merged, ops.rename(oe))
 			} else {
 				merged = append(merged, te)
 			}
@@ -366,7 +367,7 @@ func mergePlaybookFollowups(
 		}
 	}
 
-	return mergeRecords(base, ours, theirs, recordOps[board.PlaybookFollowup]{
+	merged, res := mergeRecords(base, ours, theirs, recordOps[board.PlaybookFollowup]{
 		id: func(f board.PlaybookFollowup) string { return f.ID },
 		remint: func(f board.PlaybookFollowup) board.PlaybookFollowup {
 			// A zero counter (hand-edited file) must not hand out an id a side holds.
@@ -393,6 +394,13 @@ func mergePlaybookFollowups(
 		},
 		noun: "follow-up",
 	}, path, oursLater)
+
+	// Kept records share Cards with the parsed inputs; clone so the result owns them.
+	for i := range merged {
+		merged[i].Cards = slices.Clone(merged[i].Cards)
+	}
+
+	return merged, res
 }
 
 func applyEntryRename(e board.PlaybookEntry, renames map[string]string) board.PlaybookEntry {

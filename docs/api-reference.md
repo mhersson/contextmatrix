@@ -1985,7 +1985,8 @@ Resolved detail: metadata plus every entry joined against the card store.
       "done_at": "2026-08-20T10:30:00Z",
       "complete": true
     }
-  ]
+  ],
+  "followups": []
 }
 ```
 

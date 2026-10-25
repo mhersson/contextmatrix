@@ -1101,3 +1101,45 @@ func TestMergePlaybooks_FollowupRenameDoesNotMutateInputs(t *testing.T) {
 	assert.Equal(t, "ALPHA-4", out.Followups[0].Cards[0].Card)
 	assert.Equal(t, "ALPHA-3", ours.Followups[0].Cards[0].Card)
 }
+
+func TestResolvePlaybook_FollowupRefRenamedWhenOnlyOursEdited(t *testing.T) {
+	ref := []board.PlaybookCardRef{{Project: "alpha", Card: "ALPHA-3"}}
+	base := pbFollowups(board.PlaybookFollowup{ID: "f1", Text: "verify", Cards: ref})
+	ours := pbFollowups(board.PlaybookFollowup{ID: "f1", Text: "verify again", Cards: ref})
+	theirs := pbFollowups(board.PlaybookFollowup{ID: "f1", Text: "verify", Cards: ref})
+	c := testCtx()
+	c.Renames = map[string]string{"alpha/ALPHA-3": "ALPHA-4"}
+
+	got, _ := resolveFollowups(t, base, ours, theirs, c)
+
+	require.Len(t, got.Followups, 1)
+	assert.Equal(t, "verify again", got.Followups[0].Text)
+	assert.Equal(t, []board.PlaybookCardRef{{Project: "alpha", Card: "ALPHA-4"}}, got.Followups[0].Cards)
+}
+
+func TestResolvePlaybook_FollowupRefRenamedWhenOursLater(t *testing.T) {
+	ref := []board.PlaybookCardRef{{Project: "alpha", Card: "ALPHA-3"}}
+	base := pbFollowups(board.PlaybookFollowup{ID: "f1", Text: "verify", Cards: ref})
+	ours := pbFollowups(board.PlaybookFollowup{ID: "f1", Text: "ours", Cards: ref})
+	theirs := pbFollowups(board.PlaybookFollowup{ID: "f1", Text: "theirs", Cards: ref})
+	ours.Updated = theirs.Updated.Add(time.Hour)
+	c := testCtx()
+	c.Renames = map[string]string{"alpha/ALPHA-3": "ALPHA-4"}
+
+	got, _ := resolveFollowups(t, base, ours, theirs, c)
+
+	require.Len(t, got.Followups, 1)
+	assert.Equal(t, "ours", got.Followups[0].Text)
+	assert.Equal(t, "ALPHA-4", got.Followups[0].Cards[0].Card)
+}
+
+func TestMergePlaybooks_KeptFollowupDoesNotAliasInputs(t *testing.T) {
+	ref := []board.PlaybookCardRef{{Project: "alpha", Card: "ALPHA-3"}}
+	f := board.PlaybookFollowup{ID: "f1", Text: "x", Cards: ref}
+	theirs := pbFollowups(f)
+
+	out, _ := mergePlaybooks(pbFollowups(f), pbFollowups(f), theirs, "playbooks/release.yaml", testCtx())
+
+	out.Followups[0].Cards[0].Card = "MUTATED"
+	assert.Equal(t, "ALPHA-3", theirs.Followups[0].Cards[0].Card)
+}

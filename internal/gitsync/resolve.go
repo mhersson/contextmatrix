@@ -407,6 +407,15 @@ func rewritePlaybookRefs(data []byte, renames map[string]string) ([]byte, error)
 		}
 	}
 
+	for i := range pb.Followups {
+		for j, ref := range pb.Followups[i].Cards {
+			if n, ok := renames[ref.Project+"/"+ref.Card]; ok {
+				pb.Followups[i].Cards[j].Card = n
+				changed = true
+			}
+		}
+	}
+
 	if !changed {
 		return nil, nil //nolint:nilnil // no reference to a re-minted id
 	}

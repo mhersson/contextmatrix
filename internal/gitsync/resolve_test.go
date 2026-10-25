@@ -316,6 +316,9 @@ func TestResolve_PlaybookEntryFollowsRemint(t *testing.T) {
 	b.writePlaybook(t, "release", board.PlaybookEntry{
 		ID: "e1", Type: board.EntryTypeCard, Project: "test-project", Card: cb.ID,
 	}, gate)
+	b.addFollowup(t, "release", board.PlaybookFollowup{
+		ID: "f1", Text: "verify", Cards: []board.PlaybookCardRef{{Project: "test-project", Card: cb.ID}},
+	})
 
 	a.sync(t)
 
@@ -332,6 +335,10 @@ func TestResolve_PlaybookEntryFollowsRemint(t *testing.T) {
 
 		assert.Equal(t, remint.NewID, pb.Entries[0].Card, "the card entry follows the re-mint on %s", n.dir)
 		assert.Equal(t, gate, pb.Entries[1], "the manual gate step is untouched on %s", n.dir)
+
+		require.Len(t, pb.Followups, 1, "on %s", n.dir)
+		require.Len(t, pb.Followups[0].Cards, 1)
+		assert.Equal(t, remint.NewID, pb.Followups[0].Cards[0].Card, "the follow-up ref follows the re-mint on %s", n.dir)
 	}
 }
 
@@ -375,6 +382,22 @@ func (n *sharedNode) writePlaybook(t *testing.T, id string, entries ...board.Pla
 	require.NoError(t, os.MkdirAll(filepath.Join(n.dir, "playbooks"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(n.dir, rel), data, 0o644))
 	require.NoError(t, n.git.CommitFilesShell(context.Background(), []string{rel}, "add playbook "+id))
+}
+
+// addFollowup rewrites the node's playbook with a follow-up and commits it.
+func (n *sharedNode) addFollowup(t *testing.T, id string, f board.PlaybookFollowup) {
+	t.Helper()
+
+	pb := n.readPlaybook(t, id)
+	pb.Followups = append(pb.Followups, f)
+	pb.NextFollowupID = len(pb.Followups) + 1
+
+	data, err := board.SerializePlaybook(pb)
+	require.NoError(t, err)
+
+	rel := filepath.Join("playbooks", id+".yaml")
+	require.NoError(t, os.WriteFile(filepath.Join(n.dir, rel), data, 0o644))
+	require.NoError(t, n.git.CommitFilesShell(context.Background(), []string{rel}, "add follow-up to "+id))
 }
 
 func (n *sharedNode) readPlaybook(t *testing.T, id string) *board.Playbook {
