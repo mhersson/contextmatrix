@@ -594,20 +594,26 @@ func TestMergeCards_SkillsClearedOnOneSide(t *testing.T) {
 func TestMergeCards_ReopenAgainstUnchangedTerminal(t *testing.T) {
 	done := func(c *board.Card) { c.State, c.Phase, c.PRUrl = "done", "done", "https://github.com/o/r/pull/1" }
 	reopen := func(c *board.Card) { c.State, c.Phase, c.PRUrl, c.Updated = "todo", "", "", ts(5) }
+	// An unrelated edit updated after the reopen: the state must not follow
+	// the later updated.
+	laterEdit := func(c *board.Card) { c.Priority, c.Updated = "high", ts(9) }
 
 	tests := []struct {
 		name         string
 		ours, theirs func(c *board.Card)
 		wantState    string
+		wantPriority string
 		wantAbsorbed bool
 	}{
-		{"our reopen stands", reopen, func(*board.Card) {}, "todo", false},
-		{"a remote reopen stands", func(*board.Card) {}, reopen, "todo", false},
+		{"our reopen stands", reopen, func(*board.Card) {}, "todo", "medium", false},
+		{"a remote reopen stands", func(*board.Card) {}, reopen, "todo", "medium", false},
+		{"our reopen stands against a later remote edit", reopen, laterEdit, "todo", "high", false},
+		{"a remote reopen stands against a later local edit", laterEdit, reopen, "todo", "high", false},
 		{
 			"a remote move to not_planned absorbs our reopen",
 			reopen,
 			func(c *board.Card) { c.State, c.Updated = "not_planned", ts(3) },
-			"not_planned", true,
+			"not_planned", "medium", true,
 		},
 	}
 
@@ -622,6 +628,7 @@ func TestMergeCards_ReopenAgainstUnchangedTerminal(t *testing.T) {
 
 			got, res := mergeCards(b, o, th, "alpha", testCtx())
 			assert.Equal(t, tt.wantState, got.State)
+			assert.Equal(t, tt.wantPriority, got.Priority)
 			assert.Empty(t, got.Phase, "the phase the reopen cleared stays cleared")
 			assert.Empty(t, got.PRUrl, "the PR URL the reopen cleared stays cleared")
 
