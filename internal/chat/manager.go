@@ -309,11 +309,9 @@ type Manager struct {
 	appendLocksMu sync.Mutex
 	appendLocks   map[string]*sync.Mutex
 
-	// statusLocks holds a per-session mutex used to serialise
-	// read-modify-write on sess.Status across all lifecycle callers
-	// (MarkActive, MarkWarmIdle, OpenSession, openCold, EndSession) so
-	// concurrent transitions cannot interleave inconsistently. Follows the
-	// same lazy-allocation pattern as appendLocks. Cleaned up in
+	// statusLocks holds a per-session mutex that every lifecycle path takes
+	// around its read-modify-write of sess.Status, so concurrent transitions
+	// cannot interleave. Lazily allocated like appendLocks; cleaned up in
 	// DeleteSession.
 	statusLocksMu sync.Mutex
 	statusLocks   map[string]*sync.Mutex
