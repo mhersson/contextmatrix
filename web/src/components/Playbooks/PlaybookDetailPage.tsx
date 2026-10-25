@@ -7,8 +7,9 @@ import { useToast } from '../../hooks/useToast';
 import { usePlaybookBranches } from '../../hooks/usePlaybookBranches';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 import type { NewPlaybookEntry, PlaybookDetail, PlaybookSegment } from '../../types';
-import { arrayMoveLocal, isRunActive, persistReorder } from './playbookUtils';
+import { arrayMoveLocal, followupsFinished, isRunActive, persistReorder } from './playbookUtils';
 import { PlaybookDetailHeader } from './PlaybookDetailHeader';
+import { PlaybookFollowups } from './PlaybookFollowups';
 import { PlaybookEntryList } from './PlaybookEntryList';
 import { PlaybookSidePanel } from './PlaybookSidePanel';
 import { PageBar } from '../SidebarMenuButton/PageBar';
@@ -157,6 +158,35 @@ export function PlaybookDetailPage() {
       .catch((err: unknown) => { showToast(describeApiError(err, 'Reorder failed'), 'error'); fetchDetail(); });
   }, [detail, showToast, fetchDetail]);
 
+  const handleFollowupToggle = useCallback((followupId: string, done: boolean) => {
+    if (!detail) return;
+    applyGuarded(api.patchPlaybookFollowup(detail.id, followupId, { done }), 'Update failed');
+  }, [detail, applyGuarded]);
+
+  const handleFollowupSaveText = useCallback((followupId: string, text: string) => {
+    if (!detail) return;
+    applyPatch(api.patchPlaybookFollowup(detail.id, followupId, { text }));
+  }, [detail, applyPatch]);
+
+  const handleFollowupRemove = useCallback((followupId: string) => {
+    if (!detail) return;
+    applyGuarded(api.deletePlaybookFollowup(detail.id, followupId), 'Update failed');
+  }, [detail, applyGuarded]);
+
+  const handleFollowupAdd = useCallback((text: string) => {
+    if (!detail) return;
+    applyGuarded(api.addPlaybookFollowup(detail.id, { text }), 'Update failed');
+  }, [detail, applyGuarded]);
+
+  const handleFollowupMove = useCallback((followupId: string, position: number) => {
+    if (!detail) return;
+    const list = detail.followups ?? [];
+    const from = list.findIndex((f) => f.id === followupId);
+    if (from < 0) return;
+    setDetail({ ...detail, followups: arrayMoveLocal(list, from, position) });
+    applyGuarded(api.patchPlaybookFollowup(detail.id, followupId, { position }), 'Reorder failed');
+  }, [detail, applyGuarded]);
+
   const saveTitle = (value: string) => {
     setEditingTitle(false);
     const title = value.trim();
@@ -214,6 +244,19 @@ export function PlaybookDetailPage() {
     ? 'This removes the playbook. Its run is active: the current card keeps running as an ordinary card. History is preserved in git.'
     : 'This removes the playbook. Its history is preserved in git.';
 
+  const followupsSection = (
+    <PlaybookFollowups
+      followups={detail.followups ?? []}
+      locked={isRunActive(detail.run)}
+      onToggle={handleFollowupToggle}
+      onSaveText={handleFollowupSaveText}
+      onRemove={handleFollowupRemove}
+      onAdd={handleFollowupAdd}
+      onMove={handleFollowupMove}
+    />
+  );
+  const followupsFirst = followupsFinished(detail);
+
   return (
     <div className="h-full overflow-y-auto">
       <PageBar title="Playbooks" />
@@ -231,6 +274,8 @@ export function PlaybookDetailPage() {
               onDeleteClick={() => setDeleteOpen(true)}
             />
 
+            {followupsFirst && followupsSection}
+
             <PlaybookEntryList
               entries={detail.entries}
               run={detail.run}
@@ -240,6 +285,8 @@ export function PlaybookDetailPage() {
               onSaveText={handleSaveText}
               onRemove={handleRemove}
             />
+
+            {!followupsFirst && followupsSection}
           </div>
 
           <PlaybookSidePanel

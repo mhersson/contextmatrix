@@ -47,6 +47,8 @@ import type {
   PatchPlaybookInput,
   NewPlaybookEntry,
   PatchPlaybookEntryInput,
+  NewPlaybookFollowup,
+  PatchPlaybookFollowupInput,
   BlueprintArtifact,
   BlueprintView,
 } from '../types';
@@ -759,6 +761,31 @@ class APIClient {
   async deletePlaybookEntry(id: string, entryId: string): Promise<PlaybookDetail> {
     return this.request<PlaybookDetail>(
       `/playbooks/${encodeURIComponent(id)}/entries/${encodeURIComponent(entryId)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  async addPlaybookFollowup(id: string, body: NewPlaybookFollowup): Promise<PlaybookDetail> {
+    return this.request<PlaybookDetail>(`/playbooks/${encodeURIComponent(id)}/followups`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async patchPlaybookFollowup(
+    id: string,
+    followupId: string,
+    body: PatchPlaybookFollowupInput
+  ): Promise<PlaybookDetail> {
+    return this.request<PlaybookDetail>(
+      `/playbooks/${encodeURIComponent(id)}/followups/${encodeURIComponent(followupId)}`,
+      { method: 'PATCH', body: JSON.stringify(body) }
+    );
+  }
+
+  async deletePlaybookFollowup(id: string, followupId: string): Promise<PlaybookDetail> {
+    return this.request<PlaybookDetail>(
+      `/playbooks/${encodeURIComponent(id)}/followups/${encodeURIComponent(followupId)}`,
       { method: 'DELETE' }
     );
   }

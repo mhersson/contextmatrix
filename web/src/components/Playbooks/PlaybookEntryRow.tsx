@@ -81,7 +81,13 @@ export function PlaybookEntryRowView({
                 </span>
               </Link>
             ) : (
-              <PlaybookManualStep entry={entry} onToggleDone={onToggleDone} onSaveText={onSaveText} />
+              <PlaybookManualStep
+                id={entry.id}
+                text={entry.text ?? ''}
+                checked={entry.complete}
+                onToggleDone={onToggleDone}
+                onSaveText={onSaveText}
+              />
             )}
 
             {isFrontier && <span className="pb-nextup-chip">next up</span>}

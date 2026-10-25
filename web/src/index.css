@@ -9791,3 +9791,7 @@ button.bp-rv-head {
   outline: 2px solid var(--aqua);
   outline-offset: 2px;
 }
+
+.pb-followups-locked {
+  opacity: 0.6;
+}

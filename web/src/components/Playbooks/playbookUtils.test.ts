@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { PlaybookDetail, PlaybookEntry, PlaybookSummary } from '../../types';
+import type { PlaybookDetail, PlaybookEntry, PlaybookFollowup, PlaybookRunStatus, PlaybookSummary } from '../../types';
 import {
   arrayMoveLocal,
   describeRun,
+  followupMovePosition,
+  followupsFinished,
   frontierIndex,
   isFullyComplete,
   isRunActive,
@@ -130,5 +132,45 @@ describe('run helpers', () => {
     expect(describeRun(d)).toBe('Stopped');
     d.run = { status: 'completed', started_at: 'x', updated_at: 'x' };
     expect(describeRun(d)).toBe('Completed');
+  });
+});
+
+function detailWith(
+  complete: number,
+  total: number,
+  runStatus?: PlaybookRunStatus,
+): PlaybookDetail {
+  return {
+    id: 'p', title: 'P', created_at: '', updated_at: '', complete, total, entries: [],
+    run: runStatus ? { status: runStatus, started_at: '', updated_at: '' } : undefined,
+  };
+}
+
+describe('followupsFinished', () => {
+  it.each<[string, PlaybookDetail, boolean]>([
+    ['completed run', detailWith(1, 3, 'completed'), true],
+    ['running run', detailWith(3, 3, 'running'), false],
+    ['waiting run', detailWith(3, 3, 'waiting'), false],
+    ['stopped run', detailWith(3, 3, 'stopped'), false],
+    ['no run, all complete', detailWith(3, 3), true],
+    ['no run, empty', detailWith(0, 0), false],
+    ['no run, incomplete', detailWith(2, 3), false],
+  ])('%s', (_label, detail, expected) => {
+    expect(followupsFinished(detail)).toBe(expected);
+  });
+});
+
+describe('followupMovePosition', () => {
+  const f = (id: string): PlaybookFollowup => ({ id, text: id, cards: [], done: false });
+  const list = [f('f1'), f('f2'), f('f3')];
+
+  it.each<[string, string, string, number | null]>([
+    ['moves down to the over index', 'f1', 'f3', 2],
+    ['moves up to the over index', 'f3', 'f1', 0],
+    ['same id is a no-op', 'f2', 'f2', null],
+    ['unknown active', 'x', 'f1', null],
+    ['unknown over', 'f1', 'x', null],
+  ])('%s', (_label, active, over, expected) => {
+    expect(followupMovePosition(list, active, over)).toBe(expected);
   });
 });

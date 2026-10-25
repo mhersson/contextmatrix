@@ -82,6 +82,18 @@ side panel also carries a **Run** card (make runnable, base branch, Run and
 Stop, status line, compare links); entry rows read `queued` while a run is
 active (see [web UI](web-ui.md#playbooks)).
 
+The **How to verify what was built** section lists the playbook's follow-ups.
+Its place depends on whether the work is over: it sits below the cards while a run is active or the
+playbook is not finished (a stopped run counts as not finished), and moves
+above them, right under the title and description, once the run completed, or for a playbook with no run once every
+entry is complete. While a run is active the section is faded and its
+checkboxes are disabled; editing the text (Enter saves, line breaks become
+spaces), adding a check with **Add a check**, dragging to reorder and removing
+a check stay available, as the server never refuses follow-up writes. Ticks
+are only the person's record and never change the run. Cards attached to a
+follow-up show as their number (`RECIPEBO-002` reads `002`, with the full
+reference as the tooltip); they are not editable in the UI.
+
 ## Running a playbook
 
 Playbooks start not runnable. A human makes one runnable from the detail

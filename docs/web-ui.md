@@ -650,6 +650,20 @@ refused drag snaps the order back and a refused uncheck stays checked. The
 toasts carry the server's reason. The list page shows a run pill. See
 [playbooks](playbooks.md#running-a-playbook).
 
+The detail page's **How to verify what was built** section lists the
+playbook's follow-ups.
+Its place depends on whether the work is over: it sits below the cards while a run is active or the
+playbook is not finished (a stopped run counts as not finished), and moves
+above them, right under the title and description, once the run completed, or for a playbook with no run once every
+entry is complete. While a run is active the section is faded and its
+checkboxes are disabled; editing the text (Enter saves, line breaks become
+spaces), adding a check with **Add a check**, dragging to reorder and removing
+a check stay available, as the server never refuses follow-up writes. Ticks
+are only the person's record and never change the run. Cards attached to a
+follow-up show as their number (`RECIPEBO-002` reads `002`, with the full
+reference as the tooltip); they are not editable in the UI.
+See [playbooks](playbooks.md#follow-ups).
+
 ## Model selection
 
 `/admin/model-selection` is the tier ladders page: one quality ladder per role

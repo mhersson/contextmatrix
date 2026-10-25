@@ -1076,6 +1076,20 @@ export interface PlaybookSummary {
   run_status?: PlaybookRunStatus;
 }
 
+export interface PlaybookCardRef {
+  project: string;
+  card: string;
+}
+
+export interface PlaybookFollowup {
+  id: string;
+  text: string;
+  cards: PlaybookCardRef[];
+  done: boolean;
+  done_by?: string;
+  done_at?: string;
+}
+
 export interface PlaybookDetail {
   id: string;
   title: string;
@@ -1086,6 +1100,8 @@ export interface PlaybookDetail {
   complete: number;
   total: number;
   entries: PlaybookEntry[];
+  /** Checks a person makes after a run; the runner never reads them. Read as `?? []` for older servers. */
+  followups?: PlaybookFollowup[];
   /** Boards repo the server stamps this playbook with on every read (the entry's configured name, boards for the map form); optional only for compatibility with older servers. */
   boards_repo?: string;
   runnable?: boolean;
@@ -1226,6 +1242,19 @@ export interface PatchPlaybookEntryInput {
   done?: boolean;
   note?: string;
   text?: string;
+  position?: number;
+}
+
+export interface NewPlaybookFollowup {
+  text: string;
+  cards?: PlaybookCardRef[];
+  position?: number;
+}
+
+export interface PatchPlaybookFollowupInput {
+  done?: boolean;
+  text?: string;
+  cards?: PlaybookCardRef[];
   position?: number;
 }
 
