@@ -934,3 +934,170 @@ func TestResolvePlaybook_NewerRunSurvivesAStaleStop(t *testing.T) {
 		assert.True(t, got.Run.Active())
 	})
 }
+
+func pbFollowups(fs ...board.PlaybookFollowup) *board.Playbook {
+	p := pb()
+	p.Followups = fs
+	p.NextFollowupID = len(fs) + 1
+
+	return p
+}
+
+func resolveFollowups(t *testing.T, base, ours, theirs *board.Playbook, c Context) (*board.Playbook, Output) {
+	t.Helper()
+
+	out, err := Resolve(Input{
+		Path: "playbooks/release.yaml", Base: serializePb(t, base),
+		Ours: serializePb(t, ours), Theirs: serializePb(t, theirs),
+	}, c)
+	require.NoError(t, err)
+
+	got, err := board.ParsePlaybook(out.Content)
+	require.NoError(t, err)
+	require.NoError(t, got.Validate())
+
+	return got, out
+}
+
+func followupIDs(p *board.Playbook) []string {
+	ids := []string{}
+	for _, f := range p.Followups {
+		ids = append(ids, f.ID)
+	}
+
+	return ids
+}
+
+func TestResolvePlaybook_FollowupTickAndAddBothSurvive(t *testing.T) {
+	base := pbFollowups(board.PlaybookFollowup{ID: "f1", Text: "check logs"})
+
+	ours := pbFollowups(board.PlaybookFollowup{ID: "f1", Text: "check logs", Done: true, DoneBy: "human:alice", DoneAt: hb(3)})
+
+	theirs := pbFollowups(
+		board.PlaybookFollowup{ID: "f1", Text: "check logs"},
+		board.PlaybookFollowup{ID: "f2", Text: "tell ops"},
+	)
+	theirs.NextFollowupID = 3
+
+	got, _ := resolveFollowups(t, base, ours, theirs, testCtx())
+
+	assert.Equal(t, []string{"f1", "f2"}, followupIDs(got))
+	assert.True(t, got.Followups[0].Done)
+	assert.Equal(t, "human:alice", got.Followups[0].DoneBy)
+	assert.Equal(t, 3, got.NextFollowupID)
+}
+
+func TestResolvePlaybook_FollowupRemovedOnOneSideDropped(t *testing.T) {
+	f1 := board.PlaybookFollowup{ID: "f1", Text: "check logs"}
+	base := pbFollowups(f1)
+	removed := pbFollowups()
+	removed.NextFollowupID = 2
+
+	got, _ := resolveFollowups(t, base, removed, pbFollowups(f1), testCtx())
+	assert.Empty(t, got.Followups)
+
+	got, _ = resolveFollowups(t, base, pbFollowups(f1), removed, testCtx())
+	assert.Empty(t, got.Followups)
+}
+
+func TestResolvePlaybook_FollowupSameIDAddedBothSidesReminted(t *testing.T) {
+	base := pbFollowups()
+	ours := pbFollowups(board.PlaybookFollowup{ID: "f1", Text: "ours"})
+	theirs := pbFollowups(board.PlaybookFollowup{ID: "f1", Text: "theirs"})
+	ours.NextFollowupID, theirs.NextFollowupID = 2, 2
+
+	got, out := resolveFollowups(t, base, ours, theirs, testCtx())
+
+	require.Equal(t, []string{"f1", "f2"}, followupIDs(got))
+	assert.Equal(t, "theirs", got.Followups[0].Text)
+	assert.Equal(t, "ours", got.Followups[1].Text)
+	assert.Equal(t, 3, got.NextFollowupID)
+
+	var found bool
+
+	for _, r := range out.Resolutions {
+		if r.Rule == RulePlaybookRemint && r.OldID == "f1" {
+			found = true
+
+			assert.Equal(t, "f2", r.NewID)
+		}
+	}
+
+	assert.True(t, found, "remint resolution missing")
+}
+
+func TestResolvePlaybook_FollowupBothChangedLaterWins(t *testing.T) {
+	base := pbFollowups(board.PlaybookFollowup{ID: "f1", Text: "base"})
+	ours := pbFollowups(board.PlaybookFollowup{ID: "f1", Text: "ours"})
+	theirs := pbFollowups(board.PlaybookFollowup{ID: "f1", Text: "theirs"})
+	ours.Updated, theirs.Updated = ts(9), ts(4)
+
+	got, out := resolveFollowups(t, base, ours, theirs, testCtx())
+	require.Len(t, got.Followups, 1)
+	assert.Equal(t, "ours", got.Followups[0].Text)
+
+	var found bool
+
+	for _, r := range out.Resolutions {
+		if r.Rule == RuleLaterUpdated {
+			found = true
+		}
+	}
+
+	assert.True(t, found, "later-updated resolution missing")
+
+	ours.Updated, theirs.Updated = ts(4), ts(9)
+	got, _ = resolveFollowups(t, base, ours, theirs, testCtx())
+	assert.Equal(t, "theirs", got.Followups[0].Text)
+}
+
+func TestResolvePlaybook_FollowupCardRefRenamed(t *testing.T) {
+	base := pbFollowups()
+	ours := pbFollowups(board.PlaybookFollowup{
+		ID: "f1", Text: "verify", Cards: []board.PlaybookCardRef{{Project: "alpha", Card: "ALPHA-3"}, {Project: "alpha", Card: "ALPHA-7"}},
+	})
+	theirs := pbFollowups()
+	theirs.NextFollowupID = 2
+	c := testCtx()
+	c.Renames = map[string]string{"alpha/ALPHA-3": "ALPHA-4"}
+
+	got, _ := resolveFollowups(t, base, ours, theirs, c)
+
+	require.Len(t, got.Followups, 1)
+	assert.Equal(t, []board.PlaybookCardRef{{Project: "alpha", Card: "ALPHA-4"}, {Project: "alpha", Card: "ALPHA-7"}}, got.Followups[0].Cards)
+}
+
+func TestResolvePlaybook_FollowupCounterTakesMax(t *testing.T) {
+	base := pbFollowups()
+	ours := pbFollowups(board.PlaybookFollowup{ID: "f1", Text: "a"}, board.PlaybookFollowup{ID: "f2", Text: "b"})
+	theirs := pbFollowups()
+	theirs.NextFollowupID = 2
+
+	got, _ := resolveFollowups(t, base, ours, theirs, testCtx())
+
+	assert.Equal(t, []string{"f1", "f2"}, followupIDs(got))
+	assert.Equal(t, 3, got.NextFollowupID)
+}
+
+func TestResolvePlaybook_FollowupRemintWithoutCounter(t *testing.T) {
+	base := pbFollowups()
+	ours := pbFollowups(board.PlaybookFollowup{ID: "f1", Text: "ours"})
+	theirs := pbFollowups(board.PlaybookFollowup{ID: "f1", Text: "theirs"})
+	ours.NextFollowupID, theirs.NextFollowupID = 0, 0
+
+	got, _ := resolveFollowups(t, base, ours, theirs, testCtx())
+
+	assert.Equal(t, []string{"f1", "f2"}, followupIDs(got))
+}
+
+func TestMergePlaybooks_FollowupRenameDoesNotMutateInputs(t *testing.T) {
+	ours := pbFollowups(board.PlaybookFollowup{ID: "f1", Text: "x", Cards: []board.PlaybookCardRef{{Project: "alpha", Card: "ALPHA-3"}}})
+	theirs := pbFollowups()
+	c := testCtx()
+	c.Renames = map[string]string{"alpha/ALPHA-3": "ALPHA-4"}
+
+	out, _ := mergePlaybooks(pbFollowups(), ours, theirs, "playbooks/release.yaml", c)
+
+	assert.Equal(t, "ALPHA-4", out.Followups[0].Cards[0].Card)
+	assert.Equal(t, "ALPHA-3", ours.Followups[0].Cards[0].Card)
+}

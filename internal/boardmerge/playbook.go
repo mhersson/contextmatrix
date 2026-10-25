@@ -9,10 +9,11 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 )
 
-// resolvePlaybook merges one playbooks/<id>.yaml three-way. Entries merge by
-// entry id as three-way records; next_entry_id takes the max of both sides.
-// The same entry id added independently on both sides with different content
-// keeps theirs and re-mints ours under a fresh id. title and description are
+// resolvePlaybook merges one playbooks/<id>.yaml three-way. Entries and
+// follow-ups merge by id as three-way records; next_entry_id and
+// next_followup_id take the max of both sides. The same entry or follow-up id
+// added independently on both sides with different content keeps theirs and
+// re-mints ours under a fresh id. title and description are
 // plain three-way scalars with the later-updated side breaking a real
 // conflict; updated_at is the later of the two. id, created_by and created_at
 // are immutable after creation and carried forward unchanged; source is
@@ -221,22 +222,38 @@ func mergePlaybooks(base, ours, theirs *board.Playbook, path string, c Context) 
 	entries, entryRes := mergePlaybookEntries(base.Entries, ours.Entries, theirs.Entries, &out, path, later == ours, c.Renames)
 	out.Entries = entries
 
+	var followupRes []Resolution
+
 	res = append(res, entryRes...)
+
+	out.NextFollowupID = max(ours.NextFollowupID, theirs.NextFollowupID)
+	out.Followups, followupRes = mergePlaybookFollowups(base.Followups, ours.Followups, theirs.Followups, &out, path, later == ours, c.Renames)
+	res = append(res, followupRes...)
 	res = append(res, keepRunEntry(&out, base, ours, theirs, path, c.Renames)...)
 	res = append(res, clearDanglingRunEntry(&out, path)...)
 
 	return &out, res
 }
 
-func mergePlaybookEntries(
-	base, ours, theirs []board.PlaybookEntry, out *board.Playbook, path string, oursLater bool, renames map[string]string,
-) ([]board.PlaybookEntry, []Resolution) {
+// recordOps adapts mergeRecords to one kind of id-keyed playbook record.
+// remint returns the record under a fresh id; rename applies card renames.
+type recordOps[T any] struct {
+	id     func(T) string
+	remint func(T) T
+	rename func(T) T
+	noun   string
+}
+
+// mergeRecords three-way merges id-keyed records in theirs' order, then ours'
+// additions. A same-id add on both sides with different content keeps theirs
+// and re-mints ours.
+func mergeRecords[T any](base, ours, theirs []T, ops recordOps[T], path string, oursLater bool) ([]T, []Resolution) {
 	var res []Resolution
 
-	byID := func(es []board.PlaybookEntry) map[string]board.PlaybookEntry {
-		m := make(map[string]board.PlaybookEntry, len(es))
-		for _, e := range es {
-			m[e.ID] = e
+	byID := func(rs []T) map[string]T {
+		m := make(map[string]T, len(rs))
+		for _, r := range rs {
+			m[ops.id(r)] = r
 		}
 
 		return m
@@ -244,11 +261,12 @@ func mergePlaybookEntries(
 
 	bm, om, tm := byID(base), byID(ours), byID(theirs)
 
-	var merged []board.PlaybookEntry
+	var merged []T
 
 	for _, te := range theirs {
-		oe, inOurs := om[te.ID]
-		be, inBase := bm[te.ID]
+		id := ops.id(te)
+		oe, inOurs := om[id]
+		be, inBase := bm[id]
 
 		switch {
 		case !inOurs && inBase:
@@ -266,17 +284,14 @@ func mergePlaybookEntries(
 			// re-mint ours under a fresh id.
 			merged = append(merged, te)
 
-			re := oe
-			re.ID = fmt.Sprintf("e%d", out.NextEntryID)
-			out.NextEntryID++
+			re := ops.remint(oe)
+			merged = append(merged, ops.rename(re))
 
-			merged = append(merged, applyEntryRename(re, renames))
-
-			res = append(res, Resolution{Path: path, Rule: RulePlaybookRemint, OldID: oe.ID, NewID: re.ID})
+			res = append(res, Resolution{Path: path, Rule: RulePlaybookRemint, OldID: id, NewID: ops.id(re)})
 		default:
 			res = append(res, Resolution{
 				Path: path, Rule: RuleLaterUpdated,
-				Detail: "entry " + te.ID + ": both sides changed; later updated_at kept",
+				Detail: ops.noun + " " + id + ": both sides changed; later updated_at kept",
 			})
 
 			if oursLater {
@@ -288,16 +303,35 @@ func mergePlaybookEntries(
 	}
 
 	for _, oe := range ours {
-		if _, inTheirs := tm[oe.ID]; inTheirs {
+		id := ops.id(oe)
+		if _, inTheirs := tm[id]; inTheirs {
 			continue
 		}
 
-		if _, inBase := bm[oe.ID]; inBase {
+		if _, inBase := bm[id]; inBase {
 			continue // theirs removed it
 		}
 
-		merged = append(merged, applyEntryRename(oe, renames))
+		merged = append(merged, ops.rename(oe))
 	}
+
+	return merged, res
+}
+
+func mergePlaybookEntries(
+	base, ours, theirs []board.PlaybookEntry, out *board.Playbook, path string, oursLater bool, renames map[string]string,
+) ([]board.PlaybookEntry, []Resolution) {
+	merged, res := mergeRecords(base, ours, theirs, recordOps[board.PlaybookEntry]{
+		id: func(e board.PlaybookEntry) string { return e.ID },
+		remint: func(e board.PlaybookEntry) board.PlaybookEntry {
+			e.ID = fmt.Sprintf("e%d", out.NextEntryID)
+			out.NextEntryID++
+
+			return e
+		},
+		rename: func(e board.PlaybookEntry) board.PlaybookEntry { return applyEntryRename(e, renames) },
+		noun:   "entry",
+	}, path, oursLater)
 
 	deduped := make([]board.PlaybookEntry, 0, len(merged))
 	seen := map[string]bool{}
@@ -319,6 +353,46 @@ func mergePlaybookEntries(
 	}
 
 	return deduped, res
+}
+
+func mergePlaybookFollowups(
+	base, ours, theirs []board.PlaybookFollowup, out *board.Playbook, path string, oursLater bool, renames map[string]string,
+) ([]board.PlaybookFollowup, []Resolution) {
+	used := map[string]bool{}
+
+	for _, fs := range [][]board.PlaybookFollowup{base, ours, theirs} {
+		for _, f := range fs {
+			used[f.ID] = true
+		}
+	}
+
+	return mergeRecords(base, ours, theirs, recordOps[board.PlaybookFollowup]{
+		id: func(f board.PlaybookFollowup) string { return f.ID },
+		remint: func(f board.PlaybookFollowup) board.PlaybookFollowup {
+			// A zero counter (hand-edited file) must not hand out an id a side holds.
+			n := max(out.NextFollowupID, 1)
+			for used[fmt.Sprintf("f%d", n)] {
+				n++
+			}
+
+			f.ID = fmt.Sprintf("f%d", n)
+			used[f.ID] = true
+			out.NextFollowupID = n + 1
+
+			return f
+		},
+		rename: func(f board.PlaybookFollowup) board.PlaybookFollowup {
+			f.Cards = slices.Clone(f.Cards)
+			for i, ref := range f.Cards {
+				if n, ok := renames[ref.Project+"/"+ref.Card]; ok {
+					f.Cards[i].Card = n
+				}
+			}
+
+			return f
+		},
+		noun: "follow-up",
+	}, path, oursLater)
 }
 
 func applyEntryRename(e board.PlaybookEntry, renames map[string]string) board.PlaybookEntry {

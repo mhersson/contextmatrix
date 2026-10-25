@@ -116,8 +116,9 @@ Cards:
 Project config: `next_id` takes the max; states, types, priorities and
 transitions union; `name` and `prefix` are immutable and the remote is kept;
 every other field prefers the remote on a real conflict. Playbooks: entries
-merge by entry id, `next_entry_id` takes the max, a same-id add on both sides
-keeps the remote and re-mints the local entry, and two playbooks created at
+and follow-ups merge by id, `next_entry_id` and `next_followup_id` take the max,
+a same-id add on both sides keeps the remote and re-mints the local entry or
+follow-up, and two playbooks created at
 the same path re-slug the local one to `<id>-N`.
 
 While a run is `running` or `waiting` its current entry survives the merge: a
