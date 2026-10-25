@@ -2366,6 +2366,12 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 
 	m.setWorking(sess.ID, false)
 
+	// A cold session publishes nothing until it reopens, so its replay events
+	// would otherwise sit in memory for good.
+	if m.hub != nil {
+		m.hub.ClearReplay(sess.ID)
+	}
+
 	cold := StatusCold
 	update := SessionUpdate{Status: &cold}
 

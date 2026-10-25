@@ -359,6 +359,21 @@ func (h *SSEHub) Drop(sessionID string) {
 	sh.ring = nil
 }
 
+// ClearReplay empties the session's replay ring and leaves its subscribers
+// attached. The stream handler backfills a reconnect the ring no longer
+// covers from the store.
+func (h *SSEHub) ClearReplay(sessionID string) {
+	sh := h.lookup(sessionID)
+	if sh == nil {
+		return
+	}
+
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+
+	sh.ring = nil
+}
+
 // Unsubscribe removes a subscriber and closes its channel.
 //
 // Lookup-only: if the session has already been Drop'd, the perSess entry is

@@ -468,7 +468,9 @@ order matches seq order.
   startup. A failed read leaves it unrecorded until the next view read.
 - **SSEHub.** One `sessionHub` per session with a 128-event ring buffer,
   replayed on `Subscribe(sinceSeq)` so reconnects inside the window are
-  gapless; `DeleteSession` drops the hub. Two event kinds: `message` (a
+  gapless. `EndSession` empties the ring, the stream handler backfills a
+  reconnect the ring no longer covers from the store, and `DeleteSession`
+  drops the hub. Two event kinds: `message` (a
   transcript row) and `session_updated` (metadata: `context_tokens`,
   `rehydration_active`, model, `status` as a pointer so `omitempty` separates
   "no change" from a transition, and the five cost fields).

@@ -2927,7 +2927,9 @@ with `before_seq=<oldest loaded>`, deduplicating on `seq`.
 SSE stream of new transcript entries for one session. `?since_seq=N` replays
 entries with `seq > N` from the server-side 128-entry ring buffer, followed
 by the cached blueprint frames for an architect session, before tailing (an
-unparseable value is treated as `0`). The handler flushes `:
+unparseable value is treated as `0`). The ring is emptied when the session
+goes cold; for `N > 0`, stored rows after `N` that the ring does not hold
+(at most 200) are replayed first. The handler flushes `:
 connected\n\n` on subscribe and `: keepalive\n\n` every 15 seconds. 404
 `CHAT_NOT_FOUND` for an unknown session; 429 `TOO_MANY_CHATS` once 32
 subscribers are attached to one session. Slow subscribers silently drop

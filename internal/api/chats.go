@@ -1008,6 +1008,8 @@ func (h *chatHandlers) streamChat(w http.ResponseWriter, r *http.Request) {
 
 	defer h.hub.Unsubscribe(id, ch)
 
+	replay = h.backfillReplay(r.Context(), id, since, replay)
+
 	// Joined after Subscribe, so the upstream's first snapshot reaches this
 	// subscriber live or through the cached replay.
 	if sess.Kind == chat.KindArchitect && h.live != nil {
@@ -1063,6 +1065,51 @@ func (h *chatHandlers) streamChat(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// backfillReplay puts the transcript rows after sinceSeq that the replay ring
+// no longer holds in front of replay: the ring is cleared when a session goes
+// cold and keeps only the newest events. The client drops a seq it already has.
+func (h *chatHandlers) backfillReplay(ctx context.Context, sessionID string, sinceSeq int64, replay []chat.SSEEvent) []chat.SSEEvent {
+	if sinceSeq <= 0 {
+		return replay
+	}
+
+	// Ring events precede the seq-0 blueprint frames.
+	var first int64
+	if len(replay) > 0 {
+		first = replay[0].Seq
+	}
+
+	if first == sinceSeq+1 {
+		return replay
+	}
+
+	msgs, err := h.mgr.ListMessages(ctx, sessionID, sinceSeq, listMessagesDefaultLimit)
+	if err != nil {
+		ctxlog.Logger(ctx).Warn("chat SSE: replay backfill failed", "session_id", sessionID, "error", err)
+
+		return replay
+	}
+
+	out := make([]chat.SSEEvent, 0, len(msgs)+len(replay))
+
+	for _, m := range msgs {
+		if first > 0 && m.Seq >= first {
+			break
+		}
+
+		out = append(out, chat.SSEEvent{
+			Kind:             chat.SSEKindMessage,
+			DataKind:         m.Kind,
+			Seq:              m.Seq,
+			Role:             m.Role,
+			Content:          m.Content,
+			RehydrationPhase: m.RehydrationPhase,
+		})
+	}
+
+	return append(out, replay...)
 }
 
 // writeChatSSEEvent serialises one event onto the SSE wire. A session update

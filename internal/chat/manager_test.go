@@ -630,6 +630,59 @@ func newManagerWithHub(t *testing.T) (*chat.Manager, *stubBackend, chat.Store, *
 	return mgr, backend, store, hub, clk
 }
 
+func replayContents(t *testing.T, hub *chat.SSEHub, sessionID string) []string {
+	t.Helper()
+
+	ch, replay, err := hub.Subscribe(sessionID, 0)
+	require.NoError(t, err)
+	hub.Unsubscribe(sessionID, ch)
+
+	var out []string
+	for _, e := range replay {
+		out = append(out, e.Content)
+	}
+
+	return out
+}
+
+func TestManager_EndSession_ClearsTheReplayRing(t *testing.T) {
+	mgr, _, _, hub, _ := newManagerWithHub(t)
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
+	require.NoError(t, err)
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "first")
+	require.NoError(t, err)
+	require.Equal(t, []string{"first"}, replayContents(t, hub, sess.ID))
+
+	live, _, err := hub.Subscribe(sess.ID, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { hub.Unsubscribe(sess.ID, live) })
+
+	require.NoError(t, mgr.EndSession(ctx, sess.ID))
+	assert.Empty(t, replayContents(t, hub, sess.ID), "a cold session holds no replay events")
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "second")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"second"}, replayContents(t, hub, sess.ID), "the reopen publishes fresh")
+
+	// A subscriber attached across the end still gets the reopened session's events.
+	deadline := time.After(5 * time.Second)
+
+	for {
+		select {
+		case e, ok := <-live:
+			require.True(t, ok, "the live subscriber stays attached")
+
+			if e.Kind == chat.SSEKindMessage && e.Content == "second" {
+				return
+			}
+		case <-deadline:
+			t.Fatal("the live subscriber never got the reopened session's message")
+		}
+	}
+}
+
 func TestManager_MarkWarmIdle_PublishesSessionUpdate(t *testing.T) {
 	t.Parallel()
 	mgr, _, store, hub, _ := newManagerWithHub(t)
