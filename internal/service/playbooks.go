@@ -1351,19 +1351,21 @@ func (s *PlaybookService) buildEntry(ctx context.Context, p *board.Playbook, in 
 			return nil, fmt.Errorf("%w: card entries need project and card", ErrInvalidPlaybookEntry)
 		}
 
-		if p.HasCardEntry(in.Project, in.Card) {
-			return nil, fmt.Errorf("%w: %s/%s", ErrDuplicateCardEntry, in.Project, in.Card)
+		cardID := strings.ToUpper(in.Card)
+
+		if p.HasCardEntry(in.Project, cardID) {
+			return nil, fmt.Errorf("%w: %s/%s", ErrDuplicateCardEntry, in.Project, cardID)
 		}
 
-		if _, err := s.cards.GetCard(ctx, in.Project, in.Card); err != nil {
+		if _, err := s.cards.GetCard(ctx, in.Project, cardID); err != nil {
 			if errors.Is(err, storage.ErrCardNotFound) || errors.Is(err, storage.ErrProjectNotFound) {
-				return nil, fmt.Errorf("%w: card %s/%s not found", ErrInvalidPlaybookEntry, in.Project, in.Card)
+				return nil, fmt.Errorf("%w: card %s/%s not found", ErrInvalidPlaybookEntry, in.Project, cardID)
 			}
 
-			return nil, fmt.Errorf("check card %s/%s: %w", in.Project, in.Card, err)
+			return nil, fmt.Errorf("check card %s/%s: %w", in.Project, cardID, err)
 		}
 
-		e.Project, e.Card = in.Project, in.Card
+		e.Project, e.Card = in.Project, cardID
 	case board.EntryTypeManual:
 		if strings.TrimSpace(in.Text) == "" {
 			return nil, fmt.Errorf("%w: manual entries need text", ErrInvalidPlaybookEntry)
@@ -1543,7 +1545,8 @@ func buildFollowup(p *board.Playbook, in PlaybookFollowupInput) (*board.Playbook
 		return nil, fmt.Errorf("%w: follow-ups need text", ErrInvalidPlaybookFollowup)
 	}
 
-	if err := validateCardRefs(in.Cards); err != nil {
+	cards, err := validateCardRefs(in.Cards)
+	if err != nil {
 		return nil, err
 	}
 
@@ -1553,18 +1556,23 @@ func buildFollowup(p *board.Playbook, in PlaybookFollowupInput) (*board.Playbook
 	return &board.PlaybookFollowup{
 		ID:    fmt.Sprintf("f%d", n),
 		Text:  in.Text,
-		Cards: slices.Clone(in.Cards),
+		Cards: cards,
 	}, nil
 }
 
-func validateCardRefs(refs []board.PlaybookCardRef) error {
-	for _, ref := range refs {
+// validateCardRefs returns a copy of refs with card ids upper-cased.
+func validateCardRefs(refs []board.PlaybookCardRef) ([]board.PlaybookCardRef, error) {
+	out := slices.Clone(refs)
+
+	for i, ref := range out {
 		if ref.Project == "" || ref.Card == "" {
-			return fmt.Errorf("%w: a card ref needs project and card", ErrInvalidPlaybookFollowup)
+			return nil, fmt.Errorf("%w: a card ref needs project and card", ErrInvalidPlaybookFollowup)
 		}
+
+		out[i].Card = strings.ToUpper(ref.Card)
 	}
 
-	return nil
+	return out, nil
 }
 
 // AddFollowup adds a follow-up at in.Position, or at the end when nil. Like
@@ -1614,11 +1622,12 @@ func (s *PlaybookService) UpdateFollowup(ctx context.Context, id, followupID str
 		}
 
 		if in.Cards != nil {
-			if err := validateCardRefs(*in.Cards); err != nil {
+			cards, err := validateCardRefs(*in.Cards)
+			if err != nil {
 				return err
 			}
 
-			f.Cards = slices.Clone(*in.Cards)
+			f.Cards = cards
 		}
 
 		if in.Done != nil {

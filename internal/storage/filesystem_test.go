@@ -1445,3 +1445,23 @@ func TestFilesystemStore_ListCards_FilterBySourceSystem(t *testing.T) {
 	require.Len(t, cards, 1)
 	assert.Equal(t, "TEST-001", cards[0].ID)
 }
+
+// TestFilesystemStore_GetCard_DiskFallbackRefusesIDMismatch verifies that a
+// file served for a differently-cased id is not adopted under that id.
+func TestFilesystemStore_GetCard_DiskFallbackRefusesIDMismatch(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	fp, err := store.cardPath("test-project", "test-042")
+	require.NoError(t, err)
+	data, err := board.SerializeCard(testCard("TEST-042", "todo"))
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(fp), 0o755))
+	require.NoError(t, os.WriteFile(fp, data, 0o644))
+
+	_, err = store.GetCard(context.Background(), "test-project", "test-042")
+	require.ErrorIs(t, err, ErrCardNotFound)
+}

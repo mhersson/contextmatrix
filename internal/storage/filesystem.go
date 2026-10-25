@@ -637,6 +637,12 @@ func (s *FilesystemStore) GetCard(ctx context.Context, project, id string) (*boa
 		return nil, fmt.Errorf("parse card: %w", err)
 	}
 
+	// A case-insensitive filesystem can serve a file for a differently-cased
+	// id; adopting it would index the card under the wrong key.
+	if card.ID != id {
+		return nil, ErrCardNotFound
+	}
+
 	// Adopt the disk card into the index so it is not merely readable but also
 	// updatable/deletable. Re-check under the write lock in case a concurrent
 	// reload already inserted it.

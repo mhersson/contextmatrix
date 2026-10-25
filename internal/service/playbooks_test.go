@@ -2496,3 +2496,30 @@ func TestPlaybookDetail_ListsAreNeverNull(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(raw), `"cards":[]`)
 }
+
+func TestPlaybookService_CardIDsAreUpperCased(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	detail, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Case", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "alpha-001"}},
+		Followups: []PlaybookFollowupInput{
+			{Text: "check", Cards: []board.PlaybookCardRef{{Project: "project-alpha", Card: "alpha-001"}}},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, detail.Entries, 1)
+	assert.Equal(t, "ALPHA-001", detail.Entries[0].Card)
+	assert.Equal(t, "First card", detail.Entries[0].CardTitle)
+	assert.Equal(t, "ALPHA-001", detail.Followups[0].Cards[0].Card)
+
+	_, err = env.svc.AddEntry(ctx, detail.ID, PlaybookEntryInput{Type: board.EntryTypeCard, Project: "project-alpha", Card: "alpha-001"}, "human:alice")
+	require.ErrorIs(t, err, ErrDuplicateCardEntry, "a lower-cased id duplicates the stored upper-case entry")
+
+	refs := []board.PlaybookCardRef{{Project: "project-alpha", Card: "alpha-002"}}
+	detail, err = env.svc.UpdateFollowup(ctx, detail.ID, "f1", UpdateFollowupInput{Cards: &refs}, "human:alice")
+	require.NoError(t, err)
+	assert.Equal(t, "ALPHA-002", detail.Followups[0].Cards[0].Card)
+	assert.Equal(t, "alpha-002", refs[0].Card, "the caller's slice is not rewritten")
+}
