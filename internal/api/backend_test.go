@@ -400,11 +400,6 @@ func TestRunCard_CardNotFound(t *testing.T) {
 }
 
 func TestRunCard_WebhookFailure(t *testing.T) {
-	origBackoff := backend.BackoffBase
-	backend.BackoffBase = time.Millisecond
-
-	t.Cleanup(func() { backend.BackoffBase = origBackoff })
-
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
@@ -423,7 +418,7 @@ func TestRunCard_WebhookFailure(t *testing.T) {
 	}))
 	defer mockBackend.Close()
 
-	backendClient := backend.NewClient(mockBackend.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	backendClient := backend.NewClient(mockBackend.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", backend.WithBackoffBase(time.Millisecond))
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Backend: backendClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -1562,11 +1557,6 @@ func TestStopAll_StopsActiveCards(t *testing.T) {
 }
 
 func TestStopAll_WebhookFailure(t *testing.T) {
-	origBackoff := backend.BackoffBase
-	backend.BackoffBase = time.Millisecond
-
-	t.Cleanup(func() { backend.BackoffBase = origBackoff })
-
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
@@ -1576,7 +1566,7 @@ func TestStopAll_WebhookFailure(t *testing.T) {
 	}))
 	defer mockBackend.Close()
 
-	backendClient := backend.NewClient(mockBackend.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	backendClient := backend.NewClient(mockBackend.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", backend.WithBackoffBase(time.Millisecond))
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Backend: backendClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -2169,11 +2159,6 @@ func TestMessageCard_HappyPath(t *testing.T) {
 }
 
 func TestMessageCard_WebhookFailure(t *testing.T) {
-	origBackoff := backend.BackoffBase
-	backend.BackoffBase = time.Millisecond
-
-	t.Cleanup(func() { backend.BackoffBase = origBackoff })
-
 	svc, bus, cleanup, card := newRunningCardSetup(t)
 	defer cleanup()
 
@@ -2183,7 +2168,7 @@ func TestMessageCard_WebhookFailure(t *testing.T) {
 	}))
 	defer mockBackend.Close()
 
-	backendClient := backend.NewClient(mockBackend.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	backendClient := backend.NewClient(mockBackend.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", backend.WithBackoffBase(time.Millisecond))
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Backend: backendClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -2485,11 +2470,6 @@ func TestPromoteCard_WebhookFailure_RevertsFlag(t *testing.T) {
 	// The revert is recorded with a "promote-webhook-failed" activity-log entry
 	// so operators reconciling a half-promoted card can see why without
 	// grepping server logs.
-	origBackoff := backend.BackoffBase
-	backend.BackoffBase = time.Millisecond
-
-	t.Cleanup(func() { backend.BackoffBase = origBackoff })
-
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
@@ -2507,7 +2487,7 @@ func TestPromoteCard_WebhookFailure_RevertsFlag(t *testing.T) {
 	}))
 	defer mockBackend.Close()
 
-	backendClient := backend.NewClient(mockBackend.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	backendClient := backend.NewClient(mockBackend.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", backend.WithBackoffBase(time.Millisecond))
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Backend: backendClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},

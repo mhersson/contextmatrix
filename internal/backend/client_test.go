@@ -181,11 +181,6 @@ func TestClient_StopAll_Success(t *testing.T) {
 }
 
 func TestClient_RetryOn500(t *testing.T) {
-	origBackoff := BackoffBase
-	BackoffBase = time.Millisecond
-
-	t.Cleanup(func() { BackoffBase = origBackoff })
-
 	var attempts atomic.Int32
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -201,7 +196,7 @@ func TestClient_RetryOn500(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "key")
+	c := NewClient(srv.URL, "key", WithBackoffBase(time.Millisecond))
 	// Use a long timeout to allow retries with backoff.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -373,11 +368,6 @@ func TestClient_Promote_NoRetryOn404(t *testing.T) {
 }
 
 func TestClient_RetryOn503(t *testing.T) {
-	origBackoff := BackoffBase
-	BackoffBase = time.Millisecond
-
-	t.Cleanup(func() { BackoffBase = origBackoff })
-
 	tests := []struct {
 		name string
 		fn   func(c *Client, ctx context.Context) error
@@ -407,7 +397,7 @@ func TestClient_RetryOn503(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			c := NewClient(srv.URL, "key")
+			c := NewClient(srv.URL, "key", WithBackoffBase(time.Millisecond))
 
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
@@ -663,11 +653,6 @@ func TestListImages_NotOKIsError(t *testing.T) {
 // second attempt, where the first attempt already consumed the pair.
 // This test must fail against the old code (sign-once-before-loop).
 func TestClient_RetryOn500_UsesFreshHMAC(t *testing.T) {
-	origBackoff := BackoffBase
-	BackoffBase = time.Millisecond
-
-	t.Cleanup(func() { BackoffBase = origBackoff })
-
 	const apiKey = "shared-secret"
 
 	cache := NewSignatureCache()
@@ -704,7 +689,7 @@ func TestClient_RetryOn500_UsesFreshHMAC(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, apiKey)
+	c := NewClient(srv.URL, apiKey, WithBackoffBase(time.Millisecond))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -719,11 +704,6 @@ func TestClient_RetryOn500_UsesFreshHMAC(t *testing.T) {
 // timestamp on attempt N+1 is strictly greater than the timestamp on attempt N,
 // confirming the max(now, prevTS+1) force-advance works regardless of wall clock.
 func TestClient_Retry_TimestampAdvances(t *testing.T) {
-	origBackoff := BackoffBase
-	BackoffBase = time.Millisecond
-
-	t.Cleanup(func() { BackoffBase = origBackoff })
-
 	var capturedTS []int64
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -738,7 +718,7 @@ func TestClient_Retry_TimestampAdvances(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "key")
+	c := NewClient(srv.URL, "key", WithBackoffBase(time.Millisecond))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -822,11 +802,6 @@ func TestClient_Trigger_CorrelationIDUniquePerCall(t *testing.T) {
 // the per-run state (redaction sessions, container labels) the agent keys
 // by this header.
 func TestClient_Trigger_CorrelationIDFreshPerAttempt(t *testing.T) {
-	origBackoff := BackoffBase
-	BackoffBase = time.Millisecond
-
-	t.Cleanup(func() { BackoffBase = origBackoff })
-
 	var mu sync.Mutex
 
 	var captured []string
@@ -844,7 +819,7 @@ func TestClient_Trigger_CorrelationIDFreshPerAttempt(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "key")
+	c := NewClient(srv.URL, "key", WithBackoffBase(time.Millisecond))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

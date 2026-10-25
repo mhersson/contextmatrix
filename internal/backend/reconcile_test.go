@@ -115,14 +115,9 @@ func TestReconciliationSweep_MissingCardKillsContainer(t *testing.T) {
 // TestReconciliationSweep_AgeCapKillsRunawayContainer is the last-resort
 // safety net: a container whose card lookup keeps succeeding but whose card
 // never transitions to terminal (pathological case - stuck state machine,
-// UI bug, whatever) still gets killed once it exceeds ContainerMaxAge.
+// UI bug, whatever) still gets killed once it exceeds the max age.
 func TestReconciliationSweep_AgeCapKillsRunawayContainer(t *testing.T) {
 	ctx := t.Context()
-
-	origMax := backend.ContainerMaxAge
-	backend.ContainerMaxAge = 10 * time.Millisecond
-
-	t.Cleanup(func() { backend.ContainerMaxAge = origMax })
 
 	cg := &fakeCardGetter{cards: map[string]*board.Card{
 		"proj/C-002": {ID: "C-002", State: "in_progress"},
@@ -140,7 +135,8 @@ func TestReconciliationSweep_AgeCapKillsRunawayContainer(t *testing.T) {
 		},
 	}
 
-	backend.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
+	backend.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger(),
+		backend.WithContainerMaxAge(10*time.Millisecond))
 
 	waitForKillCalls(t, fc, 1)
 }

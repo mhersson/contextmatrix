@@ -30,12 +30,11 @@ const (
 	// by this header; it is sent on trigger webhooks only. Named here
 	// because the protocol module does not export the constant.
 	correlationIDHeader = "X-Correlation-ID"
-)
 
-// BackoffBase is the base duration for exponential retry backoff
-// (waits of BackoffBase, 2*BackoffBase, 4*BackoffBase between attempts).
-// Exported so tests can override it (remember to restore via t.Cleanup).
-var BackoffBase = time.Second
+	// defaultBackoffBase is the base duration for exponential retry backoff
+	// (waits of base, 2*base, 4*base between attempts).
+	defaultBackoffBase = time.Second
+)
 
 // Wire DTOs are defined in contextmatrix-protocol; aliased here so existing
 // call sites and tests keep compiling unchanged.
@@ -70,17 +69,32 @@ type ContainerInfo struct {
 
 // Client sends signed webhooks to the task backend.
 type Client struct {
-	httpClient *http.Client
-	baseURL    string
-	apiKey     string
+	httpClient  *http.Client
+	baseURL     string
+	apiKey      string
+	backoffBase time.Duration
 }
 
-func NewClient(baseURL, apiKey string) *Client {
-	return &Client{
-		httpClient: &http.Client{Timeout: requestTimeout},
-		baseURL:    baseURL,
-		apiKey:     apiKey,
+// ClientOption configures a Client.
+type ClientOption func(*Client)
+
+// WithBackoffBase replaces the one-second retry backoff base.
+func WithBackoffBase(d time.Duration) ClientOption {
+	return func(c *Client) { c.backoffBase = d }
+}
+
+func NewClient(baseURL, apiKey string, opts ...ClientOption) *Client {
+	c := &Client{
+		httpClient:  &http.Client{Timeout: requestTimeout},
+		baseURL:     baseURL,
+		apiKey:      apiKey,
+		backoffBase: defaultBackoffBase,
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	return c
 }
 
 // Trigger sends a trigger webhook to start a task. Each attempt carries its
@@ -323,7 +337,7 @@ func (c *Client) send(ctx context.Context, rawURL string, payload any, correlate
 		// past ~30 (1<<31 overflows int32 on 32-bit; 1<<63 overflows int64).
 		shift := min(attempt, 30)
 
-		base := time.Duration(1<<uint(shift)) * BackoffBase
+		base := time.Duration(1<<uint(shift)) * c.backoffBase
 		// jitter is in [-25%, +25%] of base
 		jitter := time.Duration(rand.Int64N(int64(base)/2) - int64(base)/4) //nolint:gosec // non-security jitter
 		backoff := base + jitter

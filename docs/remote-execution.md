@@ -763,7 +763,7 @@ code, message}`). `code` is the stable enum in the protocol module's
 | Rule                | Value                                                                 |
 | ------------------- | --------------------------------------------------------------------- |
 | Attempts            | 3 in total.                                                           |
-| Backoff             | 1s, 2s, 4s (`BackoffBase` doubling) with plus or minus 25% jitter.    |
+| Backoff             | 1s, 2s, 4s (a 1s base, doubling) with plus or minus 25% jitter.       |
 | Retried             | Network errors and HTTP 5xx.                                          |
 | Not retried         | HTTP 4xx, and a 2xx body with `ok: false`.                            |
 | Per-request timeout | 10 seconds.                                                           |
@@ -811,7 +811,7 @@ CM explicitly.
    at startup, then every `backends.agent.reconcile_interval` (default 60s).
    Each tick calls `GET /containers` and kills every card container whose
    card is missing, is in `done` / `not_planned`, or is older than
-   `ContainerMaxAge` (150 minutes). These kills reason only from the
+   `DefaultContainerMaxAge` (150 minutes). These kills reason only from the
    backend's list and the card store, never from `worker_status`. The same
    tick then marks a lost worker `failed`, with an activity entry: a card
    whose `worker_status` is `queued` or `running`, that two consecutive
