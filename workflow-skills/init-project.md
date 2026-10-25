@@ -54,7 +54,7 @@ Transitions:
 These are sensible defaults for most projects. The human may want to:
 
 - Change the name or prefix
-- Add extra states (e.g., add `qa`) or remove the optional `blocked` state
+- Add extra states (e.g., add `qa`) or remove the optional `blocked` state (removing it disables execute-task's blocked transition)
 - Add types (e.g., `chore`, `spike`)
 - Modify transitions (e.g., allow `not_planned` from additional states)
 - Clear the repo URL if they don't want it tracked

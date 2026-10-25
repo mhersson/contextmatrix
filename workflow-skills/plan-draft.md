@@ -133,17 +133,24 @@ content (passed as `upsert_section_content`, without the heading):
    Priority: high | Labels: [backend, security]
    Depends on: (none)
    Body: Create the token signer with Sign() and Verify() functions. Use RS256. Add unit tests.
+   Files: internal/auth/token.go, internal/auth/token_test.go
 
 2. SUBTASK: Add auth middleware to HTTP router
    Priority: high | Labels: [backend]
    Depends on: subtask 1
    Body: Create middleware that extracts Bearer token, calls Verify(), sets user context. Return 401 on failure.
+   Files: internal/api/middleware.go, internal/api/middleware_test.go
 ```
 
 Note: Do not include `Type` in subtask plans. The backend automatically sets the
 type to `subtask` for any card created with a `parent` field.
 
-Then write decisions with a second call,
+If the draft has a `## Split`, write it with a further call,
+`update_card(upsert_section_heading='Split', upsert_section_content=<entries>)`
+- one `### <title>` entry per extra deliverable, followed by its
+self-contained description.
+
+Then write decisions with a further call,
 `update_card(upsert_section_heading='Decisions', upsert_section_content=<decisions>)`
 - the drafting context that would otherwise die with your context. Keep it
 tight; omit empty subsections. Decisions content (passed as

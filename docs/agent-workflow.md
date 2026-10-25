@@ -275,7 +275,7 @@ orchestrators implement it:
 | Step                  | Local (workflow skills)                                      | Agent backend                                           |
 | --------------------- | ------------------------------------------------------------ | ------------------------------------------------------- |
 | Proposal              | `plan-draft` lists extras under a `## Split` heading         | Planner emits `followup_cards`                          |
-| Execution             | `create-plan` Phase 3 creates the cards before subtasks      | `createFollowups`, resume-safe via a `## Split` section |
+| Execution             | `create-plan` Phase 3 and `run-autonomous` Phase 2 create the cards before subtasks | `createFollowups`, resume-safe via a `## Split` section |
 | More than 4 new cards | `plan-draft` stops and presents the decomposition to a human | The run parks with `SplitOverflowError`                 |
 
 ### Unreachable acceptance criteria
@@ -330,7 +330,7 @@ main session, creates the card and offers next steps.
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Step 0  | `claim_card` before any exploration; the card moves to `in_progress` and stays claimed through Phase 5                                                                                                                    |
 | Phase 0 | Branch on card shape: A skips (maintenance label plus mechanical title); B spawns `systematic-debugging` for bug-like cards, writing `## Diagnosis`; C runs `brainstorming` inline (HITL only), writing `## Design`       |
-| Phase 1 | Spawn `plan-draft` with a Board-write identity block carrying the orchestrator's `agent_id`; it writes `## Plan` and `## Decisions` and prints `PLAN_DRAFTED` or `PLAN_BLOCKED`; the orchestrator confirms via `get_card` |
+| Phase 1 | Spawn `plan-draft` with a Board-write identity block carrying the orchestrator's `agent_id`; it writes `## Plan`, `## Decisions` and (for a deliverable split) `## Split`, and prints `PLAN_DRAFTED` or `PLAN_BLOCKED`; the orchestrator confirms via `get_card` |
 | Phase 2 | HITL presents `## Plan` and loops on feedback by respawning `plan-draft`; autonomous skips                                                                                                                                |
 | Phase 3 | Execute any `## Split`, re-read `## Plan` via `get_card`, dedupe against existing non-terminal subtasks by title, `create_card` each subtask inline                                                                       |
 | Phase 4 | HITL asks whether to start execution; autonomous skips                                                                                                                                                                    |
@@ -340,8 +340,8 @@ main session, creates the card and offers next steps.
 receives the field, pushes `cm/<lowercase-card-id>` instead
 (`cm/<lowercase-card-id>-<KEY>` for a Jira-imported card, e.g.
 `cm/api-012-PROJ-123`), and `report_push` then stores the branch it reports - see
-[`create_pr` semantics](data-model.md#create_pr-semantics)), claims the
-parent, calls `get_ready_tasks` and spawns one `execute-task` sub-agent per
+[`create_pr` semantics](data-model.md#create_pr-semantics)), keeps the
+parent claim from Step 0, calls `get_ready_tasks` and spawns one `execute-task` sub-agent per
 ready subtask via `Agent`, in parallel, sharing the working tree; never
 inline and never in a worktree. Each sub-agent:
 
@@ -370,9 +370,11 @@ unblocked subtasks and waits again. Phase 5 ends with `release_card`.
 **4. Documentation** (Phase 6) - always a sub-agent, for context isolation.
 It claims the parent (continuing without the claim on 409), reads parent and
 subtasks, decides whether external docs are needed at all, writes them to
-disk, commits only those files on the feature branch (never pushes or opens a
-PR), calls `report_usage` and `release_card`, and returns `DOCS_WRITTEN` with
-the files written. The orchestrator then reclaims the parent.
+disk, leaves them uncommitted when an orchestrator spawned it (the
+orchestrator commits them in Phase 9; invoked directly by a human it commits
+only those files on the feature branch), never pushes or opens a PR, calls
+`report_usage` and `release_card`, and returns `DOCS_WRITTEN` with the files
+written. The orchestrator then reclaims the parent.
 
 **5. Review** (Phase 7) - `start_review(card_id, agent_id)`
 atomically transitions the parent to `review` and returns `review-task` with
@@ -420,8 +422,9 @@ Autonomous auto-commits, pushes, opens the PR when `create_pr` is set (against
 `base_branch` when set) and calls `report_push`; HITL asks before committing
 and before pushing. PR gates run after `report_push` when
 `await_ci` or `await_copilot_review` is set and can park the card in
-`review`; with `merge_pr`, a passed `await_ci` gate also merges the PR
-before the card completes.
+`review`. `merge_pr` is honoured by the agent backend only (a passed
+`await_ci` gate then merges the PR before the card completes); skill-driven
+runs leave the PR open.
 
 **8. Finalization** (Phase 10) - reclaim, final `report_usage`,
 `transition_card` to `done`, `release_card` (mandatory).
@@ -440,7 +443,7 @@ resumes at the phase the card state implies:
 
 | Card state                                 | Starts at                                                             |
 | ------------------------------------------ | --------------------------------------------------------------------- |
-| `todo` or `in_progress`, no `## Plan`      | Phase 1 plan drafting: `create-plan` Phase 1 inline, drafting spawned |
+| `todo` or `in_progress`, no `## Plan`      | Phase 1 plan drafting: `plan-draft` spawned with the board-write identity block |
 | Has `## Plan`, no subtasks                 | Phase 2 subtask creation (inline)                                     |
 | Has subtasks, not all done                 | Phase 3 execution                                                     |
 | All subtasks done, no `## Review Findings` | Phase 4 documentation                                                 |
@@ -528,7 +531,7 @@ its stdin message. Agents cannot self-promote.
 - **Review (inline)** evaluates the work, writes
   `## Review Findings (Round N)` via `update_card`, prints `REVIEW_FINDINGS`
   and keeps the claim. It never asks the user; the orchestrator does.
-- **Documentation agent** writes and commits documentation files only. It
+- **Documentation agent** writes documentation files only. It
   claims and releases the parent but never changes its state or body.
 
 ## Sub-agent structured output

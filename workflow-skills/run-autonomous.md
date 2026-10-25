@@ -41,7 +41,7 @@ If `Complexity: simple`:
 6. Create a PR if `create_pr` is enabled (use `gh pr create`). If the card has
    a `base_branch` field set in its context, use `gh pr create --base <base_branch>`
    to target that branch instead of the default.
-7. Call `report_push(card_id, branch, pr_url)` after pushing.
+7. Call `report_push(card_id, agent_id, branch, pr_url)` after pushing.
 8. If the card context shows a PR-gate flag, run the PR Gates section before transitioning.
 9. Call `report_usage` with your token consumption (`prompt_tokens`, `completion_tokens`, `cache_read_tokens` / `cache_creation_tokens` as your best estimate; omit `source`).
 10. Transition to `done`: `transition_card(card_id, new_state='done')`.
@@ -91,29 +91,62 @@ Based on the card's current state and body content:
 
 ## Phase 1: Plan Drafting (orchestrator inline, drafting sub-agent)
 
-1. Call `get_skill(skill_name='create-plan', card_id='<card_id>',
-   caller_model='<your_model>')`.
-2. Append `\n\nYou are executing **Phase 1: Plan Drafting** only.` to the
-   returned content.
-3. Execute the returned Phase 1 instructions inline. They fetch the
-   plan-draft skill and call `heartbeat`, then spawn the drafting sub-agent
-   and block on it; on return call `heartbeat` and `report_usage`. The
-   sub-agent writes `## Plan` and `## Decisions` and prints
-   `PLAN_DRAFTED`.
+1. Call `get_skill(skill_name='plan-draft', card_id='<card_id>',
+   caller_model='<your_model>')`. The response has `inline: false`; never
+   execute plan-draft inline.
+2. Append this block to the returned `content`, filling in your own agent ID:
+
+   ```
+   ## Board-write identity
+
+   You were spawned by an orchestrator that holds the claim on this card.
+   For ALL board writes (update_card, add_log, report_usage, heartbeat),
+   pass agent_id=<orchestrator_agent_id> - the server enforces
+   agent_id == AssignedAgent. Do NOT call claim_card, release_card, or
+   transition_card.
+
+   For `report_usage` specifically: also pass `on_behalf_of="plan-draft"`
+   and set `model` to the model that actually served your calls (from your
+   system context), never derived from the orchestrator's or your own agent
+   name.
+   ```
+
+3. Call `heartbeat`, then spawn the drafting sub-agent via `Agent` with the
+   returned `model` (do not omit it), `description` `"draft plan for
+   <card_id>"`, and the `content` plus the block as `prompt`. Do NOT pass
+   `isolation: "worktree"` or `run_in_background`; block on completion. On
+   return call `heartbeat` and `report_usage`. The sub-agent writes `## Plan`
+   and `## Decisions` (and `## Split` when the card holds several
+   deliverables) and prints `PLAN_DRAFTED`; confirm `## Plan` via `get_card`.
+   On `PLAN_BLOCKED`, transition the card to `blocked` with the reason and
+   stop.
 4. Skip user approval - proceed directly to Phase 2.
 
 ## Phase 2: Subtask Creation (always inline)
 
 5. Call `get_card(card_id='<card_id>')` and read the `## Plan` section from
    the body - the plan was written by the drafting sub-agent and is not in
-   your context. Then call `list_cards(project=<project>, parent=<card_id>)`
-   to fetch existing subtasks. For each planned subtask, if a non-terminal subtask (any state
+   your context.
+
+   If the body has a `## Split` section, execute it before creating subtasks:
+   - For each split entry, call `create_card` (no parent) with its title and
+     self-contained body. Set `depends_on` to this card's ID (plus earlier
+     split cards) only where ordering is real. A split card has no parent and
+     is not deduplicated: on retry, `list_cards` for its title first.
+   - Copy this card's `autonomous` flag onto each new card with `update_card`.
+   - Narrow this card's body to the first deliverable with `update_card`.
+   - Call `add_log` on this card listing the created card IDs and the reason
+     for the split.
+   - Continue planning ONLY this (narrowed) card.
+
+   Then call `list_cards(project=<project>, parent=<card_id>)` to fetch
+   existing subtasks. For each planned subtask, if a non-terminal subtask (any state
    except `done`/`not_planned`) with the same title already exists
    (case-insensitive, trimmed), skip it and reuse the existing card's ID.
 6. For each subtask that does NOT already exist, call `create_card` with:
    - `parent`: the parent card ID
    - `title`, `body`, `priority`, `depends_on` as specified in the plan
-   - Note: the `type` field is automatically set to `subtask` by the backend
+   - `type: task` (the server stores `subtask`)
 7. Proceed directly to Phase 3.
 
 ## Phase 3: Execution (always sub-agents)
@@ -126,9 +159,10 @@ Based on the card's current state and body content:
       Do NOT execute inline even if `inline` is true.
     - **Do NOT pass `isolation: "worktree"`.** Sub-agents run inline in your working tree on the feature branch.
     - Spawn all ready subtasks in **parallel**.
-10. **Monitor sub-agents.** Report your token consumption since the last
-    report (`prompt_tokens`, `completion_tokens`, and `cache_read_tokens` /
-    `cache_creation_tokens`) - this is mandatory, not optional.
+10. **Monitor sub-agents.** Call `report_usage` with your token consumption
+    since the last report (`prompt_tokens`, `completion_tokens`, and
+    `cache_read_tokens` / `cache_creation_tokens`) - this is mandatory, not
+    optional.
 
     a. Call `await_subtasks(parent_id=<card_id>, agent_id=<your_agent_id>,
        timeout_seconds=480)` - only after step 9 has spawned the sub-agents;
@@ -170,8 +204,8 @@ Based on the card's current state and body content:
        step 3**. Add this instruction at the top of the prompt: "The previous
        agent stalled. The card body above contains its progress notes. Continue
        from where it left off."
-    5. Call `add_log(card_id=<id>, action='respawned',
-       message='Agent stalled, respawning (attempt N)')`.
+    5. Call `add_log(card_id=<card_id>, agent_id=<your_agent_id>,
+       action='respawned', message='Agent stalled, respawning <id> (attempt N)')`.
 
 11. Sub-agent changes are already in your working tree on the feature branch. Proceed to Phase 4.
 
@@ -260,7 +294,7 @@ Based on the card's current state and body content:
        referencing the card title and summarizing the work. If the card has a
        `base_branch` field, pass `--base <base_branch>` to `gh pr create` so
        the PR targets the correct branch.
-    c. Call `report_push(card_id, branch, pr_url)` with the PR URL (if a PR
+    c. Call `report_push(card_id, agent_id, branch, pr_url)` with the PR URL (if a PR
        was created) or just the branch name.
 20. If the card context shows a PR-gate flag, run the PR Gates section now. If
     it parks the card, stop here - do not transition to done.
@@ -351,7 +385,7 @@ Gates` section's counters carry the rounds already used; never reset them.
 
 - **NEVER push to main or master.** This is non-negotiable.
 - All work goes on the feature branch (if `branch_name` is set).
-- After pushing, call `report_push(card_id, branch, pr_url)`.
+- After pushing, call `report_push(card_id, agent_id, branch, pr_url)`.
 - Conventional commits: `type(scope): summary` + bullet-point body.
   **No card IDs in commit messages.**
 - When `base_branch` is set, PRs target that branch. The "never push to

@@ -176,16 +176,13 @@ If the failure spans multiple components and observability is the gap,
 include a "Diagnostic instrumentation" subsection naming the boundary
 log lines the fix should add.
 
-## HITL clarification gate (optional)
+## Open questions
 
-If the parent card has `autonomous: false` AND the investigation hits a
-question you genuinely cannot answer from the codebase (e.g. "which of
-these two reproductions did you actually see?"), you MAY ask one
-targeted question via the orchestrator before completing Phase 4.
-
-In autonomous mode, proceed with the most likely interpretation and
-note the assumption in the `### Risk / scope notes` section of the
-diagnosis.
+If the investigation hits a question you genuinely cannot answer from the
+codebase (e.g. "which of these two reproductions did you actually see?"),
+proceed with the most likely interpretation and note the open question under
+`### Risk / scope notes`. If the diagnosis cannot be completed without the
+answer, print `DIAGNOSIS_BLOCKED` with `needs_human: true`.
 
 ## Red Flags - STOP and Return to Phase 1
 
@@ -218,8 +215,8 @@ If you catch yourself thinking:
 
 ## Return
 
-When the `## Diagnosis` section is written and the user-confirmation gate
-(if applicable) has passed, print this **exact format** as the very last
+When the `## Diagnosis` section is written, call `report_usage` with your
+final token consumption, then print this **exact format** as the very last
 thing you do:
 
 ```
@@ -228,11 +225,12 @@ card_id: <parent_id>
 root_cause: <one-line summary>
 ```
 
-Then call `report_usage` with your final token consumption and exit.
+Then exit.
 
 **Never exit without printing `DIAGNOSIS_COMPLETE` or `DIAGNOSIS_BLOCKED`.** If you cannot
 complete the investigation (e.g. the codebase doesn't exist at the
-expected path, or the card body is unparseable), print:
+expected path, or the card body is unparseable), call `report_usage`, then
+print:
 
 ```
 DIAGNOSIS_BLOCKED

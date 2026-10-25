@@ -113,7 +113,7 @@ missing specialty's coverage.
 - Call `get_card` and `get_subtask_summary` for context.
 - Engage whichever installed specialist skills match your work (their
   descriptions say when); log each with
-  `add_log(action="skill_engaged", message="engaged <skill-name>", agent=<your agent_id>)`.
+  `add_log(card_id=<parent>, agent_id=<your agent_id>, action="skill_engaged", message="engaged <skill-name>")`.
 - **Before returning**, call
   `report_usage(card_id=<parent>, agent_id=<your agent_id>, on_behalf_of=<your specialist label>, model=<the model you are running, read fresh from your system context - never derived from an agent name>, prompt_tokens=..., completion_tokens=..., cache_read_tokens=..., cache_creation_tokens=...)`.
 - Return the output format below - nothing else.
