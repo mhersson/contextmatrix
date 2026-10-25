@@ -53,7 +53,7 @@ func projectsAuthTestServer(t *testing.T) (*httptest.Server, *http.Cookie) {
 		Name: "acme-pat", Kind: authstore.CredentialKindPAT, Secret: "ghp_test",
 	}, "human:root"))
 
-	router := NewRouter(RouterConfig{
+	router := newTestRouter(RouterConfig{
 		Service:          svc,
 		Bus:              bus,
 		AuthService:      authSvc,
@@ -130,7 +130,7 @@ func TestUpdateProject_GitHubCredential_NonEmptyRejected_NoneMode(t *testing.T) 
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -195,7 +195,7 @@ func projectsAuthTestServerWithNonAdmin(t *testing.T) (server *httptest.Server, 
 	require.NoError(t, err)
 	require.NoError(t, store.SetPasswordHash(t.Context(), bob.ID, bobHash, time.Now()))
 
-	router := NewRouter(RouterConfig{
+	router := newTestRouter(RouterConfig{
 		Service:     svc,
 		Bus:         bus,
 		AuthService: authSvc,

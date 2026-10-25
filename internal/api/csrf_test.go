@@ -27,7 +27,7 @@ func TestCSRFGuard_RejectsPOSTWithoutHeader(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
+	server := httptest.NewServer(newTestRouter(RouterConfig{Service: svc, Bus: bus}))
 	defer server.Close()
 
 	body := bytes.NewReader([]byte(`{"title":"x","type":"task","priority":"medium"}`))
@@ -51,7 +51,7 @@ func TestCSRFGuard_AcceptsPOSTWithHeader(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
+	server := httptest.NewServer(newTestRouter(RouterConfig{Service: svc, Bus: bus}))
 	defer server.Close()
 
 	body := bytes.NewReader([]byte(`{"title":"x","type":"task","priority":"medium"}`))
@@ -77,7 +77,7 @@ func TestCSRFGuard_AllowsGETWithoutHeader(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
+	server := httptest.NewServer(newTestRouter(RouterConfig{Service: svc, Bus: bus}))
 	defer server.Close()
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,

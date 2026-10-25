@@ -206,25 +206,21 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 	// Mint the git token scoped to the project's repository. Fail closed: a
 	// broken binding rejects the run - never the instance credential by
 	// accident. An unparseable repo URL arrives as "": a PAT ignores it and
-	// the App provider errors before any request. No provider means no
-	// GitHub credential is configured: the trigger carries no git token and
-	// the backend refuses the run.
+	// the App provider errors before any request.
 	provider, _, providerErr := h.providerForProject(ctx, project)
 	if providerErr != nil {
 		return nil, h.rejectLaunchForCredentialFailure(ctx, project, id, providerErr)
 	}
 
-	if provider != nil {
-		repoName, _ := repoNameFromURL(projectCfg.Repo)
+	repoName, _ := repoNameFromURL(projectCfg.Repo)
 
-		token, expiresAt, tokenErr := provider.GenerateRepoToken(ctx, repoName)
-		if tokenErr != nil {
-			return nil, h.rejectLaunchForCredentialFailure(ctx, project, id, tokenErr)
-		}
-
-		payload.GitToken = token
-		payload.GitTokenExpiresAt = tokenExpiryString(expiresAt)
+	token, expiresAt, tokenErr := provider.GenerateRepoToken(ctx, repoName)
+	if tokenErr != nil {
+		return nil, h.rejectLaunchForCredentialFailure(ctx, project, id, tokenErr)
 	}
+
+	payload.GitToken = token
+	payload.GitTokenExpiresAt = tokenExpiryString(expiresAt)
 
 	payload.LLMEndpoint = h.llmEndpoint
 

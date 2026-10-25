@@ -179,7 +179,7 @@ func (h *backendHandlers) getGitCredentials(w http.ResponseWriter, r *http.Reque
 	}
 
 	provider, _, err := h.providerForProject(r.Context(), project)
-	if err != nil || provider == nil {
+	if err != nil {
 		writeError(w, http.StatusConflict, ErrCodeValidationError, "project credential unavailable", sanitizeErrorDetails(err))
 
 		return

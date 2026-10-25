@@ -371,7 +371,7 @@ func TestRouter_WiresTheBlueprintRelay(t *testing.T) {
 	_, mgr := newChatFixture(t, opts)
 	bp := seedBlueprint(t, mgr, "human:web")
 
-	srv := httptest.NewServer(NewRouter(RouterConfig{
+	srv := httptest.NewServer(newTestRouter(RouterConfig{
 		ChatManager: mgr, ChatHub: chat.NewSSEHub(8), ArchitectBackendCfg: opts.architectBackendCfg,
 	}))
 	t.Cleanup(srv.Close)

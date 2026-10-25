@@ -21,7 +21,7 @@ func cardDefaultsServer(t *testing.T) *httptest.Server {
 	svc, bus, cleanup := testSetup(t)
 	t.Cleanup(cleanup)
 
-	router := NewRouter(RouterConfig{
+	router := newTestRouter(RouterConfig{
 		Service: svc,
 		Bus:     bus,
 		BestOfN: config.BestOfNConfig{MaxCandidates: 5},

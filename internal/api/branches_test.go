@@ -88,7 +88,7 @@ func TestListBranches_NoGitHubRepo(t *testing.T) {
 	provider, err := githubauth.NewPATProvider("test-token")
 	require.NoError(t, err)
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, GitHubTokenProvider: provider})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, GitHubTokenProvider: provider})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -113,7 +113,7 @@ func TestListBranches_NonGitHubRepo(t *testing.T) {
 	provider, err := githubauth.NewPATProvider("test-token")
 	require.NoError(t, err)
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, GitHubTokenProvider: provider})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, GitHubTokenProvider: provider})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -137,7 +137,7 @@ func TestListBranches_ProjectNotFound(t *testing.T) {
 	provider, err := githubauth.NewPATProvider("test-token")
 	require.NoError(t, err)
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, GitHubTokenProvider: provider})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, GitHubTokenProvider: provider})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -250,7 +250,7 @@ func TestBranchHandler_UsesProviderToken(t *testing.T) {
 		GitHubAPIBaseURL:    upstream.URL,
 		GitHubAllowedHosts:  []string{"github.com"},
 	}
-	mux := NewRouter(cfg)
+	mux := newTestRouter(cfg)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/projects/gh-project/branches", nil)
@@ -317,8 +317,8 @@ func TestBranchHandler_ProviderForProject_UsesBoundProvider(t *testing.T) {
 
 // TestBranchHandler_ProviderForProject_CredentialUnavailable asserts that a
 // named-but-broken credential binding fails closed with a 422
-// VALIDATION_ERROR rather than silently falling back to the fixed
-// provider/baseURL.
+// VALIDATION_ERROR rather than silently falling back to the instance
+// provider.
 func TestBranchHandler_ProviderForProject_CredentialUnavailable(t *testing.T) {
 	svc, bus, cleanup := testSetupWithGitHubRepo(t, "https://github.com/owner/repo")
 	defer cleanup()
@@ -335,7 +335,7 @@ func TestBranchHandler_ProviderForProject_CredentialUnavailable(t *testing.T) {
 			return nil, "", auth.ErrCredentialUnavailable
 		},
 	}
-	mux := NewRouter(cfg)
+	mux := newTestRouter(cfg)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/projects/gh-project/branches", nil)

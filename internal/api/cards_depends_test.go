@@ -25,7 +25,7 @@ func TestPatchCard_DependsOn(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
+	server := httptest.NewServer(newTestRouter(RouterConfig{Service: svc, Bus: bus}))
 	defer server.Close()
 
 	depTarget, err := svc.CreateCard(t.Context(), "test-project", service.CreateCardInput{

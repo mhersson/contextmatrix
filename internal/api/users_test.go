@@ -102,7 +102,7 @@ func TestListUsers_NoneModeNotFound(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)

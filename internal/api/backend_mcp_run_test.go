@@ -24,7 +24,7 @@ func mcpRunner(t *testing.T) (mcpserver.CardRunner, *captureBackend, *service.Ca
 	cb := newCaptureBackend(t)
 	slot := &mcpserver.RunnerSlot{}
 
-	NewRouter(RouterConfig{
+	newTestRouter(RouterConfig{
 		Service: svc, Bus: bus, Playbooks: pbSvc, Backend: cb.client(),
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 		MCPCardRunner:   slot,
@@ -38,7 +38,7 @@ func TestMCPRunCard_NoBackendLeavesSlotEmpty(t *testing.T) {
 	svc, _, bus, _ := playbookTestSetup(t)
 	slot := &mcpserver.RunnerSlot{}
 
-	NewRouter(RouterConfig{Service: svc, Bus: bus, MCPCardRunner: slot})
+	newTestRouter(RouterConfig{Service: svc, Bus: bus, MCPCardRunner: slot})
 
 	assert.Nil(t, slot.Get())
 }

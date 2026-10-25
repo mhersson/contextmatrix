@@ -37,7 +37,7 @@ func TestBackendImages_Agent(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	t.Cleanup(cleanup)
 
-	router := NewRouter(RouterConfig{
+	router := newTestRouter(RouterConfig{
 		Service: svc, Bus: bus,
 		Backend: backend.NewClient(upstream.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"),
 	})
@@ -70,7 +70,7 @@ func TestBackendImages_Chat(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	t.Cleanup(cleanup)
 
-	router := NewRouter(RouterConfig{
+	router := newTestRouter(RouterConfig{
 		Service: svc, Bus: bus,
 		ChatBackendCfg: &config.ChatBackendConfig{
 			URL:    upstream.URL,
@@ -90,7 +90,7 @@ func TestBackendImages_UnknownBackend404(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	t.Cleanup(cleanup)
 
-	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
+	server := httptest.NewServer(newTestRouter(RouterConfig{Service: svc, Bus: bus}))
 	t.Cleanup(server.Close)
 
 	resp := doGet(t, server.URL+"/api/backends/runner/images")
@@ -103,7 +103,7 @@ func TestBackendImages_NotConfigured503(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	t.Cleanup(cleanup)
 
-	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
+	server := httptest.NewServer(newTestRouter(RouterConfig{Service: svc, Bus: bus}))
 	t.Cleanup(server.Close)
 
 	for _, name := range []string{"agent", "chat"} {
@@ -120,7 +120,7 @@ func TestBackendImages_UpstreamError502(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	t.Cleanup(cleanup)
 
-	router := NewRouter(RouterConfig{
+	router := newTestRouter(RouterConfig{
 		Service: svc, Bus: bus,
 		Backend: backend.NewClient(upstream.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"),
 	})

@@ -45,7 +45,7 @@ func TestTriggerSync_Enabled(t *testing.T) {
 		statuses: []gitsync.SyncStatus{{Repo: "boards", Enabled: true}},
 	}
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -70,7 +70,7 @@ func TestTriggerSync_Disabled(t *testing.T) {
 	defer cleanup()
 
 	// No syncer → sync disabled.
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Syncer: nil})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Syncer: nil})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -98,7 +98,7 @@ func TestTriggerSync_Error(t *testing.T) {
 		statuses:   []gitsync.SyncStatus{{Repo: "boards", Enabled: true, LastSyncError: "rebase conflict"}},
 	}
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -123,7 +123,7 @@ func TestTriggerSync_RepoQuery(t *testing.T) {
 	defer cleanup()
 
 	syncer := &mockSyncer{statuses: []gitsync.SyncStatus{{Repo: "team", Enabled: true}, {Repo: "private"}}}
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -149,7 +149,7 @@ func TestTriggerSync_UnknownRepoIsBadRequest(t *testing.T) {
 	defer cleanup()
 
 	syncer := &mockSyncer{triggerErr: fmt.Errorf("%w: %q", storage.ErrUnknownRepo, "nope")}
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -173,7 +173,7 @@ func TestTriggerSync_DisabledRepoIs503(t *testing.T) {
 	defer cleanup()
 
 	syncer := &mockSyncer{triggerErr: fmt.Errorf("private: %w", gitsync.ErrSyncDisabled)}
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -202,7 +202,7 @@ func TestGetSyncStatus_Enabled(t *testing.T) {
 		statuses: []gitsync.SyncStatus{{Repo: "boards", Enabled: true, Syncing: false}},
 	}
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -226,7 +226,7 @@ func TestGetSyncStatus_Disabled(t *testing.T) {
 	defer cleanup()
 
 	// No syncer → disabled.
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Syncer: nil})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Syncer: nil})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -247,7 +247,7 @@ func TestGetSyncStatus_NoSyncerIsAnEmptyList(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -270,7 +270,7 @@ func TestRecalculateCosts_Success(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -299,7 +299,7 @@ func TestRecalculateCosts_MissingModel(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -326,7 +326,7 @@ func TestRecalculateCosts_InvalidJSON(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -352,7 +352,7 @@ func TestRecalculateCosts_ProjectNotFound(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()

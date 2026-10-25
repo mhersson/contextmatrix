@@ -56,7 +56,7 @@ func triggerVerifyPayload(t *testing.T, svc *service.CardService, bus *events.Bu
 	t.Cleanup(mockBackend.Close)
 
 	backendClient := backend.NewClient(mockBackend.URL, apiKey)
-	router := NewRouter(RouterConfig{
+	router := newTestRouter(RouterConfig{
 		Service: svc, Bus: bus, Backend: backendClient,
 		AgentBackendCfg: &config.AgentBackendConfig{
 			APIKey:       apiKey,

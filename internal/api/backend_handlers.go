@@ -102,9 +102,7 @@ type backendHandlers struct {
 	// providerForProject resolves the project-scoped git-token provider used
 	// to mint the trigger payload's GitToken: the project's credential
 	// binding when set (fail-closed on a broken one), else the instance
-	// provider. Never nil (NewRouter defaults it); a nil provider means no
-	// credential is configured, and the backend refuses a trigger without a
-	// git token.
+	// provider. Never nil: NewRouter defaults it.
 	providerForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string, error)
 
 	// llmEndpoint is the CM-provisioned inference endpoint attached to every

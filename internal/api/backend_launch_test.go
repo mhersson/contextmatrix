@@ -133,7 +133,7 @@ func newLaunchHandlers(t *testing.T, svc *service.CardService, cb *captureBacken
 		backendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 		mcpAPIKey:  "test-mcp-key",
 		providerForProject: func(context.Context, string) (githubauth.TokenGenerator, string, error) {
-			return nil, "", nil
+			return &fakeTokenProvider{}, "", nil
 		},
 	}
 }

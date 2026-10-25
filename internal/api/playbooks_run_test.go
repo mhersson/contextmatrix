@@ -72,7 +72,7 @@ func runnablePlaybookServerOpts(
 		Clock: clock.Fake(time.Date(2026, 9, 6, 10, 0, 0, 0, time.UTC)), Instance: "", Tick: time.Hour,
 	})
 
-	router := NewRouter(RouterConfig{
+	router := newTestRouter(RouterConfig{
 		Service: svc, Bus: bus, Playbooks: pbSvc, PlaybookRunner: runner,
 		Backend: cb.client(), AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"}, MCPAPIKey: "test-mcp-key",
 	})
@@ -227,7 +227,7 @@ func TestPlaybooksAPI_RunWithoutRunnerIs503(t *testing.T) {
 	svc, pbSvc, bus, cleanup := playbookTestSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -279,7 +279,7 @@ func TestPlaybooksAPI_StopAnswers502WhenTheKillFails(t *testing.T) {
 func TestPlaybooksAPI_PlayWithoutBackendIs503(t *testing.T) {
 	svc, pbSvc, bus, _ := playbookTestSetup(t)
 	runner := playbookrun.New(playbookrun.Config{Playbooks: pbSvc, Lister: playbookStoreOf(t, pbSvc), Cards: svc, Bus: bus, Tick: time.Hour})
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc, PlaybookRunner: runner})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc, PlaybookRunner: runner})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -310,7 +310,7 @@ func TestPlaybooksAPI_PlayWithoutBackendIs503(t *testing.T) {
 func TestPlaybooksAPI_PlayOnNotRunnableIs409(t *testing.T) {
 	svc, pbSvc, bus, _ := playbookTestSetup(t)
 	runner := playbookrun.New(playbookrun.Config{Playbooks: pbSvc, Lister: playbookStoreOf(t, pbSvc), Cards: svc, Bus: bus, Tick: time.Hour})
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc, PlaybookRunner: runner})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc, PlaybookRunner: runner})
 
 	server := httptest.NewServer(router)
 	defer server.Close()

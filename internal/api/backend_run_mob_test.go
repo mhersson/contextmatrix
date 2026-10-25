@@ -66,7 +66,7 @@ func runMobTrigger(t *testing.T, mobCfg config.MobConfig, patch *service.PatchCa
 	t.Cleanup(mockBackend.Close)
 
 	backendClient := backend.NewClient(mockBackend.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
-	router := NewRouter(RouterConfig{
+	router := newTestRouter(RouterConfig{
 		Service: svc, Bus: bus, Backend: backendClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 		BestOfN:         config.BestOfNConfig{MaxCandidates: 5, DefaultCandidates: 3},
