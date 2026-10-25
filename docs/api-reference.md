@@ -1271,7 +1271,9 @@ Deletes the card file (git history keeps it). **204 No Content**.
 
 **Errors:** 404 `CARD_NOT_FOUND`; 403 `AGENT_MISMATCH` on a claimed card the
 caller does not own; 422 `VALIDATION_ERROR` when the card still has subtasks
-("cannot delete card with N subtask(s)"); 409 `WORKER_CONFLICT` while a card that
+("cannot delete card with N subtask(s)") or a card that is not `done` or
+`not_planned` lists it in `depends_on` (the message names those cards); 409
+`WORKER_CONFLICT` while a card that
 is not `done` or `not_planned` has its worker `queued` or `running`. Stop the
 worker first. When the reconcile sweep is enabled (a non-zero
 `reconcile_interval`), it marks a worker the backend no longer has `failed`

@@ -940,9 +940,10 @@ func TestGetCard_BlockedByField(t *testing.T) {
 	assert.True(t, *fetched.DependenciesMet)
 	assert.Nil(t, fetched.BlockedBy)
 
-	// Deleting a dependency does not strip it from dependents: the transition
-	// stays blocked by the unknown id, so blocked_by keeps naming it.
-	require.NoError(t, svc.DeleteCard(ctx, "test-project", depA.ID))
+	// A dangling dependency (the service refuses this delete; a hand edit or
+	// a reopened terminal dependent gets here) keeps the transition blocked by
+	// the unknown id, so blocked_by keeps naming it.
+	require.NoError(t, svc.store.DeleteCard(ctx, "test-project", depA.ID))
 
 	fetched, err = svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
@@ -6628,7 +6629,7 @@ func TestPatchCard_ReferenceValidation(t *testing.T) {
 
 	newPriority := func(s string) *string { return &s }
 
-	t.Run("stale depends_on reference is rejected", func(t *testing.T) {
+	t.Run("stale depends_on stays editable but a new missing id is rejected", func(t *testing.T) {
 		svc, _, cleanup := setupTest(t)
 		defer cleanup()
 
@@ -6643,12 +6644,17 @@ func TestPatchCard_ReferenceValidation(t *testing.T) {
 		card.DependsOn = []string{"TEST-999"}
 		require.NoError(t, svc.store.UpdateCard(ctx, "test-project", card))
 
-		// PatchCard (even a no-op field change) must surface the bad reference.
-		_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
 			Priority: newPriority("high"),
 		})
-		require.Error(t, err)
-		assert.ErrorContains(t, err, "TEST-999")
+		require.NoError(t, err)
+		assert.Equal(t, "high", patched.Priority)
+
+		_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			DependsOn: []string{"TEST-999", "TEST-998"},
+		})
+		require.ErrorIs(t, err, board.ErrDependenciesNotMet)
+		assert.ErrorContains(t, err, "TEST-998")
 	})
 
 	t.Run("stale parent reference is rejected", func(t *testing.T) {

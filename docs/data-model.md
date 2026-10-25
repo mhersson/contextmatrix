@@ -198,14 +198,17 @@ live in [architecture](architecture.md); the HTTP surface in the
     - No `card.created` event is published for the returned card, and
       `next_id` still increments.
 
-14. **Card deletion requires no subtasks.** `DELETE .../cards/{id}` removes
-    the file (`os.Remove`) and enqueues a `CommitKindFile` commit; go-git
-    records the deletion when the missing path is staged. It returns 422
-    `VALIDATION_ERROR` if the card has subtasks, 403 if the card is claimed
-    by another agent, and 409 `WORKER_CONFLICT` while its `worker_status` is
-    `queued` or `running` and it is not `done` or `not_planned`. The web UI
-    enables Delete only for `todo` or `not_planned` cards with no
-    `assigned_agent`, behind a `ConfirmModal`.
+14. **Card deletion requires no subtasks and no open dependents.**
+    `DELETE .../cards/{id}` removes the file (`os.Remove`) and enqueues a
+    `CommitKindFile` commit; go-git records the deletion when the missing path
+    is staged. It returns 422 `VALIDATION_ERROR` if the card has subtasks or a
+    card outside `done` and `not_planned` lists it in `depends_on`, since that
+    dependent could never satisfy its gate again. A terminal dependent keeps the
+    dangling id. It returns 403 if the card is claimed by another agent, and
+    409 `WORKER_CONFLICT` while its `worker_status` is `queued` or `running`
+    and it is not `done` or `not_planned`. The web UI enables Delete only for
+    `todo` or `not_planned` cards with no `assigned_agent`, behind a
+    `ConfirmModal`.
 
 ## Card file format
 
@@ -1164,8 +1167,10 @@ The check runs under `writeMu`.
 `depends_on` is settable on `PATCH`, `create_card` and `update_card`. On
 `PATCH` and `update_card`, omitting it leaves the list
 unchanged and `[]` clears it, the same nil/empty convention as `labels`.
-Reference and cycle checks run against the resulting card, so an existing
-`depends_on` is re-validated even when a patch touches other fields.
+The cycle check runs against the resulting card, so an existing cycle is
+caught even when a patch touches other fields. The existence check covers only
+the ids the change adds: an id already on the card passes even after its card
+is deleted, so the dependent stays editable.
 
 ## `create_pr` semantics
 

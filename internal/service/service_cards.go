@@ -1349,6 +1349,25 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 	}
 }
 
+// liveDependents returns the ids of non-terminal cards in project whose
+// depends_on lists id.
+func (s *CardService) liveDependents(ctx context.Context, project, id string) ([]string, error) {
+	cards, err := s.store.ListCards(ctx, project, storage.CardFilter{})
+	if err != nil {
+		return nil, fmt.Errorf("list cards: %w", err)
+	}
+
+	var ids []string
+
+	for _, c := range cards {
+		if !board.IsTerminalState(c.State) && slices.Contains(c.DependsOn, id) {
+			ids = append(ids, c.ID)
+		}
+	}
+
+	return ids, nil
+}
+
 // DeleteCard removes a card from the project.
 //
 // Async-commit rollback: the store removes the card from cache + disk
@@ -1403,6 +1422,26 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 			Field:   "id",
 			Value:   id,
 			Message: fmt.Sprintf("cannot delete card with %d subtask(s): %s", len(children), strings.Join(childIDs, ", ")),
+		})
+	}
+
+	// A terminal dependent never transitions again, so its dangling
+	// depends_on entry is harmless; a live one would be blocked for good.
+	dependents, err := s.liveDependents(ctx, project, id)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return fmt.Errorf("check dependents: %w", err)
+	}
+
+	if len(dependents) > 0 {
+		s.writeMu.Unlock()
+
+		return fmt.Errorf("delete card: %w", &board.ValidationError{
+			Err:     board.ErrInvalidType,
+			Field:   "id",
+			Value:   id,
+			Message: fmt.Sprintf("cannot delete card that %d open card(s) depend on: %s", len(dependents), strings.Join(dependents, ", ")),
 		})
 	}
 
@@ -1780,7 +1819,7 @@ func (s *CardService) applyCardMutation(
 	// validate+persist so the written card reflects the invariants.
 	s.applyTerminalInvariants(project, card, oldState)
 
-	if err := s.runValidatorsAndDeps(ctx, project, id, card, cfg, opts.skipValidators); err != nil {
+	if err := s.runValidatorsAndDeps(ctx, project, id, card, snapshot.DependsOn, cfg, opts.skipValidators); err != nil {
 		s.writeMu.Unlock()
 
 		return nil, err
@@ -1804,12 +1843,15 @@ func (s *CardService) applyCardMutation(
 
 // runValidatorsAndDeps runs ValidateCard and, when skipValidators is false,
 // also validates cross-card references and checks for dependency cycles.
-// writeMu must be held by the caller; on error the caller is responsible for
-// releasing writeMu before returning.
+// Only depends_on ids absent from prevDependsOn must exist: an id the card
+// already held stays valid after its card is deleted, so the dependent remains
+// editable. writeMu must be held by the caller; on error the caller is
+// responsible for releasing writeMu before returning.
 func (s *CardService) runValidatorsAndDeps(
 	ctx context.Context,
 	project, id string,
 	card *board.Card,
+	prevDependsOn []string,
 	cfg *board.ProjectConfig,
 	skipValidators bool,
 ) error {
@@ -1821,7 +1863,11 @@ func (s *CardService) runValidatorsAndDeps(
 		return nil
 	}
 
-	if err := s.validateCardReferences(ctx, project, card.Parent, card.DependsOn); err != nil {
+	added := slices.DeleteFunc(slices.Clone(card.DependsOn), func(dep string) bool {
+		return slices.Contains(prevDependsOn, dep)
+	})
+
+	if err := s.validateCardReferences(ctx, project, card.Parent, added); err != nil {
 		return err
 	}
 
