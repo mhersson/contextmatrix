@@ -37,7 +37,8 @@ export function notifyChatSessionsChanged() {
  * single refetch within a 100 ms window.
  *
  * Status changes the server makes on its own (worker idle-out, backend
- * reconcile) fire no event, so a visible tab also refetches every
+ * reconcile) fire no event for a session without an open pane (an open
+ * pane's stream reports them), so a visible tab also refetches every
  * CHAT_SESSIONS_POLL_MS and when it becomes visible again.
  */
 export function useChatSessions(): UseChatSessions {

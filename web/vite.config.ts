@@ -16,7 +16,6 @@ export default defineConfig({
     // No manualChunks: under rolldown a vendor split pulls react/jsx-runtime
     // into the md-editor chunk, so the entry imports it and index.html
     // preloads it on every page. Default splitting keeps the editor lazy.
-    chunkSizeWarningLimit: 1200,
   },
   test: {
     environment: 'jsdom',

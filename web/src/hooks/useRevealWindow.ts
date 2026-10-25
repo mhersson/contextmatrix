@@ -41,9 +41,9 @@ export function useRevealWindow<T>(
 
   // Adjust synchronously in render when the list identity changes, as the
   // sessionID reset in ChatThread does. The whole previous array is the
-  // baseline (not just its length): at ring capacity an append changes items[0] with the length
-  // unchanged, and a length-gated baseline would go stale and misclassify
-  // later growth.
+  // baseline (not just its length): at ring capacity an append changes
+  // items[0] with the length unchanged, and a length-gated baseline would go
+  // stale and misclassify later growth.
   const [prevItems, setPrevItems] = useState(items);
   if (items !== prevItems) {
     setPrevItems(items);

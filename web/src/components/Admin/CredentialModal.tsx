@@ -18,8 +18,7 @@ interface CredentialModalProps {
  * prop contract (`{open, mode, existing?, onClose, onSaved}`) has no
  * `busy`/`error` props, so AdminCredentialsPage only reacts to `onSaved`
  * (refetch) and `onClose` (dismiss) rather than driving the request itself.
- * Field markup lives in `CredentialFields` (split out to stay under the
- * ~150-line component guideline); this file owns state, the submit call,
+ * Field markup lives in `CredentialFields`; this file owns state, the submit call,
  * and the dialog chrome (backdrop, focus trap, error display, actions).
  */
 export function CredentialModal({ open, mode, existing, onClose, onSaved }: CredentialModalProps) {
