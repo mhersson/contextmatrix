@@ -2161,7 +2161,9 @@ value decides whether the worker opens a pull request. The worker pushes its
 own `cm/<lowercase-card-id>` branch (`cm/<lowercase-card-id>-<KEY>` for a
 Jira-imported card, key uppercase); `report_push` afterward sets the stored
 `branch_name` to the worker-reported value. The trigger payload carries a
-project-scoped git token (`git_token`, `git_token_expires_at`) and the `llm_endpoint`.
+git token (`git_token`, `git_token_expires_at`) and the `llm_endpoint`. For a GitHub
+App credential the token covers the project's repository only; a PAT is passed
+through unchanged.
 
 Returns **202 Accepted** with the updated card (`worker_status: "queued"`) as
 soon as the backend webhook is accepted; the container is provisioned
@@ -2174,7 +2176,7 @@ asynchronously.
 | 409    | `INVALID_TRANSITION`  | Card is not in `todo`                                                                                      |
 | 409    | `WORKER_CONFLICT`     | Card is already `queued` or `running`                                                                      |
 | 409    | `PLAYBOOK_RUN_ACTIVE` | The card's playbook run is `running` or `waiting`, including a Run that wins a race                       |
-| 409    | `VALIDATION_ERROR`    | The project's `github_credential` binding is broken (worker status reverts, activity entry `run-rejected`) |
+| 409    | `VALIDATION_ERROR`    | The project's `github_credential` binding is broken, or a git token cannot be minted for the project repo (the App is not installed on it, or `repo` is not an owner/repo remote); worker status reverts, activity entry `run-rejected` |
 | 502    | `BACKEND_UNAVAILABLE` | Webhook failed                                                                                             |
 | 503    | `BACKEND_DISABLED`    | No task backend configured                                                                                 |
 
@@ -2392,14 +2394,17 @@ is absent for PAT-backed credentials (no server-managed TTL; absent means
 
 ### GET /api/agent/git-credentials
 
-Re-mints the project-scoped git token mid-run - App installation tokens live
+Re-mints the git token mid-run - App installation tokens live
 about an hour while card runs can go far longer.
 
 Query parameters `project` and `card_id` are both required (400). The card
 must exist and have `worker_status: running`, so the endpoint is not a free
 token faucet. The token is minted from the project's `github_credential`
 binding (or the instance credential when unbound); a broken binding fails
-closed and never substitutes the instance credential.
+closed and never substitutes the instance credential. The token covers the
+project's repository only (the repository named by the project's `repo`); a PAT
+is returned unchanged, and an App credential whose project `repo` is not an
+`owner/repo` remote gets a 502.
 
 ```json
 { "token": "ghs_...", "expires_at": "2026-07-05T13:00:00Z" }
@@ -2445,9 +2450,15 @@ dots, and `.git` suffixes normalized) against every project's `repo` or
 `repos`; only an exact `owner/repo` match selects a project. A matched
 project resolves through its `github_credential` binding (fail-closed on a
 broken binding; an unbound project uses the instance credential). No match
-resolves to the instance-wide `github.*` credential. Both parameters omitted
-(the shape a repo-less `gh` call sends) skips matching and also resolves to
-the instance credential; exactly one present is 400.
+resolves to the instance-wide `github.*` credential. Either way the minted
+token covers only the requested repository (the bare repo name; a PAT is
+returned unchanged), never the whole installation. A request is refused with
+403 when both parameters are omitted, when `path` is not exactly
+`owner/repo`, or when the repo name is that of a repository CM pushes to
+itself (a boards repo or the task-skills repo). The deny check compares the
+bare name only, because GitHub scopes an installation token by name inside
+the installation's account: a same-named repo under another owner or host is
+refused too. Exactly one parameter present is 400.
 
 ```json
 { "username": "x-access-token", "token": "ghs_...", "expires_at": "2026-07-05T13:00:00Z" }
@@ -2460,11 +2471,12 @@ for PAT-backed credentials.
 | ------ | -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | 400    | `BAD_REQUEST`        | Exactly one of `host`/`path` is missing                                                                                    |
 | 401    | `UNAUTHORIZED`       | Bearer absent, malformed, fails the HMAC comparison against every configured key, or was minted for the other session kind |
+| 403    | `FORBIDDEN`          | Both `host`/`path` omitted, `path` is not `owner/repo`, or the repo name is a boards or task-skills repo                  |
 | 404    | `CHAT_NOT_FOUND`     | The session id embedded in the bearer does not exist                                                                       |
 | 409    | `WORKER_NOT_RUNNING` | The session exists but is cold (chat container gone, or blueprint ended)                                                   |
 | 409    | `VALIDATION_ERROR`   | Matched project's binding is broken, or no provider is configured at all                                                   |
 | 500    | `INTERNAL_ERROR`     | Session-liveness lookup failed for another reason                                                                          |
-| 502    | `INTERNAL_ERROR`     | A provider resolved but minting failed                                                                                     |
+| 502    | `INTERNAL_ERROR`     | A provider resolved but the scoped mint failed                                                                             |
 
 Neither the bearer nor any minted token is ever logged or echoed in
 `details`. The route is registered when the chat manager is wired and at

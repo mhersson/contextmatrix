@@ -127,7 +127,7 @@ entry; `TokenProviderFor` (`internal/auth/credentials.go`) resolves it into a
 cached `githubauth.TokenGenerator` scoping that project's GitHub operations:
 issue import (`cmd/contextmatrix/main.go`), branch listing
 (`internal/api/branches.go`) and the git token minted for a run's worker
-(`internal/api/backend_run.go`). Boards-repo git always uses the instance
+(`internal/api/backend_launch.go`). Boards-repo git always uses the instance
 provider (`cmd/contextmatrix/wire_repos.go`). `newProviderForProject`
 (`cmd/contextmatrix/provider.go`) fails closed on a broken binding and never
 substitutes the instance credential. Unbound projects use the instance-wide
@@ -172,6 +172,19 @@ accept it and is admin-gated in multi mode.
 
 "UI = human" holds in both modes: a convention behind the CSRF gate in none
 mode, a proof in multi mode.
+
+### Worker credentials
+
+Every process in a worker container shares one UID, so any GitHub token a worker
+holds is readable by its dependencies. CM therefore mints worker tokens for a
+single repository: the card's project repo for agent runs (trigger token and
+mid-run refresh), and the requested repo for chat and architect sessions, which
+are refused the boards and task-skills repos. A GitHub App token is an
+installation token limited to that repo; a PAT cannot be narrowed and is handed
+over as is. A failed mint fails the request; there is no fallback to the broad
+token. CM's own GitHub use (boards push, task-skills pull, issue import, branch
+listing) keeps the broad installation token. Contract:
+[API reference](api-reference.md) and [remote execution](remote-execution.md).
 
 ### Model-written mockups
 

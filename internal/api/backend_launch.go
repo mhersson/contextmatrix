@@ -204,15 +204,19 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 	payload.CreateBaseBranch = opts.createBaseBranch
 	payload.BaseBranchFrom = opts.baseBranchFrom
 
-	// Mint the project-scoped git token. Fail closed: a broken binding
-	// rejects the run - never the instance credential by accident.
+	// Mint the git token scoped to the project's repository. Fail closed: a
+	// broken binding rejects the run - never the instance credential by
+	// accident. An unparseable repo URL arrives as "": a PAT ignores it and
+	// the App provider errors before any request.
 	if h.providerForProject != nil {
 		provider, _, providerErr := h.providerForProject(ctx, project)
 		if providerErr != nil {
 			return nil, h.rejectLaunchForCredentialFailure(ctx, project, id, providerErr)
 		}
 
-		token, expiresAt, tokenErr := provider.GenerateToken(ctx)
+		repoName, _ := repoNameFromURL(projectCfg.Repo)
+
+		token, expiresAt, tokenErr := provider.GenerateRepoToken(ctx, repoName)
 		if tokenErr != nil {
 			return nil, h.rejectLaunchForCredentialFailure(ctx, project, id, tokenErr)
 		}
@@ -243,7 +247,7 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 
 // rejectLaunchForCredentialFailure returns the fail-closed 409 refusal for a
 // broken or unresolvable project git-token provider (either providerForProject
-// itself failed, or the resolved provider's GenerateToken call did) as a typed
+// itself failed, or the resolved provider's GenerateRepoToken call did) as a typed
 // launchFailure the handler writes and the playbook runner records.
 //
 // launch has already set worker_status to "queued" by this point, so the

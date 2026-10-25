@@ -180,7 +180,7 @@ Sent when a human clicks Run Auto or Run HITL on a `todo` card, calls the
 | `selection`            | `protocol.SelectionContext`: cached catalog `candidates`, global `favorites` with project entries replacing them per tier, the `blacklist` from `ops.db`, and the per-role `tier_bars` saved on the admin page (absent when none is saved). Present only when the agent entry has `aa_api_key`. Recorded outcomes never ship. See [model selection](model-selection.md#what-the-trigger-carries).         |
 | `verify`               | The card's `verify` merged over the project's field by field; omitted when nothing resolves, and the agent falls back to its own detection. The agent runs `command` via `bash -c` with `pipefail`, bounded by `timeout_seconds`, passing the named `env` variables through by name.                                       |
 | `poc`                  | The project's `poc` flag, read at every launch; present only when `true`. See [POC projects](running-cards.md#poc-projects).                                                                                                                                                                                               |
-| `git_token`            | Minted from the project's `github_credential` binding, or the instance `github.*` credential when unbound. A broken binding rejects the run with `409` before any webhook is sent, reverts `worker_status` to `failed`, and appends a `run-rejected` activity entry. The agent fails closed without a token.               |
+| `git_token`            | Minted from the project's `github_credential` binding, or the instance `github.*` credential when unbound. A broken binding, or a token that cannot be minted for the project repo (the App is not installed on it, or `repo` is not an owner/repo remote), rejects the run with `409` before any webhook is sent, reverts `worker_status` to `failed`, and appends a `run-rejected` activity entry. The agent fails closed without a token.               |
 | `git_token_expires_at` | RFC3339; absent for PAT-backed credentials, which need no refresh. App tokens live about an hour; see [GitHub token refresh](#github-token-refresh).                                                                                                                                                                       |
 | `llm_endpoint`         | CM's `llm_endpoint` block (`type`, `base_url`, `api_key`), sent whenever `type` is set, even with an empty key. Omitted only when the whole block is unset; the agent then rejects the run (fail closed, no local fallback).                                                                                                 |
 
@@ -683,7 +683,8 @@ Signed GET with `project` and `card_id` query parameters. Re-mints the
 project-scoped git token so a long run can refresh past the GitHub App
 installation-token TTL. The card must exist and be `running` (`409`
 otherwise). A broken project binding fails closed with `409`; a mint failure
-is `502`. PAT-backed credentials carry no `expires_at`.
+is `502`. The token is scoped to the project's repo. PAT-backed credentials
+carry no `expires_at`.
 
 #### GET /api/agent/task-skills-source
 
@@ -892,10 +893,12 @@ Inside the agent:
 The task backend receives a short-lived `git_token` in `/trigger`. A GitHub
 App installation token lives about an hour and a run can outlast it, so the
 backend re-mints mid-run from `GET /api/agent/git-credentials` (card-scoped,
-fail-closed). PAT-backed credentials carry no expiry and need no refresh.
+fail-closed) and scoped to the project's repo. PAT-backed credentials carry no
+expiry and need no refresh.
 
 The chat backend uses no upfront token: a per-session bearer fetches per-repo
-credentials on demand from `GET /api/worker/git-credentials`. See the
+credentials on demand from `GET /api/worker/git-credentials`, each token
+scoped to the requested repo. See the
 [chat-start payload](#post-chat_urlchatstart) and the
 [API reference](api-reference.md#get-apiworkergit-credentials).
 

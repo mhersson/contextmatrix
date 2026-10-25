@@ -599,6 +599,20 @@ func (m *Manager) HasRemote() bool {
 	return m.hasRemote()
 }
 
+// OriginURL returns the first URL of the "origin" remote, or "" when there is
+// none.
+func (m *Manager) OriginURL() string {
+	m.worktreeMu.Lock()
+	defer m.worktreeMu.Unlock()
+
+	remote, err := m.repo.Remote("origin")
+	if err != nil || len(remote.Config().URLs) == 0 {
+		return ""
+	}
+
+	return remote.Config().URLs[0]
+}
+
 // CurrentBranch returns the short name of the currently checked-out branch.
 func (m *Manager) CurrentBranch() (string, error) {
 	m.worktreeMu.Lock()

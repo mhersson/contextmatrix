@@ -13,10 +13,10 @@ There is no SSH transport: every remote URL must be `https://`.
 
 ## Choosing a method
 
-| Method                         | When to use                                                                                                                                                                                                                      |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **GitHub App** _(recommended)_ | Production. Installation tokens expire within 1h, so the token a worker holds is short-lived; access is revocable per installation and scoped per repo.                                                                          |
-| **Fine-grained PAT**           | Tenants where App creation is restricted; single-developer setups. The PAT itself is what workers receive, so it is a long-lived credential on the worker VM. The `await_ci` gate needs Actions: read and Commit statuses: read. |
+| Method                         | When to use                                                                                                                                                                                                                                                                             |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **GitHub App** _(recommended)_ | Production. Installation tokens expire within 1h, so the token a worker holds is short-lived; access is revocable per installation and limited to the repos you install it on.                                                                                                          |
+| **Fine-grained PAT**           | Tenants where App creation is restricted; single-developer setups. The PAT itself is what workers receive, so it is a long-lived credential on the worker VM, and it cannot be narrowed: workers get its full reach. The `await_ci` gate needs Actions: read and Commit statuses: read. |
 
 Either way the credential lives on CM. See
 [github-auth-recommended-topologies.md](github-auth-recommended-topologies.md)
@@ -114,6 +114,9 @@ Configure**.
    - the **task-skills repo**, if you use one
    - every project repo CM tracks (issue import, branch listing, and the
      worker tokens all resolve through this installation)
+
+   Install the App only on these repos: a worker token is limited to one
+   repository, but that repository can be any the installation reaches.
 3. After installation, the URL shows the **installation ID** as its last
    path segment (`https://github.com/settings/installations/12345678`).
 
@@ -141,6 +144,12 @@ This is the only place the credential is configured. The agent backend
 receives a token in every trigger and refreshes it from
 `GET /api/agent/git-credentials`; chat workers fetch one from
 `GET /api/worker/git-credentials`. Neither backend has a `github:` block.
+
+Every worker token (agent runs, chat, architect) is minted for one repository:
+the card's project repo for agent runs, the requested repo for chat and the
+architect. Chat and architect requests for the boards or task-skills repo are
+refused. A PAT cannot be narrowed, so under PAT auth a worker token is the PAT
+itself.
 
 ### 5. Verify
 
@@ -255,8 +264,10 @@ provided the App or PAT has access on both.
   permission-update request is approved, the gates fail exactly as if the
   permission were missing.
 - **App not installed on every relevant repo.** Issue import on such a repo
-  returns 404; clone or push returns 403; a worker token for that repo fails
-  the same way.
+  returns 404; clone or push returns 403. Tokens are minted for one repository
+  at a time, so the mint itself fails: `POST .../run` returns `409` before the
+  worker starts, and a token refresh or a worker credentials request returns
+  `502`.
 - **Token committed to YAML.** Use env vars for secrets in production.
 - **Expired PAT.** The day it expires every GitHub operation fails, including
   the tokens CM hands to workers. App credentials do not expire; CM caches

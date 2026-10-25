@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"errors"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -35,9 +37,27 @@ func (f fakeProjectGetter) GetProject(_ context.Context, _ string) (*board.Proje
 // assert.NotSame prove which provider newProviderForProject actually chose.
 type fakeInstanceTokenProvider struct {
 	token string
+
+	calls     atomic.Int32 // broad GenerateToken calls
+	repoCalls atomic.Int32 // scoped GenerateRepoToken calls
+
+	mu       sync.Mutex
+	lastRepo string
 }
 
 func (f *fakeInstanceTokenProvider) GenerateToken(_ context.Context) (string, time.Time, error) {
+	f.calls.Add(1)
+
+	return f.token, time.Time{}, nil
+}
+
+func (f *fakeInstanceTokenProvider) GenerateRepoToken(_ context.Context, repo string) (string, time.Time, error) {
+	f.repoCalls.Add(1)
+
+	f.mu.Lock()
+	f.lastRepo = repo
+	f.mu.Unlock()
+
 	return f.token, time.Time{}, nil
 }
 

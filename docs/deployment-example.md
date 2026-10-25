@@ -406,7 +406,7 @@ never transmitted. The agent backend refreshes a running card's token from
 `GET /api/agent/git-credentials` (the card must be running, and a broken
 per-project binding fails closed) and stages it into `/run/cm-secrets` inside
 the container. Chat workers present their per-session bearer to
-`GET /api/worker/git-credentials` and receive a token for the requested repo.
+`GET /api/worker/git-credentials` and receive a token scoped to the requested repo.
 
 ### SSE endpoints for the reverse proxy
 

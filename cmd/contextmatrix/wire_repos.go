@@ -272,3 +272,29 @@ func boardsRepoInfos(b config.Boards) []api.BoardsRepoInfo {
 
 	return out
 }
+
+// workerDeniedRepoURLs lists the remotes CM pushes to itself: every boards
+// repo and the task-skills repo, by configured URL and by clone origin (an
+// operator-added remote has no configured URL).
+func workerDeniedRepoURLs(cfg *config.Config, boards *boardsBundles, taskSkillsGit *gitops.Manager) []string {
+	var out []string
+
+	add := func(u string) {
+		if u != "" {
+			out = append(out, u)
+		}
+	}
+
+	for _, r := range boards.repos {
+		add(r.cfg.GitRemoteURL)
+		add(r.git.OriginURL())
+	}
+
+	add(cfg.TaskSkills.GitRemoteURL)
+
+	if taskSkillsGit != nil {
+		add(taskSkillsGit.OriginURL())
+	}
+
+	return out
+}

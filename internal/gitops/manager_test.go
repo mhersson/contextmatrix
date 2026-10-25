@@ -1453,3 +1453,15 @@ func TestCommitFilesShell_SpawnsNoAutoMaintenanceUnderTest(t *testing.T) {
 		assert.NotContains(t, argv, "maintenance", "git spawned %v", argv)
 	}
 }
+
+func TestManager_OriginURL(t *testing.T) {
+	mgr, err := NewManager(t.TempDir(), "", "test", staticTestProvider(t))
+	require.NoError(t, err)
+
+	assert.Empty(t, mgr.OriginURL())
+
+	const u = "https://github.com/test/repo.git"
+	require.NoError(t, mgr.AddRemote(context.Background(), "origin", u))
+
+	assert.Equal(t, u, mgr.OriginURL())
+}

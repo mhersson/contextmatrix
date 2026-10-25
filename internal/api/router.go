@@ -164,9 +164,13 @@ type RouterConfig struct {
 	// AgentBackendCfg is the resolved agent backend entry. nil when Backend is
 	// nil; normalized to an empty config at construction so handlers can read
 	// fields without nil checks (an empty APIKey fails callback auth closed).
-	AgentBackendCfg        *config.AgentBackendConfig
-	MCPAPIKey              string
-	GitHubTokenProvider    githubauth.TokenGenerator
+	AgentBackendCfg     *config.AgentBackendConfig
+	MCPAPIKey           string
+	GitHubTokenProvider githubauth.TokenGenerator
+	// WorkerDeniedRepoURLs are the git remotes CM pushes to itself (boards,
+	// task-skills). The worker git-credentials endpoint refuses their repo
+	// names.
+	WorkerDeniedRepoURLs   []string
 	TaskSkillsDir          string // absolute path to the task-skills directory; empty disables the skills selector
 	TaskSkillsGitRemoteURL string // configured git remote URL for the task-skills repo; fallback when dir is not a checkout
 	GitHubAPIBaseURL       string
@@ -781,16 +785,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	}
 
 	if cfg.ChatManager != nil && (cfg.ChatWorkerAPIKey != "" || architectWorkerAPIKey != "") {
-		wch := &workerCredentialsHandlers{
-			chatAPIKey:         cfg.ChatWorkerAPIKey,
-			architectAPIKey:    architectWorkerAPIKey,
-			liveness:           cfg.ChatManager,
-			providerForProject: cfg.ProviderForProject,
-			instanceProvider:   cfg.GitHubTokenProvider,
-		}
-		if cfg.Service != nil {
-			wch.listProjects = cfg.Service.ListProjects
-		}
+		wch := newWorkerCredentialsHandlers(cfg, architectWorkerAPIKey)
 
 		mux.HandleFunc("GET /api/worker/git-credentials", wch.getGitCredentials)
 	}
@@ -1343,4 +1338,23 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 // handleHealthz responds to health checks.
 func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// newWorkerCredentialsHandlers wires the worker git-credentials handlers from
+// the router config; a function so a test can pin the deny-list wiring.
+func newWorkerCredentialsHandlers(cfg RouterConfig, architectKey string) *workerCredentialsHandlers {
+	wch := &workerCredentialsHandlers{
+		chatAPIKey:         cfg.ChatWorkerAPIKey,
+		architectAPIKey:    architectKey,
+		liveness:           cfg.ChatManager,
+		providerForProject: cfg.ProviderForProject,
+		instanceProvider:   cfg.GitHubTokenProvider,
+		deniedRepoNames:    workerDeniedRepoNames(cfg.WorkerDeniedRepoURLs),
+	}
+
+	if cfg.Service != nil {
+		wch.listProjects = cfg.Service.ListProjects
+	}
+
+	return wch
 }

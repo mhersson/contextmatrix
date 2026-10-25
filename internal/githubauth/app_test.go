@@ -11,7 +11,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -189,4 +191,72 @@ func TestAppProvider_WithAPIBaseURL_TrailingSlash(t *testing.T) {
 	_, _, err = p.GenerateToken(context.Background())
 	require.NoError(t, err)
 	assert.True(t, called, "mock server should have received the request")
+}
+
+func TestAppProvider_GenerateRepoToken_SendsRepositories(t *testing.T) {
+	expectedExpiry := time.Now().Add(50 * time.Minute).UTC().Truncate(time.Second)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "/app/installations/456/access_tokens", r.URL.Path)
+		assert.True(t, strings.HasPrefix(r.Header.Get("Authorization"), "Bearer "))
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+
+		var got map[string]any
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&got))
+		assert.Equal(t, map[string]any{"repositories": []any{"widgets"}}, got)
+
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"token":      "ghs_scoped",
+			"expires_at": expectedExpiry,
+		})
+	}))
+	defer server.Close()
+
+	p, err := NewAppProviderWithKey(123, 456, genTestKey(t), server.URL)
+	require.NoError(t, err)
+
+	token, expiresAt, err := p.GenerateRepoToken(context.Background(), "widgets")
+	require.NoError(t, err)
+	assert.Equal(t, "ghs_scoped", token)
+	assert.True(t, expiresAt.Equal(expectedExpiry))
+}
+
+func TestAppProvider_GenerateRepoToken_EmptyRepo(t *testing.T) {
+	var hits atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"token": "x", "expires_at": "2026-04-25T00:00:00Z"}`))
+	}))
+	defer server.Close()
+
+	p, err := NewAppProviderWithKey(123, 456, genTestKey(t), server.URL)
+	require.NoError(t, err)
+
+	token, _, err := p.GenerateRepoToken(context.Background(), "")
+	require.Error(t, err)
+	assert.Empty(t, token)
+	assert.Zero(t, hits.Load(), "no request may reach GitHub for an empty repo")
+}
+
+func TestAppProvider_GenerateRepoToken_Non201(t *testing.T) {
+	for _, status := range []int{401, 403, 404, 422} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"message": "nope"}`))
+			}))
+			defer server.Close()
+
+			p, err := NewAppProviderWithKey(123, 456, genTestKey(t), server.URL)
+			require.NoError(t, err)
+
+			token, _, err := p.GenerateRepoToken(context.Background(), "widgets")
+			require.Error(t, err)
+			assert.Empty(t, token)
+		})
+	}
 }

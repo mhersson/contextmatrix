@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -191,14 +192,28 @@ func (s *stubSessionLiveness) SessionLiveness(_ context.Context, sessionID strin
 // GenerateToken calls, so fail-closed tests can assert the instance
 // credential was NEVER minted, not merely that the response wasn't 200.
 type countingTokenProvider struct {
-	inner githubauth.TokenGenerator
-	calls atomic.Int32
+	inner     githubauth.TokenGenerator
+	calls     atomic.Int32 // broad GenerateToken calls
+	repoCalls atomic.Int32 // scoped GenerateRepoToken calls
+
+	mu       sync.Mutex
+	lastRepo string
 }
 
 func (c *countingTokenProvider) GenerateToken(ctx context.Context) (string, time.Time, error) {
 	c.calls.Add(1)
 
 	return c.inner.GenerateToken(ctx)
+}
+
+func (c *countingTokenProvider) GenerateRepoToken(ctx context.Context, repo string) (string, time.Time, error) {
+	c.repoCalls.Add(1)
+
+	c.mu.Lock()
+	c.lastRepo = repo
+	c.mu.Unlock()
+
+	return c.inner.GenerateRepoToken(ctx, repo)
 }
 
 // doWorkerGitCredentialsRequest drives h.getGitCredentials directly (no
@@ -368,7 +383,7 @@ func TestGetWorkerGitCredentials_MatchedProjectBrokenBinding_ConflictNeverInstan
 	rec := doWorkerGitCredentialsRequest(t, h, token, "github.com", "acme/alpha")
 
 	assert.Equal(t, http.StatusConflict, rec.Code)
-	assert.Zero(t, instanceProvider.calls.Load(),
+	assert.Zero(t, instanceProvider.calls.Load()+instanceProvider.repoCalls.Load(),
 		"instance credential must never be minted for a matched project's broken binding")
 
 	var apiErr APIError
@@ -392,7 +407,7 @@ func TestGetWorkerGitCredentials_ListProjectsFails_ConflictNeverInstance(t *test
 	rec := doWorkerGitCredentialsRequest(t, h, token, "github.com", "acme/unrelated")
 
 	assert.Equal(t, http.StatusConflict, rec.Code)
-	assert.Zero(t, instanceProvider.calls.Load(),
+	assert.Zero(t, instanceProvider.calls.Load()+instanceProvider.repoCalls.Load(),
 		"instance credential must never be served when project resolution itself failed")
 }
 
@@ -486,9 +501,8 @@ func TestGetWorkerGitCredentials_WrongKeyBearer_Unauthorized(t *testing.T) {
 
 // TestGetWorkerGitCredentials_MissingHostOrPath_BadRequest pins the "exactly
 // one empty" half of the contract: host and path are required as a pair, so
-// only one of them present is still a malformed request. The "both empty"
-// shape is a different contract (the repo-less gh shortcut) - see
-// TestGetWorkerGitCredentials_EmptyHostAndPath_UsesInstanceProvider below.
+// only one of them present is a malformed request. Both empty is refused
+// with 403 after the liveness gate - see TestGetWorkerGitCredentials_Refusals_NeverMint.
 func TestGetWorkerGitCredentials_MissingHostOrPath_BadRequest(t *testing.T) {
 	h := &workerCredentialsHandlers{
 		chatAPIKey: "chat-key",
@@ -515,55 +529,86 @@ func TestGetWorkerGitCredentials_MissingHostOrPath_BadRequest(t *testing.T) {
 	}
 }
 
-// --- Empty (host, path) pair: repo-less gh (no origin remote) ---
-//
-// The chat worker's gh wrapper calls this endpoint with BOTH host and path
-// empty when cwd has no origin remote (gh repo create, gh api /user).
-// Before this contract existed, repo-less gh was covered by the
-// instance-wide shared token, so the endpoint must serve the instance
-// credential for the empty pair to preserve that capability - the same
-// credential any unmatched repo already resolves to.
+// --- Scoped minting and refusals ---
 
-// TestGetWorkerGitCredentials_EmptyHostAndPath_UsesInstanceProvider pins the
-// repo-less gh contract: an empty (host, path) pair skips project matching
-// ENTIRELY - listProjects must not even be called, since a repo-less
-// caller's credential must not depend on project listing succeeding - and
-// resolves straight to the instance provider.
-func TestGetWorkerGitCredentials_EmptyHostAndPath_UsesInstanceProvider(t *testing.T) {
-	var listProjectsCalls atomic.Int32
-
-	instanceProvider := &countingTokenProvider{inner: &fakeTokenProvider{token: "instance-token"}}
+func TestGetWorkerGitCredentials_ScopesMintToRequestedRepo(t *testing.T) {
+	projectProvider := &fakeTokenProvider{token: "project-token"}
+	instanceProvider := &fakeTokenProvider{token: "instance-token"}
 
 	h := &workerCredentialsHandlers{
 		chatAPIKey: "chat-key",
 		liveness:   &stubSessionLiveness{live: true},
 		listProjects: func(context.Context) ([]board.ProjectConfig, error) {
-			listProjectsCalls.Add(1)
-
-			return []board.ProjectConfig{{Name: "alpha", Repo: "https://github.com/acme/alpha"}}, nil
+			return []board.ProjectConfig{{Name: "widgets-project", Repo: "https://github.com/acme/widgets"}}, nil
 		},
-		providerForProject: func(_ context.Context, _ string) (githubauth.TokenGenerator, string, error) {
-			return nil, "", errors.New("must not be called: empty host/path must skip project matching")
+		providerForProject: func(context.Context, string) (githubauth.TokenGenerator, string, error) {
+			return projectProvider, "", nil
 		},
 		instanceProvider: instanceProvider,
 	}
-
 	token := WorkerCredentialsToken("chat-key", "sess-1")
-	rec := doWorkerGitCredentialsRequest(t, h, token, "", "")
 
+	rec := doWorkerGitCredentialsRequest(t, h, token, "github.com", "acme/widgets")
 	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "widgets", projectProvider.lastRepo)
+	assert.Zero(t, projectProvider.calls.Load(), "a worker never gets the broad token")
+	assert.Zero(t, instanceProvider.repoCalls.Load())
 
-	var body workerGitCredentialsResponse
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
-	assert.Equal(t, "instance-token", body.Token)
+	rec = doWorkerGitCredentialsRequest(t, h, token, "github.com", "other/gadgets")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "gadgets", instanceProvider.lastRepo)
+	assert.Zero(t, instanceProvider.calls.Load(), "a worker never gets the broad token")
+}
 
-	assert.Equal(t, int32(1), instanceProvider.calls.Load(), "instance provider must be consulted for the empty pair")
-	assert.Zero(t, listProjectsCalls.Load(), "project resolution must be skipped entirely for the empty pair")
+func TestGetWorkerGitCredentials_Refusals_NeverMint(t *testing.T) {
+	tests := []struct {
+		name, host, path string
+	}{
+		{name: "empty pair"},
+		{name: "single segment", host: "github.com", path: "widgets"},
+		{name: "three segments", host: "github.com", path: "a/b/c"},
+		{name: "denied boards", host: "github.com", path: "acme/boards"},
+		{name: "denied boards other owner and case", host: "github.com", path: "someone-else/BOARDS"},
+		{name: "denied task-skills other host", host: "evil.example", path: "x/task-skills"},
+		{name: "denied with git suffix", host: "github.com", path: "/acme/boards.git/"},
+		{name: "double git suffix", host: "github.com", path: "acme/boards.git.git"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			projectProvider := &countingTokenProvider{inner: &fakeTokenProvider{token: "project-token"}}
+			instanceProvider := &countingTokenProvider{inner: &fakeTokenProvider{token: "instance-token"}}
+
+			h := &workerCredentialsHandlers{
+				chatAPIKey: "chat-key",
+				liveness:   &stubSessionLiveness{live: true},
+				listProjects: func(context.Context) ([]board.ProjectConfig, error) {
+					return []board.ProjectConfig{{Name: "boards-project", Repo: "https://github.com/acme/boards"}}, nil
+				},
+				providerForProject: func(context.Context, string) (githubauth.TokenGenerator, string, error) {
+					return projectProvider, "", nil
+				},
+				instanceProvider: instanceProvider,
+				deniedRepoNames:  map[string]bool{"boards": true, "task-skills": true},
+			}
+
+			rec := doWorkerGitCredentialsRequest(t, h, WorkerCredentialsToken("chat-key", "sess-1"), tt.host, tt.path)
+			assert.Equal(t, http.StatusForbidden, rec.Code)
+
+			var apiErr APIError
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&apiErr))
+			assert.Equal(t, ErrCodeForbidden, apiErr.Code)
+
+			for _, p := range []*countingTokenProvider{projectProvider, instanceProvider} {
+				assert.Zero(t, p.calls.Load())
+				assert.Zero(t, p.repoCalls.Load())
+			}
+		})
+	}
 }
 
 // TestGetWorkerGitCredentials_EmptyHostAndPath_ColdSession_Conflict pins that
-// the instance-credential shortcut does not bypass the liveness gate: a cold
-// session still 409s even though host/path are both empty.
+// the empty-pair refusal comes after the liveness gate: a cold session 409s.
 func TestGetWorkerGitCredentials_EmptyHostAndPath_ColdSession_Conflict(t *testing.T) {
 	h := &workerCredentialsHandlers{
 		chatAPIKey:       "chat-key",
@@ -583,7 +628,7 @@ func TestGetWorkerGitCredentials_EmptyHostAndPath_ColdSession_Conflict(t *testin
 }
 
 // TestGetWorkerGitCredentials_EmptyHostAndPath_BadBearer_Unauthorized pins
-// that the instance-credential shortcut does not bypass bearer auth.
+// that the empty-pair refusal comes after bearer auth.
 func TestGetWorkerGitCredentials_EmptyHostAndPath_BadBearer_Unauthorized(t *testing.T) {
 	h := &workerCredentialsHandlers{chatAPIKey: "chat-key"}
 
@@ -592,21 +637,34 @@ func TestGetWorkerGitCredentials_EmptyHostAndPath_BadBearer_Unauthorized(t *test
 }
 
 func TestGetWorkerGitCredentials_MintFailure_BadGateway(t *testing.T) {
+	instance := &scopedFailProvider{fakeTokenProvider: fakeTokenProvider{token: "broad-token"}, scopedErr: errors.New("request token: github api returned status 401")}
+
 	h := &workerCredentialsHandlers{
 		chatAPIKey:       "chat-key",
 		liveness:         &stubSessionLiveness{live: true},
 		listProjects:     noProjects,
-		instanceProvider: &fakeTokenProvider{err: errors.New("request token: github api returned status 401")},
+		instanceProvider: instance,
 	}
 
 	token := WorkerCredentialsToken("chat-key", "sess-1")
 	rec := doWorkerGitCredentialsRequest(t, h, token, "github.com", "acme/unrelated")
 
 	assert.Equal(t, http.StatusBadGateway, rec.Code)
+	assert.Zero(t, instance.calls.Load(), "a failed scoped mint must never fall back to the broad token")
 
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeInternalError, apiErr.Code)
+}
+
+// scopedFailProvider succeeds on the broad mint and fails the scoped one.
+type scopedFailProvider struct {
+	fakeTokenProvider
+	scopedErr error
+}
+
+func (p *scopedFailProvider) GenerateRepoToken(context.Context, string) (string, time.Time, error) {
+	return "", time.Time{}, p.scopedErr
 }
 
 func TestGetWorkerGitCredentials_ExpiresAtOmittedWhenEmpty(t *testing.T) {
@@ -677,6 +735,7 @@ func TestGetWorkerGitCredentials_RepoMatching_CaseInsensitiveAndGitSuffix(t *tes
 	}{
 		{name: "exact https match", projectRepo: "https://github.com/acme/widgets", reqHost: "github.com", reqPath: "acme/widgets"},
 		{name: "project side .git suffix", projectRepo: "https://github.com/acme/widgets.git", reqHost: "github.com", reqPath: "acme/widgets"},
+		{name: "request side upper-case .GIT suffix", projectRepo: "https://github.com/acme/widgets", reqHost: "github.com", reqPath: "acme/widgets.GIT"},
 		{name: "request side .git suffix", projectRepo: "https://github.com/acme/widgets", reqHost: "github.com", reqPath: "acme/widgets.git"},
 		{name: "case-insensitive host", projectRepo: "https://GitHub.com/acme/widgets", reqHost: "github.com", reqPath: "acme/widgets"},
 		{name: "case-insensitive path", projectRepo: "https://github.com/Acme/Widgets", reqHost: "github.com", reqPath: "acme/widgets"},
@@ -824,7 +883,7 @@ func TestGetWorkerGitCredentials_MatchedProjectBrokenBinding_HostRespelling_Conf
 
 			assert.Equal(t, http.StatusConflict, rec.Code,
 				"a respelled host must still match the project and fail closed, not fall through to the instance provider")
-			assert.Zero(t, instanceProvider.calls.Load(),
+			assert.Zero(t, instanceProvider.calls.Load()+instanceProvider.repoCalls.Load(),
 				"instance credential must never be minted when a respelled host still refers to a matched project's broken binding")
 		})
 	}
@@ -874,7 +933,7 @@ func TestGetWorkerGitCredentials_HealthyBinding_HostRespelling_UsesProjectProvid
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
 			assert.Equal(t, "project-token", body.Token,
 				"a respelled request host must still resolve the matched project's provider")
-			assert.Zero(t, instanceProvider.calls.Load(),
+			assert.Zero(t, instanceProvider.calls.Load()+instanceProvider.repoCalls.Load(),
 				"instance provider must not be consulted when the canonicalized host matches a project")
 		})
 	}
@@ -972,7 +1031,8 @@ func TestGetWorkerGitCredentials_ArchitectTokenOnArchitectSession(t *testing.T) 
 	rec := doWorkerGitCredentialsRequest(t, h, token, "github.com", "acme/alpha")
 
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	assert.Equal(t, int32(1), instance.calls.Load())
+	assert.Equal(t, int32(1), instance.repoCalls.Load())
+	assert.Zero(t, instance.calls.Load())
 }
 
 func TestGetWorkerGitCredentials_KindMismatchIsIndistinguishableFromBadToken(t *testing.T) {
@@ -996,7 +1056,7 @@ func TestGetWorkerGitCredentials_KindMismatchIsIndistinguishableFromBadToken(t *
 
 			assert.Equal(t, http.StatusUnauthorized, rec.Code)
 			assert.Equal(t, bad.Body.String(), rec.Body.String(), "same body as a malformed token: no oracle")
-			assert.Equal(t, int32(0), instance.calls.Load(), "nothing minted")
+			assert.Equal(t, int32(0), instance.calls.Load()+instance.repoCalls.Load(), "nothing minted")
 		})
 	}
 }
@@ -1035,7 +1095,7 @@ func TestGetWorkerGitCredentials_EmptyKeyTokenNeverVerifies(t *testing.T) {
 
 			assert.Equal(t, http.StatusUnauthorized, rec.Code)
 			assert.Equal(t, bad.Body.String(), rec.Body.String())
-			assert.Equal(t, int32(0), instance.calls.Load(), "nothing minted")
+			assert.Equal(t, int32(0), instance.calls.Load()+instance.repoCalls.Load(), "nothing minted")
 		})
 	}
 }
@@ -1077,4 +1137,24 @@ func TestWorkerGitCredentials_RegisteredWithArchitectBackendOnly(t *testing.T) {
 			assert.Equal(t, tt.want, resp.StatusCode)
 		})
 	}
+}
+
+func TestNewWorkerCredentialsHandlers_WiresDenyList(t *testing.T) {
+	instanceProvider := &countingTokenProvider{inner: &fakeTokenProvider{token: "instance-token"}}
+
+	h := newWorkerCredentialsHandlers(RouterConfig{
+		ChatWorkerAPIKey:     "chat-key",
+		GitHubTokenProvider:  instanceProvider,
+		WorkerDeniedRepoURLs: []string{"https://github.com/acme/boards.git"},
+	}, "")
+	h.liveness = &stubSessionLiveness{live: true}
+
+	rec := doWorkerGitCredentialsRequest(t, h, WorkerCredentialsToken("chat-key", "sess-1"), "github.com", "acme/boards")
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeForbidden, apiErr.Code)
+	assert.Zero(t, instanceProvider.calls.Load())
+	assert.Zero(t, instanceProvider.repoCalls.Load())
 }

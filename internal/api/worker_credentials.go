@@ -136,19 +136,26 @@ type workerCredentialsHandlers struct {
 	// RouterConfig threads into backendHandlers.
 	providerForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string, error)
 
-	// instanceProvider mints the instance-wide credential used when no
-	// project's repo matches the request - the correct credential for
-	// non-project repos, not a degraded fallback.
+	// instanceProvider mints the instance credential used when no project's
+	// repo matches the request - the correct credential for non-project
+	// repos, not a degraded fallback. Workers only ever get a token scoped to
+	// the requested repo from it.
 	instanceProvider githubauth.TokenGenerator
+
+	// deniedRepoNames holds the lowercased bare names of the repos CM itself
+	// pushes to (boards, task-skills). Bare names only: GitHub scopes an
+	// installation token by name inside the installation's account, so a
+	// request spelling a different owner or host would still mint the
+	// denied repo's token.
+	deniedRepoNames map[string]bool
 }
 
 // getGitCredentials handles GET /api/worker/git-credentials. Order of checks:
 // bearer auth (401) → host/path presence (400 when exactly one is empty) →
 // session lookup (404 unknown / 500 lookup error) → kind binding (401 on a
-// mismatch) → liveness (409 cold) → project match + provider resolution
-// (409 fail-closed on a broken binding; an empty (host, path) pair skips
-// project matching and resolves straight to the instance credential, see
-// resolveProvider) → token mint (502) → 200.
+// mismatch) → liveness (409 cold) → repo shape and deny list (403) → project
+// match + provider resolution (409 fail-closed on a broken binding) → token
+// mint scoped to the requested repo (502) → 200.
 func (h *workerCredentialsHandlers) getGitCredentials(w http.ResponseWriter, r *http.Request) {
 	token, ok := extractBearerToken(r)
 	if !ok {
@@ -172,13 +179,8 @@ func (h *workerCredentialsHandlers) getGitCredentials(w http.ResponseWriter, r *
 	host := canonicalGitHost(r.URL.Query().Get("host"))
 	path := normalizeWorkerRepoPath(r.URL.Query().Get("path"))
 
-	// An empty (host, path) pair means no repo context - the caller gets the
-	// instance credential, the same credential any unmatched repo resolves
-	// to (see resolveProvider). This covers the chat worker's gh wrapper when
-	// cwd has no origin remote (gh repo create, gh api /user): before this
-	// contract, repo-less gh was covered by the instance-wide shared token,
-	// so serving the instance credential here preserves that capability.
-	// Exactly one of the two empty is still a malformed request: 400.
+	// Exactly one of the two empty is a malformed request; both empty is
+	// refused below, after the liveness gate.
 	hostEmpty := host == ""
 	pathEmpty := path == ""
 
@@ -216,6 +218,25 @@ func (h *workerCredentialsHandlers) getGitCredentials(w http.ResponseWriter, r *
 		return
 	}
 
+	if hostEmpty {
+		writeError(w, http.StatusForbidden, ErrCodeForbidden, "a repository is required", "")
+
+		return
+	}
+
+	repoName, ok := repoNameFromPath(path)
+	if !ok {
+		writeError(w, http.StatusForbidden, ErrCodeForbidden, "repository path must be owner/repo", "")
+
+		return
+	}
+
+	if h.deniedRepoNames[strings.ToLower(repoName)] {
+		writeError(w, http.StatusForbidden, ErrCodeForbidden, "repository is not served to workers", "")
+
+		return
+	}
+
 	provider, err := h.resolveProvider(r.Context(), host, path)
 	if err != nil {
 		writeError(w, http.StatusConflict, ErrCodeValidationError, "project credential unavailable", sanitizeErrorDetails(err))
@@ -229,7 +250,7 @@ func (h *workerCredentialsHandlers) getGitCredentials(w http.ResponseWriter, r *
 		return
 	}
 
-	mintedToken, expiresAt, err := provider.GenerateToken(r.Context())
+	mintedToken, expiresAt, err := provider.GenerateRepoToken(r.Context(), repoName)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, ErrCodeInternalError, "token mint failed", sanitizeErrorDetails(err))
 
@@ -248,15 +269,8 @@ func (h *workerCredentialsHandlers) getGitCredentials(w http.ResponseWriter, r *
 // through providerForProject, which is itself fail-closed on a broken
 // binding - this function never substitutes the instance provider for a
 // matched project's error. No match returns instanceProvider directly: the
-// correct credential for a non-project repo, not a fallback. An empty
-// (host, path) pair - no repo context - short-circuits to instanceProvider
-// before any project matching, so a repo-less caller's credential does not
-// depend on listProjects succeeding.
+// correct credential for a non-project repo, not a fallback.
 func (h *workerCredentialsHandlers) resolveProvider(ctx context.Context, host, path string) (githubauth.TokenGenerator, error) {
-	if host == "" && path == "" {
-		return h.instanceProvider, nil
-	}
-
 	project, err := h.matchProject(ctx, host, path)
 	if err != nil {
 		return nil, err
@@ -328,7 +342,10 @@ func extractBearerToken(r *http.Request) (token string, ok bool) {
 func normalizeWorkerRepoPath(path string) string {
 	path = strings.TrimSpace(path)
 	path = strings.Trim(path, "/")
-	path = strings.TrimSuffix(path, ".git")
+
+	if n := len(path); n >= 4 && strings.EqualFold(path[n-4:], ".git") {
+		path = path[:n-4]
+	}
 
 	return path
 }
