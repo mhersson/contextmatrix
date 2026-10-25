@@ -830,8 +830,8 @@ func (m *Manager) readUpstreamStream(ctx context.Context, key, project string, s
 	}
 
 	sigHeader, tsHeader := signSSERequest(m.backendAPIKey, req.URL.RequestURI())
-	req.Header.Set("X-Signature-256", sigHeader)
-	req.Header.Set("X-Webhook-Timestamp", tsHeader)
+	req.Header.Set(protocol.SignatureHeader, sigHeader)
+	req.Header.Set(protocol.TimestampHeader, tsHeader)
 
 	resp, err := sseHTTPClient.Do(req)
 	if err != nil {

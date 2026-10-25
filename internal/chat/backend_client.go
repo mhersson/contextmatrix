@@ -154,8 +154,8 @@ func (c *backendClient) StreamLogs(ctx context.Context, sessionID string, onEntr
 	sig, ts := protocol.SignRequestHeaders(c.key, http.MethodGet, uri, nil)
 
 	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("X-Signature-256", sig)
-	req.Header.Set("X-Webhook-Timestamp", ts)
+	req.Header.Set(protocol.SignatureHeader, sig)
+	req.Header.Set(protocol.TimestampHeader, ts)
 
 	// Use the package-level no-timeout client for the SSE stream; ctx drives cancellation.
 	resp, err := sseStreamClient.Do(req)
@@ -256,8 +256,8 @@ func (c *backendClient) post(ctx context.Context, path string, body []byte) ([]b
 	sig, ts := protocol.SignRequestHeaders(c.key, http.MethodPost, uri, body)
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Signature-256", sig)
-	req.Header.Set("X-Webhook-Timestamp", ts)
+	req.Header.Set(protocol.SignatureHeader, sig)
+	req.Header.Set(protocol.TimestampHeader, ts)
 
 	resp, err := c.httpc.Do(req)
 	if err != nil {
