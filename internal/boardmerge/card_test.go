@@ -347,6 +347,24 @@ func TestMergeCards(t *testing.T) {
 			},
 		},
 		{
+			"remote bare stall at the higher epoch loses to our terminal state",
+			func(c *board.Card) {
+				c.State, c.AssignedAgent, c.ClaimedVia, c.ClaimEpoch, c.Updated = "done", "x", "lap-a", 2, ts(2)
+			},
+			func(c *board.Card) {
+				c.State, c.AssignedAgent, c.ClaimEpoch, c.Updated = "stalled", "", 3, ts(9)
+			},
+			func(t *testing.T, got *board.Card, res []Resolution) {
+				assert.Equal(t, "done", got.State)
+				assert.Equal(t, "x", got.AssignedAgent, "done keeps its claim until release")
+				assert.Equal(t, "lap-a", got.ClaimedVia)
+				assert.Equal(t, 2, got.ClaimEpoch)
+				require.NotEmpty(t, res)
+				assert.Equal(t, RuleTerminalOverStall, res[0].Rule)
+				assert.Contains(t, lastAudit(t, got).Message, "from remote")
+			},
+		},
+		{
 			"double claim goes to the earlier claimed_at",
 			func(c *board.Card) {
 				c.AssignedAgent, c.ClaimedVia, c.ClaimedAt, c.ClaimEpoch, c.LastHeartbeat, c.Updated = "agent-ALPHA-001", "lap-a", hb(5), 1, hb(5), ts(5)
