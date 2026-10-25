@@ -186,6 +186,37 @@ token. CM's own GitHub use (boards push, task-skills pull, issue import, branch
 listing) keeps the broad installation token. Contract:
 [API reference](api-reference.md) and [remote execution](remote-execution.md).
 
+The LLM key is kept out of workers by the backends, not by CM. CM still sends
+the real `llm_endpoint` (type, base URL, key) on every trigger and chat start,
+and its own catalog reads of the endpoint are unaffected. The agent and chat
+backends keep the key in `serve`'s memory behind an LLM proxy at `/llm` on
+`serve`'s own listener. The worker gets a stand-in token in `LLM_API_KEY` and
+the proxy URL in `LLM_BASE_URL`; the token works only at that proxy and is
+revoked when the run or session ends. Upstream LLM calls therefore leave from
+`serve`, under its own `HTTP(S)_PROXY` and `ca_cert_file`. Details:
+`docs/secrets.md` in `contextmatrix-agent` and the `contextmatrix-chat` README.
+
+```
+ CM ──trigger (real key)──▶ serve (host)
+                            ┌──────────────────────────────┐
+                            │ keeps REAL KEY in memory     │
+                            │ proxy: token T → REAL KEY    │
+                            └──▲─────────────────┬─────────┘
+            gives the container│only token T     │ Authorization: REAL KEY
+            + proxy URL        │                 ▼
+                  ┌────────────┼── worker ─┐   LLM gateway / OpenRouter
+                  │ LLM_API_KEY = T (stand-in)
+                  │ LLM_BASE_URL = http://host.docker.internal:<port>/llm
+                  │ worker ──Authorization: T──▶ proxy on serve
+                  │ bad dependency: reads T   │
+                  └───────────┬───────────────┘
+                              │ sends T out
+                              ▼
+            T at the gateway   → rejected (the gateway has never seen T)
+            T at serve's proxy → reachable only inside the trusted network,
+                                 and dead once the run ends
+```
+
 ### Model-written mockups
 
 - A blueprint's mockup is HTML and script a model wrote, and any card body can
