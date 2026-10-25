@@ -7,7 +7,7 @@ import { ChatLayout, type AvailableChat, type Slot } from '../../components/Chat
 import { useChatLayout, type ChatLayoutState, type LRUEvictionEvent } from '../../hooks/useChatLayout';
 import { useChatSessions, notifyChatSessionsChanged } from '../../hooks/useChatSessions';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
-import { api, isAPIError } from '../../api/client';
+import { api, describeApiError } from '../../api/client';
 import { safeRemove } from '../../utils/safeStorage';
 import { ConfirmModal } from '../../components/ConfirmModal/ConfirmModal';
 import type { HandoffPrefill } from '../../components/ChatPanel/handoff';
@@ -26,7 +26,7 @@ interface EvictToast {
 
 interface ClearErrorToast {
   chatId: string;
-  code: string;
+  message: string;
   /** Human-readable verb shown in the toast, e.g. "clear context", "end session", "reopen". */
   action?: string;
 }
@@ -112,21 +112,21 @@ export function ChatPage() {
     };
   }, [layout]);
 
-  // /chat/:id deep links: open the chat as a new pane on top of the
-  // hydrated layout, then bounce back to /chat so refresh doesn't re-fire.
-  // In-render marker (CardPanel idiom) - not useEffect - so the redirect
-  // is synchronous with the prop change and avoids a double render.
-  // Initialize to undefined (not deepLinkId) so the marker fires on a
-  // fresh mount at /chat/:id - typical on mobile, where a sidebar-drawer
-  // click navigates straight from another route.
+  // /chat/:id deep links: open the chat as a new pane on top of the hydrated
+  // layout, then bounce back to /chat so refresh doesn't re-fire. The open is
+  // an in-render marker (CardPanel idiom); the bounce is an effect because
+  // navigate() during render is a no-op. The marker starts undefined so it
+  // fires on a fresh mount at /chat/:id (a mobile drawer click).
   const [prevDeepLinkId, setPrevDeepLinkId] = useState<string | undefined>(undefined);
   if (deepLinkId && deepLinkId !== prevDeepLinkId) {
     setPrevDeepLinkId(deepLinkId);
     layout.openInNewPane(deepLinkId);
-    navigate('/chat', { replace: true });
   } else if (!deepLinkId && prevDeepLinkId) {
     setPrevDeepLinkId(undefined);
   }
+  useEffect(() => {
+    if (deepLinkId) navigate('/chat', { replace: true });
+  }, [deepLinkId, navigate]);
 
   // ?new=1|blueprint → open NewChatDialog on that kind (in-render reset pattern)
   const [prevWantsNew, setPrevWantsNew] = useState(wantsNew);
@@ -194,9 +194,9 @@ export function ChatPage() {
     try {
       await api.endChat(chatId);
     } catch (e) {
-      const code = isAPIError(e) ? (e.code ?? 'UNKNOWN') : 'UNKNOWN';
+      const message = describeApiError(e, 'Request failed');
       if (clearErrorTimerRef.current) clearTimeout(clearErrorTimerRef.current);
-      setClearErrorToast({ chatId, code, action: 'end session' });
+      setClearErrorToast({ chatId, message, action: 'end session' });
       clearErrorTimerRef.current = setTimeout(() => setClearErrorToast(null), 6000);
     } finally {
       notifyChatSessionsChanged();
@@ -207,9 +207,9 @@ export function ChatPage() {
     try {
       await api.openChat(chatId);
     } catch (e) {
-      const code = isAPIError(e) ? (e.code ?? 'UNKNOWN') : 'UNKNOWN';
+      const message = describeApiError(e, 'Request failed');
       if (clearErrorTimerRef.current) clearTimeout(clearErrorTimerRef.current);
-      setClearErrorToast({ chatId, code, action: 'reopen' });
+      setClearErrorToast({ chatId, message, action: 'reopen' });
       clearErrorTimerRef.current = setTimeout(() => setClearErrorToast(null), 6000);
     } finally {
       notifyChatSessionsChanged();
@@ -227,10 +227,10 @@ export function ChatPage() {
     try {
       await api.clearChatContext(chatId);
     } catch (e) {
-      console.warn('clearChatContext failed', isAPIError(e) ? e.error : e);
-      const code = isAPIError(e) ? (e.code ?? 'UNKNOWN') : 'UNKNOWN';
+      console.warn('clearChatContext failed', e);
+      const message = describeApiError(e, 'Request failed');
       if (clearErrorTimerRef.current) clearTimeout(clearErrorTimerRef.current);
-      setClearErrorToast({ chatId, code });
+      setClearErrorToast({ chatId, message });
       clearErrorTimerRef.current = setTimeout(() => setClearErrorToast(null), 6000);
     } finally {
       setPendingClear(null);
@@ -250,9 +250,9 @@ export function ChatPage() {
       layout.closePane(slot);
       safeRemove('last_chat_id');
     } catch (e) {
-      const code = isAPIError(e) ? (e.code ?? 'UNKNOWN') : 'UNKNOWN';
+      const message = describeApiError(e, 'Request failed');
       if (clearErrorTimerRef.current) clearTimeout(clearErrorTimerRef.current);
-      setClearErrorToast({ chatId, code, action: 'delete chat' });
+      setClearErrorToast({ chatId, message, action: 'delete chat' });
       clearErrorTimerRef.current = setTimeout(() => setClearErrorToast(null), 6000);
     } finally {
       notifyChatSessionsChanged();
@@ -331,7 +331,7 @@ export function ChatPage() {
       {clearErrorToast && (
         <div className="chat-evict-toast" role="alert" aria-live="assertive">
           <span className="chat-evict-toast-text">
-            Couldn&apos;t {clearErrorToast.action ?? 'clear context'} for <strong>{clearErrorToast.chatId}</strong>: {clearErrorToast.code}.
+            Couldn&apos;t {clearErrorToast.action ?? 'clear context'} for <strong>{availableChats.find((c) => c.id === clearErrorToast.chatId)?.title ?? 'this chat'}</strong>: {clearErrorToast.message}.
           </span>
           <button
             type="button"

@@ -80,8 +80,8 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
 
   const { working, armOptimistic, disarmOptimistic } = useWorkingState(sessionID, merged);
 
-  // Reset local state synchronously when the sessionID prop changes - see
-  // web/AGENTS.md § CardPanel for why this lives in render, not useEffect.
+  // Reset local state in render when sessionID changes so the previous
+  // chat never flashes under the new one (an effect would paint it first).
   const [prevSessionID, setPrevSessionID] = useState(sessionID);
   if (sessionID !== prevSessionID) {
     setPrevSessionID(sessionID);
@@ -94,7 +94,10 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
     api
       .getChat(sessionID)
       .then((s) => {
-        if (alive) setSession(s);
+        if (alive) {
+          setSession(s);
+          setError(null);
+        }
       })
       .catch((e) => {
         if (alive) setError(isAPIError(e) ? e.error : 'failed to load chat');
@@ -125,7 +128,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
         debounceTimer = null;
         if (!alive) return;
         api.getChat(sessionID)
-          .then((s) => { if (alive) setSession(s); })
+          .then((s) => { if (alive) { setSession(s); setError(null); } })
           .catch(() => { /* transient - next event will retry */ });
       }, 75);
     };
