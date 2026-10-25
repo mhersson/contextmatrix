@@ -99,7 +99,7 @@ Copilot PR gates (`await_ci`, `await_copilot_review`) for new cards;
 | `create_pr`                                           | Open a pull request after the push (default from the project's card_defaults; built-in true for top-level cards, always false for subtasks). |
 | `await_ci`                                            | Stay in `review` until PR checks pass, up to 3 fix rounds, else park.                                                                        |
 | `await_copilot_review`                                | Request a Copilot review, triage, fix, up to 3 rounds; skipped when unavailable.                                                             |
-| `merge_pr`                                            | With `await_ci`: merge the PR (merge commit) into its base branch once the CI gate passes, else park.                                        |
+| `merge_pr`                                            | With `await_ci`: merge the PR (merge commit) into its base branch once the CI gate passes, else park. Agent backend only; skill-driven runs leave the PR open. |
 | `model_orchestrator`, `model_coder`, `model_reviewer` | Pin a model per role; a pin beats every selector rule.                                                                                       |
 | `skills`                                              | Task skills mounted in the container; absent inherits, `[]` mounts none.                                                                     |
 | `branch_name`, `base_branch`                          | Predicted feature branch, reconciled by the first `report_push`; optional PR target.                                                          |
@@ -156,9 +156,9 @@ after a switch-off gets the full workflow.
 With `await_ci` or `await_copilot_review` set, the run enters `pr_gates`
 after `report_push` and stays in `review` until the gates pass. Exhausted
 rounds, a timeout, or a failed PR creation on a gated card park the card
-instead of completing it. With `merge_pr`, a passed CI gate is followed by
-the merge before the card completes; a merge that GitHub refuses parks the
-card. See [data model](data-model.md) § PR gates.
+instead of completing it. With `merge_pr` (agent backend only; skill-driven
+runs leave the PR open), a passed CI gate is followed by the merge before the
+card completes; a merge that GitHub refuses parks the card. See [data model](data-model.md) § PR gates.
 
 ## Parked cards
 

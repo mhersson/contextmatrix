@@ -250,7 +250,7 @@ func registerUpdatePlaybook(server *mcp.Server, pb *service.PlaybookService) {
 func registerDeletePlaybook(server *mcp.Server, pb *service.PlaybookService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_playbook",
-		Description: "Delete a playbook. This does not affect the cards it referenced.",
+		Description: "Delete a playbook. This does not affect the cards it referenced. Refused while a run is running or waiting.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input deletePlaybookInput) (*mcp.CallToolResult, deletePlaybookOutput, error) {
 		if err := pb.Delete(ctx, input.ID, input.AgentID); err != nil {
 			return nil, deletePlaybookOutput{}, fmt.Errorf("delete playbook %s: %w", input.ID, err)

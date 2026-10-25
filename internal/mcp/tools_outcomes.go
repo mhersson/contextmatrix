@@ -17,7 +17,7 @@ type OutcomeWriter interface {
 }
 
 type outcomeRow struct {
-	Model       string  `json:"model"        jsonschema:"required,OpenRouter slug of the candidate's coder model"`
+	Model       string  `json:"model"        jsonschema:"required,model slug or name of the candidate's coder model as the run's gateway serves it"`
 	Result      string  `json:"result"       jsonschema:"required,win | loss | failed"`
 	VerifyPass  bool    `json:"verify_pass"  jsonschema:"whether the candidate's verify command passed"`
 	CostUSD     float64 `json:"cost_usd"     jsonschema:"candidate spend in USD"`

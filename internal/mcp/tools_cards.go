@@ -66,7 +66,7 @@ type createCardInput struct {
 type updateCardInput struct {
 	Project   string    `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID    string    `json:"card_id" jsonschema:"required,card ID"`
-	AgentID   string    `json:"agent_id,omitempty" jsonschema:"agent performing the update - if set and card is claimed by a different agent, returns ErrAgentMismatch"`
+	AgentID   string    `json:"agent_id,omitempty" jsonschema:"agent performing the update - if set and card is claimed by a different agent, the call is refused"`
 	Title     *string   `json:"title,omitempty" jsonschema:"new title"`
 	Priority  *string   `json:"priority,omitempty" jsonschema:"new priority"`
 	Labels    []string  `json:"labels,omitempty" jsonschema:"new labels (replaces all)"`
@@ -85,7 +85,7 @@ type updateCardInput struct {
 type transitionCardInput struct {
 	Project  string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID   string `json:"card_id" jsonschema:"required,card ID"`
-	AgentID  string `json:"agent_id,omitempty" jsonschema:"agent performing the transition - if set and card is claimed by a different agent, returns ErrAgentMismatch"`
+	AgentID  string `json:"agent_id,omitempty" jsonschema:"agent performing the transition - if set and card is claimed by a different agent, the call is refused"`
 	NewState string `json:"new_state" jsonschema:"required,target state"`
 }
 

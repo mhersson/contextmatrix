@@ -2985,7 +2985,7 @@ func TestGetSkill_InjectsPRGateFlags(t *testing.T) {
 	unmarshalResult(t, result, &out)
 	assert.Contains(t, out.Content, "**Wait for CI:** enabled")
 	assert.Contains(t, out.Content, "**Copilot review:** enabled")
-	assert.Contains(t, out.Content, "**Merge PR:** enabled")
+	assert.NotContains(t, out.Content, "**Merge PR:**")
 }
 
 func TestGetTaskContext_CarriesMergePR(t *testing.T) {
