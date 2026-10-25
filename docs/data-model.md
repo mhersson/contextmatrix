@@ -658,7 +658,7 @@ covers `execute` and the server allows checkpoints.
 Tells the agent backend to ignore cost when auto-selecting models: the most
 capable candidate in the card's tier wins and favorites are bypassed. Copied
 into the trigger payload (`TriggerPayload.MaxCapability`) in
-`internal/api/backend_run.go`; the selection behaviour lives in the agent
+`internal/api/backend_launch.go`; the selection behaviour lives in the agent
 repository. In the UI the "Maximum capability" checkbox appears only while
 automatic model selection is on, and re-enabling automatic selection clears
 pins but not this flag. See

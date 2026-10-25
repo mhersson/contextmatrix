@@ -412,7 +412,7 @@ Auto-selection requires the key.
 
 ## What the trigger carries
 
-`runCard` (`internal/api/backend_run.go`) assembles a
+`launch` (`internal/api/backend_launch.go`) assembles a
 `protocol.SelectionContext` into every card-run trigger whenever the catalog
 is configured (see [Builder modes](#builder-modes)):
 
