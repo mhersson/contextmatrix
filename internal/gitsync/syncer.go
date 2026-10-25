@@ -238,13 +238,6 @@ func WithRepo(name string) Option {
 	}
 }
 
-// WithSyncTimeout overrides the per-network-call timeout used inside Synced.
-func WithSyncTimeout(d time.Duration) Option {
-	return func(s *Syncer) {
-		s.syncTimeout = d
-	}
-}
-
 // WithLeaseInterval sets how long pushes may fail before the status reports
 // claims at risk: peers stall a card once its lease stops changing.
 func WithLeaseInterval(d time.Duration) Option {

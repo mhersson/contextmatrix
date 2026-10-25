@@ -126,7 +126,7 @@ func newSharedNode(t *testing.T, upstream, instance string) *sharedNode {
 	require.NoError(t, err)
 
 	syncer := NewSyncer(gitMgr, store, svc, bus, dir, true, true, time.Minute,
-		WithRepo("team"), WithShared(instance), WithSyncTimeout(5*time.Second), WithLeaseInterval(5*time.Minute))
+		WithRepo("team"), WithShared(instance), WithLeaseInterval(5*time.Minute))
 	require.NotNil(t, syncer)
 
 	runner := func(ctx context.Context, trigger string, m service.SyncMutation) (service.SyncOutcome, error) {
