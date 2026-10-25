@@ -345,12 +345,6 @@ func (m *Manager) Snapshot(cardID string) []Event {
 	return b.snapshot()
 }
 
-// SnapshotProject returns an ordered, defensive copy of all buffered events
-// for the given project session. Returns nil if no events have been buffered.
-func (m *Manager) SnapshotProject(project string) []Event {
-	return m.Snapshot(projectKey(project))
-}
-
 // Clear removes all buffered events for cardID and frees the underlying buffer.
 // After Clear, Snapshot returns nil for the same cardID. It also clears any
 // permanent-failure flag so a future Start can restart the session cleanly.

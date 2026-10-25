@@ -1578,7 +1578,7 @@ func TestSubscribeProject_BuffersAllCards(t *testing.T) {
 	m := NewManager(WithBackendConfig(srv.URL, "test-key"))
 
 	defer func() {
-		m.StopProject(project)
+		m.Stop(projectKey(project))
 		srv.Close()
 	}()
 
@@ -1618,7 +1618,7 @@ func TestStartProject_Idempotent(t *testing.T) {
 	m := NewManager(WithBackendConfig(srv.URL, "test-key"))
 
 	defer func() {
-		m.StopProject(project)
+		m.Stop(projectKey(project))
 		srv.Close()
 	}()
 
@@ -1646,7 +1646,7 @@ func TestProjectKeyNamespacing(t *testing.T) {
 
 	defer func() {
 		m.Stop(cardID)
-		m.StopProject(project)
+		m.Stop(projectKey(project))
 		srv.Close()
 	}()
 

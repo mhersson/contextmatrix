@@ -452,8 +452,8 @@ func TestStreamCardSession_RevivesSweptSession(t *testing.T) {
 //  5. Emit 2-3 more events while no client is attached.
 //  6. Client B connects - asserts it receives ALL buffered events (both pre- and post-disconnect)
 //     BEFORE any live event, in Seq order.
-//  7. mgr.StopProject("P"); assert client B gets a terminal event or channel close.
-//  8. Assert mgr.SnapshotProject("P") is empty after Stop.
+//  7. Stop the project session; assert client B gets a terminal event or channel close.
+//  8. Assert the project snapshot is empty after Stop.
 func TestStreamProjectSession_SnapshotAndLive(t *testing.T) {
 	const (
 		cardX   = "PROJ-X01"
@@ -486,7 +486,7 @@ func TestStreamProjectSession_SnapshotAndLive(t *testing.T) {
 
 	// Wait until all 3 events are buffered.
 	require.Eventually(t, func() bool {
-		return len(mgr.SnapshotProject(project)) == 3
+		return len(mgr.Snapshot(projectSessionKey(project))) == 3
 	}, 3*time.Second, 10*time.Millisecond)
 
 	// Wire the handler and expose it via an httptest server.
@@ -522,7 +522,7 @@ func TestStreamProjectSession_SnapshotAndLive(t *testing.T) {
 
 	// Wait until all 5 events are buffered.
 	require.Eventually(t, func() bool {
-		return len(mgr.SnapshotProject(project)) == 5
+		return len(mgr.Snapshot(projectSessionKey(project))) == 5
 	}, 3*time.Second, 10*time.Millisecond)
 
 	// Client B connects - should replay the full 5-event snapshot.
@@ -539,7 +539,7 @@ func TestStreamProjectSession_SnapshotAndLive(t *testing.T) {
 
 	// Stop the project session.
 	close(upstreamCh)
-	mgr.StopProject(project)
+	mgr.Stop(projectSessionKey(project))
 
 	// Client B should receive a terminal signal (terminal event or channel close).
 	select {
@@ -553,6 +553,6 @@ func TestStreamProjectSession_SnapshotAndLive(t *testing.T) {
 		t.Fatal("timed out waiting for terminal event on client B")
 	}
 
-	// Snapshot must be cleared after StopProject.
-	assert.Empty(t, mgr.SnapshotProject(project), "project snapshot must be cleared after StopProject")
+	// Snapshot must be cleared after Stop.
+	assert.Empty(t, mgr.Snapshot(projectSessionKey(project)), "project snapshot must be cleared after Stop")
 }
