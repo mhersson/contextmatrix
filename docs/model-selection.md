@@ -652,8 +652,8 @@ card is configured for automatic selection. ContextMatrix stores the flag and
 ships it in the trigger payload; the agent backend consumes it as
 `selection.Input.MaxCapability` (contextmatrix-protocol), a run-level field set
 once when the registry is built. Every automatic pick in the run inherits it:
-the coder, the planner's model floor, the review-panel seats, the judge, the verify/propose step, and mob
-and Best-of-N seats. Only a resolvable card pin escapes it.
+the coder, the planner's model floor, the review-panel seats, the judge, the
+verify/propose step, and mob and Best-of-N seats. Only a resolvable card pin escapes it.
 
 - A card pin (step 1) still wins. Note that a card can carry both: the
   "Maximum capability" checkbox is *hidden* when automatic selection is off,
@@ -763,8 +763,10 @@ no automatic tier escalation on failure - escalation to `complex` is policy
 
 ## Blacklist and the outcome ledger
 
-Two data sets persist in ContextMatrix's `ops.db`. Only the blacklist feeds
-back into selection; the outcome ledger is observability for operators.
+`ops.db` holds four selection data sets: the operator-edited tier ladders
+(`selector_ladder`) and price headroom (`selector_headroom`), the blacklist,
+and the outcome ledger. Of the two outcome-derived sets, only the blacklist
+feeds back into selection; the outcome ledger is observability for operators.
 Recorded win-rates never bias a pick - the sample volumes a single instance
 collects are far too small to out-signal the Artificial Analysis priors, and
 a solo completion is not evidence of anything comparative.
