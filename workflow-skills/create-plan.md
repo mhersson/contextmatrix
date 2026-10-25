@@ -259,12 +259,12 @@ subtasks:
 1. For each split entry without a `Created:` line, call `create_card` (no
    parent) with its title and self-contained body. Set `depends_on` to the
    original card's ID (plus earlier split cards) only where ordering is real.
-   Then upsert the `Split` section with `Created: <card ID>` added to that
-   entry.
 2. Copy the original card's `autonomous` flag onto each newly created card
-   with `update_card`.
-3. Narrow the original card's body to the first deliverable with
-   `update_card`; in HITL mode, confirm the narrowed scope with the human.
+   with `update_card`, then upsert the `Split` section with
+   `Created: <card ID>` added to that entry.
+3. When cards were created, narrow the original card's body to the first
+   deliverable with `update_card`; in HITL mode, confirm the narrowed scope
+   with the human.
 4. When cards were created, call `add_log` on the original card listing their
    IDs and the reason for the split.
 5. Continue planning ONLY the original (narrowed) card.

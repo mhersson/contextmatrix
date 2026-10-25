@@ -131,11 +131,12 @@ Based on the card's current state and body content:
    If the body has a `## Split` section, execute it before creating subtasks:
    - For each split entry without a `Created:` line, call `create_card` (no
      parent) with its title and self-contained body. Set `depends_on` to this
-     card's ID (plus earlier split cards) only where ordering is real. Then
-     upsert the `Split` section with `Created: <card ID>` added to that entry.
+     card's ID (plus earlier split cards) only where ordering is real.
    - Copy this card's `autonomous` flag onto each newly created card with
-     `update_card`.
-   - Narrow this card's body to the first deliverable with `update_card`.
+     `update_card`, then upsert the `Split` section with
+     `Created: <card ID>` added to that entry.
+   - When cards were created, narrow this card's body to the first
+     deliverable with `update_card`.
    - When cards were created, call `add_log` on this card listing their IDs
      and the reason for the split.
    - Continue planning ONLY this (narrowed) card.

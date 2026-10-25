@@ -371,7 +371,7 @@ unblocked subtasks and waits again. Phase 5 ends with `release_card`.
 It claims the parent (continuing without the claim on 409), reads parent and
 subtasks, decides whether external docs are needed at all, writes them to
 disk, commits only those files on the feature branch (never pushes or opens a
-PR; with no branch it leaves them uncommitted), calls `report_usage` and
+PR; invoked directly with no branch it leaves them uncommitted), calls `report_usage` and
 `release_card`, and returns `DOCS_WRITTEN` with the files written. The
 orchestrator then reclaims the parent.
 
