@@ -349,6 +349,35 @@ func TestForceReleaseCard(t *testing.T) {
 	}
 }
 
+func TestDeferredCommitFlushOnForceRelease(t *testing.T) {
+	svc, _ := setupDeferredTest(t)
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Force release flush", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Body: new("## Progress\n")})
+	require.NoError(t, err)
+
+	svc.writeMu.Lock()
+	_, hasPaths := svc.deferredPaths[card.ID]
+	svc.writeMu.Unlock()
+	require.True(t, hasPaths, "the claimed mutation must be deferred before the force-release")
+
+	_, err = svc.ForceReleaseCard(ctx, "test-project", card.ID, "human:alice")
+	require.NoError(t, err)
+
+	svc.writeMu.Lock()
+	_, hasPaths = svc.deferredPaths[card.ID]
+	svc.writeMu.Unlock()
+	assert.False(t, hasPaths, "force-release must flush the dead agent's deferred commits")
+}
+
 func TestForceReleaseCard_TerminalWorkerStatusUntouched(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()

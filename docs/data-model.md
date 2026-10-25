@@ -1156,6 +1156,7 @@ cannot set `queued`, `killed` or `parked`. An invalid value is 422
 `VALIDATION_ERROR`. `parked` is set by the claiming agent right before its
 container exits; the `completed` callback that follows preserves it while
 clearing the claim, and the next trigger's `queued` replaces it.
+A `running` report never replaces `killed`; only a new launch (`queued`) does.
 
 ## `depends_on` cycle detection
 

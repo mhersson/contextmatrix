@@ -489,6 +489,17 @@ func (s *CardService) updateWorkerStatus(
 		return card, nil
 	}
 
+	// A late running report must not revive a killed worker; a new launch
+	// goes through MarkQueued, which replaces killed.
+	if status == "running" && card.WorkerStatus == "killed" {
+		s.writeMu.Unlock()
+
+		ctxlog.Logger(ctx).Info("worker status ignored: running report on a killed worker",
+			"card_id", cardID, "project", project, "status", status)
+
+		return card, nil
+	}
+
 	if err := s.fenced(card); err != nil {
 		s.writeMu.Unlock()
 

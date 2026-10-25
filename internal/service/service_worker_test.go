@@ -97,6 +97,46 @@ func TestMarkQueued_RefusesALiveWorker(t *testing.T) {
 	}
 }
 
+// TestUpdateWorkerStatus_RunningDoesNotReplaceKilled pins the kill guard: a
+// late running report is dropped, while a fresh launch (queued) reaches running.
+func TestUpdateWorkerStatus_RunningDoesNotReplaceKilled(t *testing.T) {
+	svc, gitMgr := setupDeferredTest(t)
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "killed run", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "killed", "stopped")
+	require.NoError(t, err)
+
+	before, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+
+	msgBefore, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+
+	got, err := svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "late report")
+	require.NoError(t, err)
+	assert.Equal(t, "killed", got.WorkerStatus)
+
+	after, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "killed", after.WorkerStatus)
+	assert.Equal(t, before.ActivityLog, after.ActivityLog, "an ignored report writes no log entry")
+	assert.True(t, before.Updated.Equal(after.Updated))
+
+	msgAfter, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, msgBefore, msgAfter, "an ignored report commits nothing")
+
+	_, err = svc.MarkQueued(ctx, "test-project", card.ID, "relaunch")
+	require.NoError(t, err)
+
+	got, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "container started")
+	require.NoError(t, err)
+	assert.Equal(t, "running", got.WorkerStatus)
+}
+
 // TestFailLostWorker pins the guard: only a queued or running worker on a card
 // unwritten since the cutoff, and not claimed through another instance, fails.
 func TestFailLostWorker(t *testing.T) {

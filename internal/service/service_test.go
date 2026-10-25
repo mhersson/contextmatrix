@@ -4370,6 +4370,54 @@ func TestNotPlannedDoesNotAppearInStalledDetection(t *testing.T) {
 	assert.Empty(t, reloaded.AssignedAgent, "agent must remain cleared")
 }
 
+// TestDoneCardWithLiveClaimIsNotStalled verifies that processStalled leaves a
+// done card alone even when it still holds a claim past the timeout.
+func TestDoneCardWithLiveClaimIsNotStalled(t *testing.T) {
+	tmpDir := t.TempDir()
+	boardsDir := filepath.Join(tmpDir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	projectDir := filepath.Join(boardsDir, "test-project")
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
+	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
+
+	store, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	gitMgr, err := gitops.NewManager(boardsDir, "", "test", gitopsTestProvider(t))
+	require.NoError(t, err)
+
+	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+	lockMgr := lock.NewManagerWithClock(store, 1*time.Millisecond, fake)
+
+	svc := NewCardService(store, gitMgr, lockMgr, events.NewBus(), boardsDir, nil, true, false)
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Done With Claim", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "some-agent")
+	require.NoError(t, err)
+
+	// Reach done while keeping the claim (the agent still holds it).
+	stored, err := svc.store.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+
+	stored.State = board.StateDone
+	require.NoError(t, svc.store.UpdateCard(ctx, "test-project", stored))
+	require.NotEmpty(t, stored.AssignedAgent)
+
+	fake.Advance(20 * time.Millisecond)
+
+	require.NoError(t, svc.processStalled(ctx))
+
+	reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, board.StateDone, reloaded.State, "done card must not be stalled by the timeout checker")
+}
+
 func TestGenerateBranchName(t *testing.T) {
 	jiraSrc := func(key string) *board.Source {
 		return &board.Source{System: "jira", ExternalID: key, ExternalURL: "https://acme.atlassian.net/browse/" + key}
@@ -5418,57 +5466,59 @@ func TestUpdateWorkerStatus_FailedMidRunStaysFailed(t *testing.T) {
 // entry was written to disk but never committed because UpdateWorkerStatus
 // called commitCardChange (which defers the path) without ever flushing.
 func TestDeferredCommitFlushOnUpdateWorkerStatus(t *testing.T) {
-	svc, gitMgr := setupDeferredTest(t)
-	ctx := context.Background()
+	for _, status := range []string{"completed", "failed", "killed"} {
+		t.Run(status, func(t *testing.T) {
+			svc, gitMgr := setupDeferredTest(t)
+			ctx := context.Background()
 
-	// Create and claim a card - simulates an autonomous worker session.
-	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title: "Worker deferred flush test", Type: "task", Priority: "medium",
-	})
-	require.NoError(t, err)
+			// Create and claim a card - simulates an autonomous worker session.
+			card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+				Title: "Worker deferred flush test", Type: "task", Priority: "medium",
+			})
+			require.NoError(t, err)
 
-	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent:one")
-	require.NoError(t, err)
+			_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent:one")
+			require.NoError(t, err)
 
-	// Accumulate a deferred mutation (body update, no commit yet).
-	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
-		Body: new("## Progress\n\n- [x] Step 1: done\n"),
-	})
-	require.NoError(t, err)
+			// Accumulate a deferred mutation (body update, no commit yet).
+			_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+				Body: new("## Progress\n\n- [x] Step 1: done\n"),
+			})
+			require.NoError(t, err)
 
-	// Record commit message before release - should still be the creation commit.
-	creationMsg, err := gitMgr.GetLastCommitMessage()
-	require.NoError(t, err)
-	assert.Contains(t, creationMsg, card.ID, "pre-release commit must be the creation commit")
+			// Record commit message before release - should still be the creation commit.
+			creationMsg, err := gitMgr.GetLastCommitMessage()
+			require.NoError(t, err)
+			assert.Contains(t, creationMsg, card.ID, "pre-release commit must be the creation commit")
 
-	// ReleaseCard flushes all deferred commits accumulated so far.
-	_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "agent:one")
-	require.NoError(t, err)
+			// ReleaseCard flushes all deferred commits accumulated so far.
+			_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "agent:one")
+			require.NoError(t, err)
 
-	releaseMsg, err := gitMgr.GetLastCommitMessage()
-	require.NoError(t, err)
-	assert.Contains(t, releaseMsg, card.ID, "release should flush deferred commits")
-	assert.Contains(t, releaseMsg, "deferred commit", "release flush commit should say 'deferred commit'")
+			releaseMsg, err := gitMgr.GetLastCommitMessage()
+			require.NoError(t, err)
+			assert.Contains(t, releaseMsg, card.ID, "release should flush deferred commits")
+			assert.Contains(t, releaseMsg, "deferred commit", "release flush commit should say 'deferred commit'")
 
-	// Now simulate the backend calling UpdateWorkerStatus after the agent released.
-	// This is the scenario from the bug: the backend sends "container exited normally"
-	// after complete_task has already released the card.
-	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "completed", "container exited normally")
-	require.NoError(t, err)
+			// The backend reports a terminal status after the agent released.
+			_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, status, "container exited")
+			require.NoError(t, err)
 
-	// The worker_status update must be committed - not left as an uncommitted deferred path.
-	afterStatusMsg, err := gitMgr.GetLastCommitMessage()
-	require.NoError(t, err)
-	assert.NotEqual(t, releaseMsg, afterStatusMsg,
-		"UpdateWorkerStatus must produce a new commit for the worker_status log entry")
-	assert.Contains(t, afterStatusMsg, card.ID,
-		"worker_status commit must reference the card ID")
+			// The worker_status update must be committed - not left as an uncommitted deferred path.
+			afterStatusMsg, err := gitMgr.GetLastCommitMessage()
+			require.NoError(t, err)
+			assert.NotEqual(t, releaseMsg, afterStatusMsg,
+				"UpdateWorkerStatus must produce a new commit for the worker_status log entry")
+			assert.Contains(t, afterStatusMsg, card.ID,
+				"worker_status commit must reference the card ID")
 
-	// deferredPaths must be cleared after the flush.
-	svc.writeMu.Lock()
-	_, hasPaths := svc.deferredPaths[card.ID]
-	svc.writeMu.Unlock()
-	assert.False(t, hasPaths, "deferredPaths should be cleared after UpdateWorkerStatus flush")
+			// deferredPaths must be cleared after the flush.
+			svc.writeMu.Lock()
+			_, hasPaths := svc.deferredPaths[card.ID]
+			svc.writeMu.Unlock()
+			assert.False(t, hasPaths, "deferredPaths should be cleared after UpdateWorkerStatus flush")
+		})
+	}
 }
 
 func TestDeferredCommitPathsPreservedOnFailure(t *testing.T) {
