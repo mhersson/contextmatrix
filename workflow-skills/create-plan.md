@@ -50,8 +50,9 @@ Call `get_card(card_id=<parent_id>)`. The top-level `autonomous` field
 is the ONLY source of truth for mode.
 
 - **If `autonomous: true`:** the brainstorming branch (Branch C below) is
-  skipped; Branches A and B still apply. the drafting sub-agent's placeholder scan (Phase 1 Step 2) is the
-  fallback for vague designs in autonomous creative cards.
+  skipped; Branches A and B still apply. The drafting sub-agent's placeholder
+  scan (Phase 1 Step 2) is the fallback for vague designs in autonomous
+  creative cards.
 - **If `autonomous: false` (HITL):** all three branches are available.
 
 Proceed to Step 1.5 to pick the branch.
