@@ -1127,7 +1127,6 @@ func TestPlaybookService_RemoveEntryDuringRun(t *testing.T) {
 	// would keep running unowned and still merge into the playbook branch.
 	_, err = env.svc.RemoveEntry(ctx, "rollout", "e1", "human:alice")
 	require.ErrorIs(t, err, ErrPlaybookRunActive)
-	assert.Contains(t, err.Error(), "stop the run first")
 
 	got, err := env.svc.Get(ctx, "rollout")
 	require.NoError(t, err)

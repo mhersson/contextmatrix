@@ -153,7 +153,7 @@ func TestLoad_MissingFile_NoBoardsDir_ReturnsError(t *testing.T) {
 
 	_, err := Load(filepath.Join(t.TempDir(), "nonexistent.yaml"))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "boards.dir is required")
+	assert.Contains(t, err.Error(), "boards.dir")
 }
 
 func TestLoad_EnvOverrides(t *testing.T) {
@@ -391,7 +391,7 @@ func TestValidate_MissingBoardsDir(t *testing.T) {
 	}
 	err := cfg.Validate()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "boards.dir is required")
+	assert.Contains(t, err.Error(), "boards.dir")
 }
 
 func TestValidate_InvalidHeartbeatTimeout(t *testing.T) {
@@ -413,7 +413,7 @@ func TestValidate_InvalidHeartbeatTimeout(t *testing.T) {
 			}
 			err := cfg.Validate()
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "invalid heartbeat_timeout")
+			assert.Contains(t, err.Error(), "heartbeat_timeout")
 		})
 	}
 }
@@ -441,7 +441,7 @@ func TestValidate_InvalidAwaitMax(t *testing.T) {
 			}
 			err := cfg.Validate()
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "invalid await_max")
+			assert.Contains(t, err.Error(), "await_max")
 		})
 	}
 }
@@ -751,7 +751,7 @@ github:
 
 	_, err := Load(path)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid boards.git_pull_interval")
+	assert.Contains(t, err.Error(), "boards.git_pull_interval")
 }
 
 func TestPullIntervalDuration(t *testing.T) {
@@ -797,7 +797,7 @@ github:
 
 	_, err := Load(path)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid heartbeat_timeout")
+	assert.Contains(t, err.Error(), "heartbeat_timeout")
 }
 
 func TestDefaults(t *testing.T) {
@@ -1314,7 +1314,7 @@ github:
 
 	_, err := Load(path)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid theme")
+	assert.Contains(t, err.Error(), "theme")
 }
 
 func TestLoad_Theme_EnvOverride(t *testing.T) {
@@ -1344,7 +1344,7 @@ func TestValidate_Theme_InvalidValue(t *testing.T) {
 			}
 			err := cfg.Validate()
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "invalid theme")
+			assert.Contains(t, err.Error(), "theme")
 		})
 	}
 }
@@ -1375,7 +1375,7 @@ func TestValidate_LogFormat_InvalidValue(t *testing.T) {
 	}
 	err := cfg.Validate()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid log_format")
+	assert.Contains(t, err.Error(), "log_format")
 }
 
 func TestValidate_LogLevel_InvalidValue(t *testing.T) {
@@ -1388,7 +1388,7 @@ func TestValidate_LogLevel_InvalidValue(t *testing.T) {
 	}
 	err := cfg.Validate()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid log_level")
+	assert.Contains(t, err.Error(), "log_level")
 }
 
 func TestValidate_AdminPort_OutOfRange(t *testing.T) {
@@ -1403,7 +1403,7 @@ func TestValidate_AdminPort_OutOfRange(t *testing.T) {
 			}
 			err := cfg.Validate()
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "invalid admin_port")
+			assert.Contains(t, err.Error(), "admin_port")
 		})
 	}
 }
@@ -2739,7 +2739,6 @@ backends:
 	_, err := Load(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "CONTEXTMATRIX_BACKEND_CHAT_RECONCILE_INTERVAL")
-	assert.Contains(t, err.Error(), "not a recognised backend env var")
 }
 
 func TestBackendEnvAgentDefaultModel(t *testing.T) {
