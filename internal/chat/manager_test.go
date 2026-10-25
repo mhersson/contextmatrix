@@ -390,8 +390,11 @@ func TestManager_Reattach_RacingEndSessionKeepsTheSessionCold(t *testing.T) {
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
 	require.NoError(t, err)
-	_, err = mgr.OpenSession(ctx, sess.ID)
-	require.NoError(t, err)
+
+	// Active without a consumer, whose own read could take the armed hook.
+	sess.Status = chat.StatusActive
+	sess.ContainerID = "container-x"
+	require.NoError(t, inner.UpdateSession(ctx, sess))
 
 	// EndSession commits between Reattach's read and its write.
 	end := func() { require.NoError(t, mgr.EndSession(ctx, sess.ID)) }

@@ -1075,13 +1075,17 @@ func (h *chatHandlers) backfillReplay(ctx context.Context, sessionID string, sin
 		return replay
 	}
 
-	// Ring events precede the seq-0 blueprint frames.
-	var first int64
-	if len(replay) > 0 {
-		first = replay[0].Seq
+	// Publishes follow the append lock's release, so the ring is not always in
+	// seq order; blueprint frames carry seq 0.
+	var lowest int64
+
+	for _, e := range replay {
+		if e.Seq > 0 && (lowest == 0 || e.Seq < lowest) {
+			lowest = e.Seq
+		}
 	}
 
-	if first == sinceSeq+1 {
+	if lowest == sinceSeq+1 {
 		return replay
 	}
 
@@ -1095,7 +1099,7 @@ func (h *chatHandlers) backfillReplay(ctx context.Context, sessionID string, sin
 	out := make([]chat.SSEEvent, 0, len(msgs)+len(replay))
 
 	for _, m := range msgs {
-		if first > 0 && m.Seq >= first {
+		if lowest > 0 && m.Seq >= lowest {
 			break
 		}
 

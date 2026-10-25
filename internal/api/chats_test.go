@@ -391,8 +391,11 @@ func TestPatchChat_RenameRacingEndSessionKeepsTheSessionCold(t *testing.T) {
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "old", Project: "alpha", CreatedBy: "human:web-x"})
 	require.NoError(t, err)
-	_, err = mgr.OpenSession(ctx, sess.ID)
-	require.NoError(t, err)
+
+	// Active without a consumer, whose own read could take the armed hook.
+	sess.Status = chat.StatusActive
+	sess.ContainerID = "container-x"
+	require.NoError(t, store.UpdateSession(ctx, sess))
 
 	// EndSession commits between the handler's read and its write.
 	end := func() { require.NoError(t, mgr.EndSession(ctx, sess.ID)) }
@@ -613,15 +616,33 @@ func TestStreamChat_CoveredReconnectSkipsTheStore(t *testing.T) {
 	assert.Equal(t, before, store.lists.Load(), "the ring covers the reconnect; the store is not read")
 }
 
-// A ring that kept only its newest events gets the older missed rows from the
-// store ahead of it, with no row twice.
-func TestStreamChat_TrimmedRingBackfillsOnlyWhatItLacks(t *testing.T) {
-	srv, mgr, hub, _, sess := backfillFixture(t)
+// The store fills in only the missed rows below the ring's lowest seq, so no
+// row is sent twice.
+func TestStreamChat_RingBackfillsOnlyWhatItLacks(t *testing.T) {
+	tests := []struct {
+		name string
+		ring []int64 // seqs published into the emptied ring, in order
+		want []int64
+	}{
+		{"ring holds only the newest", []int64{3}, []int64{2, 3}},
+		// Publishes follow the append lock's release, so two appenders can
+		// publish in the reverse of their seq order.
+		{"ring out of order", []int64{3, 2}, []int64{3, 2}},
+	}
 
-	require.NoError(t, mgr.EndSession(t.Context(), sess.ID))
-	hub.Publish(sess.ID, chat.SSEEvent{Seq: 3, Role: chat.RoleUser, Content: "three"})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, mgr, hub, _, sess := backfillFixture(t)
 
-	assert.Equal(t, []int64{2, 3}, streamSeqs(t, srv.URL, hub, sess.ID, 1))
+			require.NoError(t, mgr.EndSession(t.Context(), sess.ID))
+
+			for _, seq := range tt.ring {
+				hub.Publish(sess.ID, chat.SSEEvent{Seq: seq, Role: chat.RoleUser, Content: "ring"})
+			}
+
+			assert.Equal(t, tt.want, streamSeqs(t, srv.URL, hub, sess.ID, 1))
+		})
+	}
 }
 
 // TestStreamChat_XAccelBufferingHeader asserts that the chat SSE response
