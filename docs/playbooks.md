@@ -25,6 +25,32 @@ a shared branch (see [Running a playbook](#running-a-playbook)).
   skill reads playbooks at all.
 - Progress is `complete/total`, derived on read. An empty playbook is valid.
 
+## Follow-ups
+
+A follow-up is a check a person makes after the run, such as looking at a
+dashboard or finishing a setup step. The runner never reads follow-ups: they
+do not hold, advance or complete a run, and they count in neither `complete`
+nor `total`.
+
+- A follow-up has `id`, `text`, optional `cards`, and `done` stamps. `text` is
+  required and may not be blank.
+- `cards` are labels: each ref needs both `project` and `card`, but the card
+  need not be an entry of the playbook and is not checked for existence.
+- Ids are `f<N>` from the persisted `next_followup_id`, stable under reorder
+  and never reused after removal. A playbook without the counter starts at
+  `f1`.
+- Checking a follow-up stamps `done_by` and `done_at` from the caller and the
+  server clock; unchecking clears both.
+- `position` is the final index after the move; values past the end clamp and
+  negative values are rejected.
+- Follow-up writes (add, edit, check, reorder, remove) are accepted while a
+  run is `running` or `waiting` and never change the run, the entries or the
+  progress.
+- Creating a playbook with follow-ups is all-or-nothing: one invalid follow-up
+  rejects the create and writes nothing.
+- The detail view always carries `followups` (`[]` when there are none), and
+  every follow-up carries `cards` (`[]` when empty).
+
 ## Detail view
 
 `/playbooks` lists playbooks still in progress as rows, each with a miniature
@@ -55,6 +81,19 @@ more**; clicking it edits the raw text. The page updates live over SSE. The
 side panel also carries a **Run** card (make runnable, base branch, Run and
 Stop, status line, compare links); entry rows read `queued` while a run is
 active (see [web UI](web-ui.md#playbooks)).
+
+The **How to verify what was built** section lists the playbook's follow-ups.
+Its place depends on whether the work is over: it sits below the cards while a run is active or the
+playbook is not finished (a stopped run counts as not finished), and moves
+above them, right under the title and description, once the run completed, or for a playbook with no run once every
+entry is complete. With at least one check it is drawn as a pinned yellow
+panel. While a run is active the panel's border is dashed, the section is
+faded and its checkboxes are disabled; editing the text (Enter saves, line breaks become
+spaces), adding a check with **Add a check**, dragging to reorder and removing
+a check stay available, as the server never refuses follow-up writes. Ticks
+are only the person's record and never change the run. Cards attached to a
+follow-up show as their number (`RECIPEBO-002` reads `002`, with the full
+reference as the tooltip); they are not editable in the UI.
 
 ## Running a playbook
 
@@ -224,7 +263,7 @@ is skipped with a warning.
 ## API and MCP
 
 Playbook tools and routes are registered only while the subsystem is enabled.
-Eight MCP tools are ungated; `run_playbook` is a ninth, gated on a `human:`
+Eleven MCP tools are ungated; `run_playbook` is a twelfth, gated on a `human:`
 `agent_id` and registered only when a task backend is configured. The human-only nature of notes is a contract
 the agent-facing context honours, not a permission check. `agent_id` is
 required on mutations for `created_by` and `done_by` attribution.
@@ -233,12 +272,15 @@ required on mutations for `created_by` and `done_by` attribution.
 | ----------------------- | ---------------------------------------------- | ------------------------------------------------------------------------ |
 | `list_playbooks`        | `GET /api/playbooks`                           | Summaries: progress, segments, project count, gates, next entry          |
 | `get_playbook`          | `GET /api/playbooks/{id}`                      | Full detail with every entry resolved against the card store             |
-| `create_playbook`       | `POST /api/playbooks`                          | `title`, `description`, `boards_repo`, initial `entries`; all-or-nothing |
+| `create_playbook`       | `POST /api/playbooks`                          | `title`, `description`, `boards_repo`, initial `entries` and (MCP only) `followups`; all-or-nothing |
 | `update_playbook`       | `PATCH /api/playbooks/{id}`                    | Title, description; humans also set runnable and base_branch             |
 | `delete_playbook`       | `DELETE /api/playbooks/{id}`                   | Removes the file, never during an active run; cards untouched            |
 | `add_playbook_entry`    | `POST /api/playbooks/{id}/entries`             | Appends one card or manual entry                                         |
 | `update_playbook_entry` | `PATCH /api/playbooks/{id}/entries/{entryId}`  | `done` and `text` (manual only), `note` (both), `position`               |
 | `remove_playbook_entry` | `DELETE /api/playbooks/{id}/entries/{entryId}` | Removes one entry                                                        |
+| `add_playbook_followup` | `POST /api/playbooks/{id}/followups`           | Appends one follow-up, or inserts it at `position`                       |
+| `update_playbook_followup` | `PATCH /api/playbooks/{id}/followups/{followupId}` | `done`, `text`, `cards`, `position`; allowed during a run          |
+| `remove_playbook_followup` | `DELETE /api/playbooks/{id}/followups/{followupId}` | Removes one follow-up                                             |
 | `run_playbook`          | `PATCH /api/playbooks/{id}` (`runnable`) then `POST /api/playbooks/{id}/run` | Human-only; makes it runnable if it is not, then runs it  |
 
 `position` is the entry's final index after the move; values past the end
@@ -257,6 +299,7 @@ created_by: human:alice
 created_at: 2026-08-20T09:00:00Z
 updated_at: 2026-08-20T10:30:00Z
 next_entry_id: 4
+next_followup_id: 3 # present once a follow-up has been added
 source: # present on a playbook imported from a Jira epic
   system: jira
   external_id: PROJ-1
@@ -278,6 +321,17 @@ entries:
     type: card
     project: project-beta
     card: BETA-042
+followups: # omitted while there are none
+  - id: f1
+    text: Check the dashboard shows the new flag
+    done: true
+    done_by: human:alice
+    done_at: 2026-08-21T08:00:00Z
+  - id: f2
+    text: Confirm the beta rollout
+    cards:
+      - project: project-beta
+        card: BETA-042
 ```
 
 ## See also

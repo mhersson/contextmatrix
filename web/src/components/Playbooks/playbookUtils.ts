@@ -1,6 +1,6 @@
 import { api } from '../../api/client';
 import { displayState } from '../../lib/stateLabels';
-import type { PlaybookDetail, PlaybookEntry, PlaybookRun, PlaybookRunStatus } from '../../types';
+import type { PlaybookDetail, PlaybookEntry, PlaybookFollowup, PlaybookRun, PlaybookRunStatus } from '../../types';
 
 // First incomplete entry - the frontier marker's target. -1 when all done.
 export function frontierIndex(entries: PlaybookEntry[]): number {
@@ -149,4 +149,24 @@ export function describeRun(detail: PlaybookDetail): string {
     default:
       return 'Completed';
   }
+}
+
+// Follow-ups move above the cards once the work they check is over: a
+// completed run, or for a playbook that was never run, every entry complete.
+// A stopped run is not finished.
+export function followupsFinished(detail: PlaybookDetail): boolean {
+  return detail.run ? detail.run.status === 'completed' : isFullyComplete(detail);
+}
+
+// Final index for a follow-up dropped on another, or null when nothing moves.
+export function followupMovePosition(
+  followups: PlaybookFollowup[],
+  activeId: string,
+  overId: string,
+): number | null {
+  if (activeId === overId) return null;
+  const from = followups.findIndex((f) => f.id === activeId);
+  const to = followups.findIndex((f) => f.id === overId);
+  if (from < 0 || to < 0) return null;
+  return to;
 }

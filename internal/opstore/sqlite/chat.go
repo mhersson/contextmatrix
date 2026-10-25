@@ -21,7 +21,7 @@ var _ chat.Store = (*Store)(nil)
 const sessionColumns = `id, title, project, status, created_at, last_active, created_by,
     container_id, workspace, model, context_tokens, context_tokens_updated_at, rehydration_active,
     rehydration_started_at, prompt_tokens, completion_tokens, cache_read_tokens,
-    cache_creation_tokens, estimated_cost_usd, kind, mode, cost_cap_usd, plain_language,
+    cache_creation_tokens, estimated_cost_usd, kind, mode, cost_cap_usd, plain_language, unattended,
     origin_chat, origin_seq, pinned, spent_usd`
 
 func (s *Store) CreateSession(ctx context.Context, sess chat.Session) error {
@@ -40,14 +40,19 @@ func (s *Store) CreateSession(ctx context.Context, sess chat.Session) error {
 		plainLanguage = 1
 	}
 
+	unattended := 0
+	if sess.Unattended {
+		unattended = 1
+	}
+
 	_, err = s.db.ExecContext(ctx, `INSERT INTO chat_sessions
         (id, title, project, status, created_at, last_active, created_by, container_id, workspace, model,
-         kind, mode, cost_cap_usd, plain_language, origin_chat, origin_seq)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         kind, mode, cost_cap_usd, plain_language, unattended, origin_chat, origin_seq)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sess.ID, sess.Title, nullIf(sess.Project), string(sess.Status),
 		sess.CreatedAt.Unix(), sess.LastActive.Unix(), sess.CreatedBy,
 		nullIf(sess.ContainerID), string(workspaceJSON), sess.Model,
-		string(kind), sess.Mode, sess.CostCapUSD, plainLanguage,
+		string(kind), sess.Mode, sess.CostCapUSD, plainLanguage, unattended,
 		sess.OriginChat, sess.OriginSeq,
 	)
 	if err != nil {
@@ -612,6 +617,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 		kind, mode                  string
 		costCapUSD                  float64
 		plainLanguage               int
+		unattended                  int
 		pinned                      int
 		spentUSD                    sql.NullFloat64
 	)
@@ -622,7 +628,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 		&model, &contextTokens, &contextTokensUpdatedAt, &rehydrationActive,
 		&rehydrationStartedAt,
 		&promptTokens, &completionTokens, &cacheReadTokens, &cacheCreationTokens,
-		&estimatedCostUSD, &kind, &mode, &costCapUSD, &plainLanguage,
+		&estimatedCostUSD, &kind, &mode, &costCapUSD, &plainLanguage, &unattended,
 		&s.OriginChat, &s.OriginSeq, &pinned, &spentUSD,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -639,6 +645,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 	s.Mode = mode
 	s.CostCapUSD = costCapUSD
 	s.PlainLanguage = plainLanguage != 0
+	s.Unattended = unattended != 0
 	s.Pinned = pinned != 0
 
 	if spentUSD.Valid {

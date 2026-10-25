@@ -1,17 +1,22 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import type { PlaybookEntry } from '../../types';
-
 interface PlaybookManualStepProps {
-  entry: PlaybookEntry;
-  onToggleDone: (entryId: string, done: boolean) => void;
-  onSaveText: (entryId: string, text: string) => void;
+  id: string;
+  text: string;
+  checked: boolean;
+  disabled?: boolean;
+  /** Checkbox accent colour token. */
+  accent?: string;
+  onToggleDone: (id: string, done: boolean) => void;
+  onSaveText: (id: string, text: string) => void;
 }
 
 // A step is one logical line: Enter saves instead of inserting a newline, and
 // pasted line breaks become spaces.
-export function PlaybookManualStep({ entry, onToggleDone, onSaveText }: PlaybookManualStepProps) {
+export function PlaybookManualStep({
+  id, text, checked, disabled = false, accent = 'var(--green)', onToggleDone, onSaveText,
+}: PlaybookManualStepProps) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(entry.text ?? '');
+  const [draft, setDraft] = useState(text);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useLayoutEffect(() => {
@@ -27,10 +32,11 @@ export function PlaybookManualStep({ entry, onToggleDone, onSaveText }: Playbook
       <span className="flex items-center h-lh shrink-0">
         <input
           type="checkbox"
-          checked={entry.complete}
-          aria-label={entry.text}
-          onChange={(e) => onToggleDone(entry.id, e.target.checked)}
-          style={{ accentColor: 'var(--green)' }}
+          checked={checked}
+          disabled={disabled}
+          aria-label={text}
+          onChange={(e) => onToggleDone(id, e.target.checked)}
+          style={{ accentColor: accent }}
         />
       </span>
       {editing ? (
@@ -46,8 +52,8 @@ export function PlaybookManualStep({ entry, onToggleDone, onSaveText }: Playbook
           onTouchStart={(e) => e.stopPropagation()}
           onBlur={() => {
             setEditing(false);
-            const text = draft.trim();
-            if (text && text !== entry.text) onSaveText(entry.id, text);
+            const next = draft.trim();
+            if (next && next !== text) onSaveText(id, next);
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); }
@@ -60,11 +66,11 @@ export function PlaybookManualStep({ entry, onToggleDone, onSaveText }: Playbook
         <button
           type="button"
           // Seed from the live text: an SSE refresh may have changed it since the last edit.
-          onClick={() => { setDraft(entry.text ?? ''); setEditing(true); }}
+          onClick={() => { setDraft(text); setEditing(true); }}
           className="min-w-0 text-left wrap-anywhere"
           style={{ color: 'var(--fg)', background: 'none', border: 'none', padding: 0, cursor: 'text' }}
         >
-          {entry.text}
+          {text}
         </button>
       )}
     </div>

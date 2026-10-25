@@ -109,6 +109,7 @@ function NewChatDialogBody({ onClose, choices, handoff, initialKind }: NewChatDi
             mode: form.mode,
             cost_cap_usd: form.capUSD > 0 ? form.capUSD : undefined,
             ...(form.plainLanguage ? { plain_language: true } : {}),
+            ...(form.unattended ? { unattended: true } : {}),
             ...(handoff ? { origin_chat: handoff.chatId, origin_seq: handoff.seq } : {}),
           }
         : { title: name, project: project || undefined, model: choices.chat.model || undefined },

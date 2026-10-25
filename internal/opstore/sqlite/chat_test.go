@@ -1219,3 +1219,35 @@ func TestDeleteSession_ArchivesABlueprintsRecordedSpend(t *testing.T) {
 		`SELECT estimated_cost_usd FROM chat_cost_archive WHERE id = ?`, bp).Scan(&archived))
 	assert.InDelta(t, 2.00, archived, 1e-9)
 }
+
+func TestSession_UnattendedRoundTrip(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	bp := sessionRow("BP1")
+	bp.Kind = chat.KindArchitect
+	bp.Mode = "default"
+	bp.Unattended = true
+	require.NoError(t, s.CreateSession(ctx, bp))
+	require.NoError(t, s.CreateSession(ctx, sessionRow("C1")))
+
+	got, err := s.GetSession(ctx, "BP1")
+	require.NoError(t, err)
+	assert.True(t, got.Unattended)
+
+	listed, err := s.ListSessions(ctx, chat.SessionFilter{Kind: chat.KindArchitect})
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.True(t, listed[0].Unattended)
+
+	// Every open and status flip rewrites the row through UpdateSession.
+	got.Status = chat.StatusActive
+	require.NoError(t, s.UpdateSession(ctx, got))
+	again, err := s.GetSession(ctx, "BP1")
+	require.NoError(t, err)
+	assert.True(t, again.Unattended)
+
+	chatRow, err := s.GetSession(ctx, "C1")
+	require.NoError(t, err)
+	assert.False(t, chatRow.Unattended)
+}

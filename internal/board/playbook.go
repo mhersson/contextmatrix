@@ -93,6 +93,10 @@ type Playbook struct {
 	Updated     time.Time       `yaml:"updated_at"            json:"updated_at"`
 	NextEntryID int             `yaml:"next_entry_id"         json:"next_entry_id"`
 	Entries     []PlaybookEntry `yaml:"entries"               json:"entries"`
+	// NextFollowupID is the counter behind follow-up ids (f1, f2, ...);
+	// zero on a playbook that never had one.
+	NextFollowupID int                `yaml:"next_followup_id,omitempty" json:"-"`
+	Followups      []PlaybookFollowup `yaml:"followups,omitempty"        json:"followups"`
 	// Runnable marks a playbook whose cards carry the forced settings and
 	// which a human may Play. BaseBranch is the branch the playbook branch
 	// is cut from on its first run; empty means the repository default.
@@ -117,6 +121,25 @@ type PlaybookEntry struct {
 	DoneBy  string     `yaml:"done_by,omitempty" json:"done_by,omitempty"`
 	DoneAt  *time.Time `yaml:"done_at,omitempty" json:"done_at,omitempty"`
 	Note    string     `yaml:"note,omitempty"    json:"note,omitempty"`
+}
+
+// PlaybookFollowup is a check a person makes after the run. The runner, run
+// status, progress counts and next-entry logic never read follow-ups.
+type PlaybookFollowup struct {
+	ID     string            `yaml:"id"                json:"id"`
+	Text   string            `yaml:"text"              json:"text"`
+	Cards  []PlaybookCardRef `yaml:"cards,omitempty"   json:"cards"`
+	Done   bool              `yaml:"done,omitempty"    json:"done"`
+	DoneBy string            `yaml:"done_by,omitempty" json:"done_by,omitempty"`
+	DoneAt *time.Time        `yaml:"done_at,omitempty" json:"done_at,omitempty"`
+}
+
+// PlaybookCardRef labels the card a follow-up relates to. It is a label, not
+// an entry: it need not be in the playbook, and a missing card is shown as
+// its id.
+type PlaybookCardRef struct {
+	Project string `yaml:"project" json:"project"`
+	Card    string `yaml:"card"    json:"card"`
 }
 
 // ParsePlaybook decodes a playbook YAML file. Unknown fields are ignored so
@@ -191,6 +214,31 @@ func (p *Playbook) Validate() error {
 		}
 	}
 
+	seenFollowups := make(map[string]struct{}, len(p.Followups))
+
+	for i := range p.Followups {
+		f := &p.Followups[i]
+		if f.ID == "" {
+			return fmt.Errorf("%w: follow-up %d has no id", ErrInvalidPlaybook, i)
+		}
+
+		if _, dup := seenFollowups[f.ID]; dup {
+			return fmt.Errorf("%w: duplicate follow-up id %q", ErrInvalidPlaybook, f.ID)
+		}
+
+		seenFollowups[f.ID] = struct{}{}
+
+		if strings.TrimSpace(f.Text) == "" {
+			return fmt.Errorf("%w: follow-up %q needs text", ErrInvalidPlaybook, f.ID)
+		}
+
+		for _, ref := range f.Cards {
+			if ref.Project == "" || ref.Card == "" {
+				return fmt.Errorf("%w: follow-up %q has a card ref without project and card", ErrInvalidPlaybook, f.ID)
+			}
+		}
+	}
+
 	if p.Run != nil {
 		if !p.Runnable {
 			return fmt.Errorf("%w: run state on a playbook that is not runnable", ErrInvalidPlaybook)
@@ -225,6 +273,17 @@ func (p *Playbook) RunActive() bool {
 func (p *Playbook) FindEntry(entryID string) int {
 	for i := range p.Entries {
 		if p.Entries[i].ID == entryID {
+			return i
+		}
+	}
+
+	return -1
+}
+
+// FindFollowup returns the index of the follow-up with the given ID, or -1.
+func (p *Playbook) FindFollowup(id string) int {
+	for i := range p.Followups {
+		if p.Followups[i].ID == id {
 			return i
 		}
 	}

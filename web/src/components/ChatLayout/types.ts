@@ -27,6 +27,8 @@ export interface AvailableChat {
   cost_cap_usd?: number;
   /** Whether the blueprint was created in plain language; blueprint sessions only. */
   plain_language?: boolean;
+  /** Whether the blueprint was created Unattended; blueprint sessions only. */
+  unattended?: boolean;
 }
 
 export const EMPTY_PANES: PaneSlots = { TL: null, BL: null, TR: null, BR: null };

@@ -7201,3 +7201,66 @@ func TestHandleUsageEntry_GatewayCost(t *testing.T) {
 		})
 	}
 }
+
+func TestManager_CreateSession_UnattendedIsForBlueprintsOnly(t *testing.T) {
+	mgr, _, _ := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha"}, Unattended: true, CreatedBy: "human:web",
+	})
+	require.NoError(t, err)
+	assert.True(t, bp.Unattended)
+
+	c, err := mgr.CreateSession(ctx, chat.CreateInput{Unattended: true, CreatedBy: "human:web"})
+	require.NoError(t, err)
+
+	got, err := mgr.GetSession(ctx, c.ID)
+	require.NoError(t, err)
+	assert.False(t, got.Unattended, "a chat session keeps no unattended flag")
+}
+
+func TestManager_EveryArchitectStartCarriesUnattended(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+
+	startUnattended := func() bool {
+		t.Helper()
+		arch.mu.Lock()
+		defer arch.mu.Unlock()
+
+		require.NotNil(t, arch.lastOpts.Architect)
+
+		return arch.lastOpts.Architect.Unattended
+	}
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha"}, Unattended: true, CreatedBy: "human:web",
+	})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err)
+	assert.True(t, startUnattended(), "the first start")
+
+	// A cold open, as after a CM restart, starts from the session row.
+	require.NoError(t, mgr.EndSession(ctx, bp.ID))
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), arch.startCalls.Load())
+	assert.True(t, startUnattended(), "a cold reopen")
+
+	// An architect that lost the session gets the start re-sent before the message.
+	arch.mu.Lock()
+	seq := make([]error, arch.sendCalls.Load()+1)
+	seq[len(seq)-1] = errSessionUnknown()
+	arch.sendErrSeq = seq
+	arch.mu.Unlock()
+
+	_, err = mgr.SendUserMessage(ctx, bp.ID, "approve")
+	require.NoError(t, err)
+	require.Equal(t, int64(3), arch.startCalls.Load())
+	assert.True(t, startUnattended(), "the re-sent start")
+
+	openArchitect(t, mgr)
+	assert.False(t, startUnattended(), "a blueprint created without it")
+}

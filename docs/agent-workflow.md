@@ -201,9 +201,10 @@ to the remote and restart the backend: it clones the pointer once per process.
 ## Playbooks
 
 Playbooks are cross-project ordered lists of cards and manual gate steps,
-managed through eight ungated MCP tools: `list_playbooks`, `get_playbook`,
+managed through eleven ungated MCP tools: `list_playbooks`, `get_playbook`,
 `create_playbook`, `update_playbook`, `delete_playbook`,
-`add_playbook_entry`, `update_playbook_entry`, `remove_playbook_entry`.
+`add_playbook_entry`, `update_playbook_entry`, `remove_playbook_entry`,
+`add_playbook_followup`, `update_playbook_followup`, `remove_playbook_followup`.
 `create_playbook` accepts `boards_repo` to pick the boards repository when
 several are configured. The human-gated `run_playbook` makes a playbook
 runnable and runs it. The tools serve planning sessions and the web UI, not

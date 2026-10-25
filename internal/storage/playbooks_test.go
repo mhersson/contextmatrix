@@ -321,3 +321,32 @@ func TestPlaybookStore_CopiesSource(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "PROJ-1", again.Source.ExternalID, "a caller mutating its copy must not reach the cache")
 }
+
+func TestPlaybookStore_FollowupsAreDeepCopied(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewFilesystemPlaybookStore(t.TempDir())
+	require.NoError(t, err)
+
+	at := time.Date(2026, 8, 20, 9, 0, 0, 0, time.UTC)
+	p := testPlaybook("alpha")
+	p.NextFollowupID = 2
+	p.Followups = []board.PlaybookFollowup{{
+		ID: "f1", Text: "check", Done: true, DoneBy: "human:a", DoneAt: &at,
+		Cards: []board.PlaybookCardRef{{Project: "alpha", Card: "ALPHA-1"}},
+	}}
+	require.NoError(t, store.Create(ctx, p))
+
+	got, err := store.Get(ctx, "alpha")
+	require.NoError(t, err)
+
+	got.Followups[0].Text = "changed"
+	got.Followups[0].Cards[0].Card = "ALPHA-9"
+	*got.Followups[0].DoneAt = at.Add(time.Hour)
+	got.Followups = append(got.Followups[:0], got.Followups...)
+
+	again, err := store.Get(ctx, "alpha")
+	require.NoError(t, err)
+	assert.Equal(t, "check", again.Followups[0].Text)
+	assert.Equal(t, "ALPHA-1", again.Followups[0].Cards[0].Card)
+	assert.Equal(t, at, *again.Followups[0].DoneAt)
+}

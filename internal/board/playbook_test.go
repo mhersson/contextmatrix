@@ -245,3 +245,64 @@ func TestPlaybook_SourceRoundTrip(t *testing.T) {
 	assert.Equal(t, p, got)
 	require.NoError(t, got.Validate())
 }
+
+func TestPlaybookValidate_Followups(t *testing.T) {
+	ref := PlaybookCardRef{Project: "project-alpha", Card: "ALPHA-101"}
+
+	tests := []struct {
+		name      string
+		followups []PlaybookFollowup
+		wantOK    bool
+	}{
+		{"valid without cards", []PlaybookFollowup{{ID: "f1", Text: "check the dashboard"}}, true},
+		{"valid with cards", []PlaybookFollowup{{ID: "f1", Text: "check", Cards: []PlaybookCardRef{ref}}}, true},
+		{"duplicate id", []PlaybookFollowup{{ID: "f1", Text: "a"}, {ID: "f1", Text: "b"}}, false},
+		{"empty id", []PlaybookFollowup{{ID: "", Text: "a"}}, false},
+		{"blank text", []PlaybookFollowup{{ID: "f1", Text: "  "}}, false},
+		{"ref with project only", []PlaybookFollowup{{ID: "f1", Text: "a", Cards: []PlaybookCardRef{{Project: "alpha"}}}}, false},
+		{"ref with card only", []PlaybookFollowup{{ID: "f1", Text: "a", Cards: []PlaybookCardRef{{Card: "ALPHA-1"}}}}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := validPlaybook()
+			p.Followups = tt.followups
+
+			err := p.Validate()
+			if tt.wantOK {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, ErrInvalidPlaybook)
+		})
+	}
+}
+
+func TestPlaybookFollowups_YAMLRoundTrip(t *testing.T) {
+	at := time.Date(2026, 8, 21, 10, 0, 0, 0, time.UTC)
+	p := validPlaybook()
+	p.NextFollowupID = 3
+	p.Followups = []PlaybookFollowup{
+		{ID: "f1", Text: "check the dashboard", Done: true, DoneBy: "human:bob", DoneAt: &at},
+		{ID: "f2", Text: "verify", Cards: []PlaybookCardRef{{Project: "project-alpha", Card: "ALPHA-101"}}},
+	}
+
+	data, err := SerializePlaybook(p)
+	require.NoError(t, err)
+
+	got, err := ParsePlaybook(data)
+	require.NoError(t, err)
+	assert.Equal(t, p, got)
+
+	plain, err := SerializePlaybook(validPlaybook())
+	require.NoError(t, err)
+	assert.NotContains(t, string(plain), "followups")
+	assert.NotContains(t, string(plain), "next_followup_id")
+}
+
+func TestPlaybook_FindFollowup(t *testing.T) {
+	p := &Playbook{Followups: []PlaybookFollowup{{ID: "f1"}, {ID: "f3"}}}
+	assert.Equal(t, 1, p.FindFollowup("f3"))
+	assert.Equal(t, -1, p.FindFollowup("f2"))
+}

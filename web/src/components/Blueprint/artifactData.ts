@@ -372,6 +372,8 @@ export interface CardsData {
   cards: CardPreview[];
   manual: ManualCheck[];
   order: string[];
+  /** Manual ids that become playbook follow-ups; null on an older architect's payload. */
+  followups: string[] | null;
 }
 
 export function parseCards(data: unknown): CardsData | null {
@@ -391,6 +393,7 @@ export function parseCards(data: unknown): CardsData | null {
     })),
     manual: parseManual(data.manual),
     order: strs(data.order),
+    followups: Array.isArray(data.followups) ? strs(data.followups) : null,
   };
 }
 
@@ -443,11 +446,25 @@ export interface SignoffCard {
   writes: string;
 }
 
+/** A manual step the Unattended run still stops for. */
+export interface UnattendedStop {
+  id: string;
+  text: string;
+  /** Why it is a stop. */
+  note: string;
+  /** Readiness's finding when it judged the stop needless. */
+  needless: string;
+}
+
 export interface SignoffData {
   title: string;
   cards: SignoffCard[];
   order: string[];
   manual: ManualCheck[];
+  /** Manual ids that become playbook follow-ups; null on an older architect's payload. */
+  followups: string[] | null;
+  /** The stops of an Unattended run, in run order; null when the payload has none (not Unattended, or an older architect). */
+  stops: UnattendedStop[] | null;
   blocking: string[];
   warnings: string[];
   /** One line per open finding, "<card id>: <finding>", from the readiness that ran out of rounds; empty on an older sign-off. */
@@ -483,6 +500,10 @@ export function parseSignoff(data: unknown): SignoffData | null {
     })),
     order: strs(data.order),
     manual: parseManual(data.manual),
+    followups: Array.isArray(data.followups) ? strs(data.followups) : null,
+    stops: Array.isArray(data.stops)
+      ? records(data.stops).map((s) => ({ id: str(s.id), text: str(s.text), note: str(s.note), needless: str(s.needless) }))
+      : null,
     blocking: strs(data.blocking),
     warnings: strs(data.warnings),
     notReady: strs(data.not_ready),

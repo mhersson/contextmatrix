@@ -1270,3 +1270,34 @@ func TestPlay_LiveEntryRemovedDuringPlay(t *testing.T) {
 	assert.Equal(t, board.RunStatusRunning, d.Run.Status)
 	assert.Empty(t, d.Run.Entry, "no live entry is left to resume on")
 }
+
+func TestPass_FollowupsNeverHoldTheRun(t *testing.T) {
+	t.Run("completes with an unticked follow-up", func(t *testing.T) {
+		e := newEnv(t)
+		c := todoCard("alpha", "ALPHA-1")
+		c.State = board.StateDone
+		e.cards.add(c)
+
+		p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+		p.Followups = []board.PlaybookFollowup{{ID: "f1", Text: "check the dashboard"}}
+		e.activeRun(p, "e1")
+		e.pbs.add(p)
+
+		require.True(t, e.runner.pass(context.Background(), "rollout"))
+		assert.Equal(t, board.RunStatusCompleted, e.pbs.lastRun().Status)
+	})
+
+	t.Run("still waits on an unchecked manual entry past a ticked follow-up", func(t *testing.T) {
+		e := newEnv(t)
+
+		p := runnablePlaybook("rollout", manualEntry("e1", "deploy"))
+		p.Followups = []board.PlaybookFollowup{{ID: "f1", Text: "check", Done: true, DoneBy: "human:bob"}}
+		e.activeRun(p, "")
+		e.pbs.add(p)
+
+		require.False(t, e.runner.pass(context.Background(), "rollout"))
+		run := e.pbs.lastRun()
+		assert.Equal(t, board.RunStatusWaiting, run.Status)
+		assert.Equal(t, "e1", run.Entry)
+	})
+}

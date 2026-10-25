@@ -9791,3 +9791,43 @@ button.bp-rv-head {
   outline: 2px solid var(--aqua);
   outline-offset: 2px;
 }
+
+.pb-followups-locked {
+  opacity: 0.6;
+}
+
+.pb-followups-title {
+  color: var(--fg);
+}
+
+/* The follow-ups read as a bulletin board pinned to the playbook. */
+.pb-followups--board {
+  position: relative;
+  margin-top: 6px;
+  padding: 12px 14px 8px;
+  background: var(--bg-yellow);
+  border: 1px solid var(--yellow);
+  border-radius: 8px;
+}
+
+.pb-followups--board.pb-followups-locked {
+  border-style: dashed;
+}
+
+.pb-followups--board .pb-followups-title {
+  color: var(--yellow);
+}
+
+.pb-followups-pin {
+  position: absolute;
+  top: -6px;
+  left: 14px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--red);
+}
+
+.pb-followups-row + .pb-followups-row {
+  border-top: 1px solid color-mix(in srgb, var(--yellow) 25%, transparent);
+}

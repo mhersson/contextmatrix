@@ -73,6 +73,9 @@ type Session struct {
 	// PlainLanguage: architect sessions only, the blueprint runs in plain
 	// language. Set at creation; every start sends it.
 	PlainLanguage bool `json:"plain_language,omitempty"`
+	// Unattended: architect sessions only, the blueprint is planned so the run
+	// never stops for a person short of a real gate. Set at creation, never changed; every start sends it.
+	Unattended bool `json:"unattended,omitempty"`
 	// OriginChat and OriginSeq name the chat and its handoff row a blueprint
 	// was started from; empty and 0 otherwise. Set at creation, never changed.
 	OriginChat string `json:"origin_chat,omitempty"`

@@ -78,6 +78,9 @@ DELETE /api/playbooks/{id}                             # delete playbook
 POST   /api/playbooks/{id}/entries                     # append entry (card reference or manual step)
 PATCH  /api/playbooks/{id}/entries/{entryId}            # update entry (done/note/text/position)
 DELETE /api/playbooks/{id}/entries/{entryId}            # remove entry
+POST   /api/playbooks/{id}/followups                   # add follow-up (text, cards?, position?)
+PATCH  /api/playbooks/{id}/followups/{followupId}       # update follow-up (done/text/cards/position)
+DELETE /api/playbooks/{id}/followups/{followupId}       # remove follow-up
 POST   /api/playbooks/{id}/run                         # run or resume a runnable playbook (human-only; MCP equivalent: `run_playbook`)
 POST   /api/playbooks/{id}/stop                        # stop the run and kill every live worker of its cards on this instance (human-only)
 
@@ -291,6 +294,7 @@ the request's `request_id`.
 | `REMOTE_UNREACHABLE`          | 503     | Shared boards: a push-verified write could not reach the remote; the board is unchanged, retry                                                                                             |
 | `PLAYBOOK_NOT_FOUND`          | 404     | Unknown playbook id                                                                                                                                                                        |
 | `PLAYBOOK_ENTRY_NOT_FOUND`    | 404     | Unknown entry id                                                                                                                                                                           |
+| `PLAYBOOK_FOLLOWUP_NOT_FOUND` | 404     | Unknown follow-up id                                                                                                                                                                       |
 | `PLAYBOOK_ENTRY_EXISTS`       | 409     | Duplicate `{project, card}` entry                                                                                                                                                          |
 | `PLAYBOOK_RUN_ACTIVE`         | 409     | `runnable: false` or `base_branch` while a run is `running` or `waiting`; a card's own run trigger while its owning playbook run is active; deleting the playbook while its run is active  |
 | `PLAYBOOK_RUN_INACTIVE`       | 409     | `POST .../stop` when the playbook has no active run                                                                                                                                        |
@@ -1981,7 +1985,8 @@ Resolved detail: metadata plus every entry joined against the card store.
       "done_at": "2026-08-20T10:30:00Z",
       "complete": true
     }
-  ]
+  ],
+  "followups": []
 }
 ```
 
@@ -1993,6 +1998,10 @@ and not yet vetted by a human. All entry fields except `id`, `type`, and
 
 `source` (`{system, external_id, external_url}`) is present on a playbook
 imported from a Jira epic.
+
+`followups` is always present (`[]` when there are none). Each follow-up is
+`{id, text, cards, done, done_by?, done_at?}` with `cards` always an array of
+`{project, card}` labels. Follow-ups never count in `complete` or `total`.
 
 **Errors:** 404 `PLAYBOOK_NOT_FOUND`.
 
@@ -2090,6 +2099,44 @@ detail (the playbook still exists). **Errors:** 404 `PLAYBOOK_NOT_FOUND`,
 404 `PLAYBOOK_ENTRY_NOT_FOUND`, 409 `PLAYBOOK_RUN_ACTIVE` (the entry is the
 run's current card, or a non-terminal card with a queued or running worker;
 stop the run first).
+
+### POST /api/playbooks/{id}/followups
+
+Adds one follow-up: a check a person makes after the run. Follow-ups are not
+human-gated, never run as steps, and are accepted during a run; they never
+change run state. `cards` is an optional list of `{project, card}` labels (the
+cards need not be entries); `position` inserts at that index (omitted appends,
+beyond the end clamps).
+
+```json
+{ "text": "Check the dashboard", "cards": [{ "project": "project-alpha", "card": "ALPHA-101" }] }
+```
+
+Response **201** with the full detail.
+
+| Status | Code                 | When                                                                  |
+| ------ | -------------------- | --------------------------------------------------------------------- |
+| 404    | `PLAYBOOK_NOT_FOUND` | Unknown playbook id                                                   |
+| 422    | `VALIDATION_ERROR`   | Empty `text`, a card ref missing `project` or `card`, negative `position` |
+
+### PATCH /api/playbooks/{id}/followups/{followupId}
+
+Patches one follow-up's `done`, `text`, `cards`, or `position`. Checking
+`done` stamps `done_by`/`done_at` from the caller identity and server clock;
+unchecking clears both. `cards` replaces the list when present (`[]` clears
+it). `position` is the final index after the move. Allowed during a run.
+Response **200** with the full detail.
+
+| Status | Code                          | When                                                         |
+| ------ | ----------------------------- | ------------------------------------------------------------ |
+| 404    | `PLAYBOOK_NOT_FOUND`          | Unknown playbook id                                          |
+| 404    | `PLAYBOOK_FOLLOWUP_NOT_FOUND` | Unknown follow-up id                                         |
+| 422    | `VALIDATION_ERROR`            | Empty `text`, an incomplete card ref, negative `position`    |
+
+### DELETE /api/playbooks/{id}/followups/{followupId}
+
+Removes one follow-up; its id is never reused. Response **200** with the full
+detail. **Errors:** 404 `PLAYBOOK_NOT_FOUND`, 404 `PLAYBOOK_FOLLOWUP_NOT_FOUND`.
 
 **Attribution** (`created_by`, `done_by`): the same resolved identity as
 cards - session in multi mode, else `X-Agent-ID`, falling back to
@@ -2506,6 +2553,7 @@ management lives under `/api/admin/chats`.
 | `project`, `container_id`, `workspace`, `model`                                    | omitempty | `workspace` is a string list; `model` is set at creation and reused on every `/open`       |
 | `mode`, `cost_cap_usd`                                                             | omitempty | Architect sessions only; both are set at creation, then `mode` changes through `/mode` and `cost_cap_usd` through `/cap`. `workspace` holds the target projects |
 | `plain_language`                                                                   | omitempty | Architect sessions only; set at creation and never changed. Every start sends it |
+| `unattended`                                                                       | omitempty | Architect sessions only; set at creation and never changed. Every start sends it |
 | `origin_chat`, `origin_seq`                                                        | omitempty | Architect sessions started from a hand-off only: the chat and its `handoff` row; set at creation and never changed |
 | `context_tokens`                                                                   | omitempty | Last `input + cache_read + cache_create` reported by the model                             |
 | `context_tokens_updated_at`                                                        | always    | Zero time (`0001-01-01T00:00:00Z`) until the first usage entry                             |
@@ -2540,7 +2588,7 @@ endpoint mode wins. With neither, the value is accepted unvalidated.
 A blueprint session on the architect backend takes its own fields:
 
 ```json
-{ "kind": "architect", "projects": ["alpha", "beta"], "mode": "auto", "cost_cap_usd": 3, "plain_language": true }
+{ "kind": "architect", "projects": ["alpha", "beta"], "mode": "auto", "cost_cap_usd": 3, "plain_language": true, "unattended": true }
 ```
 
 `kind` defaults to `chat`. An architect session needs at least one existing
@@ -2549,13 +2597,16 @@ project in `projects`, a valid `mode` (`default`, `auto`, `auto+emit` or
 `project`. `plain_language` (default `false`) runs the blueprint in plain
 language: the person is asked only what they want and how it should look and
 work, and sees each technical decision as what it means for them. It is fixed
-at creation and ignored on a chat session. `model` is not defaulted at create
-for architect sessions: the cold open uses `backends.architect.default_model`.
-A `model` equal to that default is accepted without catalog validation,
-exactly like an omitted one; any other model is validated against the catalog
-as for chat sessions. Violations are 400 `INVALID_CHAT_INPUT` with the reason
-in `details`; a create with no architect backend configured is 409
-`CHAT_KIND_UNAVAILABLE`.
+at creation and ignored on a chat session. `unattended` (default `false`)
+has the architect plan so the playbook run never stops for a person except at
+a real gate, and put the checks a person makes after the run in the playbook's
+follow-ups. It is fixed at creation, no endpoint changes it, and it is ignored
+on a chat session. `model` is not defaulted at create for architect sessions:
+the cold open uses `backends.architect.default_model`. A `model` equal to that
+default is accepted without catalog validation, exactly like an omitted one;
+any other model is validated against the catalog as for chat sessions.
+Violations are 400 `INVALID_CHAT_INPUT` with the reason in `details`; a create
+with no architect backend configured is 409 `CHAT_KIND_UNAVAILABLE`.
 
 `origin_chat` and `origin_seq` start a blueprint from a hand-off: `origin_chat`
 must be the caller's own plain chat and `origin_seq` the seq of its newest

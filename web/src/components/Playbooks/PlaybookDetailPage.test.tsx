@@ -15,6 +15,9 @@ vi.mock('../../api/client', async (importOriginal) => ({
     patchPlaybookEntry: vi.fn(),
     deletePlaybookEntry: vi.fn(),
     addPlaybookEntry: vi.fn(),
+    addPlaybookFollowup: vi.fn(),
+    patchPlaybookFollowup: vi.fn(),
+    deletePlaybookFollowup: vi.fn(),
     deletePlaybook: vi.fn(),
     getCards: vi.fn().mockResolvedValue([]),
     runPlaybook: vi.fn(),
@@ -384,5 +387,65 @@ describe('PlaybookDetailPage', () => {
 
     expect(api.patchPlaybook).not.toHaveBeenCalled();
     expect(await screen.findByText('Ship it on Friday.')).toBeInTheDocument();
+  });
+
+  describe('follow-up placement', () => {
+    const HEADING = 'How to verify what was built';
+    const followups = [{ id: 'f1', text: 'Check the dashboard', cards: [], done: false }];
+    const run = (status: 'running' | 'waiting' | 'stopped' | 'completed') =>
+      ({ status, started_at: '2026-08-20T09:00:00Z', updated_at: '2026-08-20T09:00:00Z' });
+
+    async function placement(detail: PlaybookDetail) {
+      vi.mocked(api.getPlaybook).mockResolvedValue({ ...detail, followups });
+      renderPage();
+      const heading = await screen.findByText(HEADING);
+      const entry = screen.getByText('done step');
+      return heading.compareDocumentPosition(entry) & Node.DOCUMENT_POSITION_FOLLOWING ? 'above' : 'below';
+    }
+
+    function allComplete(): PlaybookDetail {
+      const d = baseDetail();
+      return { ...d, complete: 2, total: 2, entries: d.entries.map((e) => ({ ...e, complete: true })) };
+    }
+
+    it('puts follow-ups above the cards once the run completed', async () => {
+      expect(await placement({ ...baseDetail(), run: run('completed') })).toBe('above');
+    });
+
+    it('puts follow-ups above the cards for a run-less playbook whose entries are all complete', async () => {
+      expect(await placement(allComplete())).toBe('above');
+    });
+
+    it.each(['running', 'waiting', 'stopped'] as const)('keeps follow-ups below the cards for a %s run', async (status) => {
+      expect(await placement({ ...baseDetail(), run: run(status) })).toBe('below');
+    });
+
+    it('keeps follow-ups below the cards when never run and incomplete', async () => {
+      expect(await placement(baseDetail())).toBe('below');
+    });
+
+    it('locks ticks only while the run is active and still saves follow-up edits', async () => {
+      vi.mocked(api.getPlaybook).mockResolvedValue({ ...baseDetail(), followups, run: run('running') });
+      vi.mocked(api.patchPlaybookFollowup).mockResolvedValue({ ...baseDetail(), followups });
+      renderPage();
+      const box = await screen.findByRole('checkbox', { name: 'Check the dashboard' });
+      expect(box).toBeDisabled();
+      fireEvent.click(screen.getByRole('button', { name: 'Check the dashboard' }));
+      const text = screen.getByRole('textbox', { name: 'Step text' });
+      fireEvent.change(text, { target: { value: 'Check logs' } });
+      fireEvent.keyDown(text, { key: 'Enter' });
+      await waitFor(() => expect(api.patchPlaybookFollowup).toHaveBeenCalledWith('roll', 'f1', { text: 'Check logs' }));
+    });
+
+    it('adds a follow-up through the api', async () => {
+      vi.mocked(api.getPlaybook).mockResolvedValue(baseDetail());
+      vi.mocked(api.addPlaybookFollowup).mockResolvedValue({ ...baseDetail(), followups });
+      renderPage();
+      fireEvent.click(await screen.findByRole('button', { name: 'Add a check' }));
+      const input = screen.getByRole('textbox', { name: 'New check' });
+      fireEvent.change(input, { target: { value: 'Check the dashboard' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      await waitFor(() => expect(api.addPlaybookFollowup).toHaveBeenCalledWith('roll', { text: 'Check the dashboard' }));
+    });
   });
 });

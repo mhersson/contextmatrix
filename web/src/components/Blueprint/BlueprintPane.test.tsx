@@ -138,6 +138,22 @@ describe('BlueprintPane', () => {
     clearChatLiveData('S1');
   });
 
+  it("publishes the view's unattended flag to the pane header", () => {
+    clearChatLiveData('S1');
+    const pane = (view: BlueprintView) => (
+      <BlueprintPane chatId="S1" state={{ status: 'ready', view, draft: null }} onRetry={vi.fn()} logs={[]} promptsLive onReply={vi.fn()} phone={false}>
+        <span />
+      </BlueprintPane>
+    );
+    const { result } = renderHook(() => useChatLiveData('S1'));
+    const view = viewAtDesignGate();
+    const { rerender } = render(pane(view));
+    expect(result.current?.blueprintUnattended).toBe(false);
+    rerender(pane({ ...view, seq: view.seq + 1, unattended: true }));
+    expect(result.current?.blueprintUnattended).toBe(true);
+    clearChatLiveData('S1');
+  });
+
   it("publishes the view's plain-language flag to the pane header and the transcript", () => {
     clearChatLiveData('S1');
     function Probe() {

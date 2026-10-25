@@ -437,3 +437,98 @@ describe('ReadinessSheet revision clouds', () => {
   });
 });
 
+
+describe('follow-ups apart from run stops', () => {
+  const manual = [
+    { id: 'M1', text: 'Check the page in a browser.' },
+    { id: 'M2', text: 'Approve the DNS change.' },
+  ];
+  const signoff = (over: object) => ({
+    ...SIGNOFF_V1,
+    data: { ...(SIGNOFF_V1.data as object), order: ['D1', 'M1', 'D2'], manual, ...over },
+  });
+  const cards = (over: object) => ({ ...CARDS_V1, data: { ...(CARDS_V1.data as object), ...over } });
+  const unattended = () => screen.queryByRole('note', { name: 'Unattended' });
+
+  it('SignoffSheet without followups lists every manual entry after the run', () => {
+    show(signoff({}));
+    expect(within(sectionOf(/^Run order/)).getByText('Check the page in a browser.')).toBeInTheDocument();
+    const after = sectionOf(/^Manual checks after the run/);
+    expect(within(after).getByText('Check the page in a browser.')).toBeInTheDocument();
+    expect(within(after).getByText('Approve the DNS change.')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /^After the run/ })).toBeNull();
+  });
+
+  it('SignoffSheet with followups splits stops from follow-ups', () => {
+    show(signoff({ followups: ['M2'] }));
+    const run = sectionOf(/^Run order/);
+    expect(within(run).getByText('Check the page in a browser.')).toBeInTheDocument();
+    expect(within(run).queryByText('Approve the DNS change.')).toBeNull();
+    const after = sectionOf(/^After the run \(follow-ups\)/);
+    expect(within(after).getByText('Approve the DNS change.')).toBeInTheDocument();
+    expect(within(after).queryByText('Check the page in a browser.')).toBeNull();
+    expect(screen.queryByRole('heading', { name: /^Manual checks after the run/ })).toBeNull();
+  });
+
+  it('SignoffSheet with an empty followups list shows no after-run section', () => {
+    show(signoff({ followups: [] }));
+    expect(screen.queryByRole('heading', { name: /^After the run/ })).toBeNull();
+    expect(screen.queryByRole('heading', { name: /^Manual checks after the run/ })).toBeNull();
+  });
+
+  it('CardsSheet with followups titles the off-order checks as follow-ups', () => {
+    show(cards({ order: ['D1', 'D2', 'D3'], manual: [{ id: 'M1', text: 'Run curl against the server.' }], followups: ['M1'] }));
+    expect(within(sectionOf(/^After the run \(follow-ups\)/)).getByText('Run curl against the server.')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /^Manual checks/ })).toBeNull();
+  });
+
+  it('CardsSheet on one card keeps an in-order manual check apart from the follow-ups', () => {
+    const one = { ...(CARDS_V1.data as { cards: object[] }) };
+    show(cards({ cards: one.cards.slice(0, 1), order: ['M1', 'D1'], manual, followups: ['M2'] }));
+    expect(within(sectionOf(/^Manual checks/)).getByText('Check the page in a browser.')).toBeInTheDocument();
+    expect(within(sectionOf(/^After the run \(follow-ups\)/)).getByText('Approve the DNS change.')).toBeInTheDocument();
+    expect(within(sectionOf(/^Manual checks/)).queryByText('Approve the DNS change.')).toBeNull();
+  });
+
+  it('CardsSheet without followups keeps the Manual checks table', () => {
+    show(cards({ order: ['D1', 'D2', 'D3'], manual: [{ id: 'M1', text: 'Run curl against the server.' }] }));
+    expect(within(sectionOf(/^Manual checks/)).getByText('Run curl against the server.')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /^After the run/ })).toBeNull();
+  });
+
+  it('shows one Unattended line and no stop when the run never stops', () => {
+    show(signoff({ followups: ['M2'], stops: [] }));
+    const line = screen.getByRole('note', { name: 'Unattended' });
+    expect(screen.getAllByRole('note', { name: 'Unattended' })).toHaveLength(1);
+    expect(line.textContent).not.toContain('M1');
+    expect(line.textContent).not.toContain('Check the page');
+  });
+
+  it('names each stop with its reason and the needless finding', () => {
+    show(
+      signoff({
+        stops: [
+          { id: 'M2', text: 'Approve the DNS change', note: 'only the domain owner can', needless: 'a card can do this' },
+          { id: 'M1', text: 'Check the page in a browser' },
+        ],
+      }),
+    );
+    const text = screen.getByRole('note', { name: 'Unattended' }).textContent!;
+    for (const s of ['M2', 'Approve the DNS change', 'only the domain owner can', 'a card can do this', 'M1', 'Check the page in a browser']) {
+      expect(text).toContain(s);
+    }
+    expect(text.indexOf('M2')).toBeLessThan(text.indexOf('M1'));
+  });
+
+  it('shows no needless finding for a stop without one', () => {
+    show(signoff({ stops: [{ id: 'M2', text: 'Approve the DNS change', note: 'only the domain owner can' }] }));
+    const line = screen.getByRole('note', { name: 'Unattended' });
+    expect(line.textContent).toContain('only the domain owner can');
+    expect(line.querySelector('.bp-needless')).toBeNull();
+  });
+
+  it('shows no Unattended line without stops', () => {
+    show(signoff({ followups: ['M2'] }));
+    expect(unattended()).toBeNull();
+  });
+});

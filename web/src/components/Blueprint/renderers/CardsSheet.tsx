@@ -18,6 +18,7 @@ export function CardsSheet({ artifact, previous, mode }: RendererProps) {
   const orderShown = data.cards.length > 1 && data.order.length > 0;
   const manualIds = new Set(data.manual.map((m) => m.id));
   const orderedIds = new Set(orderShown ? data.order : []);
+  const followups = data.followups ? new Set(data.followups) : null;
   return (
     <>
       {summary}
@@ -46,9 +47,17 @@ export function CardsSheet({ artifact, previous, mode }: RendererProps) {
       <TableSection
         title="Manual checks"
         columns={MANUAL_COLUMNS}
-        rows={data.manual.filter((m) => !orderedIds.has(m.id))}
+        rows={data.manual.filter((m) => !orderedIds.has(m.id) && !followups?.has(m.id))}
         rowKey={(m) => m.id}
       />
+      {followups && (
+        <TableSection
+          title="After the run (follow-ups)"
+          columns={MANUAL_COLUMNS}
+          rows={data.manual.filter((m) => followups.has(m.id))}
+          rowKey={(m) => m.id}
+        />
+      )}
     </>
   );
 }

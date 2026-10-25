@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { NewChatDialog } from './NewChatDialog';
-import { PLAIN_LANGUAGE, needReason } from './blueprintForm';
+import { PLAIN_LANGUAGE, UNATTENDED, needReason } from './blueprintForm';
 import { HANDOFF_REFUSALS, NEED_NOT_POSTED } from './useCreateSession';
 import { BLUEPRINT_MESSAGE_MAX_BYTES, formatBytes, utf8Length } from '../../components/ChatPanel/chatEntryUtils';
 import type { HandoffPrefill } from '../../components/ChatPanel/handoff';
@@ -358,6 +358,47 @@ describe('NewChatDialog', () => {
     await createAlpha();
     expect(createChat.mock.calls[0][0]).not.toHaveProperty('plain_language');
   });
+  describe('Unattended', () => {
+    const unattendedSwitch = () => screen.getByRole('switch', { name: UNATTENDED.label });
+
+    it('turns on with Yolo and posts unattended', async () => {
+      startBlueprint();
+      expect(unattendedSwitch()).not.toBeChecked();
+      fireEvent.click(screen.getByRole('radio', { name: 'Yolo' }));
+      expect(unattendedSwitch()).toBeChecked();
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Alpha' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Create and run' }));
+      await waitFor(() => expect(createChat).toHaveBeenCalled());
+      expect(createChat.mock.calls[0][0].unattended).toBe(true);
+    });
+
+    it('posts no unattended key in the default mode', async () => {
+      startBlueprint();
+      await createAlpha();
+      expect(createChat.mock.calls[0][0]).not.toHaveProperty('unattended');
+    });
+
+    it('stays off when switched off and the mode moves on to Yolo', () => {
+      startBlueprint();
+      fireEvent.click(screen.getByRole('radio', { name: 'Yolo' }));
+      fireEvent.click(unattendedSwitch());
+      expect(unattendedSwitch()).not.toBeChecked();
+      fireEvent.click(screen.getByRole('radio', { name: 'Auto' }));
+      fireEvent.click(screen.getByRole('radio', { name: 'Yolo' }));
+      expect(unattendedSwitch()).not.toBeChecked();
+    });
+
+    it('is not remembered for the next dialog', async () => {
+      const first = render(<NewChatDialog open onClose={() => {}} />);
+      fireEvent.click(screen.getByRole('radio', { name: 'Blueprint' }));
+      fireEvent.click(unattendedSwitch());
+      await createAlpha();
+      first.unmount();
+      startBlueprint();
+      expect(unattendedSwitch()).not.toBeChecked();
+    });
+  });
+
   describe('from a hand-off', () => {
     const prefill: HandoffPrefill = {
       chatId: 'C',

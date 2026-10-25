@@ -2078,3 +2078,26 @@ func TestPatchChat_PinnedRoundTrip(t *testing.T) {
 	assert.True(t, got.Pinned)
 	assert.True(t, stored().Pinned)
 }
+
+func TestCreateChat_Unattended(t *testing.T) {
+	mux, _ := newChatFixture(t, architectFixtureOpts())
+
+	for name, tc := range map[string]struct {
+		body string
+		want bool
+	}{
+		"blueprint on":  {`{"kind":"architect","projects":["alpha"],"unattended":true}`, true},
+		"blueprint off": {`{"kind":"architect","projects":["alpha"]}`, false},
+		"chat":          {`{"unattended":true}`, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats", tc.body))
+			require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+			var sess chat.Session
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sess))
+			assert.Equal(t, tc.want, sess.Unattended)
+		})
+	}
+}

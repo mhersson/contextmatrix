@@ -37,6 +37,19 @@ type playbookEntryRequest struct {
 	Note    string `json:"note,omitempty"`
 }
 
+type playbookFollowupRequest struct {
+	Text     string                  `json:"text"`
+	Cards    []board.PlaybookCardRef `json:"cards,omitempty"`
+	Position *int                    `json:"position,omitempty"`
+}
+
+type patchPlaybookFollowupRequest struct {
+	Done     *bool                    `json:"done,omitempty"`
+	Text     *string                  `json:"text,omitempty"`
+	Cards    *[]board.PlaybookCardRef `json:"cards,omitempty"`
+	Position *int                     `json:"position,omitempty"`
+}
+
 type createPlaybookRequest struct {
 	Title       string                 `json:"title"`
 	Description string                 `json:"description,omitempty"`
@@ -264,6 +277,62 @@ func (h *playbookHandlers) deleteEntry(w http.ResponseWriter, r *http.Request) {
 	entryID := r.PathValue("entryId")
 
 	detail, err := h.svc.RemoveEntry(r.Context(), id, entryID, playbookAgentID(r))
+	if err != nil {
+		handleServiceError(w, r, err)
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, detail)
+}
+
+// addFollowup handles POST /api/playbooks/{id}/followups. Follow-ups are not
+// human-gated and are allowed during a run.
+func (h *playbookHandlers) addFollowup(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	var req playbookFollowupRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	detail, err := h.svc.AddFollowup(r.Context(), id, service.PlaybookFollowupInput{
+		Text: req.Text, Cards: req.Cards, Position: req.Position,
+	}, playbookAgentID(r))
+	if err != nil {
+		handleServiceError(w, r, err)
+
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, detail)
+}
+
+// patchFollowup handles PATCH /api/playbooks/{id}/followups/{followupId}.
+func (h *playbookHandlers) patchFollowup(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	followupID := r.PathValue("followupId")
+
+	var req patchPlaybookFollowupRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	detail, err := h.svc.UpdateFollowup(r.Context(), id, followupID, service.UpdateFollowupInput{
+		Done: req.Done, Text: req.Text, Cards: req.Cards, Position: req.Position,
+	}, playbookAgentID(r))
+	if err != nil {
+		handleServiceError(w, r, err)
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, detail)
+}
+
+// deleteFollowup handles DELETE /api/playbooks/{id}/followups/{followupId}.
+func (h *playbookHandlers) deleteFollowup(w http.ResponseWriter, r *http.Request) {
+	detail, err := h.svc.RemoveFollowup(r.Context(), r.PathValue("id"), r.PathValue("followupId"), playbookAgentID(r))
 	if err != nil {
 		handleServiceError(w, r, err)
 

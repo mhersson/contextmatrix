@@ -12,6 +12,7 @@ import {
   type PlainSummary as PlainSummaryData,
   type SignoffAssumption,
   type SignoffCard,
+  type UnattendedStop,
 } from '../artifactData';
 import { stageText } from '../stages';
 import { AssumptionNumber, Callout, CrossTable, IdPill, TextList } from './parts';
@@ -111,10 +112,35 @@ function withCardTitle(entry: string, cards: SignoffCard[]): string {
   return card ? `${id} (${card.title})${entry.slice(at)}` : entry;
 }
 
+function UnattendedLine({ stops }: { stops: UnattendedStop[] }) {
+  if (stops.length === 0) {
+    return (
+      <p className="bp-sub" role="note" aria-label="Unattended">
+        Unattended: the run will not stop for a person.
+      </p>
+    );
+  }
+  return (
+    <div className="bp-sub" role="note" aria-label="Unattended">
+      <p>Unattended: the run stops for a person at these steps.</p>
+      <ul>
+        {stops.map((s) => (
+          <li key={s.id}>
+            <b>{s.id}</b> {s.text}
+            {s.note && <span>. Reason: {s.note}</span>}
+            {s.needless && <span className="bp-needless">. Readiness thinks this stop is needless: {s.needless}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function SignoffSheet({ artifact }: RendererProps) {
   const data = parseSignoff(artifact.data);
   if (!data) return <BodyMarkdown body={artifact.body} mode="plain" version={artifact.version} />;
   const order = data.order.length > 0 ? data.order : data.cards.map((c) => c.id);
+  const followups = new Set(data.followups ?? []);
   const steps = order.map(
     (id, i): Step => ({
       id,
@@ -140,6 +166,7 @@ export function SignoffSheet({ artifact }: RendererProps) {
         rows={steps}
         rowKey={(s) => `${s.n}`}
       />
+      {data.stops && <UnattendedLine stops={data.stops} />}
       {data.preflightError && (
         <p className="bp-refused" role="note" aria-label="Preflight">
           The preflight could not run: {data.preflightError}
@@ -165,7 +192,16 @@ export function SignoffSheet({ artifact }: RendererProps) {
           )}
         </section>
       )}
-      <TableSection title="Manual checks after the run" columns={MANUAL_COLUMNS} rows={data.manual} rowKey={(m) => m.id} />
+      {data.followups ? (
+        <TableSection
+          title="After the run (follow-ups)"
+          columns={MANUAL_COLUMNS}
+          rows={data.manual.filter((m) => followups.has(m.id))}
+          rowKey={(m) => m.id}
+        />
+      ) : (
+        <TableSection title="Manual checks after the run" columns={MANUAL_COLUMNS} rows={data.manual} rowKey={(m) => m.id} />
+      )}
       <Callout tone="steps" title="Before the cards run" items={data.steps} />
       <Callout tone="notices" title="Notices" items={data.notices} />
       {artifact.body && <BodyMarkdown body={artifact.body} mode="plain" version={artifact.version} />}

@@ -914,6 +914,8 @@ export interface ChatSession {
   cost_cap_usd?: number;
   /** Fixed at creation: the blueprint asks in plain language. */
   plain_language?: boolean;
+  /** Fixed at creation: the blueprint is planned to run without waiting for a person. */
+  unattended?: boolean;
   /** Blueprints started from a chat hand-off: the chat and the seq of its hand-off row. */
   origin_chat?: string;
   origin_seq?: number;
@@ -1076,6 +1078,20 @@ export interface PlaybookSummary {
   run_status?: PlaybookRunStatus;
 }
 
+export interface PlaybookCardRef {
+  project: string;
+  card: string;
+}
+
+export interface PlaybookFollowup {
+  id: string;
+  text: string;
+  cards: PlaybookCardRef[];
+  done: boolean;
+  done_by?: string;
+  done_at?: string;
+}
+
 export interface PlaybookDetail {
   id: string;
   title: string;
@@ -1086,6 +1102,8 @@ export interface PlaybookDetail {
   complete: number;
   total: number;
   entries: PlaybookEntry[];
+  /** Checks a person makes after a run; the runner never reads them. Read as `?? []` for older servers. */
+  followups?: PlaybookFollowup[];
   /** Boards repo the server stamps this playbook with on every read (the entry's configured name, boards for the map form); optional only for compatibility with older servers. */
   boards_repo?: string;
   runnable?: boolean;
@@ -1226,6 +1244,19 @@ export interface PatchPlaybookEntryInput {
   done?: boolean;
   note?: string;
   text?: string;
+  position?: number;
+}
+
+export interface NewPlaybookFollowup {
+  text: string;
+  cards?: PlaybookCardRef[];
+  position?: number;
+}
+
+export interface PatchPlaybookFollowupInput {
+  done?: boolean;
+  text?: string;
+  cards?: PlaybookCardRef[];
   position?: number;
 }
 
@@ -1384,6 +1415,8 @@ export interface BlueprintView {
   mode: string;
   /** The blueprint runs in plain language. */
   plain_language?: boolean;
+  /** The blueprint is planned to run unattended. */
+  unattended?: boolean;
   /** The architect's coarse state; "ended" when the pipeline stopped before the sign-off. Unknown states render neutrally. */
   state: string;
   /** One plain line on why the pipeline ended; set only when state is "ended". */

@@ -1029,11 +1029,12 @@ type CreateInput struct {
 	Model     string
 	// Kind selects the backend; empty means KindChat.
 	Kind SessionKind
-	// Projects, Mode, CostCapUSD and PlainLanguage apply to KindArchitect only.
+	// Projects, Mode, CostCapUSD, PlainLanguage and Unattended apply to KindArchitect only.
 	Projects      []string
 	Mode          string
 	CostCapUSD    float64
 	PlainLanguage bool
+	Unattended    bool
 	// OriginChat and OriginSeq name the chat and its handoff row this
 	// blueprint starts from; KindArchitect only.
 	OriginChat string
@@ -1053,6 +1054,7 @@ func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, e
 		mode          string
 		costCap       float64
 		plainLanguage bool
+		unattended    bool
 	)
 
 	switch kind {
@@ -1099,6 +1101,7 @@ func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, e
 
 		costCap = in.CostCapUSD
 		plainLanguage = in.PlainLanguage
+		unattended = in.Unattended
 		workspace = slices.Clone(in.Projects)
 	default:
 		return Session{}, fmt.Errorf("%w: unknown session kind %q", ErrInvalidSessionInput, in.Kind)
@@ -1118,6 +1121,7 @@ func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, e
 		Mode:          mode,
 		CostCapUSD:    costCap,
 		PlainLanguage: plainLanguage,
+		Unattended:    unattended,
 		Workspace:     workspace,
 		Status:        StatusCold,
 		CreatedAt:     now,
@@ -1813,7 +1817,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 		}
 
 		m.logger.Info("chat: opening cold blueprint session",
-			"session_id", sess.ID, "projects", sess.Workspace, "mode", sess.Mode, "plain_language", sess.PlainLanguage, "model", model,
+			"session_id", sess.ID, "projects", sess.Workspace, "mode", sess.Mode, "plain_language", sess.PlainLanguage, "unattended", sess.Unattended, "model", model,
 			"research", m.architectResearch != nil)
 
 		start := StartChatOpts{
@@ -1826,6 +1830,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 				Mode:          sess.Mode,
 				CostCapUSD:    sess.CostCapUSD,
 				PlainLanguage: sess.PlainLanguage,
+				Unattended:    sess.Unattended,
 				Research:      m.architectResearch,
 			},
 		}

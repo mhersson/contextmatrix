@@ -61,11 +61,12 @@ export function BlueprintPane({ chatId, state, onRetry, logs, promptsLive, onRep
   const spent = view?.cost.spent_usd;
   const mode = view?.mode;
   const plain = view?.plain_language === true;
+  const unattended = view?.unattended === true;
   useEffect(() => {
     if (spent !== undefined && mode !== undefined) {
-      setChatLiveData(chatId, { blueprintSpentUsd: spent, blueprintMode: mode, blueprintPlainLanguage: plain });
+      setChatLiveData(chatId, { blueprintSpentUsd: spent, blueprintMode: mode, blueprintPlainLanguage: plain, blueprintUnattended: unattended });
     }
-  }, [chatId, spent, mode, plain]);
+  }, [chatId, spent, mode, plain, unattended]);
   const divider = useSheetDivider(bodyRef);
   const openGateId = view?.open?.kind === 'gate' ? view.open.prompt_id : undefined;
   const gatePrompt = useMemo(() => gatePromptFor(logs, promptsLive, openGateId), [logs, promptsLive, openGateId]);

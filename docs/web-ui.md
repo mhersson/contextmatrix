@@ -181,14 +181,19 @@ board. Promote-to-autonomous lives in that tab.
   one it creates chats only. Both kinds take an optional title. A chat picks one
   project from a list (or Across projects, with no checkout) and a model. A
   blueprint picks one or more target projects, one of four described modes
-  (default, auto, auto + emit, yolo), a Plain language switch, a model
+  (default, auto, auto + emit, yolo), a Plain language switch, an Unattended switch, a model
   (defaulting to the architect's default, kept separate from the chat pick) and
   a cost cap preset ($1, $2, $5, $10 or no cap), in that order, and runs on the
   architect backend instead of a chat worker. Plain language asks the person
   only what they want and how it should look and work; the architect makes the
   technical decisions and shows each as what it means for them. The switch opens
   at the choice the person last created a blueprint with in this browser, kept
-  per user when CM has accounts and per browser otherwise. The footer says why
+  per user when CM has accounts and per browser otherwise. Unattended asks the
+  architect to plan the blueprint so its playbook run never stops for a person
+  except at a real gate, and to put the checks a person makes after the run in
+  the playbook's follow-ups. It opens on for yolo and off for the other modes,
+  follows the mode until the person flips it, is not remembered between dialogs,
+  and cannot be changed once the blueprint exists. The footer says why
   Create is disabled, including a cost cap on a model CM cannot price;
   Ctrl+Enter anywhere, or Enter in the title, creates. The button names the
   outcome (Create chat, Create blueprint, or Create and run for yolo). A
@@ -199,7 +204,7 @@ board. Promote-to-autonomous lives in that tab.
   shows its size against 64 KiB (Create is disabled while it is empty or over),
   and the hand-off's projects are ticked. Create waits for the project list;
   once it loads, a project no longer in CM is left out and named in a note. The
-  mode, Plain language, model and cost cap start as usual. Create makes the
+  mode, Plain language, Unattended, model and cost cap start as usual. Create makes the
   blueprint, opens its pane and posts the need as its first message. A failed
   post, or an architect that does not start, keeps the dialog open, and Create
   retries on the same blueprint even when a setting changed since. A second
@@ -215,7 +220,9 @@ board. Promote-to-autonomous lives in that tab.
   header's mode is the view's too, so a switch the architect refused never
   shows there. A blueprint created in plain language shows a Plain
   language badge beside the pill; once the view loads the badge follows the
-  view, so an architect that does not run plain language shows none. The admin
+  view, so an architect that does not run plain language shows none. An Unattended
+  blueprint shows an Unattended badge the same way, a label and not a control.
+  The admin
   Chats page lists every session's kind, mode and cap as the session row holds
   them. It also shows each session's cost; a blueprint's is the architect's
   recorded spend. The architect's questions and gates show reply buttons under
@@ -358,7 +365,9 @@ board. Promote-to-autonomous lives in that tab.
     (and their outcomes when any check names one), and each slice's edge cases
     with the criteria or checks that settle each or why it does not apply; the
     cards sheet's manual checks outside the playbook order with the checks
-    they cover; on the readiness sheet the problems found across the blueprint
+    they cover, plus, when the payload lists `followups` (the manual ids that
+    become playbook follow-ups instead of run steps), a second table titled
+    "After the run (follow-ups)" holding those; on the readiness sheet the problems found across the blueprint
     (between decisions, contracts, cards and assumptions), each with its id,
     severity, finding and the ids it names, critical first, above the cards; and
     on the sign-off the same table at the top, then, when readiness ran out of
@@ -367,7 +376,12 @@ board. Promote-to-autonomous lives in that tab.
     a note with your reason when you approved over open findings (a critical
     finding or cards readiness left not ready), the run order, the assumptions
     (your answer, status, basis and source chips, and the stage that stated
-    each) and the manual checks after the run. The sign-off and the board show
+    each) and the manual checks after the run (titled "After the run
+    (follow-ups)" and holding only the follow-ups when the payload lists
+    `followups`, so a run stop stays in the run order). On an Unattended
+    blueprint the sign-off carries a note under the run order: that the run
+    will not stop for a person, or each step it still stops at with the reason
+    and any finding that the stop is needless. The sign-off and the board show
     the steps to take before the cards run in a yellow box, and notices (what
     will happen without a step from you, such as the verify command an agent
     picks itself) in a blue box. The board's cards carry their type colour and
@@ -649,6 +663,21 @@ unchecking a done manual entry is refused until the run is stopped; a
 refused drag snaps the order back and a refused uncheck stays checked. The
 toasts carry the server's reason. The list page shows a run pill. See
 [playbooks](playbooks.md#running-a-playbook).
+
+The detail page's **How to verify what was built** section lists the
+playbook's follow-ups.
+Its place depends on whether the work is over: it sits below the cards while a run is active or the
+playbook is not finished (a stopped run counts as not finished), and moves
+above them, right under the title and description, once the run completed, or for a playbook with no run once every
+entry is complete. With at least one check it is drawn as a pinned yellow
+panel. While a run is active the panel's border is dashed, the section is
+faded and its checkboxes are disabled; editing the text (Enter saves, line breaks become
+spaces), adding a check with **Add a check**, dragging to reorder and removing
+a check stay available, as the server never refuses follow-up writes. Ticks
+are only the person's record and never change the run. Cards attached to a
+follow-up show as their number (`RECIPEBO-002` reads `002`, with the full
+reference as the tooltip); they are not editable in the UI.
+See [playbooks](playbooks.md#follow-ups).
 
 ## Model selection
 

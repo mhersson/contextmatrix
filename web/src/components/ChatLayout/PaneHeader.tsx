@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { AvailableChat, Slot } from './types';
 import { PaneAccentStripe } from './PaneAccentStripe';
-import { PLAIN_LANGUAGE } from '../../pages/Chat/blueprintForm';
+import { PLAIN_LANGUAGE, UNATTENDED } from '../../pages/Chat/blueprintForm';
 import { useChatLiveData } from '../../hooks/useChatLiveData';
 import { useMenuDismiss } from '../../hooks/useMenuDismiss';
 import { toggleSheet, useSheetButton } from '../Blueprint/sheetButtonStore';
@@ -89,6 +89,7 @@ export function PaneHeader({
         <div className="chat-pane-meta">
           {chat?.kind === 'architect' && <BlueprintMeta chatId={chatId} mode={chat.mode} capUsd={chat.cost_cap_usd} />}
           {chat?.kind === 'architect' && <PlainLanguageBadge chatId={chatId} fromRow={chat.plain_language === true} />}
+          {chat?.kind === 'architect' && <UnattendedBadge chatId={chatId} fromRow={chat.unattended === true} />}
           <PaneContextUsage chatId={chatId} fallbackModel={chat?.model} blueprint={chat?.kind === 'architect'} />
           <span
             className="chat-pane-status-dot"
@@ -263,6 +264,13 @@ function PlainLanguageBadge({ chatId, fromRow }: { chatId: string; fromRow: bool
   const plain = useChatLiveData(chatId)?.blueprintPlainLanguage ?? fromRow;
   if (!plain) return null;
   return <span className="chat-pane-model-pill chat-pane-plain-pill">{PLAIN_LANGUAGE.label}</span>;
+}
+
+/** Marks an unattended blueprint. The view's flag wins once it loads. */
+function UnattendedBadge({ chatId, fromRow }: { chatId: string; fromRow: boolean }) {
+  const unattended = useChatLiveData(chatId)?.blueprintUnattended ?? fromRow;
+  if (!unattended) return null;
+  return <span className="chat-pane-model-pill chat-pane-plain-pill">{UNATTENDED.label}</span>;
 }
 
 /** A blueprint session's kind, mode and cost cap. The mode is the view's once
