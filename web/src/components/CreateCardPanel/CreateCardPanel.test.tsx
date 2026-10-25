@@ -19,7 +19,7 @@ vi.mock('../../hooks/useTheme', () => ({
   }),
 }));
 
-vi.mock('@uiw/react-md-editor', () => ({
+vi.mock('@uiw/react-md-editor/common', () => ({
   default: ({
     value,
     onChange,

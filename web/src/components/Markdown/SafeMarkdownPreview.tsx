@@ -1,4 +1,4 @@
-import MarkdownPreview from '@uiw/react-markdown-preview';
+import MarkdownPreview from '@uiw/react-markdown-preview/common';
 import { MockupAwarePre } from '../Mockup/MockupBlock';
 import { safeMarkdownOptions } from './safeMarkdownOptions';
 
