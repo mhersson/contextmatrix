@@ -127,7 +127,7 @@ entry; `TokenProviderFor` (`internal/auth/credentials.go`) resolves it into a
 cached `githubauth.TokenGenerator` scoping that project's GitHub operations:
 issue import (`cmd/contextmatrix/main.go`), branch listing
 (`internal/api/branches.go`) and the git token minted for a run's worker
-(`internal/api/backend_run.go`). Boards-repo git always uses the instance
+(`internal/api/backend_launch.go`). Boards-repo git always uses the instance
 provider (`cmd/contextmatrix/wire_repos.go`). `newProviderForProject`
 (`cmd/contextmatrix/provider.go`) fails closed on a broken binding and never
 substitutes the instance credential. Unbound projects use the instance-wide
