@@ -114,23 +114,17 @@ func servedSlugAllowed(slug string, allowed, favorites map[string]bool) bool {
 	return ok && allowed[vendor]
 }
 
-// familyKey reduces an AA slug or a gateway model id to the key both sides
-// join on: lowercase, no vendor prefix, dots as dashes, and no trailing
+// familyKeyParts reduces an AA slug or a gateway model id to the key both
+// sides join on: lowercase, no vendor prefix, dots as dashes, and no trailing
 // reasoning-effort suffix or date token. Both AA (gpt-5-2-medium,
 // deepseek-v4-flash-0420-high) and vendors (gpt-5.2, claude-sonnet-4-5-20250929)
 // name a family this way; nothing else is normalised, so an identity suffix
 // (mini, codex, flash, preview) can never be removed.
-func familyKey(s string) string {
-	key, _, _ := familyKeyParts(s)
-
-	return key
-}
-
-// familyKeyParts is familyKey plus what was stripped to reach the key: the
-// effort suffixes, outermost first (non-reasoning is one entry), and how
-// many date tokens. The family index ranks a row's closeness to a served
-// id by these, and matches a wanted reasoning effort against the first
-// suffix.
+//
+// It also returns what was stripped to reach the key: the effort suffixes,
+// outermost first (non-reasoning is one entry), and how many date tokens.
+// The family index ranks a row's closeness to a served id by these, and
+// matches a wanted reasoning effort against the first suffix.
 func familyKeyParts(s string) (key string, efforts []string, dateStripped int) {
 	s = strings.ToLower(strings.TrimSpace(s))
 	if _, name, found := strings.Cut(s, "/"); found {
