@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"slices"
@@ -2249,4 +2250,250 @@ func TestPlaybookService_QueueUnlessRunActive(t *testing.T) {
 		require.NoError(t, <-queued)
 		require.NoError(t, <-played)
 	})
+}
+
+func TestPlaybookService_CreateWithFollowups(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+	ref := board.PlaybookCardRef{Project: "project-alpha", Card: "ALPHA-001"}
+
+	detail, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeManual, Text: "deploy"}},
+		Followups: []PlaybookFollowupInput{
+			{Text: "check the dashboard"},
+			{Text: "verify the card", Cards: []board.PlaybookCardRef{ref}, Position: new(0)},
+		},
+	})
+	require.NoError(t, err)
+
+	require.Len(t, detail.Followups, 2)
+	assert.Equal(t, "f1", detail.Followups[0].ID)
+	assert.Equal(t, "check the dashboard", detail.Followups[0].Text)
+	assert.Equal(t, "f2", detail.Followups[1].ID)
+	assert.Equal(t, []board.PlaybookCardRef{ref}, detail.Followups[1].Cards)
+	assert.Equal(t, 1, detail.Total)
+	assert.Equal(t, 0, detail.Complete)
+
+	stored, err := env.svc.store.Get(ctx, detail.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 3, stored.NextFollowupID)
+}
+
+func TestPlaybookService_CreateRejectsInvalidFollowup(t *testing.T) {
+	tests := []struct {
+		name string
+		in   PlaybookFollowupInput
+	}{
+		{"blank text", PlaybookFollowupInput{Text: "  "}},
+		{"ref with project only", PlaybookFollowupInput{Text: "a", Cards: []board.PlaybookCardRef{{Project: "alpha"}}}},
+		{"ref with card only", PlaybookFollowupInput{Text: "a", Cards: []board.PlaybookCardRef{{Card: "ALPHA-1"}}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newPlaybookTestEnv(t)
+
+			_, err := env.svc.Create(context.Background(), CreatePlaybookInput{
+				Title: "Rollout", AgentID: "human:alice",
+				Entries:   []PlaybookEntryInput{{Type: board.EntryTypeManual, Text: "deploy"}},
+				Followups: []PlaybookFollowupInput{{Text: "fine"}, tt.in},
+			})
+			require.ErrorIs(t, err, ErrInvalidPlaybookFollowup)
+
+			list, err := env.svc.List(context.Background())
+			require.NoError(t, err)
+			assert.Empty(t, list)
+			assert.Empty(t, env.committer.paths)
+		})
+	}
+}
+
+func TestPlaybookService_FollowupLifecycle(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+	ref := board.PlaybookCardRef{Project: "project-alpha", Card: "ALPHA-001"}
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{Title: "Rollout", AgentID: "human:alice"})
+	require.NoError(t, err)
+
+	ids := func(d *PlaybookDetail) []string {
+		var out []string
+		for _, f := range d.Followups {
+			out = append(out, f.ID)
+		}
+
+		return out
+	}
+
+	_, err = env.svc.AddFollowup(ctx, "rollout", PlaybookFollowupInput{Text: "one", Cards: []board.PlaybookCardRef{ref}}, "human:alice")
+	require.NoError(t, err)
+	d, err := env.svc.AddFollowup(ctx, "rollout", PlaybookFollowupInput{Text: "two"}, "human:alice")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"f1", "f2"}, ids(d))
+
+	d, err = env.svc.AddFollowup(ctx, "rollout", PlaybookFollowupInput{Text: "zero", Position: new(0)}, "human:alice")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"f3", "f1", "f2"}, ids(d))
+
+	d, err = env.svc.UpdateFollowup(ctx, "rollout", "f2", UpdateFollowupInput{Text: new("two edited")}, "human:alice")
+	require.NoError(t, err)
+	assert.Equal(t, "two edited", d.Followups[2].Text)
+
+	d, err = env.svc.UpdateFollowup(ctx, "rollout", "f1", UpdateFollowupInput{Cards: &[]board.PlaybookCardRef{}}, "human:alice")
+	require.NoError(t, err)
+	assert.Empty(t, d.Followups[1].Cards)
+
+	d, err = env.svc.UpdateFollowup(ctx, "rollout", "f1", UpdateFollowupInput{Done: new(true)}, "human:bob")
+	require.NoError(t, err)
+	assert.True(t, d.Followups[1].Done)
+	assert.Equal(t, "human:bob", d.Followups[1].DoneBy)
+	require.NotNil(t, d.Followups[1].DoneAt)
+	assert.Equal(t, env.clk.Now(), *d.Followups[1].DoneAt)
+
+	d, err = env.svc.UpdateFollowup(ctx, "rollout", "f1", UpdateFollowupInput{Done: new(false)}, "human:bob")
+	require.NoError(t, err)
+	assert.False(t, d.Followups[1].Done)
+	assert.Empty(t, d.Followups[1].DoneBy)
+	assert.Nil(t, d.Followups[1].DoneAt)
+
+	d, err = env.svc.UpdateFollowup(ctx, "rollout", "f3", UpdateFollowupInput{Position: new(99)}, "human:alice")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"f1", "f2", "f3"}, ids(d))
+
+	d, err = env.svc.UpdateFollowup(ctx, "rollout", "f2", UpdateFollowupInput{Position: new(0)}, "human:alice")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"f2", "f1", "f3"}, ids(d))
+
+	_, err = env.svc.UpdateFollowup(ctx, "rollout", "f2", UpdateFollowupInput{Position: new(-1)}, "human:alice")
+	require.ErrorIs(t, err, ErrInvalidPlaybookFollowup)
+
+	_, err = env.svc.UpdateFollowup(ctx, "rollout", "f2", UpdateFollowupInput{Text: new(" ")}, "human:alice")
+	require.ErrorIs(t, err, ErrInvalidPlaybookFollowup)
+
+	_, err = env.svc.UpdateFollowup(ctx, "rollout", "f2", UpdateFollowupInput{Cards: &[]board.PlaybookCardRef{{Project: "x"}}}, "human:alice")
+	require.ErrorIs(t, err, ErrInvalidPlaybookFollowup)
+
+	_, err = env.svc.AddFollowup(ctx, "rollout", PlaybookFollowupInput{Text: "x", Position: new(-1)}, "human:alice")
+	require.ErrorIs(t, err, ErrInvalidPlaybookFollowup)
+
+	d, err = env.svc.RemoveFollowup(ctx, "rollout", "f2", "human:alice")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"f1", "f3"}, ids(d))
+
+	d, err = env.svc.AddFollowup(ctx, "rollout", PlaybookFollowupInput{Text: "four"}, "human:alice")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"f1", "f3", "f4"}, ids(d))
+}
+
+func TestPlaybookService_FollowupNotFound(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{Title: "Rollout", AgentID: "human:alice"})
+	require.NoError(t, err)
+
+	_, err = env.svc.UpdateFollowup(ctx, "rollout", "f9", UpdateFollowupInput{Done: new(true)}, "human:alice")
+	require.ErrorIs(t, err, ErrPlaybookFollowupNotFound)
+
+	_, err = env.svc.RemoveFollowup(ctx, "rollout", "f9", "human:alice")
+	require.ErrorIs(t, err, ErrPlaybookFollowupNotFound)
+}
+
+func TestPlaybookService_LegacyPlaybookFollowupStartsAtF1(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeManual, Text: "deploy"}},
+	})
+	require.NoError(t, err)
+
+	stored, err := env.svc.store.Get(ctx, "rollout")
+	require.NoError(t, err)
+	require.Zero(t, stored.NextFollowupID)
+
+	d, err := env.svc.AddFollowup(ctx, "rollout", PlaybookFollowupInput{Text: "check"}, "human:alice")
+	require.NoError(t, err)
+	require.Len(t, d.Followups, 1)
+	assert.Equal(t, "f1", d.Followups[0].ID)
+}
+
+func TestPlaybookService_FollowupsIgnoreActiveRun(t *testing.T) {
+	for _, status := range []string{board.RunStatusRunning, board.RunStatusWaiting} {
+		t.Run(status, func(t *testing.T) {
+			env := newPlaybookTestEnv(t)
+			ctx := context.Background()
+
+			_, err := env.svc.Create(ctx, CreatePlaybookInput{
+				Title: "Rollout", AgentID: "human:alice",
+				Entries: []PlaybookEntryInput{
+					{Type: board.EntryTypeManual, Text: "deploy"},
+					{Type: board.EntryTypeManual, Text: "verify"},
+				},
+				Followups: []PlaybookFollowupInput{{Text: "one"}, {Text: "two"}},
+			})
+			require.NoError(t, err)
+
+			_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
+			require.NoError(t, err)
+
+			now := env.clk.Now()
+			_, err = env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: status, StartedAt: now, UpdatedAt: now, Entry: "e1"}, "human:alice")
+			require.NoError(t, err)
+
+			before, err := env.svc.store.Get(ctx, "rollout")
+			require.NoError(t, err)
+
+			steps := map[string]func() (*PlaybookDetail, error){
+				"add": func() (*PlaybookDetail, error) {
+					return env.svc.AddFollowup(ctx, "rollout", PlaybookFollowupInput{Text: "three"}, "human:bob")
+				},
+				"tick": func() (*PlaybookDetail, error) {
+					return env.svc.UpdateFollowup(ctx, "rollout", "f1", UpdateFollowupInput{Done: new(true)}, "human:bob")
+				},
+				"untick": func() (*PlaybookDetail, error) {
+					return env.svc.UpdateFollowup(ctx, "rollout", "f1", UpdateFollowupInput{Done: new(false)}, "human:bob")
+				},
+				"text": func() (*PlaybookDetail, error) {
+					return env.svc.UpdateFollowup(ctx, "rollout", "f2", UpdateFollowupInput{Text: new("two b")}, "human:bob")
+				},
+				"move": func() (*PlaybookDetail, error) {
+					return env.svc.UpdateFollowup(ctx, "rollout", "f2", UpdateFollowupInput{Position: new(0)}, "human:bob")
+				},
+				"remove": func() (*PlaybookDetail, error) { return env.svc.RemoveFollowup(ctx, "rollout", "f1", "human:bob") },
+			}
+			for _, name := range []string{"add", "tick", "untick", "text", "move", "remove"} {
+				d, err := steps[name]()
+				require.NoError(t, err, name)
+				assert.Equal(t, before.Run, d.Run, name)
+				assert.Equal(t, 0, d.Complete, name)
+				assert.Equal(t, 2, d.Total, name)
+			}
+
+			after, err := env.svc.store.Get(ctx, "rollout")
+			require.NoError(t, err)
+			assert.Equal(t, before.Entries, after.Entries)
+			assert.Equal(t, before.Run, after.Run)
+		})
+	}
+}
+
+func TestPlaybookDetail_ListsAreNeverNull(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	d, err := env.svc.Create(ctx, CreatePlaybookInput{Title: "Rollout", AgentID: "human:alice"})
+	require.NoError(t, err)
+
+	raw, err := json.Marshal(d)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"followups":[]`)
+
+	d, err = env.svc.AddFollowup(ctx, "rollout", PlaybookFollowupInput{Text: "check"}, "human:alice")
+	require.NoError(t, err)
+
+	raw, err = json.Marshal(d)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"cards":[]`)
 }

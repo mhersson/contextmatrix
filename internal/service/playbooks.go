@@ -34,6 +34,9 @@ var (
 	ErrPlaybookEntryNotFound = errors.New("playbook entry not found")
 	ErrDuplicateCardEntry    = errors.New("duplicate card entry")
 	ErrInvalidPlaybookEntry  = errors.New("invalid playbook entry")
+
+	ErrPlaybookFollowupNotFound = errors.New("playbook follow-up not found")
+	ErrInvalidPlaybookFollowup  = errors.New("invalid playbook follow-up")
 	// ErrPlaybookRunActive is returned when a change is refused because the
 	// playbook has a running or waiting run.
 	ErrPlaybookRunActive = errors.New("playbook run is active")
@@ -111,12 +114,30 @@ type PlaybookEntryInput struct {
 	Note    string
 }
 
+// PlaybookFollowupInput is one follow-up as submitted by an API/MCP caller.
+// Position applies to AddFollowup only; Create ignores it.
+type PlaybookFollowupInput struct {
+	Text     string
+	Cards    []board.PlaybookCardRef
+	Position *int
+}
+
+// UpdateFollowupInput patches one follow-up. Nil fields are left unchanged;
+// a non-nil Cards replaces the list and an empty one clears it.
+type UpdateFollowupInput struct {
+	Done     *bool
+	Text     *string
+	Cards    *[]board.PlaybookCardRef
+	Position *int
+}
+
 // CreatePlaybookInput is the payload for creating a new playbook.
 type CreatePlaybookInput struct {
 	Title       string
 	Description string
 	AgentID     string
 	Entries     []PlaybookEntryInput
+	Followups   []PlaybookFollowupInput
 	// BoardsRepo names the boards repository to create the playbook in;
 	// empty means the first configured one.
 	BoardsRepo string
@@ -226,6 +247,8 @@ type PlaybookDetail struct {
 	Complete    int                   `json:"complete"`
 	Total       int                   `json:"total"`
 	Entries     []PlaybookEntryDetail `json:"entries"`
+	// Followups never count in Complete or Total.
+	Followups []board.PlaybookFollowup `json:"followups"`
 	// Runnable and BaseBranch mirror the stored fields; Run mirrors the
 	// current run block, nil when the playbook has never run.
 	Runnable   bool               `json:"runnable"`
@@ -656,6 +679,15 @@ func (s *PlaybookService) createLocked(
 		}
 
 		p.Entries = append(p.Entries, *e)
+	}
+
+	for i, in := range input.Followups {
+		f, err := buildFollowup(p, in)
+		if err != nil {
+			return nil, nil, fmt.Errorf("follow-up %d: %w", i, err)
+		}
+
+		p.Followups = append(p.Followups, *f)
 	}
 
 	base := board.SlugifyPlaybookTitle(p.Title)
@@ -1504,6 +1536,132 @@ func (s *PlaybookService) UpdateEntry(ctx context.Context, id, entryID string, i
 	})
 }
 
+// buildFollowup validates one follow-up input, assigns the next follow-up ID
+// and returns it. Caller holds writeMu.
+func buildFollowup(p *board.Playbook, in PlaybookFollowupInput) (*board.PlaybookFollowup, error) {
+	if strings.TrimSpace(in.Text) == "" {
+		return nil, fmt.Errorf("%w: follow-ups need text", ErrInvalidPlaybookFollowup)
+	}
+
+	if err := validateCardRefs(in.Cards); err != nil {
+		return nil, err
+	}
+
+	n := max(p.NextFollowupID, 1)
+	p.NextFollowupID = n + 1
+
+	return &board.PlaybookFollowup{
+		ID:    fmt.Sprintf("f%d", n),
+		Text:  in.Text,
+		Cards: slices.Clone(in.Cards),
+	}, nil
+}
+
+func validateCardRefs(refs []board.PlaybookCardRef) error {
+	for _, ref := range refs {
+		if ref.Project == "" || ref.Card == "" {
+			return fmt.Errorf("%w: a card ref needs project and card", ErrInvalidPlaybookFollowup)
+		}
+	}
+
+	return nil
+}
+
+// AddFollowup adds a follow-up at in.Position, or at the end when nil. Like
+// every follow-up write it is allowed during a run: the runner never reads
+// follow-ups.
+func (s *PlaybookService) AddFollowup(ctx context.Context, id string, in PlaybookFollowupInput, agentID string) (*PlaybookDetail, error) {
+	return s.mutateWith(ctx, id, agentID, func(p *board.Playbook) (string, error) {
+		f, err := buildFollowup(p, in)
+		if err != nil {
+			return "", err
+		}
+
+		pos := len(p.Followups)
+
+		if in.Position != nil {
+			if *in.Position < 0 {
+				return "", fmt.Errorf("%w: position must not be negative", ErrInvalidPlaybookFollowup)
+			}
+
+			pos = min(*in.Position, len(p.Followups))
+		}
+
+		p.Followups = slices.Insert(p.Followups, pos, *f)
+
+		return "add follow-up " + f.ID, nil
+	})
+}
+
+// UpdateFollowup patches one follow-up. Done stamps DoneBy/DoneAt from the
+// caller and clock, and clearing it clears both. Position is the final index
+// after removal: negative is rejected, beyond-end clamps to the end.
+func (s *PlaybookService) UpdateFollowup(ctx context.Context, id, followupID string, in UpdateFollowupInput, agentID string) (*PlaybookDetail, error) {
+	return s.mutate(ctx, id, "update follow-up "+followupID, agentID, func(p *board.Playbook) error {
+		i := p.FindFollowup(followupID)
+		if i < 0 {
+			return fmt.Errorf("%w: %s", ErrPlaybookFollowupNotFound, followupID)
+		}
+
+		f := &p.Followups[i]
+
+		if in.Text != nil {
+			if strings.TrimSpace(*in.Text) == "" {
+				return fmt.Errorf("%w: text must not be empty", ErrInvalidPlaybookFollowup)
+			}
+
+			f.Text = *in.Text
+		}
+
+		if in.Cards != nil {
+			if err := validateCardRefs(*in.Cards); err != nil {
+				return err
+			}
+
+			f.Cards = slices.Clone(*in.Cards)
+		}
+
+		if in.Done != nil {
+			if *in.Done {
+				f.Done = true
+				f.DoneBy = agentID
+				at := s.clk.Now().UTC().Truncate(time.Second)
+				f.DoneAt = &at
+			} else {
+				f.Done = false
+				f.DoneBy = ""
+				f.DoneAt = nil
+			}
+		}
+
+		if in.Position != nil {
+			if *in.Position < 0 {
+				return fmt.Errorf("%w: position must not be negative", ErrInvalidPlaybookFollowup)
+			}
+
+			moved := p.Followups[i]
+			p.Followups = slices.Delete(p.Followups, i, i+1)
+			p.Followups = slices.Insert(p.Followups, min(*in.Position, len(p.Followups)), moved)
+		}
+
+		return nil
+	})
+}
+
+// RemoveFollowup deletes one follow-up. Its ID is never reused.
+func (s *PlaybookService) RemoveFollowup(ctx context.Context, id, followupID, agentID string) (*PlaybookDetail, error) {
+	return s.mutate(ctx, id, "remove follow-up "+followupID, agentID, func(p *board.Playbook) error {
+		i := p.FindFollowup(followupID)
+		if i < 0 {
+			return fmt.Errorf("%w: %s", ErrPlaybookFollowupNotFound, followupID)
+		}
+
+		p.Followups = slices.Delete(p.Followups, i, i+1)
+
+		return nil
+	})
+}
+
 // resolve turns a stored playbook into its API-facing detail: each card
 // entry is checked against the card store (missing/complete/title/state/
 // agent), each manual entry's completion is its own Done flag. Missing
@@ -1521,6 +1679,7 @@ func (s *PlaybookService) resolve(ctx context.Context, p *board.Playbook) (*Play
 		Updated:     p.Updated,
 		Total:       len(p.Entries),
 		Entries:     make([]PlaybookEntryDetail, len(p.Entries)),
+		Followups:   cloneFollowups(p.Followups),
 		Runnable:    p.Runnable,
 		BaseBranch:  p.BaseBranch,
 	}
@@ -1571,6 +1730,25 @@ func (s *PlaybookService) resolve(ctx context.Context, p *board.Playbook) (*Play
 	}
 
 	return detail, nil
+}
+
+// cloneFollowups deep-copies follow-ups for a detail, with non-nil lists so
+// the wire shape is [] rather than null.
+func cloneFollowups(src []board.PlaybookFollowup) []board.PlaybookFollowup {
+	out := make([]board.PlaybookFollowup, len(src))
+
+	for i, f := range src {
+		f.Cards = append([]board.PlaybookCardRef{}, f.Cards...)
+
+		if f.DoneAt != nil {
+			at := *f.DoneAt
+			f.DoneAt = &at
+		}
+
+		out[i] = f
+	}
+
+	return out
 }
 
 // repoLinks builds one compare link per distinct project among the card

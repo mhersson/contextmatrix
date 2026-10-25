@@ -132,6 +132,18 @@ func copyPlaybook(p *board.Playbook) *board.Playbook {
 		}
 	}
 
+	cp.Followups = slices.Clone(p.Followups)
+
+	for i := range cp.Followups {
+		f := &cp.Followups[i]
+		f.Cards = slices.Clone(f.Cards)
+
+		if f.DoneAt != nil {
+			at := *f.DoneAt
+			f.DoneAt = &at
+		}
+	}
+
 	cp.Run = p.Run.Clone()
 	cp.Source = p.Source.Clone()
 

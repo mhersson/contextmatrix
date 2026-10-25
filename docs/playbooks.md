@@ -25,6 +25,32 @@ a shared branch (see [Running a playbook](#running-a-playbook)).
   skill reads playbooks at all.
 - Progress is `complete/total`, derived on read. An empty playbook is valid.
 
+## Follow-ups
+
+A follow-up is a check a person makes after the run, such as looking at a
+dashboard or finishing a setup step. The runner never reads follow-ups: they
+do not hold, advance or complete a run, and they count in neither `complete`
+nor `total`.
+
+- A follow-up has `id`, `text`, optional `cards`, and `done` stamps. `text` is
+  required and may not be blank.
+- `cards` are labels: each ref needs both `project` and `card`, but the card
+  need not be an entry of the playbook and is not checked for existence.
+- Ids are `f<N>` from the persisted `next_followup_id`, stable under reorder
+  and never reused after removal. A playbook without the counter starts at
+  `f1`.
+- Checking a follow-up stamps `done_by` and `done_at` from the caller and the
+  server clock; unchecking clears both.
+- `position` is the final index after the move; values past the end clamp and
+  negative values are rejected.
+- Follow-up writes (add, edit, check, reorder, remove) are accepted while a
+  run is `running` or `waiting` and never change the run, the entries or the
+  progress.
+- Creating a playbook with follow-ups is all-or-nothing: one invalid follow-up
+  rejects the create and writes nothing.
+- The detail view always carries `followups` (`[]` when there are none), and
+  every follow-up carries `cards` (`[]` when empty).
+
 ## Detail view
 
 `/playbooks` lists playbooks still in progress as rows, each with a miniature
@@ -257,6 +283,7 @@ created_by: human:alice
 created_at: 2026-08-20T09:00:00Z
 updated_at: 2026-08-20T10:30:00Z
 next_entry_id: 4
+next_followup_id: 3 # present once a follow-up has been added
 source: # present on a playbook imported from a Jira epic
   system: jira
   external_id: PROJ-1
@@ -278,6 +305,17 @@ entries:
     type: card
     project: project-beta
     card: BETA-042
+followups: # omitted while there are none
+  - id: f1
+    text: Check the dashboard shows the new flag
+    done: true
+    done_by: human:alice
+    done_at: 2026-08-21T08:00:00Z
+  - id: f2
+    text: Confirm the beta rollout
+    cards:
+      - project: project-beta
+        card: BETA-042
 ```
 
 ## See also

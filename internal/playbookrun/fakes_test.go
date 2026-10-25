@@ -176,6 +176,7 @@ func (f *fakePlaybooks) Get(ctx context.Context, id string) (*service.PlaybookDe
 
 	p := *stored
 	p.Entries = append([]board.PlaybookEntry(nil), stored.Entries...)
+	p.Followups = append([]board.PlaybookFollowup(nil), stored.Followups...)
 
 	if stored.Run != nil {
 		run := *stored.Run
@@ -186,7 +187,7 @@ func (f *fakePlaybooks) Get(ctx context.Context, id string) (*service.PlaybookDe
 	f.afterGet = nil
 	f.mu.Unlock()
 
-	d := &service.PlaybookDetail{ID: p.ID, Title: p.Title, Runnable: p.Runnable, BaseBranch: p.BaseBranch, Total: len(p.Entries)}
+	d := &service.PlaybookDetail{ID: p.ID, Title: p.Title, Runnable: p.Runnable, BaseBranch: p.BaseBranch, Total: len(p.Entries), Followups: p.Followups}
 	if p.Runnable {
 		d.Branch = p.Branch()
 	}

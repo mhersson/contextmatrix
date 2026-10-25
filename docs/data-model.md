@@ -810,6 +810,7 @@ created_by: human:alice      # informational attribution
 created_at: 2026-08-20T09:00:00Z
 updated_at: 2026-08-20T10:30:00Z
 next_entry_id: 4             # persisted counter; entry IDs are never reused
+next_followup_id: 3          # persisted counter; absent until a follow-up is added
 source:                      # optional; set by the Jira import, immutable
   system: jira
   external_id: PROJ-1
@@ -836,6 +837,17 @@ entries:
     type: card
     project: project-beta
     card: BETA-042
+followups:                   # optional; checks a person makes after the run
+  - id: f1
+    text: "Check the dashboard"
+    done: true
+    done_by: human:alice
+    done_at: 2026-08-21T08:00:00Z
+  - id: f2
+    text: "Confirm the beta rollout"
+    cards:
+      - project: project-beta
+        card: BETA-042
 ```
 
 ### Rules
@@ -860,6 +872,13 @@ entries:
   and the server clock; unchecking clears both; a re-check restamps.
   Unchecking is refused while the playbook's run is `running` or `waiting`
   (409 `PLAYBOOK_UNCHECK_DURING_RUN`).
+- **Follow-ups** are checks a person makes after the run. IDs are `f<N>` from
+  the persisted `next_followup_id` (a playbook without it starts at `f1`),
+  never reused. `text` is required and not blank; every `cards` ref needs both
+  `project` and `card` and is a label only (no existence check). The runner,
+  run status and progress never read them, so writes are accepted during an
+  active run. Create is all-or-nothing, and the detail always returns
+  `followups` and each `cards` as lists, never null.
 - **`note`** is optional on both types and is a human-only channel: writable
   from the UI and MCP, excluded from agent-facing context.
 - **Progress is derived**: a card entry is complete when its card is
@@ -888,6 +907,8 @@ type Playbook struct {
     Updated     time.Time       `yaml:"updated_at"            json:"updated_at"`
     NextEntryID int             `yaml:"next_entry_id"         json:"next_entry_id"`
     Entries     []PlaybookEntry `yaml:"entries"               json:"entries"`
+    NextFollowupID int                `yaml:"next_followup_id,omitempty" json:"-"`
+    Followups      []PlaybookFollowup `yaml:"followups,omitempty"        json:"followups"`
     Runnable    bool            `yaml:"runnable,omitempty"    json:"runnable"`
     BaseBranch  string          `yaml:"base_branch,omitempty" json:"base_branch,omitempty"`
     Run         *PlaybookRun    `yaml:"run,omitempty"         json:"run,omitempty"`
@@ -904,6 +925,20 @@ type PlaybookEntry struct {
     DoneBy  string     `yaml:"done_by,omitempty" json:"done_by,omitempty"`
     DoneAt  *time.Time `yaml:"done_at,omitempty" json:"done_at,omitempty"`
     Note    string     `yaml:"note,omitempty"    json:"note,omitempty"`
+}
+
+type PlaybookFollowup struct {
+    ID     string            `yaml:"id"                json:"id"`
+    Text   string            `yaml:"text"              json:"text"`
+    Cards  []PlaybookCardRef `yaml:"cards,omitempty"   json:"cards"`
+    Done   bool              `yaml:"done,omitempty"    json:"done"`
+    DoneBy string            `yaml:"done_by,omitempty" json:"done_by,omitempty"`
+    DoneAt *time.Time        `yaml:"done_at,omitempty" json:"done_at,omitempty"`
+}
+
+type PlaybookCardRef struct {
+    Project string `yaml:"project" json:"project"`
+    Card    string `yaml:"card"    json:"card"`
 }
 
 type PlaybookRun struct {
