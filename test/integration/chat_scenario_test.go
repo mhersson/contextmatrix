@@ -44,6 +44,7 @@ func TestChatScenario(t *testing.T) {
 		ID     string `json:"id"`
 		Status string `json:"status"`
 	}
+
 	status, body := h.client.do(t, http.MethodPost, "/api/chats",
 		map[string]any{"title": "smoke", "project": project}, &created)
 	if status != http.StatusCreated {

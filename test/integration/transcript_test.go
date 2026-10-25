@@ -53,17 +53,7 @@ func (b *transcriptBuffer) append(ev transcriptEvent) {
 	b.bytes += size
 }
 
-func (b *transcriptBuffer) snapshot() []transcriptEvent {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	out := make([]transcriptEvent, len(b.events))
-	copy(out, b.events)
-
-	return out
-}
-
-// startTranscriptCapture opens an SSE connection to CM's /api/runner/logs
+// startTranscriptCapture opens an SSE connection to CM's /api/worker/logs
 // and pumps events into buf until ctx is cancelled or the stream ends.
 // Returns immediately; goroutine runs in background. The harness cancels
 // ctx in t.Cleanup so the goroutine exits.
@@ -170,19 +160,4 @@ func startTranscriptCapture(t *testing.T, client *apiClient, project, cardID str
 	// Tiny poll to give the goroutine a chance to connect before the
 	// scenario starts emitting events. Avoids losing the first few.
 	time.Sleep(100 * time.Millisecond)
-}
-
-// waitForTranscriptText blocks until any captured event's Content or
-// RawJSON contains needle, or the deadline expires.
-func waitForTranscriptText(ctx context.Context, t *testing.T, buf *transcriptBuffer, needle string) {
-	t.Helper()
-	pollUntil(ctx, t, fmt.Sprintf("transcript contains %q", needle), func() bool {
-		for _, ev := range buf.snapshot() {
-			if strings.Contains(ev.Content, needle) || strings.Contains(ev.RawJSON, needle) {
-				return true
-			}
-		}
-
-		return false
-	})
 }

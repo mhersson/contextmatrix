@@ -32,8 +32,9 @@ type scenarioConfig struct {
 	agentPort int
 	chatPort  int
 
-	// Host services the workers reach via host.docker.internal. Populated by
-	// the scenario after the listeners bind (kernel-assigned ports).
+	// Host listeners, populated by the scenario after they bind
+	// (kernel-assigned ports). Workers reach only gitPort via
+	// host.docker.internal; stubLLMPort is called from the host.
 	stubLLMPort int
 	gitPort     int
 
@@ -100,12 +101,12 @@ type cmConfigOptions struct {
 
 // writeCMConfig writes the CM config in auth.mode: multi. op_store/images/auth
 // paths land in the scenario tmp dir so the run is hermetic (no shared XDG
-// state). llm_endpoint points workers at the scripted LLM; github.pat satisfies
+// state). llm_endpoint points the backends at the scripted LLM; github.pat satisfies
 // the fail-closed git-token mint (the git server ignores the token).
 //
-// Note: CM itself cannot resolve host.docker.internal (host has no such alias),
-// so its own catalog/chat-picker fetch of llm_endpoint fails - best-effort and
-// fail-open by design. Workers reach the endpoint fine from inside containers.
+// The llm_endpoint base_url is the host loopback: CM and the backends' serve
+// processes call it from the host, and workers reach the LLM through serve's
+// proxy rather than the endpoint itself.
 func (sc *scenarioConfig) writeCMConfig(t *testing.T, opts cmConfigOptions) string {
 	t.Helper()
 
@@ -131,14 +132,14 @@ func (sc *scenarioConfig) writeCMConfig(t *testing.T, opts cmConfigOptions) stri
 		}
 	}
 
-	// llm_endpoint is only meaningful when a worker backend runs - CM forwards
-	// it to workers. Omit it for backend-free tests so there is no bogus
+	// llm_endpoint is only meaningful when a worker backend runs - CM sends
+	// it to the backends, whose serve proxies worker LLM calls to it. Omit it for backend-free tests so there is no bogus
 	// endpoint to fetch.
 	llmEndpoint := ""
 	if opts.agent || opts.chat {
 		llmEndpoint = fmt.Sprintf(`llm_endpoint:
   type: openai
-  base_url: http://host.docker.internal:%d
+  base_url: http://127.0.0.1:%d
   api_key: stub-llm-key
 `, sc.stubLLMPort)
 	}

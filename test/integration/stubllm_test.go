@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // The content-keyed matcher table and the SSE wire builders below are ported
@@ -24,9 +25,9 @@ import (
 // phase prompt, update the matcher here in lockstep or the scenario hangs on
 // the "UNEXPECTED PROMPT" fallback. Keep every matcher in this one file.
 
-// stubLLM is a scripted OpenAI-compatible endpoint. It binds 0.0.0.0 so worker
-// containers reach it via host.docker.internal:<port>; the port is
-// kernel-assigned. It serves POST /chat/completions from a reply function and
+// stubLLM is a scripted OpenAI-compatible endpoint. It binds 0.0.0.0 and the
+// port is kernel-assigned; CM and the backends' serve processes call it from
+// the host. It serves POST /chat/completions from a reply function and
 // 404s everything else (including /models - the worker's catalog fetch then
 // degrades to priors and the pinned default model, mirroring the agent's own
 // e2e).
@@ -70,7 +71,7 @@ func startStubLLM(t *testing.T, rl *runLog, name string, reply func(chatRequest)
 		_, _ = io.WriteString(w, reply(req))
 	})
 
-	srv := &http.Server{Handler: mux}
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 
 	go func() {
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
@@ -199,14 +200,6 @@ func (b *scriptedBackend) reply(req chatRequest) string {
 	default:
 		return sseStop("UNEXPECTED PROMPT", 0)
 	}
-}
-
-// snapshot returns a stable copy of the recorded counters under the lock.
-func (b *scriptedBackend) snapshot() (synthesisCalls, requests int, totalCost float64) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	return b.synthesisCalls, b.requests, b.totalCost
 }
 
 // --- SSE wire builders (the exact format the harness LLM client parses) -----

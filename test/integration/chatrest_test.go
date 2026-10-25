@@ -24,6 +24,7 @@ func TestChatREST(t *testing.T) {
 	}
 
 	start := time.Now()
+
 	t.Cleanup(func() {
 		status := "PASS"
 		if t.Failed() {

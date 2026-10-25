@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // gitServer is a smart-HTTP git server backed by `git http-backend` run
@@ -66,7 +67,7 @@ func startGitServer(t *testing.T, rl *runLog) *gitServer {
 	mux := http.NewServeMux()
 	mux.Handle("/", handler)
 
-	srv := &http.Server{Handler: mux}
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 
 	gs := &gitServer{srv: srv, rootDir: root, workGit: workGit, port: port}
 
