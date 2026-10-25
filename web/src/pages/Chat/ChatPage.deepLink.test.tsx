@@ -5,7 +5,7 @@
  * below don't bleed into the standalone helper-component suite there.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Link, MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { ChatPage } from './ChatPage';
 import type { PaneSlots, Slot } from '../../components/ChatLayout/types';
@@ -26,7 +26,7 @@ vi.mock('./NewChatDialog', () => ({
 vi.mock('./MobileChatHeader', () => ({ MobileChatHeader: () => null }));
 vi.mock('../../components/ConfirmModal/ConfirmModal', () => ({ ConfirmModal: () => null }));
 
-const layoutSpy = vi.fn<(props: { panes: PaneSlots; focused: Slot | null }) => void>();
+const layoutSpy = vi.fn<(props: { panes: PaneSlots; focused: Slot | null; onClose: (slot: Slot) => void }) => void>();
 
 vi.mock('../../components/ChatLayout', async () => {
   const real = await vi.importActual<typeof import('../../components/ChatLayout')>(
@@ -34,8 +34,8 @@ vi.mock('../../components/ChatLayout', async () => {
   );
   return {
     ...real,
-    ChatLayout: (props: { panes: PaneSlots; focused: Slot | null }) => {
-      layoutSpy({ panes: props.panes, focused: props.focused });
+    ChatLayout: (props: { panes: PaneSlots; focused: Slot | null; onClose: (slot: Slot) => void }) => {
+      layoutSpy({ panes: props.panes, focused: props.focused, onClose: props.onClose });
       return null;
     },
   };
@@ -66,6 +66,9 @@ describe('ChatPage deep link', () => {
 
     await waitFor(() => expect(screen.getByTestId('path').textContent).toBe('/chat'));
     expect(layoutSpy.mock.calls.at(-1)?.[0].panes.TL?.chatId).toBe('chat-a');
+
+    act(() => layoutSpy.mock.calls.at(-1)?.[0].onClose('TL'));
+    expect(layoutSpy.mock.calls.at(-1)?.[0].panes.TL?.chatId).toBeUndefined();
 
     fireEvent.click(screen.getByText('reopen'));
     await waitFor(() => expect(screen.getByTestId('path').textContent).toBe('/chat'));
