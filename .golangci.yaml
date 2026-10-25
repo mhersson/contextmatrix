@@ -1,4 +1,7 @@
 version: "2"
+run:
+  build-tags:
+  - integration
 linters:
   default: none
   enable:
@@ -61,10 +64,11 @@ linters:
     - linters: [gosec]
       text: "G101|G107|G115|G124"
       path: "_test\\.go$"
-    # Integration harness fixtures: bind 0.0.0.0, math/rand for ports,
-    # net/http/cgi for git-http-backend - all test-only, all reviewed.
+    # Integration harness fixtures, all test-only and reviewed: G102 binds
+    # 0.0.0.0, G504 imports net/http/cgi for git-http-backend, G204 runs
+    # docker queries filtered by the harness label.
     - linters: [gosec]
-      text: "G102|G404|G504"
+      text: "G102|G204|G504"
       path: "test/integration/.*_test\\.go$"
     # noctx in tests: test HTTP helpers use context.Background() implicitly
     - linters: [noctx]

@@ -1,6 +1,8 @@
 .git
 .github
 .claude
+.worktrees
+.superpowers
 web/node_modules
 web/dist
 boards/

@@ -6,18 +6,17 @@ on:
     paths-ignore:
       - "README.md"
       - "AGENTS.md"
-      - "config.yaml.example"
       - "docs/**"
       - "LICENSE"
+  # No paths-ignore: a workflow suppressed by it reports no checks, which
+  # blocks a docs-only pull request on its required checks. The changes job
+  # skips the heavy jobs instead.
   pull_request:
     branches: [main]
-    paths-ignore:
-      - "README.md"
-      - "AGENTS.md"
-      - "config.yaml.example"
-      - "docs/**"
-      - "LICENSE"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 # Only one run per ref. Superseded pull-request runs are cancelled; push and
 # workflow_dispatch runs build and push an image, so they always run to
@@ -51,11 +50,14 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      - name: go vet (integration harness)
+        run: go vet -tags integration ./test/...
+
       - name: go test
         run: go test ./...
 
-      - name: go test -race -short
-        run: go test -race -short ./...
+      - name: go test -race
+        run: go test -race ./...
         env:
           CGO_ENABLED: "1"
 
@@ -66,11 +68,12 @@ jobs:
 
   # Answers two questions for pull requests against the base sha: did
   # anything under web/ change, and did any Go code change (a file outside
-  # web/, or a .go file anywhere, which covers the embed file under web/)?
-  # Nothing outside web/ feeds the frontend job and nothing but Go code and
-  # go.mod feeds the Go jobs, so a pull request skips the jobs it cannot
-  # affect. Any fetch or diff failure, or an empty diff, answers true to
-  # both, so a job runs whenever there is doubt.
+  # web/ that is not documentation, or a .go file anywhere, which covers the
+  # embed file under web/)? Nothing outside web/ feeds the frontend job and
+  # nothing but Go code and go.mod feeds the Go jobs, so a pull request
+  # skips the jobs it cannot affect. config.yaml.example is not
+  # documentation here: Go tests parse it. Any fetch or diff failure, or an
+  # empty diff, answers true to both, so a job runs whenever there is doubt.
   changes:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -90,7 +93,7 @@ jobs:
             && files=$(git diff --name-only "$BASE_SHA" HEAD) && [ -n "$files" ]; then
             web=false; go=false
             echo "$files" | grep -q '^web/' && web=true
-            echo "$files" | grep -qv '^web/' && go=true
+            echo "$files" | grep -Evq '^(web/|README\.md$|AGENTS\.md$|LICENSE$|docs/)' && go=true
             echo "$files" | grep -q '\.go$' && go=true
           fi
           echo "web=$web" >> "$GITHUB_OUTPUT"
@@ -158,7 +161,7 @@ jobs:
         run: mkdir -p web/dist && touch web/dist/.gitkeep
 
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
 
       # Fails only on symbol-level findings (your code actually calls the
       # vulnerable symbol) that also have an upstream fix available.
@@ -168,6 +171,13 @@ jobs:
         run: |
           set -euo pipefail
           govulncheck -format=json ./... > /tmp/vuln.json 2>&1 || true
+
+          # Every run emits a config message first; without one the output
+          # format changed or the tool failed, and zero findings means nothing.
+          if ! jq -e -s 'any(.[]; .config != null)' /tmp/vuln.json > /dev/null; then
+            echo "::error::govulncheck JSON output has no config message"
+            exit 1
+          fi
 
           FIXABLE=$(jq -s '[.[] | select(.finding != null
                                           and (.finding.fixed_version // "") != ""

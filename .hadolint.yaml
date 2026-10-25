@@ -1,6 +1,4 @@
 ignored:
-  # DL3018: Pin versions in apk add. Alpine's package repo only keeps one
-  # version per branch - pinning breaks the build on every upstream patch
-  # release. Reproducibility is already provided by the alpine base-image
-  # digest pin (which freezes the package mirror state at build time).
+  # DL3018: Pin versions in apk add. Pinning breaks on every upstream patch;
+  # images are not package-reproducible, the scan job catches regressions.
   - DL3018
