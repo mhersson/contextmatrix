@@ -170,6 +170,9 @@ func NewSSEHub(bufCap int) *SSEHub {
 	return &SSEHub{bufCap: bufCap, perSess: make(map[string]*sessionHub)}
 }
 
+// ReplayCap is the most events a session's replay ring holds.
+func (h *SSEHub) ReplayCap() int { return h.bufCap }
+
 func (h *SSEHub) hub(sessionID string) *sessionHub {
 	h.mu.Lock()
 	defer h.mu.Unlock()

@@ -305,8 +305,8 @@ Developer traps in this codebase. Each entry names the code it describes.
   `internal/chat/sse.go`). The replay ring is 128 events per session
   (`chat.NewSSEHub(128)` in `cmd/contextmatrix/wire_chat.go`) and is emptied
   when the session goes cold. A reconnect (`since_seq` above 0) the ring no
-  longer covers gets the missing rows from the store, up to 200; a mount
-  relies on the REST bootstrap in `useChatStream`. Only persisted
+  longer covers gets the missing rows from the store, up to the ring size; a
+  mount relies on the REST bootstrap in `useChatStream`. Only persisted
   transcript events enter the ring; `session_updated` events are not stored
   because session metadata is re-fetched on reconnect, and `blueprint` frames
   ride the message wire but are kept apart (latest snapshot plus drafts,

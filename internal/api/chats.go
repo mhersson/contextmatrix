@@ -1085,7 +1085,7 @@ func (h *chatHandlers) backfillReplay(ctx context.Context, sessionID string, sin
 		return replay
 	}
 
-	msgs, err := h.mgr.ListMessages(ctx, sessionID, sinceSeq, listMessagesDefaultLimit)
+	msgs, err := h.mgr.ListMessages(ctx, sessionID, sinceSeq, h.hub.ReplayCap())
 	if err != nil {
 		ctxlog.Logger(ctx).Warn("chat SSE: replay backfill failed", "session_id", sessionID, "error", err)
 

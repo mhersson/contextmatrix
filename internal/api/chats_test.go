@@ -100,9 +100,11 @@ type fixtureOpts struct {
 	onArchitect func(*chatStubBackend)
 	// wrapStore, when set, wraps the store the manager uses.
 	wrapStore func(chat.Store) chat.Store
-	// onHub receives the handlers' SSE hub. The fixture's manager publishes
-	// nothing to it.
+	// onHub receives the handlers' SSE hub.
 	onHub func(*chat.SSEHub)
+	// managerHub wires that hub into the manager; otherwise the manager
+	// publishes nothing to it.
+	managerHub bool
 }
 
 // defaultFixtureOpts is the no-backend topology: no chat backend configured
@@ -162,9 +164,20 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 		mgrStore = opts.wrapStore(store)
 	}
 
+	hub := chat.NewSSEHub(64)
+	if opts.onHub != nil {
+		opts.onHub(hub)
+	}
+
+	var mgrHub *chat.SSEHub
+	if opts.managerHub {
+		mgrHub = hub
+	}
+
 	backend := &chatStubBackend{}
 	mgr := chat.NewManager(chat.Config{
 		Store:                 mgrStore,
+		Hub:                   mgrHub,
 		Backend:               backend,
 		Clock:                 clock.Real(),
 		IdleTTL:               time.Hour,
@@ -183,11 +196,6 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 	// go away: they hold a checked-out sqlite connection that store.Close does
 	// not reach, which otherwise recreates the WAL sidecars mid-cleanup.
 	t.Cleanup(func() { _ = mgr.Close(context.Background()) })
-
-	hub := chat.NewSSEHub(64)
-	if opts.onHub != nil {
-		opts.onHub(hub)
-	}
 
 	mux := http.NewServeMux()
 
@@ -538,46 +546,82 @@ func streamSeqs(t *testing.T, srvURL string, hub *chat.SSEHub, sessionID string,
 	}
 }
 
-// A reconnect after the ring was cleared (the session went cold) or trimmed
-// gets the rows it missed from the store, each once and in order.
-func TestStreamChat_ReconnectBackfillsRowsTheRingNoLongerHolds(t *testing.T) {
-	tests := []struct {
-		name string
-		ring []int64 // seqs already in the replay ring
-	}{
-		{"ring empty", nil},
-		{"ring holds only the newest", []int64{3}},
-		{"ring covers the gap", []int64{2, 3}},
+// countingStore counts ListMessages calls, the store read a replay backfill makes.
+type countingStore struct {
+	chat.Store
+	lists atomic.Int64
+}
+
+func (c *countingStore) ListMessages(ctx context.Context, sessionID string, sinceSeq int64, limit int) ([]chat.Message, error) {
+	c.lists.Add(1)
+
+	return c.Store.ListMessages(ctx, sessionID, sinceSeq, limit)
+}
+
+// backfillFixture serves a session whose manager published three user rows
+// (seq 1-3) into the handlers' hub.
+func backfillFixture(t *testing.T) (*httptest.Server, *chat.Manager, *chat.SSEHub, *countingStore, chat.Session) {
+	t.Helper()
+
+	var (
+		hub   *chat.SSEHub
+		store *countingStore
+	)
+
+	opts := defaultFixtureOpts()
+	opts.managerHub = true
+	opts.onHub = func(h *chat.SSEHub) { hub = h }
+	opts.wrapStore = func(s chat.Store) chat.Store {
+		store = &countingStore{Store: s}
+
+		return store
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var hub *chat.SSEHub
+	mux, mgr := newChatFixture(t, opts)
+	ctx := t.Context()
 
-			opts := defaultFixtureOpts()
-			opts.onHub = func(h *chat.SSEHub) { hub = h }
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
 
-			mux, mgr := newChatFixture(t, opts)
-			ctx := t.Context()
-
-			sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
-			require.NoError(t, err)
-
-			for _, content := range []string{"one", "two", "three"} {
-				_, err := mgr.SendUserMessage(ctx, sess.ID, content)
-				require.NoError(t, err)
-			}
-
-			for _, seq := range tt.ring {
-				hub.Publish(sess.ID, chat.SSEEvent{Seq: seq, Role: chat.RoleUser, Content: "ring"})
-			}
-
-			srv := httptest.NewServer(mux)
-			t.Cleanup(srv.Close)
-
-			assert.Equal(t, []int64{2, 3}, streamSeqs(t, srv.URL, hub, sess.ID, 1))
-		})
+	for _, content := range []string{"one", "two", "three"} {
+		_, err := mgr.SendUserMessage(ctx, sess.ID, content)
+		require.NoError(t, err)
 	}
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	return srv, mgr, hub, store, sess
+}
+
+// A client that saw seq 1, lost its stream and reconnects after the session
+// went cold gets the rows it missed from the store, each once and in order.
+func TestStreamChat_ReconnectAfterEndSessionGetsTheMissedRowsOnce(t *testing.T) {
+	srv, mgr, hub, _, sess := backfillFixture(t)
+
+	require.NoError(t, mgr.EndSession(t.Context(), sess.ID))
+
+	assert.Equal(t, []int64{2, 3}, streamSeqs(t, srv.URL, hub, sess.ID, 1))
+}
+
+func TestStreamChat_CoveredReconnectSkipsTheStore(t *testing.T) {
+	srv, _, hub, store, sess := backfillFixture(t)
+
+	before := store.lists.Load()
+
+	assert.Equal(t, []int64{2, 3}, streamSeqs(t, srv.URL, hub, sess.ID, 1))
+	assert.Equal(t, before, store.lists.Load(), "the ring covers the reconnect; the store is not read")
+}
+
+// A ring that kept only its newest events gets the older missed rows from the
+// store ahead of it, with no row twice.
+func TestStreamChat_TrimmedRingBackfillsOnlyWhatItLacks(t *testing.T) {
+	srv, mgr, hub, _, sess := backfillFixture(t)
+
+	require.NoError(t, mgr.EndSession(t.Context(), sess.ID))
+	hub.Publish(sess.ID, chat.SSEEvent{Seq: 3, Role: chat.RoleUser, Content: "three"})
+
+	assert.Equal(t, []int64{2, 3}, streamSeqs(t, srv.URL, hub, sess.ID, 1))
 }
 
 // TestStreamChat_XAccelBufferingHeader asserts that the chat SSE response
