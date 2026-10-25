@@ -12,9 +12,10 @@ import (
 
 // --- Playbook tools ---
 //
-// All eleven tools are ungated (no requireHumanAgent) - playbooks coordinate
-// order for humans and planning sessions, not execution, so there is no
-// permission gradient to enforce here. agent_id is declared on every tool
+// The eleven tools are ungated (no requireHumanAgent) except
+// add_playbook_entry adding a card entry to a runnable playbook, which is
+// human-only: a runnable playbook executes its cards. Otherwise playbooks
+// coordinate order, not execution. agent_id is declared on every tool
 // (required on mutations for created_by/done_by attribution, optional on
 // reads for client parity - the agent MCP client injects it into every
 // call). Mutations return the slim PlaybookSummary; only get_playbook

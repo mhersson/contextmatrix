@@ -622,19 +622,22 @@ func main() {
 		playbookPlayer = pbRunner
 	}
 
+	_, architectConfigured := cfg.ArchitectBackend()
+
 	// Create MCP server
 	mcpSrv := mcpserver.NewServer(mcpserver.ServerConfig{
-		Service:           svc,
-		WorkflowSkillsDir: cfg.WorkflowSkillsDir,
-		ChatManager:       chatMgr,
-		ImageStore:        imageStore,
-		Blacklist:         opStore,
-		Outcomes:          opStore,
-		Bus:               bus,
-		AwaitMax:          awaitMax,
-		Playbooks:         pbSvc,
-		CardRunner:        runnerSlot,
-		PlaybookPlayer:    playbookPlayer,
+		Service:             svc,
+		WorkflowSkillsDir:   cfg.WorkflowSkillsDir,
+		ChatManager:         chatMgr,
+		ImageStore:          imageStore,
+		Blacklist:           opStore,
+		Outcomes:            opStore,
+		Bus:                 bus,
+		AwaitMax:            awaitMax,
+		Playbooks:           pbSvc,
+		CardRunner:          runnerSlot,
+		PlaybookPlayer:      playbookPlayer,
+		ArchitectConfigured: architectConfigured,
 	})
 
 	mcpHandler := mcpserver.NewHandler(mcpSrv, cfg.MCPAPIKey)

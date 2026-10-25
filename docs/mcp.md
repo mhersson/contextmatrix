@@ -197,9 +197,11 @@ runnable playbook that owns its execution settings.
 `hand_off_to_architect` takes `title` (at most 256 bytes), `need` (markdown, at
 most 65536 bytes) and `projects` (at least one existing project), and returns
 `ok` and the `seq` of the hand-off row. It has no session argument: it posts
-into the chat named by `X-CM-Chat-Session`. It is refused without that header,
-from a blueprint session, and when no architect backend is configured. Nothing
-is created until the operator presses Create on the hand-off block.
+into the chat named by `X-CM-Chat-Session`. It is registered only when an
+architect backend is configured, and refused without that header and from a
+blueprint session. Nothing is created until the operator presses Create on the
+hand-off block. A chat container lists tools when it starts, so chats started
+before the tool shipped do not see it.
 
 ## Slash commands
 
