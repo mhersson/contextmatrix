@@ -86,8 +86,9 @@ The **How to verify what was built** section lists the playbook's follow-ups.
 Its place depends on whether the work is over: it sits below the cards while a run is active or the
 playbook is not finished (a stopped run counts as not finished), and moves
 above them, right under the title and description, once the run completed, or for a playbook with no run once every
-entry is complete. While a run is active the section is faded and its
-checkboxes are disabled; editing the text (Enter saves, line breaks become
+entry is complete. With at least one check it is drawn as a pinned yellow
+panel. While a run is active the panel's border is dashed, the section is
+faded and its checkboxes are disabled; editing the text (Enter saves, line breaks become
 spaces), adding a check with **Add a check**, dragging to reorder and removing
 a check stay available, as the server never refuses follow-up writes. Ticks
 are only the person's record and never change the run. Cards attached to a

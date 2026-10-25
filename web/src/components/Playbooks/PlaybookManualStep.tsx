@@ -4,13 +4,17 @@ interface PlaybookManualStepProps {
   text: string;
   checked: boolean;
   disabled?: boolean;
+  /** Checkbox accent colour token. */
+  accent?: string;
   onToggleDone: (id: string, done: boolean) => void;
   onSaveText: (id: string, text: string) => void;
 }
 
 // A step is one logical line: Enter saves instead of inserting a newline, and
 // pasted line breaks become spaces.
-export function PlaybookManualStep({ id, text, checked, disabled = false, onToggleDone, onSaveText }: PlaybookManualStepProps) {
+export function PlaybookManualStep({
+  id, text, checked, disabled = false, accent = 'var(--green)', onToggleDone, onSaveText,
+}: PlaybookManualStepProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(text);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -32,7 +36,7 @@ export function PlaybookManualStep({ id, text, checked, disabled = false, onTogg
           disabled={disabled}
           aria-label={text}
           onChange={(e) => onToggleDone(id, e.target.checked)}
-          style={{ accentColor: 'var(--green)' }}
+          style={{ accentColor: accent }}
         />
       </span>
       {editing ? (

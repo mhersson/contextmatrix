@@ -29,10 +29,6 @@ interface PlaybookFollowupsProps {
 const cardLabelStyle: CSSProperties = {
   fontFamily: 'var(--font-mono)',
   fontSize: '10px',
-  padding: '2px 6px',
-  borderRadius: '999px',
-  backgroundColor: 'var(--bg1)',
-  border: '1px solid var(--bg3)',
   color: 'var(--grey1)',
 };
 
@@ -56,28 +52,34 @@ function FollowupRow({ followup, locked, onToggle, onSaveText, onRemove }: Follo
       ref={setNodeRef}
       {...attributes}
       {...listeners}
-      className="list-none flex items-start gap-2 py-2 pb-hairline"
+      className="pb-followups-row list-none flex items-start gap-2 py-1.5"
       style={{
         transform: CSS.Translate.toString(transform),
         transition,
         opacity: isDragging ? 0.5 : 1,
       }}
     >
-      <div className="flex-1 min-w-0 flex items-start gap-2 flex-wrap" style={{ opacity: followup.done ? 0.55 : 1 }}>
+      <div className="flex-1 min-w-0 flex items-start gap-2" style={{ opacity: followup.done ? 0.55 : 1 }}>
         <PlaybookManualStep
           id={followup.id}
           text={followup.text}
           checked={followup.done}
           disabled={locked}
+          accent="var(--yellow)"
           onToggleDone={onToggle}
           onSaveText={onSaveText}
         />
-        {followup.cards.map((c) => (
-          <span key={`${c.project}/${c.card}`} title={`${c.project}/${c.card}`} style={cardLabelStyle}>
-            {cardNumber(c.card)}
-          </span>
-        ))}
       </div>
+      {followup.cards.length > 0 && (
+        <span className="shrink-0 h-lh flex items-center" style={cardLabelStyle}>
+          {followup.cards.map((c, i) => (
+            <span key={`${c.project}/${c.card}`}>
+              {i > 0 && ', '}
+              <span title={`${c.project}/${c.card}`}>{cardNumber(c.card)}</span>
+            </span>
+          ))}
+        </span>
+      )}
       <button
         type="button"
         onClick={() => onRemove(followup.id)}
@@ -143,9 +145,14 @@ export function PlaybookFollowups({ followups, locked, onToggle, onSaveText, onR
     if (to !== null) onMove(String(active.id), to);
   };
 
+  // The bulletin-board panel only frames actual checks; an empty list keeps the plain add control.
+  const board = followups.length > 0;
   return (
-    <section className={`pb-followups mb-4${locked ? ' pb-followups-locked' : ''}`}>
-      <h2 className="text-sm font-semibold" style={{ color: 'var(--fg)' }}>How to verify what was built</h2>
+    <section
+      className={`pb-followups mb-4${board ? ' pb-followups--board' : ''}${locked ? ' pb-followups-locked' : ''}`}
+    >
+      {board && <span className="pb-followups-pin" aria-hidden="true" />}
+      <h2 className="pb-followups-title text-sm font-semibold">How to verify what was built</h2>
       <p className="text-xs mb-1" style={{ color: 'var(--grey1)' }}>
         {locked
           ? 'Shown for what comes after the run; ticking opens when it finishes.'
