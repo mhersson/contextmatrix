@@ -271,6 +271,7 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 		Mode          string   `json:"mode"`
 		CostCapUSD    float64  `json:"cost_cap_usd"`
 		PlainLanguage bool     `json:"plain_language"`
+		Unattended    bool     `json:"unattended"`
 		OriginChat    string   `json:"origin_chat"`
 		OriginSeq     int64    `json:"origin_seq"`
 	}
@@ -336,6 +337,7 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 		Mode:          body.Mode,
 		CostCapUSD:    body.CostCapUSD,
 		PlainLanguage: body.PlainLanguage,
+		Unattended:    body.Unattended,
 		OriginChat:    body.OriginChat,
 		OriginSeq:     body.OriginSeq,
 	})

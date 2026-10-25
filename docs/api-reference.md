@@ -2552,6 +2552,7 @@ management lives under `/api/admin/chats`.
 | `project`, `container_id`, `workspace`, `model`                                    | omitempty | `workspace` is a string list; `model` is set at creation and reused on every `/open`       |
 | `mode`, `cost_cap_usd`                                                             | omitempty | Architect sessions only; both are set at creation, then `mode` changes through `/mode` and `cost_cap_usd` through `/cap`. `workspace` holds the target projects |
 | `plain_language`                                                                   | omitempty | Architect sessions only; set at creation and never changed. Every start sends it |
+| `unattended`                                                                       | omitempty | Architect sessions only; set at creation and never changed. Every start sends it |
 | `origin_chat`, `origin_seq`                                                        | omitempty | Architect sessions started from a hand-off only: the chat and its `handoff` row; set at creation and never changed |
 | `context_tokens`                                                                   | omitempty | Last `input + cache_read + cache_create` reported by the model                             |
 | `context_tokens_updated_at`                                                        | always    | Zero time (`0001-01-01T00:00:00Z`) until the first usage entry                             |
@@ -2586,7 +2587,7 @@ endpoint mode wins. With neither, the value is accepted unvalidated.
 A blueprint session on the architect backend takes its own fields:
 
 ```json
-{ "kind": "architect", "projects": ["alpha", "beta"], "mode": "auto", "cost_cap_usd": 3, "plain_language": true }
+{ "kind": "architect", "projects": ["alpha", "beta"], "mode": "auto", "cost_cap_usd": 3, "plain_language": true, "unattended": true }
 ```
 
 `kind` defaults to `chat`. An architect session needs at least one existing
@@ -2595,7 +2596,10 @@ project in `projects`, a valid `mode` (`default`, `auto`, `auto+emit` or
 `project`. `plain_language` (default `false`) runs the blueprint in plain
 language: the person is asked only what they want and how it should look and
 work, and sees each technical decision as what it means for them. It is fixed
-at creation and ignored on a chat session. `model` is not defaulted at create
+at creation and ignored on a chat session. `unattended` (default `false`)
+sets the blueprint to run without asking the person questions along the way. It
+is fixed at creation, no endpoint changes it, and it is ignored on a chat
+session. `model` is not defaulted at create
 for architect sessions: the cold open uses `backends.architect.default_model`.
 A `model` equal to that default is accepted without catalog validation,
 exactly like an omitted one; any other model is validated against the catalog

@@ -1256,6 +1256,7 @@ and a unique index on `(session_id, seq)`.
 | `mode`                      | TEXT    | `''`    | Architect session mode; empty for chat sessions.               |
 | `cost_cap_usd`              | REAL    | `0`     | Architect session cost cap in USD; `0` for chat sessions.      |
 | `plain_language`            | INTEGER | `0`     | `1` for an architect session created in plain language; never changed after creation. |
+| `unattended`                | INTEGER | `0`     | `1` for an architect session created Unattended; never changed after creation. |
 | `origin_chat`               | TEXT    | `''`    | The chat a blueprint was started from; empty otherwise. Never changed after creation. |
 | `origin_seq`                | INTEGER | `0`     | The `handoff` row in `origin_chat` the blueprint was started from; `0` otherwise. |
 | `pinned`                    | INTEGER | `0`     | `1` keeps the session in its sidebar section. |
