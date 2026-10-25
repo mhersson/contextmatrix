@@ -59,14 +59,16 @@ type Manager struct {
 	confirmed map[string]time.Time    // when each own claim was last confirmed on the remote
 }
 
-// NewManager creates a lock manager with the given store and heartbeat timeout.
-// Uses clock.Real() as the time source; for tests use NewManagerWithClock.
+// NewManager is NewManagerWithClock on clock.Real(), for tests that do not
+// control time.
 func NewManager(store storage.Store, timeout time.Duration) *Manager {
 	return NewManagerWithClock(store, timeout, clock.Real())
 }
 
-// NewManagerWithClock is like NewManager but lets the caller inject a clock.
-// Used by tests to deterministically advance heartbeat cutoffs.
+// NewManagerWithClock creates a lock manager with the given store, heartbeat
+// timeout and clock; a nil clk means clock.Real(). Production wiring passes
+// the one clock every boards repo's manager shares; tests pass a fake clock
+// to advance heartbeat cutoffs.
 func NewManagerWithClock(store storage.Store, timeout time.Duration, clk clock.Clock) *Manager {
 	if clk == nil {
 		clk = clock.Real()
