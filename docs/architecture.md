@@ -477,8 +477,8 @@ order matches seq order.
   active), the `OnSubscribe` callback (warm-idle -> active), `MarkWarmIdle`
   and `EndSession` (any -> cold).
 - **Store.** `opstore/sqlite.Store` in WAL mode with `MaxOpenConns=5`, so
-  readers bypass the single-writer gate that `chat.Manager.mu` enforces above
-  the pool. The unique index on `(session_id, seq)` backs the in-memory seq
+  readers do not queue behind a writer; above the pool, `chat.Manager`'s
+  per-session append lock serialises each session's appends. The unique index on `(session_id, seq)` backs the in-memory seq
   cache. `DeleteSession` archives cost columns to `chat_cost_archive` before
   the hard delete, and `AggregateCost` unions both tables. Both use one cost
   per session: a chat's cost (gateway-reported per frame, else the rate-table

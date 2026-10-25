@@ -292,12 +292,13 @@ Developer traps in this codebase. Each entry names the code it describes.
   which is not imported so the binary stays CGO-free). `_pragma=` is a
   `modernc.org` extension; switching drivers means `PRAGMA` statements on the
   open connection instead.
-- **Chat writes are serialised by `chat.Manager.mu`, not the pool.** SQLite is
+- **Chat appends are serialised per session, not by the pool.** SQLite is
   single-writer regardless of `MaxOpenConns`; the pool only lets readers
   (`ListMessages`, `MaxSeq`, `GetSession`) avoid queuing behind a writer.
-  `AppendMessage` holds the manager lock across seq assignment and the store
-  insert so disk order matches seq order and the in-memory seq cache stays
-  consistent with the `(session_id, seq)` UNIQUE index. Raising writer
+  `AppendMessage` holds the session's append lock across seq assignment and
+  the store insert so disk order matches seq order and the in-memory seq cache
+  stays consistent with the `(session_id, seq)` UNIQUE index; `chat.Manager.mu`
+  guards only the cache itself. Raising writer
   concurrency means changing the locking model, not the pool.
 - **Chat SSE per-session subscriber cap:** `SSEHub.Subscribe` errors once a
   session has 32 live subscribers (`maxSubscribersPerSession` in

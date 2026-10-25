@@ -12,8 +12,8 @@ import (
 type Store struct{ db *sql.DB }
 
 // Open opens (or creates) the SQLite database at path and applies the schema.
-// Parent directories are created as needed. Serialisation across chat writers
-// happens at the manager level (chat.Manager.mu held across AppendMessage).
+// Parent directories are created as needed. chat.Manager's per-session append
+// lock serialises a chat session's seq assignment and insert.
 func Open(path string) (*Store, error) {
 	db, err := sqliteutil.Open(path, sqliteutil.WithForeignKeys())
 	if err != nil {
