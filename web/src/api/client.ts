@@ -542,6 +542,7 @@ class APIClient {
     mode?: string;
     cost_cap_usd?: number;
     plain_language?: boolean;
+    unattended?: boolean;
     origin_chat?: string;
     origin_seq?: number;
   }): Promise<ChatSession> {

@@ -914,6 +914,8 @@ export interface ChatSession {
   cost_cap_usd?: number;
   /** Fixed at creation: the blueprint asks in plain language. */
   plain_language?: boolean;
+  /** Fixed at creation: the blueprint is planned to run without waiting for a person. */
+  unattended?: boolean;
   /** Blueprints started from a chat hand-off: the chat and the seq of its hand-off row. */
   origin_chat?: string;
   origin_seq?: number;
@@ -1413,6 +1415,8 @@ export interface BlueprintView {
   mode: string;
   /** The blueprint runs in plain language. */
   plain_language?: boolean;
+  /** The blueprint is planned to run unattended. */
+  unattended?: boolean;
   /** The architect's coarse state; "ended" when the pipeline stopped before the sign-off. Unknown states render neutrally. */
   state: string;
   /** One plain line on why the pipeline ended; set only when state is "ended". */

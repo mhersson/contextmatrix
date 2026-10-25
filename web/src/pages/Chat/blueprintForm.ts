@@ -9,9 +9,16 @@ export interface BlueprintForm {
   /** USD; 0 means no blueprint cap. */
   capUSD: number;
   plainLanguage: boolean;
+  unattended: boolean;
+  /** Set once the person flips Unattended; a later mode pick then leaves it alone. */
+  unattendedTouched: boolean;
 }
 
-export const EMPTY_BLUEPRINT_FORM: BlueprintForm = { projects: [], mode: 'default', capUSD: 0, plainLanguage: false };
+export const EMPTY_BLUEPRINT_FORM: BlueprintForm = { projects: [], mode: 'default', capUSD: 0,
+  plainLanguage: false,
+  unattended: false,
+  unattendedTouched: false,
+};
 
 export const BLUEPRINT_MODES: { value: BlueprintMode; label: string; description: string }[] = [
   {
@@ -43,6 +50,24 @@ export const PLAIN_LANGUAGE = {
   description:
     'You are asked what you want and how it should look and work; the architect makes the technical decisions and tells you what they mean for you.',
 };
+
+export const UNATTENDED = {
+  label: 'Unattended',
+  description:
+    "Plan so the run never waits for you; checks for a person go to the playbook's follow-ups at the end.",
+};
+
+export function unattendedDefault(mode: BlueprintMode): boolean {
+  return mode === 'yolo';
+}
+
+export function withMode(form: BlueprintForm, mode: BlueprintMode): BlueprintForm {
+  return { ...form, mode, unattended: form.unattendedTouched ? form.unattended : unattendedDefault(mode) };
+}
+
+export function withUnattended(form: BlueprintForm, on: boolean): BlueprintForm {
+  return { ...form, unattended: on, unattendedTouched: true };
+}
 
 export function plainLanguageKey(identity: string): string {
   return `blueprint_plain_language:${identity}`;

@@ -15,6 +15,8 @@ export interface ChatLiveData {
   blueprintMode?: string;
   /** Whether a blueprint's view runs in plain language; only a blueprint pane writes it. */
   blueprintPlainLanguage?: boolean;
+  /** Whether a blueprint's view runs unattended; only a blueprint pane writes it. */
+  blueprintUnattended?: boolean;
 }
 
 // Module-level store. Acceptable for a small read-by-PaneHeader / written-by-
@@ -41,7 +43,8 @@ function shallowEqualLive(a: ChatLiveData | undefined, b: ChatLiveData): boolean
     a.cacheCreationTokens === b.cacheCreationTokens &&
     a.blueprintSpentUsd === b.blueprintSpentUsd &&
     a.blueprintMode === b.blueprintMode &&
-    a.blueprintPlainLanguage === b.blueprintPlainLanguage
+    a.blueprintPlainLanguage === b.blueprintPlainLanguage &&
+    a.blueprintUnattended === b.blueprintUnattended
   );
 }
 

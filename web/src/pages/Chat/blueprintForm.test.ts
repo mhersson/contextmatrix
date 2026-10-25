@@ -8,6 +8,10 @@ import {
   plainLanguageKey,
   readPlainLanguage,
   rememberPlainLanguage,
+  unattendedDefault,
+  withMode,
+  withUnattended,
+  type BlueprintMode,
 } from './blueprintForm';
 
 describe('blueprintForm', () => {
@@ -79,5 +83,29 @@ describe('the remembered plain-language choice', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it.each<[BlueprintMode, boolean]>([
+    ['default', false],
+    ['auto', false],
+    ['auto+emit', false],
+    ['yolo', true],
+  ])('defaults Unattended for %s to %s', (mode, want) => {
+    expect(unattendedDefault(mode)).toBe(want);
+  });
+
+  it('follows the mode for Unattended until it is touched', () => {
+    const yolo = withMode(EMPTY_BLUEPRINT_FORM, 'yolo');
+    expect(yolo.mode).toBe('yolo');
+    expect(yolo.unattended).toBe(true);
+    expect(withMode(yolo, 'auto').unattended).toBe(false);
+  });
+
+  it('keeps a touched Unattended across mode changes', () => {
+    const off = withUnattended(EMPTY_BLUEPRINT_FORM, false);
+    expect(off.unattendedTouched).toBe(true);
+    expect(withMode(off, 'yolo').unattended).toBe(false);
+    const on = withUnattended(EMPTY_BLUEPRINT_FORM, true);
+    expect(withMode(on, 'auto').unattended).toBe(true);
   });
 });

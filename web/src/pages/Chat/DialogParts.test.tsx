@@ -64,7 +64,7 @@ describe('BlueprintFields', () => {
     render(<BlueprintFields projects={projects} value={EMPTY_BLUEPRINT_FORM} onChange={onChange} models={noModels} />);
     expect(screen.getByRole('radio', { name: 'No cap' })).toBeChecked();
     fireEvent.click(screen.getByRole('radio', { name: 'Yolo' }));
-    expect(onChange).toHaveBeenCalledWith({ ...EMPTY_BLUEPRINT_FORM, mode: 'yolo' });
+    expect(onChange).toHaveBeenCalledWith({ ...EMPTY_BLUEPRINT_FORM, mode: 'yolo', unattended: true });
     fireEvent.click(screen.getByRole('radio', { name: '$5' }));
     expect(onChange).toHaveBeenCalledWith({ ...EMPTY_BLUEPRINT_FORM, capUSD: 5 });
   });

@@ -3,7 +3,7 @@ import { act, render, screen, fireEvent } from '@testing-library/react';
 import { PaneHeader } from './PaneHeader';
 import type { AvailableChat } from './types';
 import { setChatLiveData, clearChatLiveData } from '../../hooks/useChatLiveData';
-import { PLAIN_LANGUAGE } from '../../pages/Chat/blueprintForm';
+import { PLAIN_LANGUAGE, UNATTENDED } from '../../pages/Chat/blueprintForm';
 import { useChatModels } from '../../utils/chatModels';
 import { publishSheetButton, registerSheetToggle } from '../Blueprint/sheetButtonStore';
 
@@ -349,5 +349,18 @@ describe('PaneHeader sheet button', () => {
     act(() => publishSheetButton('chat-1', { open: true, hasNew: false }));
     expect(screen.getByRole('button', { name: 'Sheet' })).toHaveAttribute('aria-pressed', 'true');
     unregister();
+  });
+
+  it('marks an unattended blueprint from the row, and the view wins once it publishes', () => {
+    render(<PaneHeader {...baseProps} chat={{ ...activeChat(), kind: 'architect', mode: 'yolo', unattended: true }} />);
+    expect(screen.getByText(UNATTENDED.label)).toBeInTheDocument();
+    act(() => setChatLiveData('chat-1', { blueprintUnattended: false }));
+    expect(screen.queryByText(UNATTENDED.label)).not.toBeInTheDocument();
+  });
+
+  it('shows the Unattended mark as a label, not a control', () => {
+    render(<PaneHeader {...baseProps} chat={{ ...activeChat(), kind: 'architect', mode: 'yolo', unattended: true }} />);
+    expect(screen.queryByRole('button', { name: UNATTENDED.label })).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: UNATTENDED.label })).not.toBeInTheDocument();
   });
 });

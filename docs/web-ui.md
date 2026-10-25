@@ -181,14 +181,19 @@ board. Promote-to-autonomous lives in that tab.
   one it creates chats only. Both kinds take an optional title. A chat picks one
   project from a list (or Across projects, with no checkout) and a model. A
   blueprint picks one or more target projects, one of four described modes
-  (default, auto, auto + emit, yolo), a Plain language switch, a model
+  (default, auto, auto + emit, yolo), a Plain language switch, an Unattended switch, a model
   (defaulting to the architect's default, kept separate from the chat pick) and
   a cost cap preset ($1, $2, $5, $10 or no cap), in that order, and runs on the
   architect backend instead of a chat worker. Plain language asks the person
   only what they want and how it should look and work; the architect makes the
   technical decisions and shows each as what it means for them. The switch opens
   at the choice the person last created a blueprint with in this browser, kept
-  per user when CM has accounts and per browser otherwise. The footer says why
+  per user when CM has accounts and per browser otherwise. Unattended asks the
+  architect to plan the blueprint so its playbook run never stops for a person
+  except at a real gate, and to put the checks a person makes after the run in
+  the playbook's follow-ups. It opens on for yolo and off for the other modes,
+  follows the mode until the person flips it, is not remembered between dialogs,
+  and cannot be changed once the blueprint exists. The footer says why
   Create is disabled, including a cost cap on a model CM cannot price;
   Ctrl+Enter anywhere, or Enter in the title, creates. The button names the
   outcome (Create chat, Create blueprint, or Create and run for yolo). A
@@ -199,7 +204,7 @@ board. Promote-to-autonomous lives in that tab.
   shows its size against 64 KiB (Create is disabled while it is empty or over),
   and the hand-off's projects are ticked. Create waits for the project list;
   once it loads, a project no longer in CM is left out and named in a note. The
-  mode, Plain language, model and cost cap start as usual. Create makes the
+  mode, Plain language, Unattended, model and cost cap start as usual. Create makes the
   blueprint, opens its pane and posts the need as its first message. A failed
   post, or an architect that does not start, keeps the dialog open, and Create
   retries on the same blueprint even when a setting changed since. A second
@@ -215,7 +220,9 @@ board. Promote-to-autonomous lives in that tab.
   header's mode is the view's too, so a switch the architect refused never
   shows there. A blueprint created in plain language shows a Plain
   language badge beside the pill; once the view loads the badge follows the
-  view, so an architect that does not run plain language shows none. The admin
+  view, so an architect that does not run plain language shows none. An Unattended
+  blueprint shows an Unattended badge the same way, a label and not a control.
+  The admin
   Chats page lists every session's kind, mode and cap as the session row holds
   them. It also shows each session's cost; a blueprint's is the architect's
   recorded spend. The architect's questions and gates show reply buttons under

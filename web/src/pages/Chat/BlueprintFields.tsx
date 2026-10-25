@@ -7,10 +7,13 @@ import {
   BLUEPRINT_MODES,
   CAP_PRESETS,
   PLAIN_LANGUAGE,
+  UNATTENDED,
   capLabel,
   capSentence,
   type BlueprintForm,
   type BlueprintMode,
+  withMode,
+  withUnattended,
 } from './blueprintForm';
 
 interface BlueprintFieldsProps {
@@ -36,12 +39,14 @@ export function BlueprintFields({ projects, value, onChange, models, leftOut = [
         {leftOut.length > 0 && <p className="nd-note">Left out, no longer in ContextMatrix: {leftOut.join(', ')}</p>}
       </Field>
       <Field label="Mode">
-        <ModeCards mode={value.mode} onChange={(mode) => onChange({ ...value, mode })} />
+        <ModeCards mode={value.mode} onChange={(mode) => onChange(withMode(value, mode))} />
       </Field>
-      <PlainLanguageSwitch
+      <FlagSwitch
+        {...PLAIN_LANGUAGE}
         on={value.plainLanguage}
         onChange={(plainLanguage) => onChange({ ...value, plainLanguage })}
       />
+      <FlagSwitch {...UNATTENDED} on={value.unattended} onChange={(on) => onChange(withUnattended(value, on))} />
       <ChatModelPicker {...models} />
       <Field label="Cost cap">
         <CapPresets cap={value.capUSD} onChange={(capUSD) => onChange({ ...value, capUSD })} />
@@ -80,7 +85,17 @@ function ModeCards({ mode, onChange }: { mode: BlueprintMode; onChange: (mode: B
   );
 }
 
-function PlainLanguageSwitch({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+function FlagSwitch({
+  label,
+  description,
+  on,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  on: boolean;
+  onChange: (on: boolean) => void;
+}) {
   const descId = useId();
   return (
     <label className={`nd-plain${on ? ' nd-plain--on' : ''}`}>
@@ -89,12 +104,12 @@ function PlainLanguageSwitch({ on, onChange }: { on: boolean; onChange: (on: boo
         role="switch"
         className="sr-only"
         checked={on}
-        aria-label={PLAIN_LANGUAGE.label}
+        aria-label={label}
         aria-describedby={descId}
         onChange={(e) => onChange(e.target.checked)}
       />
-      <b>{PLAIN_LANGUAGE.label}</b>
-      <span id={descId}>{PLAIN_LANGUAGE.description}</span>
+      <b>{label}</b>
+      <span id={descId}>{description}</span>
     </label>
   );
 }
