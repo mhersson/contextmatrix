@@ -25,7 +25,7 @@ export function EmptyPanePicker({ chats, onPick, onCancel, onNew }: Props) {
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setHighlighted((i) => Math.max(i - 1, 0));
-    } else if (e.key === 'Enter') {
+    } else if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
       e.preventDefault();
       const c = chats[highlighted];
       if (c) onPick(c.id);

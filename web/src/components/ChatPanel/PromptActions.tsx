@@ -177,7 +177,7 @@ export function PromptActions({ prompt, status, answer, onReply, recommendedPrim
               if (e.key === 'Escape') {
                 e.preventDefault();
                 cancelFeedback();
-              } else if (e.key === 'Enter' && !e.shiftKey) {
+              } else if (e.key === 'Enter' && !e.nativeEvent.isComposing && !e.shiftKey) {
                 e.preventDefault();
                 sendFeedback();
               }

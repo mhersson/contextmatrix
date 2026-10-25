@@ -56,7 +56,7 @@ export function PlaybookManualStep({
             if (next && next !== text) onSaveText(id, next);
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); }
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); }
             else if (e.key === 'Escape') setEditing(false);
           }}
           className="flex-1 min-w-0 px-1 rounded resize-none overflow-hidden"
