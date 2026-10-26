@@ -347,6 +347,23 @@ func TestMergeCards(t *testing.T) {
 			},
 		},
 		{
+			"remote bare stall at the higher epoch loses to our terminal state",
+			func(c *board.Card) {
+				c.State, c.AssignedAgent, c.ClaimedVia, c.ClaimEpoch, c.Updated = "done", "x", "lap-a", 2, ts(2)
+			},
+			func(c *board.Card) {
+				c.State, c.AssignedAgent, c.ClaimEpoch, c.Updated = "stalled", "", 3, ts(9)
+			},
+			func(t *testing.T, got *board.Card, res []Resolution) {
+				assert.Equal(t, "done", got.State)
+				assert.Equal(t, "x", got.AssignedAgent, "done keeps its claim until release")
+				assert.Equal(t, "lap-a", got.ClaimedVia)
+				assert.Equal(t, 2, got.ClaimEpoch)
+				require.NotEmpty(t, res)
+				assert.Equal(t, RuleTerminalOverStall, res[0].Rule)
+			},
+		},
+		{
 			"double claim goes to the earlier claimed_at",
 			func(c *board.Card) {
 				c.AssignedAgent, c.ClaimedVia, c.ClaimedAt, c.ClaimEpoch, c.LastHeartbeat, c.Updated = "agent-ALPHA-001", "lap-a", hb(5), 1, hb(5), ts(5)
@@ -559,20 +576,6 @@ func ruleNames(res []Resolution) []string {
 	return out
 }
 
-func TestMergeCards_TerminalWinsOverOneSidedReopen(t *testing.T) {
-	b, o, th := baseCard(), baseCard(), baseCard()
-	b.State, o.State, th.State = "done", "done", "todo"
-	o.Priority = "high"
-
-	got, res := mergeCards(b, o, th, "alpha", testCtx())
-	assert.Equal(t, "done", got.State)
-	assert.Equal(t, "high", got.Priority)
-	require.Len(t, res, 1)
-	assert.Equal(t, RuleTerminalWins, res[0].Rule)
-	// The remote reopen lost, even though neither side was updated last.
-	assert.Contains(t, lastAudit(t, got).Message, "from remote")
-}
-
 func TestMergeCards_SkillsClearedOnOneSide(t *testing.T) {
 	b, o, th := baseCard(), baseCard(), baseCard()
 	b.Skills, th.Skills = &[]string{"a"}, &[]string{"a"}
@@ -581,6 +584,60 @@ func TestMergeCards_SkillsClearedOnOneSide(t *testing.T) {
 	got, res := mergeCards(b, o, th, "alpha", testCtx())
 	assert.Nil(t, got.Skills)
 	assert.Empty(t, res)
+}
+
+// TestMergeCards_ReopenAgainstUnchangedTerminal: a side that kept the base's
+// terminal state made no move, so the other side's reopen stands with the
+// phase and PR URL it cleared. A side that moved into a terminal state still
+// absorbs the reopen.
+func TestMergeCards_ReopenAgainstUnchangedTerminal(t *testing.T) {
+	done := func(c *board.Card) { c.State, c.Phase, c.PRUrl = "done", "done", "https://github.com/o/r/pull/1" }
+	reopen := func(c *board.Card) { c.State, c.Phase, c.PRUrl, c.Updated = "todo", "", "", ts(5) }
+	// An unrelated edit updated after the reopen: the state must not follow
+	// the later updated.
+	laterEdit := func(c *board.Card) { c.Priority, c.Updated = "high", ts(9) }
+
+	tests := []struct {
+		name         string
+		ours, theirs func(c *board.Card)
+		wantState    string
+		wantPriority string
+		wantAbsorbed bool
+	}{
+		{"our reopen stands", reopen, func(*board.Card) {}, "todo", "medium", false},
+		{"a remote reopen stands", func(*board.Card) {}, reopen, "todo", "medium", false},
+		{"our reopen stands against a later remote edit", reopen, laterEdit, "todo", "high", false},
+		{"a remote reopen stands against a later local edit", laterEdit, reopen, "todo", "high", false},
+		{
+			"a remote move to not_planned absorbs our reopen",
+			reopen,
+			func(c *board.Card) { c.State, c.Updated = "not_planned", ts(3) },
+			"not_planned", "medium", true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b, o, th := baseCard(), baseCard(), baseCard()
+			done(b)
+			done(o)
+			done(th)
+			tt.ours(o)
+			tt.theirs(th)
+
+			got, res := mergeCards(b, o, th, "alpha", testCtx())
+			assert.Equal(t, tt.wantState, got.State)
+			assert.Equal(t, tt.wantPriority, got.Priority)
+			assert.Empty(t, got.Phase, "the phase the reopen cleared stays cleared")
+			assert.Empty(t, got.PRUrl, "the PR URL the reopen cleared stays cleared")
+
+			if tt.wantAbsorbed {
+				assert.Contains(t, ruleNames(res), RuleTerminalWins)
+			} else {
+				assert.Empty(t, res, "a one-sided reopen overrides nothing")
+			}
+		})
+	}
 }
 
 func TestMergeCards_DoesNotMutateInputs(t *testing.T) {

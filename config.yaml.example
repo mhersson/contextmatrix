@@ -80,8 +80,7 @@ heartbeat_timeout: "30m"
 await_max: "8m"
 
 # How often the lock manager scans for cards whose heartbeat has timed out.
-# Must be positive. The default is fine for production; tests sometimes lower
-# this to drive timeout assertions deterministically. No env-var override.
+# Must be positive. No env-var override.
 # Default: 1m
 stalled_check_interval: "1m"
 
@@ -317,10 +316,6 @@ task_skills:
 #   architect - contextmatrix-architect: turns a need into a blueprint of cards
 #            through a session in the chat panel. Speaks the chat protocol.
 #
-# The retired runner backend is no longer accepted: a leftover backends.runner
-# entry (or CONTEXTMATRIX_BACKEND_RUNNER_* env var) fails startup. The
-# runner-eos git tag marks the last CM commit that supported it.
-#
 # Callback paths are fixed: /api/agent and /api/chat (the backend repos
 # hardcode them). The architect backend has no callback path; it reaches CM
 # over MCP and the bearer-authed /api/worker/git-credentials. The
@@ -352,10 +347,13 @@ task_skills:
 #   CONTEXTMATRIX_BACKEND_<NAME>_ENABLED
 #   CONTEXTMATRIX_BACKEND_<NAME>_RECONCILE_INTERVAL         (agent only)
 #   CONTEXTMATRIX_BACKEND_<NAME>_DEFAULT_MODEL              (agent, chat and architect)
+#   CONTEXTMATRIX_BACKEND_<NAME>_AA_API_KEY                 (agent only)
+#   CONTEXTMATRIX_BACKEND_<NAME>_MODEL_ALLOWLIST            (agent only, comma-separated)
 #   CONTEXTMATRIX_BACKEND_<NAME>_CATALOG_QUALITY_FLOOR      (agent only)
 #   CONTEXTMATRIX_BACKEND_<NAME>_RESEARCH                   (architect only)
 #   CONTEXTMATRIX_BACKEND_<NAME>_RESEARCH_PROVIDER          (architect only)
 #   CONTEXTMATRIX_BACKEND_<NAME>_RESEARCH_API_KEY           (architect only)
+# The agent entry's favorites and model_priors maps are config-file only.
 backends: {}
 #  agent:
 #    # contextmatrix-agent: card execution only (no chat). Drives models over

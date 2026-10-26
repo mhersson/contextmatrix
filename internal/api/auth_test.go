@@ -48,7 +48,7 @@ func newAuthTestServer(t *testing.T) (*httptest.Server, *auth.Service, *authstor
 
 	// TaskSkillsDir gives us a cheap session-gated GET route
 	// (GET /api/task-skills) without wiring the full card service.
-	router := NewRouter(RouterConfig{
+	router := newTestRouter(RouterConfig{
 		AuthService:   svc,
 		AuthMode:      "multi",
 		TaskSkillsDir: t.TempDir(),
@@ -144,7 +144,7 @@ func TestSessionGuard_WithSession(t *testing.T) {
 
 func TestNoneMode_RouterUnchanged(t *testing.T) {
 	// AuthService nil → no gate, no auth routes: today's behavior.
-	router := NewRouter(RouterConfig{TaskSkillsDir: t.TempDir()})
+	router := newTestRouter(RouterConfig{TaskSkillsDir: t.TempDir()})
 	server := httptest.NewServer(router)
 
 	defer server.Close()
@@ -449,7 +449,7 @@ func TestAppConfig_AuthModeGating(t *testing.T) {
 }
 
 func TestAppConfig_NoneModeUnchanged(t *testing.T) {
-	router := NewRouter(RouterConfig{Theme: "everforest"})
+	router := newTestRouter(RouterConfig{Theme: "everforest"})
 	server := httptest.NewServer(router)
 
 	defer server.Close()
@@ -473,7 +473,7 @@ func TestAuthJourney_BootstrapOverHTTP(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 
 	svc := auth.NewService(store, time.Hour)
-	server := httptest.NewServer(NewRouter(RouterConfig{AuthService: svc, AuthMode: "multi"}))
+	server := httptest.NewServer(newTestRouter(RouterConfig{AuthService: svc, AuthMode: "multi"}))
 
 	defer server.Close()
 

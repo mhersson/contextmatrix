@@ -468,7 +468,7 @@ func TestIdleSweeper(t *testing.T) {
 // TestIdleSweeper_KeyedOnLastEventNotStartTime is the regression test for the
 // bug where sweepIdleSessions compared sess.startTime (connection time)
 // against the TTL instead of the most recent delivered-event time. Sanctioned
-// runs (CM ContainerMaxAge 150min, agent container_timeout 2h30m) routinely
+// runs (CM DefaultContainerMaxAge 150min, agent container_timeout 2h30m) routinely
 // outlive the hardcoded 2h TTL, so an actively-streaming session must never be
 // force-closed mid-run just because it has been connected a long time.
 //
@@ -1578,7 +1578,7 @@ func TestSubscribeProject_BuffersAllCards(t *testing.T) {
 	m := NewManager(WithBackendConfig(srv.URL, "test-key"))
 
 	defer func() {
-		m.StopProject(project)
+		m.Stop(projectKey(project))
 		srv.Close()
 	}()
 
@@ -1618,7 +1618,7 @@ func TestStartProject_Idempotent(t *testing.T) {
 	m := NewManager(WithBackendConfig(srv.URL, "test-key"))
 
 	defer func() {
-		m.StopProject(project)
+		m.Stop(projectKey(project))
 		srv.Close()
 	}()
 
@@ -1646,7 +1646,7 @@ func TestProjectKeyNamespacing(t *testing.T) {
 
 	defer func() {
 		m.Stop(cardID)
-		m.StopProject(project)
+		m.Stop(projectKey(project))
 		srv.Close()
 	}()
 

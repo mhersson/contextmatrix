@@ -53,10 +53,14 @@ func newAsyncTestService(t *testing.T, extraProjects ...string) (*CardService, *
 
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
-
 	q := gitops.NewCommitQueue(gitMgr, 0)
-	svc.SetCommitQueue(q)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+		Queue:         q,
+	})
 
 	t.Cleanup(func() {
 		_ = q.Close(context.Background())

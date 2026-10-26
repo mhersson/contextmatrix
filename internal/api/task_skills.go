@@ -177,7 +177,7 @@ func readTaskSkillsDir(ctx context.Context, dir string) ([]TaskSkillSummary, err
 
 		path := filepath.Join(dir, name, "SKILL.md")
 
-		data, err := os.ReadFile(path) //nolint:gosec // path is under our configured task_skills.dir
+		data, err := os.ReadFile(path)
 		if err != nil {
 			if !errors.Is(err, fs.ErrNotExist) {
 				logger.Warn("failed to read SKILL.md", "skill", name, "error", err)

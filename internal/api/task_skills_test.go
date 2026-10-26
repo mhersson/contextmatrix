@@ -187,7 +187,7 @@ func TestListTaskSkillsHandler(t *testing.T) {
 	writeSkillFile(t, dir, "alpha", "Use when alpha.")
 	writeSkillFile(t, dir, "bravo", "Use when bravo.")
 
-	router := NewRouter(RouterConfig{TaskSkillsDir: dir})
+	router := newTestRouter(RouterConfig{TaskSkillsDir: dir})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -211,7 +211,7 @@ func TestListTaskSkillsHandler(t *testing.T) {
 }
 
 func TestListTaskSkillsHandler_Unconfigured(t *testing.T) {
-	router := NewRouter(RouterConfig{TaskSkillsDir: ""})
+	router := newTestRouter(RouterConfig{TaskSkillsDir: ""})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -316,7 +316,7 @@ func TestUpdateProject_DefaultSkills(t *testing.T) {
 	writeSkillFile(t, skillsDir, "go-development", "Use when Go.")
 	writeSkillFile(t, skillsDir, "documentation", "Use when docs.")
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, TaskSkillsDir: skillsDir})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, TaskSkillsDir: skillsDir})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -407,7 +407,7 @@ func TestUpdateCard_SkillsValidation(t *testing.T) {
 	writeSkillFile(t, skillsDir, "documentation", "Use when docs.")
 	writeSkillFile(t, skillsDir, "code-review", "Use when reviewing.")
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, TaskSkillsDir: skillsDir})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, TaskSkillsDir: skillsDir})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -563,7 +563,7 @@ func setupTaskSkillsSourceEndpoint(t *testing.T) (*httptest.Server, func()) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 
 	backendClient := backend.NewClient("http://localhost:9090", testBackendAPIKey)
-	router := NewRouter(RouterConfig{
+	router := newTestRouter(RouterConfig{
 		Service:         svc,
 		Bus:             bus,
 		Backend:         backendClient,
@@ -635,7 +635,7 @@ func setupChatTaskSkillsSourceEndpoint(t *testing.T) (*httptest.Server, func()) 
 
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 
-	router := NewRouter(RouterConfig{
+	router := newTestRouter(RouterConfig{
 		Service:        svc,
 		Bus:            bus,
 		ChatBackendCfg: &config.ChatBackendConfig{APIKey: testChatBackendAPIKey},
@@ -714,7 +714,7 @@ func TestChatTaskSkillsSource_NotRegisteredWithoutBackend(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -751,7 +751,7 @@ func TestGetTaskSkillsSource_InstanceProvider_IncludesToken(t *testing.T) {
 
 	backendClient := backend.NewClient("http://localhost:9090", testBackendAPIKey)
 	fakeExpiry := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
-	router := NewRouter(RouterConfig{
+	router := newTestRouter(RouterConfig{
 		Service:             svc,
 		Bus:                 bus,
 		Backend:             backendClient,
@@ -790,7 +790,7 @@ func TestGetTaskSkillsSource_MintFailure_OmitsTokenBestEffort(t *testing.T) {
 	defer cleanup()
 
 	backendClient := backend.NewClient("http://localhost:9090", testBackendAPIKey)
-	router := NewRouter(RouterConfig{
+	router := newTestRouter(RouterConfig{
 		Service:             svc,
 		Bus:                 bus,
 		Backend:             backendClient,
@@ -828,7 +828,7 @@ func TestGetChatTaskSkillsSource_InstanceProvider_IncludesToken(t *testing.T) {
 	defer cleanup()
 
 	fakeExpiry := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
-	router := NewRouter(RouterConfig{
+	router := newTestRouter(RouterConfig{
 		Service:             svc,
 		Bus:                 bus,
 		ChatBackendCfg:      &config.ChatBackendConfig{APIKey: testChatBackendAPIKey},

@@ -612,10 +612,11 @@ func TestClaimCard_RemoteUnreachablePrefix(t *testing.T) {
 	// locally and only the claim goes through the shared cycle.
 	card := createTestCard(t, env, "Shared task", "task", "medium")
 
-	env.svc.SetSharedRepo(true)
-	env.svc.SetSyncRunner(func(context.Context, string, service.SyncMutation) (service.SyncOutcome, error) {
+	repo := env.svc.Repos()[0]
+	repo.Shared = true
+	require.NoError(t, env.svc.SetSyncRunnerFor(repo.Name, func(context.Context, string, service.SyncMutation) (service.SyncOutcome, error) {
 		return service.SyncOutcome{}, errors.New("fetch: dial tcp")
-	})
+	}))
 
 	result, err := callToolRaw(t, env, "claim_card", map[string]any{"card_id": card.ID, "agent_id": "agent-1"})
 	require.True(t, resultIsError(result, err))
@@ -627,7 +628,8 @@ func TestClaimCard_RemoteUnreachablePrefix(t *testing.T) {
 // the message names the instance holding it.
 func TestRequireActiveClaim_ForeignInstance(t *testing.T) {
 	env := setupMCP(t)
-	env.svc.SetLease("lap-a", time.Hour, time.Minute)
+	repo := env.svc.Repos()[0]
+	repo.Instance, repo.LeaseTimeout, repo.PullInterval = "lap-a", time.Hour, time.Minute
 
 	card := createTestCard(t, env, "Peer task", "task", "medium")
 

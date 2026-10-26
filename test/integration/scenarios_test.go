@@ -15,9 +15,9 @@ import (
 	"time"
 )
 
-// harness bundles a booted CM (admin session) plus the host services worker
-// containers reach via host.docker.internal (the scripted LLM and the seeded
-// git server).
+// harness bundles a booted CM (admin session) plus the host services it
+// runs (the scripted LLM and the seeded git server; workers reach the git
+// server via host.docker.internal).
 type harness struct {
 	sc      *scenarioConfig
 	cm      *process
@@ -234,6 +234,7 @@ func TestAgentScenario(t *testing.T) {
 	// The card branch (cm/<lowercased-id>) must exist on the seeded remote.
 	wantBranch := "cm/int-001"
 	branches := h.git.remoteBranches(t)
+
 	if !slices.Contains(branches, wantBranch) {
 		t.Errorf("pushed branch %q not found on remote; got %v", wantBranch, branches)
 	}

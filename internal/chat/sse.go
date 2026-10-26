@@ -170,6 +170,9 @@ func NewSSEHub(bufCap int) *SSEHub {
 	return &SSEHub{bufCap: bufCap, perSess: make(map[string]*sessionHub)}
 }
 
+// ReplayCap is the most events a session's replay ring holds.
+func (h *SSEHub) ReplayCap() int { return h.bufCap }
+
 func (h *SSEHub) hub(sessionID string) *sessionHub {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -355,6 +358,21 @@ func (h *SSEHub) Drop(sessionID string) {
 		close(s.ch)
 		delete(sh.subs, s)
 	}
+
+	sh.ring = nil
+}
+
+// ClearReplay empties the session's replay ring and leaves its subscribers
+// attached. The stream handler backfills a reconnect the ring no longer
+// covers from the store.
+func (h *SSEHub) ClearReplay(sessionID string) {
+	sh := h.lookup(sessionID)
+	if sh == nil {
+		return
+	}
+
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
 
 	sh.ring = nil
 }

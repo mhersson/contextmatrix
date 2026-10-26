@@ -41,12 +41,12 @@ verify:
 
 // triggerVerifyPayload runs a card and captures the TriggerPayload the agent
 // backend received.
-func triggerVerifyPayload(t *testing.T, svc *service.CardService, bus *events.Bus, cardID string) backend.TriggerPayload {
+func triggerVerifyPayload(t *testing.T, svc *service.CardService, bus *events.Bus, cardID string) protocol.TriggerPayload {
 	t.Helper()
 
 	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
 
-	var capturedPayload backend.TriggerPayload
+	var capturedPayload protocol.TriggerPayload
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
@@ -56,7 +56,7 @@ func triggerVerifyPayload(t *testing.T, svc *service.CardService, bus *events.Bu
 	t.Cleanup(mockBackend.Close)
 
 	backendClient := backend.NewClient(mockBackend.URL, apiKey)
-	router := NewRouter(RouterConfig{
+	router := newTestRouter(RouterConfig{
 		Service: svc, Bus: bus, Backend: backendClient,
 		AgentBackendCfg: &config.AgentBackendConfig{
 			APIKey:       apiKey,

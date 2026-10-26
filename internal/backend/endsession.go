@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/events"
 )
@@ -12,8 +13,8 @@ import (
 // EndSessionClient is the subset of *Client needed by the subscriber. Allows
 // tests to inject a fake.
 type EndSessionClient interface {
-	EndSession(ctx context.Context, p EndSessionPayload) error
-	Kill(ctx context.Context, p KillPayload) error
+	EndSession(ctx context.Context, p protocol.EndSessionPayload) error
+	Kill(ctx context.Context, p protocol.KillPayload) error
 }
 
 // CardGetter is the subset of *service.CardService needed by the subscriber.
@@ -157,7 +158,7 @@ func endSessionAndKill(ctx context.Context, client EndSessionClient, logger *slo
 	// worker is told to end its session, but it may not exit promptly, so we
 	// always follow up with a force-kill below to guarantee the container is
 	// gone.
-	endSessionErr := client.EndSession(ctx, EndSessionPayload{CardID: cardID, Project: project})
+	endSessionErr := client.EndSession(ctx, protocol.EndSessionPayload{CardID: cardID, Project: project})
 	if endSessionErr != nil && !isExpectedEndSessionErr(endSessionErr) {
 		logger.Warn("end-session webhook failed",
 			"source", source,
@@ -169,7 +170,7 @@ func endSessionAndKill(ctx context.Context, client EndSessionClient, logger *slo
 	// request. /kill is idempotent - it returns 200 no-op when the container is
 	// already gone (e.g. the worker exited, or reportCompleted already cleaned
 	// up).
-	if err := client.Kill(ctx, KillPayload{CardID: cardID, Project: project}); err != nil {
+	if err := client.Kill(ctx, protocol.KillPayload{CardID: cardID, Project: project}); err != nil {
 		logger.Warn("kill webhook failed after end-session",
 			"source", source,
 			"project", project, "card_id", cardID, "error", err)

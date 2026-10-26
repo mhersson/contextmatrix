@@ -123,3 +123,21 @@ func (g *Group) Wait() {
 		}
 	}
 }
+
+// PushPending pushes every private auto-push repo that is ahead of its
+// remote. See Syncer.PushPending.
+func (g *Group) PushPending(ctx context.Context) error {
+	var errs []error
+
+	for _, e := range g.entries {
+		if e.Syncer == nil {
+			continue
+		}
+
+		if err := e.Syncer.PushPending(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", e.Name, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}

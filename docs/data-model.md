@@ -11,7 +11,9 @@ live in [architecture](architecture.md); the HTTP surface in the
 
 1. **Card IDs** are `PREFIX-NNN`, zero-padded to three digits and growing
    past three when needed (`ALPHA-001`, `ALPHA-1000`). The server allocates
-   them from `next_id` in `.board.yaml`. Immutable.
+   them from `next_id` in `.board.yaml` only after the create passes
+   validation and the duplicate guards, so a refused or deduplicated create
+   leaves `next_id` unchanged. Immutable.
 
 2. **State transitions are enforced.** Transitions come from `.board.yaml`
    `transitions`; an invalid one returns 409 Conflict. `stalled` and
@@ -177,7 +179,7 @@ live in [architecture](architecture.md); the HTTP surface in the
     special case. This keeps an agent that re-enters subtask creation after a
     crash or context reset from orphaning duplicates.
     - The check runs under `writeMu`; no TOCTOU race.
-    - `next_id` still increments; the gap is harmless.
+    - `next_id` is left unchanged.
     - A matching subtask that is `done` or `not_planned` does not block:
       re-doing finished work is intentional.
 
@@ -196,16 +198,19 @@ live in [architecture](architecture.md); the HTTP surface in the
     - A card whose `custom.jira_issue_id` is set and differs from the
       create's is another Jira issue under the same key and does not match.
     - No `card.created` event is published for the returned card, and
-      `next_id` still increments.
+      `next_id` is left unchanged.
 
-14. **Card deletion requires no subtasks.** `DELETE .../cards/{id}` removes
-    the file (`os.Remove`) and enqueues a `CommitKindFile` commit; go-git
-    records the deletion when the missing path is staged. It returns 422
-    `VALIDATION_ERROR` if the card has subtasks, 403 if the card is claimed
-    by another agent, and 409 `WORKER_CONFLICT` while its `worker_status` is
-    `queued` or `running` and it is not `done` or `not_planned`. The web UI
-    enables Delete only for `todo` or `not_planned` cards with no
-    `assigned_agent`, behind a `ConfirmModal`.
+14. **Card deletion requires no subtasks and no open dependents.**
+    `DELETE .../cards/{id}` removes the file (`os.Remove`) and enqueues a
+    `CommitKindFile` commit; go-git records the deletion when the missing path
+    is staged. It returns 422 `VALIDATION_ERROR` if the card has subtasks or a
+    card outside `done` and `not_planned` lists it in `depends_on`, since that
+    dependent could never satisfy its gate again. A terminal dependent keeps the
+    dangling id. It returns 403 if the card is claimed by another agent, and
+    409 `WORKER_CONFLICT` while its `worker_status` is `queued` or `running`
+    and it is not `done` or `not_planned`. The web UI enables Delete only for
+    `todo` or `not_planned` cards with no `assigned_agent`, behind a
+    `ConfirmModal`.
 
 ## Card file format
 
@@ -1151,6 +1156,10 @@ cannot set `queued`, `killed` or `parked`. An invalid value is 422
 `VALIDATION_ERROR`. `parked` is set by the claiming agent right before its
 container exits; the `completed` callback that follows preserves it while
 clearing the claim, and the next trigger's `queued` replaces it.
+A `running` or `failed` report never replaces `killed` (a `failed` on a
+terminal card still normalizes to `completed`). A new launch (`queued`)
+replaces it, and a `completed` report or a state change into `todo` or
+`in_progress` clears it.
 
 ## `depends_on` cycle detection
 
@@ -1164,8 +1173,10 @@ The check runs under `writeMu`.
 `depends_on` is settable on `PATCH`, `create_card` and `update_card`. On
 `PATCH` and `update_card`, omitting it leaves the list
 unchanged and `[]` clears it, the same nil/empty convention as `labels`.
-Reference and cycle checks run against the resulting card, so an existing
-`depends_on` is re-validated even when a patch touches other fields.
+The cycle check runs against the resulting card, so an existing cycle is
+caught even when a patch touches other fields. The existence check covers only
+the ids the change adds: an id already on the card passes even after its card
+is deleted, so the dependent stays editable.
 
 ## `create_pr` semantics
 

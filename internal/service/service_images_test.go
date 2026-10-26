@@ -53,7 +53,7 @@ func TestImagesInRepo_SingleRepoServiceIsPrivate(t *testing.T) {
 	defer cleanup()
 
 	_, ok := svc.ImagesInRepo(context.Background(), "test-project")
-	assert.False(t, ok, "the single-repo constructor is never shared")
+	assert.False(t, ok, "a repo not marked shared is private")
 }
 
 func TestWriteRepoImages_WritesAndCommitsThroughTheQueue(t *testing.T) {

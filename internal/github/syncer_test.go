@@ -149,7 +149,14 @@ func setupTestProject(t *testing.T, projectName string, ghCfg *board.GitHubImpor
 
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
-	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil, true, false)
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           git,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	return boardsDir, svc, store
 }
@@ -321,6 +328,59 @@ func TestSyncProject_CustomTypeAndPriority(t *testing.T) {
 	assert.Equal(t, "high", cards[0].Priority)
 }
 
+// TestSyncProject_UnsetDefaultsFollowTheBoard: an unset card_type and
+// default_priority resolve to task and medium only when the board lists them,
+// else to the board's first entry, so a board without them still imports.
+func TestSyncProject_UnsetDefaultsFollowTheBoard(t *testing.T) {
+	tests := []struct {
+		name         string
+		types        []string
+		priorities   []string
+		wantType     string
+		wantPriority string
+	}{
+		{"board lists task and medium", []string{"bug", "task"}, []string{"low", "medium"}, "task", "medium"},
+		{"board lists neither", []string{"bug", "feature"}, []string{"low", "high"}, "bug", "low"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issues := []Issue{{Number: 7, Title: "Issue", HTMLURL: "https://github.com/o/r/issues/7"}}
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("X-RateLimit-Remaining", "100")
+				_ = json.NewEncoder(w).Encode(issues)
+			}))
+			defer srv.Close()
+
+			boardsDir, svc, store := setupTestProject(t, "test-project", &board.GitHubImportConfig{ImportIssues: true})
+
+			ctx := context.Background()
+			cfg, err := board.LoadProjectConfig(filepath.Join(boardsDir, "test-project"))
+			require.NoError(t, err)
+
+			cfg.Types, cfg.Priorities = tt.types, tt.priorities
+			require.NoError(t, store.SaveProject(ctx, cfg))
+
+			p, err := githubauth.NewPATProvider("t")
+			require.NoError(t, err)
+
+			client := NewClientWithBaseURL(p, srv.URL)
+			syncer := NewSyncer(svc, store, client, 5*time.Minute, []string{"github.com"})
+
+			imported, err := syncer.syncProject(ctx, cfg, client, "o", "r")
+			require.NoError(t, err)
+			require.Equal(t, 1, imported)
+
+			cards, err := store.ListCards(ctx, "test-project", storage.CardFilter{})
+			require.NoError(t, err)
+			require.Len(t, cards, 1)
+			assert.Equal(t, tt.wantType, cards[0].Type)
+			assert.Equal(t, tt.wantPriority, cards[0].Priority)
+		})
+	}
+}
+
 // TestSyncAll_SetClientFor_SkipsProjectOnResolveError asserts that when a
 // per-project client resolver is installed via SetClientFor, a resolution
 // error for one project is logged and that project is skipped for the
@@ -370,7 +430,14 @@ func TestSyncAll_SetClientFor_SkipsProjectOnResolveError(t *testing.T) {
 
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
-	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil, true, false)
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           git,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	issues := []Issue{
 		{Number: 1, Title: "Issue for proj-b", HTMLURL: "https://github.com/testorg/proj-b/issues/1"},
@@ -445,7 +512,14 @@ func TestSyncAll_SkipsAProjectHiddenBehindAnotherRepo(t *testing.T) {
 	git, err := gitops.NewManager(dirOne, "", "ssh", nil)
 	require.NoError(t, err)
 
-	svc := service.NewCardService(composite, git, lock.NewManager(composite, 30*time.Minute), events.NewBus(), dirOne, nil, true, false)
+	svc, err := service.NewCardServiceRepos(composite, events.NewBus(), nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           git,
+		Dir:           dirOne,
+		GitAutoCommit: true,
+		Lock:          lock.NewManager(composite, 30*time.Minute),
+	})
+	require.NoError(t, err)
 
 	p, err := githubauth.NewPATProvider("t")
 	require.NoError(t, err)

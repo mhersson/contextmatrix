@@ -309,11 +309,9 @@ type Manager struct {
 	appendLocksMu sync.Mutex
 	appendLocks   map[string]*sync.Mutex
 
-	// statusLocks holds a per-session mutex used to serialise
-	// read-modify-write on sess.Status across all lifecycle callers
-	// (MarkActive, MarkWarmIdle, OpenSession, openCold, EndSession) so
-	// concurrent transitions cannot interleave inconsistently. Follows the
-	// same lazy-allocation pattern as appendLocks. Cleaned up in
+	// statusLocks holds a per-session mutex that every lifecycle path takes
+	// around its read-modify-write of sess.Status, so concurrent transitions
+	// cannot interleave. Lazily allocated like appendLocks; cleaned up in
 	// DeleteSession.
 	statusLocksMu sync.Mutex
 	statusLocks   map[string]*sync.Mutex
@@ -451,10 +449,9 @@ func (m *Manager) statusLock(sessionID string) *sync.Mutex {
 }
 
 // withStatusLock acquires the per-session status mutex, runs fn, then
-// releases it via defer. All five lifecycle callers (MarkActive,
-// MarkWarmIdle, OpenSession, openCold, EndSession) route through this
-// helper so the acquire/release pattern is uniform and an early return
-// inside fn cannot leak the lock.
+// releases it via defer, so an early return inside fn cannot leak the lock.
+// Every whole-row session write runs under it; a caller that must not undo a
+// racing transition also re-reads the row inside fn.
 func (m *Manager) withStatusLock(sessionID string, fn func() error) error {
 	mu := m.statusLock(sessionID)
 	mu.Lock()
@@ -1321,6 +1318,7 @@ func (m *Manager) ClearContext(ctx context.Context, sessionID string) error {
 // clearGroup.Do to prevent concurrent clears from interleaving on the same
 // session. The session-not-running guard is checked before entering
 // clearGroup, so this function can assume the session is active or warm-idle.
+// Kept apart from appendMessageWithKind: ClearTranscriptAtomic marks and inserts in one transaction.
 func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
 	sess, err := m.store.GetSession(ctx, sessionID)
 	if err != nil {
@@ -2121,9 +2119,32 @@ func (m *Manager) Reattach(ctx context.Context, sessionID string) (Session, erro
 		return sess, nil
 	}
 
-	sess.LastActive = m.clk.Now().UTC().Truncate(time.Second)
-	if err := m.store.UpdateSession(ctx, sess); err != nil {
-		return Session{}, fmt.Errorf("chat: Reattach: persist last-active: %w", err)
+	// Re-read under the status lock so a racing EndSession's cold row is never
+	// overwritten by the snapshot above.
+	if err := m.withStatusLock(sessionID, func() error {
+		fresh, err := m.store.GetSession(ctx, sessionID)
+		if err != nil {
+			return fmt.Errorf("chat: Reattach re-read: %w", err)
+		}
+
+		sess = fresh
+
+		if fresh.Status != StatusActive && fresh.Status != StatusWarmIdle {
+			return nil
+		}
+
+		sess.LastActive = m.clk.Now().UTC().Truncate(time.Second)
+		if err := m.store.UpdateSession(ctx, sess); err != nil {
+			return fmt.Errorf("chat: Reattach: persist last-active: %w", err)
+		}
+
+		return nil
+	}); err != nil {
+		return Session{}, err
+	}
+
+	if sess.Status != StatusActive && sess.Status != StatusWarmIdle {
+		return sess, nil
 	}
 
 	m.startConsumer(sess.ID, true)
@@ -2133,8 +2154,8 @@ func (m *Manager) Reattach(ctx context.Context, sessionID string) (Session, erro
 
 // MarkWarmIdle transitions an active session to warm-idle. No-op if the
 // session is not active. Tolerant of ErrSessionNotFound - a grace timer
-// fired against a session that was already deleted (DeleteSession,
-// reconcile sweep) is a benign race, not an error.
+// fired against a session that was already deleted is a benign race, not an
+// error.
 func (m *Manager) MarkWarmIdle(ctx context.Context, sessionID string) error {
 	// Hold the per-session status lock across the read-modify-write window
 	// so a concurrent MarkActive (fired from OnSubscribe) serialises cleanly
@@ -2341,6 +2362,12 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 
 	m.setWorking(sess.ID, false)
 
+	// A cold session publishes nothing until it reopens, so its replay events
+	// would otherwise sit in memory for good.
+	if m.hub != nil {
+		m.hub.ClearReplay(sess.ID)
+	}
+
 	cold := StatusCold
 	update := SessionUpdate{Status: &cold}
 
@@ -2432,22 +2459,7 @@ func (m *Manager) DeleteSession(ctx context.Context, id string) error {
 	return nil
 }
 
-// SendUserMessage forwards a user message to the backend first; only on a
-// successful backend call is the message persisted and fanned out via the
-// SSE hub. If the backend is unreachable the caller gets an error and the
-// UI can retry - the alternative (snappy echo, then backend failure) used
-// to leave the user staring at their own message with no reply path.
-// Cold-state sessions are opened first. Returns the generated message_id
-// used for backend-side echo dedup.
-//
-// If the session is currently in its rehydration phase, the user typing
-// ends the phase as a belt-and-suspenders safety net for agents that
-// forget to call chat_rehydration_complete. The flag is flipped BEFORE
-// AppendMessage so the user's message itself is persisted as non-phase.
-// ensureRunningForSend promotes a cold or warm-idle session to running so a
-// user message can be dispatched. Cold sessions are opened via OpenSession;
-// warm-idle sessions are flipped to active via MarkActive. Active sessions
-// are a no-op. Returns nil when the session is ready to receive messages.
+// ensureRunningForSend opens a cold session and promotes a warm-idle one before a send.
 func (m *Manager) ensureRunningForSend(ctx context.Context, sess Session) error {
 	switch sess.Status {
 	case StatusCold:
@@ -2466,10 +2478,8 @@ func (m *Manager) ensureRunningForSend(ctx context.Context, sess Session) error 
 
 // maxConsecutiveSendFailures is the number of consecutive
 // backend-unreachable SendUserMessage failures tolerated before a session
-// is auto-flipped to cold. This is the only self-healing path available
-// with the dedicated chat backend: the reconcile sweep's chat half is
-// wired only when the task backend also serves chat, because a standalone
-// chat backend exposes no /containers endpoint to reconcile against.
+// is auto-flipped to cold. This is the only self-healing path for an
+// unreachable chat backend.
 const maxConsecutiveSendFailures = 3
 
 // recordSendFailure increments the consecutive-failure counter for
@@ -2511,6 +2521,52 @@ func (m *Manager) clearSendFailures(sessionID string) {
 	m.mu.Unlock()
 }
 
+// endRehydrationForSend ends the session's rehydration phase before a user
+// message is sent, as a safety net for agents that forget to call
+// chat_rehydration_complete. It runs before the row is appended so the
+// message itself is persisted as non-phase.
+func (m *Manager) endRehydrationForSend(ctx context.Context, sessionID string) {
+	if !m.isRehydrationActive(ctx, sessionID) {
+		return
+	}
+
+	if err := m.setRehydrationActive(ctx, sessionID, false); err != nil {
+		m.logger.Warn("chat: SendUserMessage: clear rehydration flag failed",
+			"session_id", sessionID, "error", err)
+	} else {
+		m.logger.Info("chat: rehydration ended by user message",
+			"session_id", sessionID)
+	}
+}
+
+// reopenCold ends a chat session its backend no longer holds and opens it
+// again through the cold-open resume.
+func (m *Manager) reopenCold(ctx context.Context, sessionID string) error {
+	m.logger.Warn("chat: backend does not hold the session, reopening it cold", "session_id", sessionID)
+
+	if err := m.EndSession(ctx, sessionID); err != nil {
+		return err
+	}
+
+	if _, err := m.OpenSession(ctx, sessionID); err != nil {
+		return err
+	}
+
+	m.endRehydrationForSend(ctx, sessionID)
+
+	return nil
+}
+
+// SendUserMessage forwards a user message to the backend first; only on a
+// successful backend call is the message persisted and fanned out via the
+// SSE hub, so a failed send leaves no row and the UI can retry. Cold-state
+// sessions are opened first. Returns the generated message_id used for
+// backend-side echo dedup.
+//
+// A backend that no longer holds the session gets it back once before the
+// message is re-sent: an architect by a re-sent start, a chat backend by an
+// end and a cold-open resume. The resume carries only persisted rows, so it
+// never holds the message being sent.
 func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string) (string, error) {
 	return m.sendMessage(ctx, sessionID, content, userSend{})
 }
@@ -2647,15 +2703,7 @@ func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us
 		return "", err
 	}
 
-	if m.isRehydrationActive(ctx, sessionID) {
-		if err := m.setRehydrationActive(ctx, sessionID, false); err != nil {
-			m.logger.Warn("chat: SendUserMessage: clear rehydration flag failed",
-				"session_id", sessionID, "error", err)
-		} else {
-			m.logger.Info("chat: rehydration ended by user message",
-				"session_id", sessionID)
-		}
-	}
+	m.endRehydrationForSend(ctx, sessionID)
 
 	msgID := NewID()
 	payload := protocol.MessagePayload{SessionID: sessionID, Content: content, MessageID: msgID, Round: us.round, Mockup: us.mockup}
@@ -2733,6 +2781,18 @@ func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us
 		}
 	}
 
+	// A chat backend that restarted, or whose worker exited, no longer holds
+	// the session: reopen it cold and re-send once, with the same id.
+	if err != nil && sess.Kind != KindArchitect && errors.Is(err, ErrSessionUnknown) {
+		if rerr := m.reopenCold(ctx, sessionID); rerr != nil {
+			err = errors.Join(err, rerr)
+		} else {
+			// The reopen's EndSession dropped the indicator this send armed.
+			armed = m.setWorking(sessionID, true)
+			err = backend.SendChatMessage(ctx, payload)
+		}
+	}
+
 	if err != nil {
 		// Before recordSendFailure: its EndSession waits for the consumer,
 		// which may be waiting on this lock.
@@ -2771,9 +2831,13 @@ func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us
 	return msgID, nil
 }
 
-// UpdateSessionMetadata writes session metadata changes (title, last_active).
-func (m *Manager) UpdateSessionMetadata(ctx context.Context, s Session) error {
-	return m.store.UpdateSession(ctx, s)
+// SetTitle sets only the title; it never touches last_active or status.
+func (m *Manager) SetTitle(ctx context.Context, sessionID, title string) error {
+	if err := m.store.UpdateSessionTitle(ctx, sessionID, title); err != nil {
+		return fmt.Errorf("set title: %w", err)
+	}
+
+	return nil
 }
 
 // SetPinned sets only the pin; it never touches last_active or status.

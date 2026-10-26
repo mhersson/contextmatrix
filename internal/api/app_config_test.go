@@ -260,7 +260,7 @@ func TestAppConfig_ChatEnabledFollowsChatWiring(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	// Without chat wiring: chat_enabled is false.
-	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
+	server := httptest.NewServer(newTestRouter(RouterConfig{Service: svc, Bus: bus}))
 	t.Cleanup(server.Close)
 
 	resp := doGet(t, server.URL+"/api/app/config")
@@ -285,7 +285,7 @@ func TestAppConfig_ChatEnabledTrue(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	t.Cleanup(cleanup)
 
-	server := httptest.NewServer(NewRouter(RouterConfig{
+	server := httptest.NewServer(newTestRouter(RouterConfig{
 		Service: svc, Bus: bus,
 		ChatBackendCfg: &config.ChatBackendConfig{
 			URL:    "http://chat-backend.invalid",
@@ -317,7 +317,7 @@ func TestAppConfig_ArchitectEnabled(t *testing.T) {
 		"no key":  {&config.ArchitectBackendConfig{URL: "http://architect.invalid"}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus, ArchitectBackendCfg: tc.cfg}))
+			server := httptest.NewServer(newTestRouter(RouterConfig{Service: svc, Bus: bus, ArchitectBackendCfg: tc.cfg}))
 			t.Cleanup(server.Close)
 
 			resp := doGet(t, server.URL+"/api/app/config")

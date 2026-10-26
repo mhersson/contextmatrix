@@ -132,7 +132,7 @@ func fetchEndpointCatalog(ctx context.Context, endpoint, apiKey string) (map[str
 	if err != nil {
 		return nil, fmt.Errorf("endpoint request: %w", err)
 	}
-	defer resp.Body.Close() //nolint:errcheck
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("endpoint unexpected status %d", resp.StatusCode)

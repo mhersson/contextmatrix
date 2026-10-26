@@ -108,7 +108,7 @@ func newBlacklistAdminServer(t *testing.T, store blacklistAdminStore, multiMode 
 		cfg.AuthMode = "multi"
 	}
 
-	router := NewRouter(cfg)
+	router := newTestRouter(cfg)
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
 

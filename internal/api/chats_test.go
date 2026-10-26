@@ -98,6 +98,13 @@ type fixtureOpts struct {
 	onLive func(*blueprintLive)
 	// onArchitect receives the architect stub when architectBackendCfg is set.
 	onArchitect func(*chatStubBackend)
+	// wrapStore, when set, wraps the store the manager uses.
+	wrapStore func(chat.Store) chat.Store
+	// onHub receives the handlers' SSE hub.
+	onHub func(*chat.SSEHub)
+	// managerHub wires that hub into the manager; otherwise the manager
+	// publishes nothing to it.
+	managerHub bool
 }
 
 // defaultFixtureOpts is the no-backend topology: no chat backend configured
@@ -152,9 +159,25 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 		archDefault = opts.architectBackendCfg.DefaultModel
 	}
 
+	var mgrStore chat.Store = store
+	if opts.wrapStore != nil {
+		mgrStore = opts.wrapStore(store)
+	}
+
+	hub := chat.NewSSEHub(64)
+	if opts.onHub != nil {
+		opts.onHub(hub)
+	}
+
+	var mgrHub *chat.SSEHub
+	if opts.managerHub {
+		mgrHub = hub
+	}
+
 	backend := &chatStubBackend{}
 	mgr := chat.NewManager(chat.Config{
-		Store:                 store,
+		Store:                 mgrStore,
+		Hub:                   mgrHub,
 		Backend:               backend,
 		Clock:                 clock.Real(),
 		IdleTTL:               time.Hour,
@@ -174,7 +197,6 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 	// not reach, which otherwise recreates the WAL sidecars mid-cleanup.
 	t.Cleanup(func() { _ = mgr.Close(context.Background()) })
 
-	hub := chat.NewSSEHub(64)
 	mux := http.NewServeMux()
 
 	chh := newChatHandlers(mgr, hub, opts.chatBackendCfg)
@@ -338,6 +360,58 @@ func TestPatchChat_UpdatesTitle(t *testing.T) {
 	assert.Equal(t, "new", got.Title)
 }
 
+// staleReadStore hands out one stale read: the armed GetSession reads the
+// row, runs during, then returns the row it read before during ran.
+type staleReadStore struct {
+	chat.Store
+	during atomic.Pointer[func()]
+}
+
+func (s *staleReadStore) GetSession(ctx context.Context, id string) (chat.Session, error) {
+	sess, err := s.Store.GetSession(ctx, id)
+	if fn := s.during.Swap(nil); fn != nil && err == nil {
+		(*fn)()
+	}
+
+	return sess, err
+}
+
+func TestPatchChat_RenameRacingEndSessionKeepsTheSessionCold(t *testing.T) {
+	var store *staleReadStore
+
+	opts := defaultFixtureOpts()
+	opts.wrapStore = func(s chat.Store) chat.Store {
+		store = &staleReadStore{Store: s}
+
+		return store
+	}
+
+	mux, mgr := newChatFixture(t, opts)
+	ctx := t.Context()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "old", Project: "alpha", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	// Active without a consumer, whose own read could take the armed hook.
+	sess.Status = chat.StatusActive
+	sess.ContainerID = "container-x"
+	require.NoError(t, store.UpdateSession(ctx, sess))
+
+	// EndSession commits between the handler's read and its write.
+	end := func() { require.NoError(t, mgr.EndSession(ctx, sess.ID)) }
+	store.during.Store(&end)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, jsonReq(t, http.MethodPatch, "/api/chats/"+sess.ID, `{"title":"new"}`))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	stored, err := mgr.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "new", stored.Title)
+	assert.Equal(t, chat.StatusCold, stored.Status, "the stale read does not restore the old status")
+	assert.Empty(t, stored.ContainerID)
+}
+
 func TestPatchChat_EmptyBodyLeavesSessionUnchanged(t *testing.T) {
 	mux, mgr := newChatFixture(t, defaultFixtureOpts())
 	sess, err := mgr.CreateSession(t.Context(), chat.CreateInput{Title: "keep", CreatedBy: "human:web-x"})
@@ -420,6 +494,154 @@ func TestStreamChat_ConnectedBeforeAnyEvent(t *testing.T) {
 			"expected first SSE line to be `: connected`, got %q", line)
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("did not receive `: connected` within 500ms - handler is not flushing before blocking")
+	}
+}
+
+// streamSeqs subscribes to the session's stream from sinceSeq, publishes a
+// marker once the handler has subscribed, and returns the seqs of the
+// transcript events written before the marker.
+func streamSeqs(t *testing.T, srvURL string, hub *chat.SSEHub, sessionID string, sinceSeq int64) []int64 {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		fmt.Sprintf("%s/api/chats/%s/stream?since_seq=%d", srvURL, sessionID, sinceSeq), nil)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+
+	line, err := reader.ReadString('\n')
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(line, ":"), "the stream opens with an SSE comment frame: %q", line)
+
+	const marker = int64(1) << 40
+
+	hub.Publish(sessionID, chat.SSEEvent{Seq: marker, Role: chat.RoleSystem, Content: "marker"})
+
+	var seqs []int64
+
+	for {
+		line, err := reader.ReadString('\n')
+		require.NoError(t, err)
+
+		data, ok := strings.CutPrefix(line, "data: ")
+		if !ok {
+			continue
+		}
+
+		var e struct {
+			Seq int64 `json:"seq"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(data), &e))
+
+		if e.Seq == marker {
+			return seqs
+		}
+
+		seqs = append(seqs, e.Seq)
+	}
+}
+
+// countingStore counts ListMessages calls, the store read a replay backfill makes.
+type countingStore struct {
+	chat.Store
+	lists atomic.Int64
+}
+
+func (c *countingStore) ListMessages(ctx context.Context, sessionID string, sinceSeq int64, limit int) ([]chat.Message, error) {
+	c.lists.Add(1)
+
+	return c.Store.ListMessages(ctx, sessionID, sinceSeq, limit)
+}
+
+// backfillFixture serves a session whose manager published three user rows
+// (seq 1-3) into the handlers' hub.
+func backfillFixture(t *testing.T) (*httptest.Server, *chat.Manager, *chat.SSEHub, *countingStore, chat.Session) {
+	t.Helper()
+
+	var (
+		hub   *chat.SSEHub
+		store *countingStore
+	)
+
+	opts := defaultFixtureOpts()
+	opts.managerHub = true
+	opts.onHub = func(h *chat.SSEHub) { hub = h }
+	opts.wrapStore = func(s chat.Store) chat.Store {
+		store = &countingStore{Store: s}
+
+		return store
+	}
+
+	mux, mgr := newChatFixture(t, opts)
+	ctx := t.Context()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	for _, content := range []string{"one", "two", "three"} {
+		_, err := mgr.SendUserMessage(ctx, sess.ID, content)
+		require.NoError(t, err)
+	}
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	return srv, mgr, hub, store, sess
+}
+
+// A client that saw seq 1, lost its stream and reconnects after the session
+// went cold gets the rows it missed from the store, each once and in order.
+func TestStreamChat_ReconnectAfterEndSessionGetsTheMissedRowsOnce(t *testing.T) {
+	srv, mgr, hub, _, sess := backfillFixture(t)
+
+	require.NoError(t, mgr.EndSession(t.Context(), sess.ID))
+
+	assert.Equal(t, []int64{2, 3}, streamSeqs(t, srv.URL, hub, sess.ID, 1))
+}
+
+func TestStreamChat_CoveredReconnectSkipsTheStore(t *testing.T) {
+	srv, _, hub, store, sess := backfillFixture(t)
+
+	before := store.lists.Load()
+
+	assert.Equal(t, []int64{2, 3}, streamSeqs(t, srv.URL, hub, sess.ID, 1))
+	assert.Equal(t, before, store.lists.Load(), "the ring covers the reconnect; the store is not read")
+}
+
+// The store fills in only the missed rows below the ring's lowest seq, so no
+// row is sent twice.
+func TestStreamChat_RingBackfillsOnlyWhatItLacks(t *testing.T) {
+	tests := []struct {
+		name string
+		ring []int64 // seqs published into the emptied ring, in order
+		want []int64
+	}{
+		{"ring holds only the newest", []int64{3}, []int64{2, 3}},
+		// Publishes follow the append lock's release, so two appenders can
+		// publish in the reverse of their seq order.
+		{"ring out of order", []int64{3, 2}, []int64{3, 2}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, mgr, hub, _, sess := backfillFixture(t)
+
+			require.NoError(t, mgr.EndSession(t.Context(), sess.ID))
+
+			for _, seq := range tt.ring {
+				hub.Publish(sess.ID, chat.SSEEvent{Seq: seq, Role: chat.RoleUser, Content: "ring"})
+			}
+
+			assert.Equal(t, tt.want, streamSeqs(t, srv.URL, hub, sess.ID, 1))
+		})
 	}
 }
 

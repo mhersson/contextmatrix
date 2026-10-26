@@ -44,10 +44,14 @@ func newStalledTestService(t *testing.T) (*CardService, *clock.FakeClock, func()
 	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 	lockMgr := lock.NewManagerWithClock(store, 1*time.Millisecond, fake)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
-
 	commitQueue := gitops.NewCommitQueue(gitMgr, 0)
-	svc.SetCommitQueue(commitQueue)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+		Queue:         commitQueue,
+	})
 
 	cleanup := func() {
 		_ = commitQueue.Close(context.Background())
@@ -347,6 +351,35 @@ func TestForceReleaseCard(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("expected CardReleased event")
 	}
+}
+
+func TestDeferredCommitFlushOnForceRelease(t *testing.T) {
+	svc, _ := setupDeferredTest(t)
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Force release flush", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Body: new("## Progress\n")})
+	require.NoError(t, err)
+
+	svc.writeMu.Lock()
+	_, hasPaths := svc.deferredPaths[card.ID]
+	svc.writeMu.Unlock()
+	require.True(t, hasPaths, "the claimed mutation must be deferred before the force-release")
+
+	_, err = svc.ForceReleaseCard(ctx, "test-project", card.ID, "human:alice")
+	require.NoError(t, err)
+
+	svc.writeMu.Lock()
+	_, hasPaths = svc.deferredPaths[card.ID]
+	svc.writeMu.Unlock()
+	assert.False(t, hasPaths, "force-release must flush the dead agent's deferred commits")
 }
 
 func TestForceReleaseCard_TerminalWorkerStatusUntouched(t *testing.T) {

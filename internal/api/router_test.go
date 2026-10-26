@@ -23,7 +23,7 @@ func TestBodyLimitOverride_AppliesToImageUpload(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	router := NewRouter(RouterConfig{ImageStore: store})
+	router := newTestRouter(RouterConfig{ImageStore: store})
 
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
@@ -61,7 +61,7 @@ func TestBodyLimitOverride_DoesNotApplyToCards(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, ImageStore: store})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, ImageStore: store})
 
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)

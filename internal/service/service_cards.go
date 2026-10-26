@@ -145,13 +145,6 @@ type SectionPatch struct {
 	Content string
 }
 
-// CardContext contains a card with its project configuration and template.
-type CardContext struct {
-	Card     *board.Card
-	Project  *board.ProjectConfig
-	Template string // Template body for the card's type
-}
-
 // appendStateChangeLog records a state transition on card.ActivityLog. The
 // caller must have already validated that oldState != newState. An empty
 // agent string is normalised to "system" for transitions driven by the
@@ -514,7 +507,7 @@ func (s *CardService) commitQueued(ctx context.Context, paths []string, message 
 }
 
 // CreateCard creates a new card in the project.
-// Flow: allocate ID → build card → dedup guard → store+commit → publish event.
+// Flow: build card → dedup guard → allocate ID → store+commit → publish event.
 // On a shared board the whole write runs inside a sync cycle so the ID is
 // allocated against the merged next_id and the response carries the ID the
 // merge settled on.
@@ -566,27 +559,18 @@ func (s *CardService) createCardLocked(
 		return nil, false, err
 	}
 
-	// Lock to ensure atomic ID generation.
 	s.mu.Lock()
-
 	cfg, err := s.getConfigLocked(ctx, project)
-	if err != nil {
-		s.mu.Unlock()
+	s.mu.Unlock()
 
+	if err != nil {
 		return nil, false, fmt.Errorf("get project config: %w", err)
 	}
 
-	cardID := board.GenerateCardID(cfg)
-
-	if err := s.store.SaveProject(ctx, cfg); err != nil {
-		s.mu.Unlock()
-
-		return nil, false, fmt.Errorf("save project config: %w", err)
-	}
-
-	s.mu.Unlock()
-
-	card, err := s.buildNewCardFromInput(ctx, project, cardID, cfg, input)
+	// The card is built and deduped against the id next_id would mint, and
+	// that id is allocated only afterwards, so a refused create burns none.
+	// writeMu keeps next_id still in between.
+	card, err := s.buildNewCardFromInput(ctx, project, board.NextCardID(cfg), cfg, input)
 	if err != nil {
 		return nil, false, err
 	}
@@ -595,6 +579,15 @@ func (s *CardService) createCardLocked(
 		return nil, false, dedupErr
 	} else if deduped {
 		return existing, false, nil
+	}
+
+	s.mu.Lock()
+	cfg.NextID++
+	err = s.store.SaveProject(ctx, cfg)
+	s.mu.Unlock()
+
+	if err != nil {
+		return nil, false, fmt.Errorf("save project config: %w", err)
 	}
 
 	committed, err := s.commitNewCardWithNextID(ctx, project, card, commit)
@@ -1349,6 +1342,25 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 	}
 }
 
+// liveDependents returns the ids of non-terminal cards in project whose
+// depends_on lists id.
+func (s *CardService) liveDependents(ctx context.Context, project, id string) ([]string, error) {
+	cards, err := s.store.ListCards(ctx, project, storage.CardFilter{})
+	if err != nil {
+		return nil, fmt.Errorf("list cards: %w", err)
+	}
+
+	var ids []string
+
+	for _, c := range cards {
+		if !board.IsTerminalState(c.State) && slices.Contains(c.DependsOn, id) {
+			ids = append(ids, c.ID)
+		}
+	}
+
+	return ids, nil
+}
+
 // DeleteCard removes a card from the project.
 //
 // Async-commit rollback: the store removes the card from cache + disk
@@ -1403,6 +1415,26 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 			Field:   "id",
 			Value:   id,
 			Message: fmt.Sprintf("cannot delete card with %d subtask(s): %s", len(children), strings.Join(childIDs, ", ")),
+		})
+	}
+
+	// A terminal dependent never transitions again, so its dangling
+	// depends_on entry is harmless; a live one would be blocked for good.
+	dependents, err := s.liveDependents(ctx, project, id)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return fmt.Errorf("check dependents: %w", err)
+	}
+
+	if len(dependents) > 0 {
+		s.writeMu.Unlock()
+
+		return fmt.Errorf("delete card: %w", &board.ValidationError{
+			Err:     board.ErrInvalidType,
+			Field:   "id",
+			Value:   id,
+			Message: fmt.Sprintf("cannot delete card that %d open card(s) depend on: %s", len(dependents), strings.Join(dependents, ", ")),
 		})
 	}
 
@@ -1598,32 +1630,6 @@ func (s *CardService) addLogEntry(ctx context.Context, project, id string, entry
 	return card, nil
 }
 
-// GetCardContext returns a card with its project configuration and template.
-func (s *CardService) GetCardContext(ctx context.Context, project, id string) (*CardContext, error) {
-	id = strings.ToUpper(id)
-
-	card, err := s.store.GetCard(ctx, project, id)
-	if err != nil {
-		return nil, fmt.Errorf("get card: %w", err)
-	}
-
-	cfg, err := s.getConfig(ctx, project)
-	if err != nil {
-		return nil, fmt.Errorf("get project config: %w", err)
-	}
-
-	templates, err := s.getTemplates(project)
-	if err != nil {
-		return nil, fmt.Errorf("load templates: %w", err)
-	}
-
-	return &CardContext{
-		Card:     card,
-		Project:  cfg,
-		Template: templates[card.Type],
-	}, nil
-}
-
 // mutationOpts controls the behaviour of applyCardMutation.
 type mutationOpts struct {
 	// skipValidators, when true, skips validateCardReferences and
@@ -1780,7 +1786,7 @@ func (s *CardService) applyCardMutation(
 	// validate+persist so the written card reflects the invariants.
 	s.applyTerminalInvariants(project, card, oldState)
 
-	if err := s.runValidatorsAndDeps(ctx, project, id, card, cfg, opts.skipValidators); err != nil {
+	if err := s.runValidatorsAndDeps(ctx, project, id, card, snapshot.DependsOn, cfg, opts.skipValidators); err != nil {
 		s.writeMu.Unlock()
 
 		return nil, err
@@ -1804,12 +1810,15 @@ func (s *CardService) applyCardMutation(
 
 // runValidatorsAndDeps runs ValidateCard and, when skipValidators is false,
 // also validates cross-card references and checks for dependency cycles.
-// writeMu must be held by the caller; on error the caller is responsible for
-// releasing writeMu before returning.
+// Only depends_on ids absent from prevDependsOn must exist: an id the card
+// already held stays valid after its card is deleted, so the dependent remains
+// editable. writeMu must be held by the caller; on error the caller is
+// responsible for releasing writeMu before returning.
 func (s *CardService) runValidatorsAndDeps(
 	ctx context.Context,
 	project, id string,
 	card *board.Card,
+	prevDependsOn []string,
 	cfg *board.ProjectConfig,
 	skipValidators bool,
 ) error {
@@ -1821,7 +1830,11 @@ func (s *CardService) runValidatorsAndDeps(
 		return nil
 	}
 
-	if err := s.validateCardReferences(ctx, project, card.Parent, card.DependsOn); err != nil {
+	added := slices.DeleteFunc(slices.Clone(card.DependsOn), func(dep string) bool {
+		return slices.Contains(prevDependsOn, dep)
+	})
+
+	if err := s.validateCardReferences(ctx, project, card.Parent, added); err != nil {
 		return err
 	}
 

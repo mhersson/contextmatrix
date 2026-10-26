@@ -7,7 +7,7 @@
 //   - service.go           - CardService struct, constructor, lifecycle
 //     accessors, TransitionTo orchestrator, HealthCheck.
 //   - service_cards.go     - Card CRUD + applyCardMutation driver + helpers.
-//   - service_projects.go  - Project CRUD + config/template accessors.
+//   - service_projects.go  - Project CRUD + config accessors.
 //   - service_locks.go     - Claim/Release/Heartbeat + stall detection.
 //   - service_usage.go     - Token usage + cost aggregation/recalculation.
 //   - service_worker.go    - Worker lifecycle (push, review attempts, status,
@@ -33,8 +33,6 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/events"
-	"github.com/mhersson/contextmatrix/internal/gitops"
-	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
@@ -63,10 +61,10 @@ const (
 // CardService orchestrates all card operations by coordinating
 // storage, git, lock management, events, and validation.
 //
-// A CardService must be built through NewCardService or NewCardServiceRepos:
-// the repo resolver (repoOf/repoNamed in service_repos.go) assumes at least
-// one repository and indexes s.repos[0] unguarded, so a zero-value struct
-// literal panics on the first read or write that resolves a repo.
+// A CardService must be built through NewCardServiceRepos: the repo resolver
+// (repoOf/repoNamed in service_repos.go) assumes at least one repository and
+// indexes s.repos[0] unguarded, so a zero-value struct literal panics on the
+// first read or write that resolves a repo.
 type CardService struct {
 	store          storage.Store
 	bus            *events.Bus
@@ -106,8 +104,8 @@ type CardService struct {
 
 	validator *board.Validator
 
-	// clk is the clock driving the timeout-checker ticker. Defaults to
-	// clock.Real(); tests inject a fake clock via NewCardServiceWithClock.
+	// clk is the clock driving the timeout-checker ticker, adopted from the
+	// lock managers; tests inject a fake clock through lock.NewManagerWithClock.
 	clk clock.Clock
 
 	// sessionManager is optional; when non-nil it is notified of worker lifecycle
@@ -148,9 +146,8 @@ type CardService struct {
 	playbooks PlaybookLister
 
 	// Per-project caches
-	mu        sync.RWMutex
-	configs   map[string]*board.ProjectConfig
-	templates map[string]map[string]string // project -> type -> template
+	mu      sync.RWMutex
+	configs map[string]*board.ProjectConfig
 }
 
 // PlaybookLister is the slice of the playbook store card reads need to
@@ -190,54 +187,6 @@ func (s *CardService) chatCostSummarizerOrNil() ChatCostSummarizer {
 	return *p
 }
 
-// NewCardService creates a new CardService with the given dependencies.
-//
-// CLOCK COUPLING (IMPORTANT):
-//
-// The service adopts lockMgr.Clock() as its own time source. This is not a
-// cosmetic choice - stall detection, the timeout-checker ticker, and the
-// lock manager's stall cutoff all compare timestamps against the same
-// monotonic reading. If these subsystems ran on different clocks, a stall
-// could be detected by the ticker but not by the lock manager (or vice
-// versa) and cards would bounce between states.
-//
-// WARNING: Tests that mock time MUST construct the lock.Manager with their
-// fake clock first - via lock.NewManagerWithClock(fake) - and then pass that
-// manager into NewCardService. Passing a real-clock lock.Manager while
-// expecting a fake clock elsewhere will silently produce non-deterministic
-// timing. There is no type-level guard against this; the inferred-from-
-// lockMgr pattern is deliberate to avoid an otherwise redundant parameter.
-//
-// On init we emit a slog.Debug line recording the clock type adopted so
-// misconfigurations show up in logs at startup.
-func NewCardService(
-	store storage.Store,
-	git *gitops.Manager,
-	lockMgr *lock.Manager,
-	bus *events.Bus,
-	boardsDir string,
-	tokenCosts map[string]ModelRate,
-	gitAutoCommit bool,
-	gitDeferredCommit bool,
-) *CardService {
-	svc, err := NewCardServiceRepos(store, bus, tokenCosts, &BoardsRepo{
-		Name:              DefaultRepoName,
-		Store:             store,
-		Git:               git,
-		Dir:               boardsDir,
-		GitAutoCommit:     gitAutoCommit,
-		GitDeferredCommit: gitDeferredCommit,
-		Lock:              lockMgr,
-	})
-	if err != nil {
-		// One named repo with the caller's manager cannot fail validation;
-		// a nil manager panicked in this constructor before too.
-		panic(err)
-	}
-
-	return svc
-}
-
 // SetSessionManager registers the session manager used for worker lifecycle
 // hooks.  Must be called before the server starts accepting requests.
 // Passing nil disables lifecycle notifications.
@@ -264,47 +213,13 @@ func (s *CardService) backendAuthor() string {
 	return s.taskBackendName
 }
 
-// SetCommitQueue registers a commit queue. When set, all write-path commits
-// are routed through the queue so writeMu is only held across store writes
-// plus job enqueue (not the go-git operation itself). Passing nil reverts to
-// direct Manager.Commit* calls. Must be called before the server starts
-// accepting requests. Acts on the first configured repo; multi-repo wiring
-// uses the For variant.
-func (s *CardService) SetCommitQueue(q *gitops.CommitQueue) {
-	s.repos[0].Queue = q
-}
-
-// SetOnCommit registers a callback invoked after each successful git commit.
-// Acts on the first configured repo; multi-repo wiring uses the For variant.
-func (s *CardService) SetOnCommit(fn func()) {
-	s.repos[0].onCommit = fn
-}
-
-// ClearCaches resets all per-project caches (validators, configs, templates).
-// Called after a git pull that may have changed project files.
+// ClearCaches resets the per-project config cache. Called after a git pull
+// that may have changed project files.
 func (s *CardService) ClearCaches() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.configs = make(map[string]*board.ProjectConfig)
-	s.templates = make(map[string]map[string]string)
-}
-
-// SetSharedRepo switches LockWrites to a full queue drain, required before
-// a shell merge on a repository other instances also write to. Must be called
-// before the server starts accepting requests. Acts on the first configured
-// repo; multi-repo wiring uses the For variant.
-func (s *CardService) SetSharedRepo(shared bool) {
-	s.repos[0].Shared = shared
-}
-
-// SetLease names this instance and sets the timings the fence and the
-// foreign-stall pass use. Must be called before the server starts accepting
-// requests. Unset (empty instance) means a private board. Acts on the first
-// configured repo; multi-repo wiring uses the For variant.
-func (s *CardService) SetLease(instance string, leaseTimeout, pullInterval time.Duration) {
-	r := s.repos[0]
-	r.Instance, r.LeaseTimeout, r.PullInterval = instance, leaseTimeout, pullInterval
 }
 
 // OwnsClaim reports whether agentID holds card's claim as seen from this
@@ -416,8 +331,8 @@ func (s *CardService) Now() time.Time {
 // Clock exposes the service's time source. Callers that schedule their own
 // timers against card timing (the blocking await_subtasks wait, which also
 // refreshes claim heartbeats) must share this clock: running them on a
-// different one reintroduces exactly the drift NewCardService avoids by
-// adopting the lock manager's clock.
+// different one reintroduces exactly the drift NewCardServiceRepos avoids by
+// adopting the lock managers' clock.
 func (s *CardService) Clock() clock.Clock {
 	return s.clk
 }
@@ -533,7 +448,7 @@ func (s *CardService) transitionStep(
 
 	// Enqueue under writeMu so the per-project worker preserves order
 	// with any other write that is racing for the same project.
-	commitDone, notify := s.enqueueCardCommit(ctx, project, cardID, "", "transitioned to "+state)
+	commitDone, notify := s.enqueueCardCommitFor(ctx, stepSnapshot, project, cardID, "", "transitioned to "+state)
 
 	// Flush deferred commits on not_planned/review under writeMu so
 	// the shared deferredPaths map stays serialized; the flush itself

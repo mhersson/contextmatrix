@@ -825,6 +825,66 @@ func TestCreatePatchCard_DependsOnLimit(t *testing.T) {
 	})
 }
 
+// TestDeleteCard_DependentsGuard: deleting a card an open card depends on
+// would block that dependent for good, so it is refused. A terminal dependent
+// keeps a harmless dangling reference and stays editable.
+func TestDeleteCard_DependentsGuard(t *testing.T) {
+	tests := []struct {
+		dependentState string
+		refused        bool
+	}{
+		{board.StateTodo, true},
+		{board.StateDone, false},
+		{board.StateNotPlanned, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.dependentState, func(t *testing.T) {
+			svc, _, cleanup := setupTest(t)
+			defer cleanup()
+
+			ctx := context.Background()
+
+			dep, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "dependency", Type: "task", Priority: "medium"})
+			require.NoError(t, err)
+
+			dependent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+				Title: "dependent", Type: "task", Priority: "medium", DependsOn: []string{dep.ID},
+			})
+			require.NoError(t, err)
+
+			if tt.dependentState == board.StateDone {
+				_, err = svc.TransitionTo(ctx, "test-project", dep.ID, board.StateDone)
+				require.NoError(t, err)
+			}
+
+			if tt.dependentState != board.StateTodo {
+				_, err = svc.TransitionTo(ctx, "test-project", dependent.ID, tt.dependentState)
+				require.NoError(t, err)
+			}
+
+			err = svc.DeleteCard(ctx, "test-project", dep.ID)
+
+			if tt.refused {
+				var ve *board.ValidationError
+				require.ErrorAs(t, err, &ve)
+				require.ErrorIs(t, err, board.ErrInvalidType)
+
+				_, getErr := svc.GetCard(ctx, "test-project", dep.ID)
+				require.NoError(t, getErr, "the refused delete keeps the card")
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			patched, err := svc.PatchCard(ctx, "test-project", dependent.ID, PatchCardInput{Body: new("edited")})
+			require.NoError(t, err, "a dependent whose dependency was deleted stays editable")
+			assert.Equal(t, "edited", patched.Body)
+		})
+	}
+}
+
 // TestDeleteCard_RefusesWhileAWorkerIsLive: deleting an unfinished card whose
 // worker is queued or running orphans the worker, since Stop finds workers by
 // card. A finished card's worker is being reaped, so its delete goes through.

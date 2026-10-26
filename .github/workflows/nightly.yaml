@@ -5,7 +5,11 @@ on:
     - cron: "0 2 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
+  # A daily rerun of the same suite the pull-request race step runs.
   race-full:
     runs-on: ubuntu-latest
     timeout-minutes: 60

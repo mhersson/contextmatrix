@@ -19,7 +19,7 @@ import (
 // httptestNewRouterServer is a small helper that wires svc and bus into a
 // test HTTP server using the default RouterConfig.
 func httptestNewRouterServer(svc *service.CardService, bus *events.Bus) *httptest.Server {
-	return httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
+	return httptest.NewServer(newTestRouter(RouterConfig{Service: svc, Bus: bus}))
 }
 
 // appendActivity adds an ActivityEntry to a card via AddLogEntry. Because

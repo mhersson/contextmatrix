@@ -273,12 +273,6 @@ func (v *Validator) ValidateWorkerCallbackStatus(status string) error {
 	return nil
 }
 
-// CanTransition returns true if the transition is allowed, false otherwise.
-// Convenience method that wraps ValidateTransition for boolean checks.
-func (v *Validator) CanTransition(cfg *ProjectConfig, fromState, toState string) bool {
-	return v.ValidateTransition(cfg, fromState, toState) == nil
-}
-
 // AllowedTransitions returns the list of valid target states from the given state.
 // For the "stalled" state, returns Transitions["stalled"].
 // For any other state, includes the explicit Transitions[state] plus "stalled".

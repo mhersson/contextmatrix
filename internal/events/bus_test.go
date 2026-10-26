@@ -176,6 +176,7 @@ func TestConcurrentPublishSubscribe(t *testing.T) {
 		numSubscribers = 10
 		numPublishers  = 5
 		numEvents      = 100
+		numChurners    = 4
 	)
 
 	var wg sync.WaitGroup
@@ -199,6 +200,31 @@ func TestConcurrentPublishSubscribe(t *testing.T) {
 		}(i, ch)
 	}
 
+	// Churn subscribers while the publishers run, so a close racing a send
+	// panics or trips the race detector.
+	stopChurn := make(chan struct{})
+
+	var churnWg sync.WaitGroup
+	for range numChurners {
+		churnWg.Go(func() {
+			for {
+				select {
+				case <-stopChurn:
+					return
+				default:
+				}
+
+				ch, unsub := bus.Subscribe()
+				select {
+				case <-ch:
+				default:
+				}
+
+				unsub()
+			}
+		})
+	}
+
 	// Start publishers
 	var pubWg sync.WaitGroup
 	for range numPublishers {
@@ -216,6 +242,9 @@ func TestConcurrentPublishSubscribe(t *testing.T) {
 
 	// Wait for all publishes
 	pubWg.Wait()
+	close(stopChurn)
+	churnWg.Wait()
+	assert.Equal(t, numSubscribers, bus.SubscriberCount(), "churned subscribers must all be gone")
 
 	// Unsubscribe all
 	for _, unsub := range unsubscribers {

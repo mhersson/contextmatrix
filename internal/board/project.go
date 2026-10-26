@@ -292,10 +292,16 @@ func validateProjectConfig(cfg *ProjectConfig) error {
 // Caller MUST hold the project's write lock; this function is not safe for
 // concurrent use.
 func GenerateCardID(cfg *ProjectConfig) string {
-	id := cfg.NextID
+	id := NextCardID(cfg)
 	cfg.NextID++
 
-	return fmt.Sprintf("%s-%03d", cfg.Prefix, id)
+	return id
+}
+
+// NextCardID returns the ID GenerateCardID would mint next, without
+// allocating it.
+func NextCardID(cfg *ProjectConfig) string {
+	return fmt.Sprintf("%s-%03d", cfg.Prefix, cfg.NextID)
 }
 
 // EffectiveRepos returns the canonical list of repos for this project.

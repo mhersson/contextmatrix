@@ -32,7 +32,7 @@ func imageTestServer(t *testing.T) (string, images.Store) {
 
 	t.Cleanup(func() { _ = store.Close() })
 
-	router := NewRouter(RouterConfig{ImageStore: store})
+	router := newTestRouter(RouterConfig{ImageStore: store})
 
 	srv := httptest.NewServer(router)
 	t.Cleanup(srv.Close)
@@ -280,7 +280,7 @@ func TestImageUpload_ProjectFieldRoutesThroughPutIn(t *testing.T) {
 	t.Cleanup(func() { _ = inner.Close() })
 
 	store := &routingStore{Store: inner}
-	srv := httptest.NewServer(NewRouter(RouterConfig{ImageStore: store}))
+	srv := httptest.NewServer(newTestRouter(RouterConfig{ImageStore: store}))
 	t.Cleanup(srv.Close)
 
 	resp := postImageForProject(t, srv.URL, "alpha", makePNG(t, 8, 8))
@@ -321,7 +321,7 @@ func TestImageUpload_ProjectFieldKeepsTheErrorMapping(t *testing.T) {
 
 	t.Cleanup(func() { _ = inner.Close() })
 
-	srv := httptest.NewServer(NewRouter(RouterConfig{ImageStore: &routingStore{Store: inner}}))
+	srv := httptest.NewServer(newTestRouter(RouterConfig{ImageStore: &routingStore{Store: inner}}))
 	t.Cleanup(srv.Close)
 
 	resp := postImageForProject(t, srv.URL, "alpha", []byte("not an image"))

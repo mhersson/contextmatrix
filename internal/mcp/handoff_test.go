@@ -147,25 +147,45 @@ func TestHandOffToArchitect_PassesManagerRefusalsThrough(t *testing.T) {
 	})
 }
 
-func TestNewServer_RegistersHandOffWithAChatManager(t *testing.T) {
+func TestNewServer_RegistersHandOffOnlyWithAnArchitect(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
-	mgr := newHandoffTestManager(t, true)
-
-	has := func(env *testEnv) bool {
-		res, err := env.session.ListTools(ctx, nil)
-		require.NoError(t, err)
-
-		for _, tl := range res.Tools {
-			if tl.Name == "hand_off_to_architect" {
-				return true
-			}
-		}
-
-		return false
+	tests := []struct {
+		name      string
+		chat      bool
+		architect bool
+		want      bool
+	}{
+		{"chat manager and architect", true, true, true},
+		{"chat manager without architect", true, false, false},
+		{"architect without chat manager", false, true, false},
+		{"neither", false, false, false},
 	}
 
-	assert.True(t, has(setupMCPWithPlaybooks(t, func(c *ServerConfig) { c.ChatManager = mgr })))
-	assert.False(t, has(setupMCP(t)))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			env := setupMCP(t, func(c *ServerConfig) {
+				if tt.chat {
+					c.ChatManager = newHandoffTestManager(t, tt.architect)
+				}
+
+				c.ArchitectConfigured = tt.architect
+			})
+
+			res, err := env.session.ListTools(context.Background(), nil)
+			require.NoError(t, err)
+
+			got := false
+
+			for _, tl := range res.Tools {
+				if tl.Name == "hand_off_to_architect" {
+					got = true
+				}
+			}
+
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

@@ -1241,16 +1241,16 @@ Partial update - only keys present in the body are applied.
 { "state": "in_progress", "labels": ["urgent"], "depends_on": ["PROJ-001"], "skills_clear": true }
 ```
 
-| Field                                                                                                 | Semantics                                                                                                  |
-| ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `title`, `type`, `state`, `priority`, `body`, `assignee`, `base_branch`, `phase`                      | string; `state` runs transition validation                                                                 |
-| `labels`, `mob_phases`, `mob_guests`                                                                  | `[]` clears; omitted leaves unchanged                                                                      |
-| `depends_on`                                                                                          | Replaces the list; `[]` clears; cycles, self, cross-project, or unknown IDs are 409 `DEPENDENCIES_NOT_MET` |
-| `skills`                                                                                              | Explicit list or `[]`                                                                                      |
-| `skills_clear`                                                                                        | `true` resets `skills` to absent (project default) - JSON cannot distinguish an omitted key from `null`    |
-| `autonomous`, `create_pr`, `await_ci`, `await_copilot_review`, `merge_pr`, `vetted`, `max_capability` | bool                                                                                                       |
-| `model_orchestrator`, `model_coder`, `model_reviewer`, `best_of_n`, `mob_participants`                | Pins and counts; mob fields are validated against the resulting card                                       |
-| `verify`                                                                                              | Replaces the whole object; a zero-value object clears it                                                   |
+| Field                                                                                                 | Semantics                                                                                                                  |
+| ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `title`, `type`, `state`, `priority`, `body`, `assignee`, `base_branch`, `phase`                      | string; `state` runs transition validation                                                                                 |
+| `labels`, `mob_phases`, `mob_guests`                                                                  | `[]` clears; omitted leaves unchanged                                                                                      |
+| `depends_on`                                                                                          | Replaces the list; `[]` clears; cycles, self, cross-project, or unknown IDs the change adds are 409 `DEPENDENCIES_NOT_MET` |
+| `skills`                                                                                              | Explicit list or `[]`                                                                                                      |
+| `skills_clear`                                                                                        | `true` resets `skills` to absent (project default) - JSON cannot distinguish an omitted key from `null`                    |
+| `autonomous`, `create_pr`, `await_ci`, `await_copilot_review`, `merge_pr`, `vetted`, `max_capability` | bool                                                                                                                       |
+| `model_orchestrator`, `model_coder`, `model_reviewer`, `best_of_n`, `mob_participants`                | Pins and counts; mob fields are validated against the resulting card                                                       |
+| `verify`                                                                                              | Replaces the whole object; a zero-value object clears it                                                                   |
 
 A `state` change goes through transition validation, and a card leaving
 `done` or `not_planned` is refused while a playbook holding it has a `running`
@@ -1271,13 +1271,14 @@ Deletes the card file (git history keeps it). **204 No Content**.
 
 **Errors:** 404 `CARD_NOT_FOUND`; 403 `AGENT_MISMATCH` on a claimed card the
 caller does not own; 422 `VALIDATION_ERROR` when the card still has subtasks
-("cannot delete card with N subtask(s)"); 409 `WORKER_CONFLICT` while a card that
-is not `done` or `not_planned` has its worker `queued` or `running`. Stop the
-worker first. When the reconcile sweep is enabled (a non-zero
-`reconcile_interval`), it marks a worker the backend no longer has `failed`
-once the card has gone 10 minutes without a change;
-`POST /api/projects/{project}/stop-all` clears it sooner, and force-release marks
-a claimed card's worker `failed`.
+("cannot delete card with N subtask(s)") or a card that is not `done` or
+`not_planned` lists it in `depends_on` (the message names those cards); 409
+`WORKER_CONFLICT` while a card that is not `done` or `not_planned` has its
+worker `queued` or `running`. Stop the worker first. When the reconcile sweep
+is enabled (a non-zero `reconcile_interval`), it marks a worker the backend no
+longer has `failed` once the card has gone 10 minutes without a change;
+`POST /api/projects/{project}/stop-all` clears it sooner, and force-release
+marks a claimed card's worker `failed`.
 
 ### POST /api/projects/{project}/cards/{id}/claim
 
@@ -1586,7 +1587,7 @@ them.
 
 | Field               | Semantics                                                                                                                                                                                                                                                             |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `github`            | GitHub import configuration ([github-issue-import.md](github-issue-import.md))                                                                                                                                                                                        |
+| `github`            | GitHub import configuration ([github-issue-import.md](github-issue-import.md)). 422 `VALIDATION_ERROR` when `card_type` or `default_priority` is not one of the project's types or priorities.                                                                        |
 | `github_credential` | Binds the project's GitHub operations to a credential-pool entry (`GET /api/admin/credentials`). 422 `VALIDATION_ERROR` for an unknown name, or any non-empty value in `none` mode.                                                                                   |
 | `default_skills`    | Omitted or `null` clears (the backend mounts the full task-skills set); `[]` mounts none; a list constrains cards without their own `skills`. Unknown names: 400 `VALIDATION_ERROR`.                                                                                  |
 | `verify`            | Replace-whole-struct: omitted preserves, a present object replaces, a zero-value object clears. Invalid: 422 `VALIDATION_ERROR`. The card-level `verify` overrides it field by field.                                                                                 |
@@ -2673,8 +2674,9 @@ Returns the session. `404 CHAT_NOT_FOUND` if unknown.
 ### PATCH /api/chats/{id}
 
 Renames and/or pins a session. Both fields are optional; with neither, nothing
-is written and the session comes back unchanged. Pinning writes only the pin,
-so `last_active`, `status` and `container_id` stay as they were. Body is
+is written and the session comes back unchanged. Renaming writes only the
+title and pinning only the pin, so `last_active`, `status` and `container_id`
+stay as they were. Body is
 decoded before the ownership check, so bad JSON is 400 even for an unknown id.
 
 ```json
@@ -2925,7 +2927,9 @@ with `before_seq=<oldest loaded>`, deduplicating on `seq`.
 SSE stream of new transcript entries for one session. `?since_seq=N` replays
 entries with `seq > N` from the server-side 128-entry ring buffer, followed
 by the cached blueprint frames for an architect session, before tailing (an
-unparseable value is treated as `0`). The handler flushes `:
+unparseable value is treated as `0`). The ring is emptied when the session
+goes cold; for `N > 0`, stored rows after `N` that the ring does not hold
+(at most 128) are replayed first. The handler flushes `:
 connected\n\n` on subscribe and `: keepalive\n\n` every 15 seconds. 404
 `CHAT_NOT_FOUND` for an unknown session; 429 `TOO_MANY_CHATS` once 32
 subscribers are attached to one session. Slow subscribers silently drop

@@ -89,11 +89,9 @@ type chatHandlers struct {
 	mgr *chat.Manager
 	hub *chat.SSEHub
 
-	// openRouter is true when the dedicated chat backend (contextmatrix-chat,
-	// OpenRouter) serves chat. In that mode the chat.models allowlist does not
-	// apply: the picker pulls the live OpenRouter catalog and slugs are accepted
-	// as-is. False only in legacy configurations without a dedicated chat
-	// backend.
+	// openRouter is true when a chat backend is configured; false means no
+	// chat backend. Without endpointModels, true selects the OpenRouter catalog
+	// for the picker and the create-time model check.
 	openRouter bool
 	// orDefault is the default OpenRouter slug (backends.chat.default_model),
 	// used to seed the picker and as the empty-model fallback in openRouter mode.
@@ -893,13 +891,13 @@ func (h *chatHandlers) patchChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.Title != nil {
-		sess.Title = *body.Title
-
-		if err := h.mgr.UpdateSessionMetadata(r.Context(), sess); err != nil {
+		if err := h.mgr.SetTitle(r.Context(), sess.ID, *body.Title); err != nil {
 			handleChatError(w, r, err)
 
 			return
 		}
+
+		sess.Title = *body.Title
 	}
 
 	if body.Pinned != nil {
@@ -1010,6 +1008,8 @@ func (h *chatHandlers) streamChat(w http.ResponseWriter, r *http.Request) {
 
 	defer h.hub.Unsubscribe(id, ch)
 
+	replay = h.backfillReplay(r.Context(), id, since, replay)
+
 	// Joined after Subscribe, so the upstream's first snapshot reaches this
 	// subscriber live or through the cached replay.
 	if sess.Kind == chat.KindArchitect && h.live != nil {
@@ -1067,11 +1067,59 @@ func (h *chatHandlers) streamChat(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// writeChatSSEEvent serialises one event onto the SSE wire. Different event
-// kinds use the SSE "event:" header so the browser's EventSource can route
-// to different listeners (transcript messages vs. session-state pushes).
-// The default kind ("") is treated as the message wire (backwards-compatible
-// with clients written before Wave 4 of the rehydration feature).
+// backfillReplay puts the transcript rows after sinceSeq that the replay ring
+// no longer holds in front of replay: the ring is cleared when a session goes
+// cold and keeps only the newest events. The client drops a seq it already has.
+func (h *chatHandlers) backfillReplay(ctx context.Context, sessionID string, sinceSeq int64, replay []chat.SSEEvent) []chat.SSEEvent {
+	if sinceSeq <= 0 {
+		return replay
+	}
+
+	// Publishes follow the append lock's release, so the ring is not always in
+	// seq order; blueprint frames carry seq 0.
+	var lowest int64
+
+	for _, e := range replay {
+		if e.Seq > 0 && (lowest == 0 || e.Seq < lowest) {
+			lowest = e.Seq
+		}
+	}
+
+	if lowest == sinceSeq+1 {
+		return replay
+	}
+
+	msgs, err := h.mgr.ListMessages(ctx, sessionID, sinceSeq, h.hub.ReplayCap())
+	if err != nil {
+		ctxlog.Logger(ctx).Warn("chat SSE: replay backfill failed", "session_id", sessionID, "error", err)
+
+		return replay
+	}
+
+	out := make([]chat.SSEEvent, 0, len(msgs)+len(replay))
+
+	for _, m := range msgs {
+		if lowest > 0 && m.Seq >= lowest {
+			break
+		}
+
+		out = append(out, chat.SSEEvent{
+			Kind:             chat.SSEKindMessage,
+			DataKind:         m.Kind,
+			Seq:              m.Seq,
+			Role:             m.Role,
+			Content:          m.Content,
+			RehydrationPhase: m.RehydrationPhase,
+		})
+	}
+
+	return append(out, replay...)
+}
+
+// writeChatSSEEvent serialises one event onto the SSE wire. A session update
+// goes out as "event: session_updated"; every other event is a transcript
+// message with no "event:" header, so the browser's EventSource delivers it to
+// its unnamed message listener.
 func writeChatSSEEvent(w http.ResponseWriter, e chat.SSEEvent) {
 	switch e.Kind {
 	case chat.SSEKindSessionUpdate:
@@ -1086,12 +1134,9 @@ func writeChatSSEEvent(w http.ResponseWriter, e chat.SSEEvent) {
 			_, _ = w.Write([]byte("data: {}\n\n"))
 		}
 	default:
-		// Backwards-compatible default: emit data without an event: header
-		// so older clients listening on the unnamed message stream keep
-		// working. rehydration_phase is included so the UI can group
-		// agent rehydration messages distinctly from normal turns. kind
-		// (omitempty) carries structural markers like "divider" for the
-		// Clear Context sentinel - empty for regular messages.
+		// rehydration_phase lets the UI group agent rehydration messages apart
+		// from normal turns. kind (omitempty) carries structural markers like
+		// "divider" for the Clear Context sentinel - empty for regular messages.
 		b, _ := json.Marshal(struct {
 			Seq              int64     `json:"seq"`
 			Role             chat.Role `json:"role"`

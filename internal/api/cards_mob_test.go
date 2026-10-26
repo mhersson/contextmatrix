@@ -35,7 +35,7 @@ func TestPatchCardMob_ValidationMatrix(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Mob: mobTestConfig()})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Mob: mobTestConfig()})
 
 	server := httptest.NewServer(router)
 	defer server.Close()

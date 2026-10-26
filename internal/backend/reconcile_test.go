@@ -79,7 +79,7 @@ func TestReconciliationSweep_SkipsNonTerminalCard(t *testing.T) {
 
 	backend.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
 
-	time.Sleep(150 * time.Millisecond)
+	waitForListCount(t, fc, 2)
 	assert.Empty(t, fc.KillCalls(), "sweep must not kill in-progress card's container")
 }
 
@@ -115,14 +115,9 @@ func TestReconciliationSweep_MissingCardKillsContainer(t *testing.T) {
 // TestReconciliationSweep_AgeCapKillsRunawayContainer is the last-resort
 // safety net: a container whose card lookup keeps succeeding but whose card
 // never transitions to terminal (pathological case - stuck state machine,
-// UI bug, whatever) still gets killed once it exceeds ContainerMaxAge.
+// UI bug, whatever) still gets killed once it exceeds the max age.
 func TestReconciliationSweep_AgeCapKillsRunawayContainer(t *testing.T) {
 	ctx := t.Context()
-
-	origMax := backend.ContainerMaxAge
-	backend.ContainerMaxAge = 10 * time.Millisecond
-
-	t.Cleanup(func() { backend.ContainerMaxAge = origMax })
 
 	cg := &fakeCardGetter{cards: map[string]*board.Card{
 		"proj/C-002": {ID: "C-002", State: "in_progress"},
@@ -140,7 +135,8 @@ func TestReconciliationSweep_AgeCapKillsRunawayContainer(t *testing.T) {
 		},
 	}
 
-	backend.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
+	backend.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger(),
+		backend.WithContainerMaxAge(10*time.Millisecond))
 
 	waitForKillCalls(t, fc, 1)
 }
@@ -202,7 +198,7 @@ func TestReconciliationSweep_BackendListFailureSkipsTick(t *testing.T) {
 
 	backend.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
 
-	time.Sleep(150 * time.Millisecond)
+	waitForListCount(t, fc, 2)
 	// Not kill and not panic - the ListContainers error just skips the tick.
 	assert.Empty(t, fc.KillCalls(), "no kills on backend list failure")
 }
@@ -237,7 +233,7 @@ func TestReconciliationSweep_TransientCardErrorLeavesContainerAlone(t *testing.T
 
 	backend.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
 
-	time.Sleep(150 * time.Millisecond)
+	waitForListCount(t, fc, 2)
 	assert.Empty(t, fc.KillCalls(), "transient card-store error must not trigger a kill")
 }
 
@@ -295,11 +291,10 @@ func TestReconciliationSweep_WrappedStorageNotFoundErrorIsKill(t *testing.T) {
 	waitForKillCalls(t, fc, 1)
 }
 
-// TestReconciliationSweep_SkipsChatContainers guards the boundary between the
-// card-mode sweep and the chat-mode sweep: after Wave 2.2, /containers also
-// reports chat containers (LabelSessionID, no LabelCardID). The card sweep
-// must skip those rows - calling decideKill on a chat container with an empty
-// CardID would route a malformed /end-session against the backend.
+// TestReconciliationSweep_SkipsChatContainers: /containers can also report
+// chat containers (LabelSessionID, no LabelCardID). The card sweep must skip
+// those rows - calling decideKill on a chat container with an empty CardID
+// would route a malformed /end-session against the backend.
 func TestReconciliationSweep_SkipsChatContainers(t *testing.T) {
 	ctx := t.Context()
 
@@ -318,7 +313,7 @@ func TestReconciliationSweep_SkipsChatContainers(t *testing.T) {
 
 	backend.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
 
-	time.Sleep(150 * time.Millisecond)
+	waitForListCount(t, fc, 2)
 	assert.Empty(t, fc.KillCalls(),
 		"card sweep must skip chat containers (those carry SessionID, not CardID)")
 	assert.Empty(t, fc.Calls(),

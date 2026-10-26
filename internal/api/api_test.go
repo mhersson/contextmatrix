@@ -54,6 +54,15 @@ func doGet(t *testing.T, url string) *http.Response {
 	return resp
 }
 
+// newTestRouter is NewRouter with an empty-token fake GitHub provider filled in when the config sets none.
+func newTestRouter(cfg RouterConfig) http.Handler {
+	if cfg.GitHubTokenProvider == nil && cfg.ProviderForProject == nil {
+		cfg.GitHubTokenProvider = &fakeTokenProvider{}
+	}
+
+	return NewRouter(cfg)
+}
+
 // testSetup creates a test environment with all dependencies.
 func testSetup(t *testing.T) (*service.CardService, *events.Bus, func()) {
 	t.Helper()
@@ -101,7 +110,14 @@ transitions:
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
 	// Initialize service
-	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil, true, false)
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           git,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	cleanup := func() {
 		// Temp directory is automatically cleaned up by t.TempDir()
@@ -114,7 +130,7 @@ func TestListProjects(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -137,7 +153,7 @@ func TestGetProject(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -175,7 +191,7 @@ func TestCreateCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -284,7 +300,7 @@ func TestGetCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -329,7 +345,7 @@ func TestListCards(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -401,7 +417,7 @@ func TestPatchCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -484,7 +500,7 @@ func TestCardRoute_PutNotAllowed(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
+	server := httptest.NewServer(newTestRouter(RouterConfig{Service: svc, Bus: bus}))
 	defer server.Close()
 
 	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
@@ -510,7 +526,7 @@ func TestDeleteCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -558,7 +574,7 @@ func TestNoCORSHeaders(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
+	server := httptest.NewServer(newTestRouter(RouterConfig{Service: svc, Bus: bus}))
 	defer server.Close()
 
 	req, err := http.NewRequest(http.MethodGet, server.URL+"/api/projects", nil)
@@ -577,7 +593,7 @@ func TestRequestID(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -609,7 +625,7 @@ func TestHealthz(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -630,7 +646,7 @@ func TestHealthzNotLogged(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -657,7 +673,7 @@ func TestReadyzHappyPath(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -715,9 +731,16 @@ transitions:
 
 	bus2 := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
-	svc2 := service.NewCardService(store, git, lockMgr, bus2, boardsDir, nil, true, false)
+	svc2, err := service.NewCardServiceRepos(store, bus2, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           git,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
-	router := NewRouter(RouterConfig{Service: svc2, Bus: bus2})
+	router := newTestRouter(RouterConfig{Service: svc2, Bus: bus2})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -753,7 +776,7 @@ func TestReadyzNotLogged(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -781,7 +804,7 @@ func TestClaimCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -916,7 +939,7 @@ func TestReleaseCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -1018,7 +1041,7 @@ func TestForceReleaseCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -1128,7 +1151,7 @@ func TestForceReleaseCard_MultiMode(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, store.SetPasswordHash(t.Context(), alice.ID, hash, time.Now()))
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, AuthService: authSvc, AuthMode: "multi"})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, AuthService: authSvc, AuthMode: "multi"})
 
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
@@ -1189,7 +1212,7 @@ func TestAgentAuthOnMutations(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -1353,7 +1376,7 @@ func TestFullCardLifecycle(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -1493,7 +1516,7 @@ func TestSSEEventStreamIntegration(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -1634,7 +1657,7 @@ func TestConcurrentAgentClaims(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -1704,7 +1727,7 @@ func TestConcurrentClaimSameCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -1771,7 +1794,7 @@ func TestGetProjectUsage(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -1818,7 +1841,7 @@ func TestGetProjectDashboard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -1884,7 +1907,14 @@ func emptyTestSetup(t *testing.T) (*service.CardService, *events.Bus) {
 
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
-	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil, true, false)
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           git,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	return svc, bus
 }
@@ -1909,7 +1939,7 @@ func validProjectBody() createProjectRequest {
 
 func TestCreateProject_API(t *testing.T) {
 	svc, bus := emptyTestSetup(t)
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -1931,7 +1961,7 @@ func TestCreateProject_API(t *testing.T) {
 
 func TestCreateProject_API_Conflict(t *testing.T) {
 	svc, bus := emptyTestSetup(t)
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -1952,7 +1982,7 @@ func TestCreateProject_API_Conflict(t *testing.T) {
 
 func TestCreateProject_API_BadRequest(t *testing.T) {
 	svc, bus := emptyTestSetup(t)
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -1972,7 +2002,7 @@ func TestUpdateProject_API(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -2010,7 +2040,7 @@ func TestUpdateProject_API(t *testing.T) {
 
 func TestUpdateProject_API_NotFound(t *testing.T) {
 	svc, bus := emptyTestSetup(t)
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -2039,7 +2069,7 @@ func TestUpdateProject_API_NotFound(t *testing.T) {
 
 func TestDeleteProject_API(t *testing.T) {
 	svc, bus := emptyTestSetup(t)
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -2071,7 +2101,7 @@ func TestDeleteProject_API_HasCards(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -2095,7 +2125,7 @@ func TestDeleteProject_API_HasCards(t *testing.T) {
 
 func TestDeleteProject_API_NotFound(t *testing.T) {
 	svc, bus := emptyTestSetup(t)
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -2115,7 +2145,7 @@ func TestHumanOnlyFields_PatchCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -2181,7 +2211,7 @@ func TestHumanOnlyFields_PatchEachField(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	server := httptest.NewServer(NewRouter(RouterConfig{
+	server := httptest.NewServer(newTestRouter(RouterConfig{
 		Service: svc,
 		Bus:     bus,
 		BestOfN: config.BestOfNConfig{MaxCandidates: 5},
@@ -2245,7 +2275,7 @@ func TestHumanOnlyFields_PRGates(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -2332,7 +2362,7 @@ func TestHumanOnlyFields_MergePR(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -2415,7 +2445,7 @@ func TestHumanOnlyFields_CreateCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -2459,7 +2489,7 @@ func TestCreateCard_JiraSourceIsImporterOnly(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
+	server := httptest.NewServer(newTestRouter(RouterConfig{Service: svc, Bus: bus}))
 	defer server.Close()
 
 	post := func(t *testing.T, source *board.Source) *http.Response {
@@ -2498,7 +2528,7 @@ func TestCreateCard_CreatePRDefaultAndBaseBranch(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -2590,7 +2620,14 @@ func testSetupWithRemoteExecution(t *testing.T, boardConfigYAML string) (*servic
 
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
-	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil, true, false)
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           git,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	return svc, bus, func() {}
 }
@@ -2633,7 +2670,7 @@ remote_execution:
 		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithImage)
 		defer cleanup()
 
-		router := NewRouter(RouterConfig{Service: svc, Bus: bus, Backend: nil})
+		router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Backend: nil})
 
 		server := httptest.NewServer(router)
 		defer server.Close()
@@ -2654,7 +2691,7 @@ remote_execution:
 		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithImage)
 		defer cleanup()
 
-		router := NewRouter(RouterConfig{Service: svc, Bus: bus, Backend: nil})
+		router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Backend: nil})
 
 		server := httptest.NewServer(router)
 		defer server.Close()
@@ -2677,7 +2714,7 @@ func TestHumanOnlyFields_Vetted_PatchCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -2730,7 +2767,7 @@ func TestHumanOnlyFields_Vetted_CreateCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -2760,7 +2797,7 @@ func TestHumanOnlyFields_ModelPins_PatchCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -2816,7 +2853,7 @@ func TestPatchCardBestOfN(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, BestOfN: config.BestOfNConfig{MaxCandidates: 5}})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, BestOfN: config.BestOfNConfig{MaxCandidates: 5}})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -2942,7 +2979,7 @@ func TestPatchCardMaxCapability(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -3031,7 +3068,7 @@ func TestHumanOnlyFields_ModelPins_CreateCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -3084,7 +3121,7 @@ func TestClaimCard_VettedGuard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -3144,7 +3181,7 @@ func TestListCards_Pagination(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -3291,7 +3328,7 @@ func TestListCards_VettedFilter(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -3363,7 +3400,7 @@ func TestMCPPanicRecovery(t *testing.T) {
 	svc, _, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, MCPHandler: panicHandler})
+	router := newTestRouter(RouterConfig{Service: svc, MCPHandler: panicHandler})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -3390,7 +3427,7 @@ func TestMCPBodyLimit(t *testing.T) {
 	svc, _, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, MCPHandler: okHandler})
+	router := newTestRouter(RouterConfig{Service: svc, MCPHandler: okHandler})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -3427,7 +3464,7 @@ func TestRequestIDLogging(t *testing.T) {
 	slog.SetDefault(slog.New(handler))
 	t.Cleanup(func() { slog.SetDefault(origDefault) })
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -3456,7 +3493,7 @@ func TestCardAPI_SkillsRoundTrip(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -3579,7 +3616,7 @@ func TestCardAPI_SkillsRoundTrip(t *testing.T) {
 	svc2, bus2, cleanup2 := testSetup(t)
 	defer cleanup2()
 
-	router2 := NewRouter(RouterConfig{Service: svc2, Bus: bus2, TaskSkillsDir: skillsDir})
+	router2 := newTestRouter(RouterConfig{Service: svc2, Bus: bus2, TaskSkillsDir: skillsDir})
 
 	server2 := httptest.NewServer(router2)
 	defer server2.Close()

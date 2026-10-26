@@ -27,7 +27,7 @@ func newAssigneeNoneServer(t *testing.T) (*httptest.Server, *service.CardService
 	svc, bus, cleanup := testSetup(t)
 	t.Cleanup(cleanup)
 
-	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
+	server := httptest.NewServer(newTestRouter(RouterConfig{Service: svc, Bus: bus}))
 	t.Cleanup(server.Close)
 
 	return server, svc
@@ -50,7 +50,7 @@ func newAssigneeMultiServer(t *testing.T) (*httptest.Server, *service.CardServic
 	authSvc := auth.NewService(store, time.Hour)
 	seedAuthUser(t, store, "root", "Root", true, "root password1")
 
-	server := httptest.NewServer(NewRouter(RouterConfig{
+	server := httptest.NewServer(newTestRouter(RouterConfig{
 		Service:     svc,
 		Bus:         bus,
 		AuthService: authSvc,

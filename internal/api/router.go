@@ -283,14 +283,14 @@ type RouterConfig struct {
 	CredentialExists func(ctx context.Context, name string) (bool, error)
 	// ProviderForProject resolves the token provider for a project's GitHub
 	// operations: the project's binding when set (fail-closed on a broken
-	// one), else the instance provider. Never nil in production - main.go
-	// wires it in both auth modes; nil in tests preserves the old
-	// fixed-provider path.
+	// one), else the instance provider. main.go wires it in both auth modes;
+	// nil defaults to GitHubTokenProvider and GitHubAPIBaseURL for every
+	// project.
 	ProviderForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string /*apiBase*/, error)
 	// LLMEndpoint is the CM-provisioned inference endpoint attached to every
 	// task-backend trigger payload (single admin-managed key, rotated in one
-	// place). nil when llm_endpoint is unset - backends then fall back to
-	// their own local config, matching pre-token-authority behavior.
+	// place). nil when llm_endpoint is unset; the trigger then carries no
+	// endpoint and the backend refuses the run.
 	LLMEndpoint *protocol.LLMEndpoint
 	// BestOfN bounds the card-level best_of_n field: cardHandlers rejects
 	// any value outside 0 or 2..MaxCandidates. Zero value (MaxCandidates 0)
@@ -353,6 +353,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	agentCfg := cfg.AgentBackendCfg
 	if agentCfg == nil {
 		agentCfg = &config.AgentBackendConfig{}
+	}
+
+	if cfg.ProviderForProject == nil {
+		instance, apiBase := cfg.GitHubTokenProvider, cfg.GitHubAPIBaseURL
+		cfg.ProviderForProject = func(context.Context, string) (githubauth.TokenGenerator, string, error) {
+			return instance, apiBase, nil
+		}
 	}
 
 	// Create handlers
@@ -426,8 +433,6 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	}
 	bh := &branchHandlers{
 		svc:                cfg.Service,
-		provider:           cfg.GitHubTokenProvider,
-		githubAPIBaseURL:   cfg.GitHubAPIBaseURL,
 		allowedHosts:       cfg.GitHubAllowedHosts,
 		newBranchClient:    defaultBranchClient,
 		providerForProject: cfg.ProviderForProject,

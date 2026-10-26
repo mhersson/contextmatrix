@@ -21,7 +21,7 @@ func noneModeServer(t *testing.T) *httptest.Server {
 	svc, bus, cleanup := testSetup(t)
 	t.Cleanup(cleanup)
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
 

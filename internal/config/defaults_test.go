@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -63,4 +64,79 @@ func TestDefaultsRoundTrip(t *testing.T) {
 	assert.Equal(t, AuthModeMulti, back.Auth.Mode)
 	assert.Equal(t, 40000, back.Chat.ResumeBudgetTokens)
 	assert.Equal(t, 5, back.Mob.MaxParticipants)
+}
+
+// TestDefaultsCoverLoadDefaults guards drift between Load and Defaults: every
+// non-zero value Load yields for a minimal file must also be printed by
+// Defaults, or contextmatrix-setup would never sync that key.
+func TestDefaultsCoverLoadDefaults(t *testing.T) {
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, t.TempDir(),
+		"boards:\n  dir: "+boardsDir+"\ngithub:\n  auth_mode: pat\n  pat:\n    token: ghp_test\n  issue_importing:\n    enabled: true\n")
+
+	loaded, err := Load(path)
+	require.NoError(t, err)
+
+	got := flattenYAML(t, loaded)
+	want := flattenYAML(t, Defaults())
+
+	// Set by the minimal file itself, or derived from the host at load time.
+	skip := map[string]bool{
+		"boards.dir":                     true, // set by the file
+		"github.auth_mode":               true, // set by the file
+		"github.pat.token":               true, // set by the file
+		"github.issue_importing.enabled": true, // set by the file so Validate applies sync_interval
+		"auth.db_path":                   true, // resolved beside the config file
+		"auth.master_key_file":           true, // resolved beside the config file
+		"images.db_path":                 true, // resolved beside the config file
+		"op_store.db_path":               true, // resolved beside the config file
+		"workflow_skills_dir":            true, // resolved relative to the config file
+		"task_skills.dir":                true, // resolved relative to the config file
+	}
+
+	for k, v := range got {
+		if skip[k] {
+			continue
+		}
+
+		assert.Equal(t, v, want[k], "Load applies %s but Defaults() does not print it", k)
+	}
+}
+
+// flattenYAML marshals v and returns its leaves keyed by dotted path, with
+// zero values (empty, false, 0, null) dropped.
+func flattenYAML(t *testing.T, v any) map[string]any {
+	t.Helper()
+
+	out, err := yaml.Marshal(v)
+	require.NoError(t, err)
+
+	var tree map[string]any
+	require.NoError(t, yaml.Unmarshal(out, &tree))
+
+	flat := map[string]any{}
+
+	var walk func(prefix string, n any)
+
+	walk = func(prefix string, n any) {
+		switch x := n.(type) {
+		case map[string]any:
+			for k, c := range x {
+				key := k
+				if prefix != "" {
+					key = prefix + "." + k
+				}
+
+				walk(key, c)
+			}
+		default:
+			if x != nil && !reflect.ValueOf(x).IsZero() {
+				flat[prefix] = x
+			}
+		}
+	}
+
+	walk("", tree)
+
+	return flat
 }

@@ -166,18 +166,20 @@ func earlier(ours, theirs *time.Time, oursLater bool) bool {
 	}
 }
 
-// mergeState is the equal-epoch state rule: a terminal state absorbs a
-// non-terminal one regardless of updated; otherwise the later update wins.
+// mergeState is the equal-epoch state rule: a terminal state a side moved
+// into absorbs a non-terminal one regardless of updated; otherwise the later
+// update wins. A terminal state kept from the base absorbs nothing, so a
+// reopen on the other side stands with the fields it cleared.
 func mergeState(base, ours, theirs *board.Card, oursLater bool, audit func(rule, field, losing string)) string {
+	winner, loserState, losing := ours.State, theirs.State, sideRemote
+	if board.IsTerminalState(theirs.State) {
+		winner, loserState, losing = theirs.State, ours.State, sideLocal
+	}
+
 	switch {
 	case ours.State == theirs.State:
 		return ours.State
-	case board.IsTerminalState(ours.State) != board.IsTerminalState(theirs.State):
-		winner, loserState, losing := ours.State, theirs.State, sideRemote
-		if board.IsTerminalState(theirs.State) {
-			winner, loserState, losing = theirs.State, ours.State, sideLocal
-		}
-
+	case board.IsTerminalState(ours.State) != board.IsTerminalState(theirs.State) && winner != base.State:
 		// The overridden side lost something only if it actually moved: a
 		// one-sided move into a terminal state overrides nothing.
 		if loserState != base.State {

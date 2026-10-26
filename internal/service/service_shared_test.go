@@ -55,12 +55,18 @@ func newSharedService(t *testing.T, heartbeat time.Duration) (*CardService, *clo
 	lockMgr := lock.NewManagerWithClock(store, heartbeat, fake)
 	lockMgr.SetShared("lap-a", 5*time.Minute, time.Hour)
 
-	svc := NewCardService(store, gitMgr, lockMgr, events.NewBus(), boardsDir, nil, true, false)
-	svc.SetSharedRepo(true)
-	svc.SetLease("lap-a", time.Hour, time.Minute)
-
 	queue := gitops.NewCommitQueue(gitMgr, 0)
-	svc.SetCommitQueue(queue)
+	svc := newTestCardService(t, store, events.NewBus(), nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Shared:        true,
+		Lock:          lockMgr,
+		Queue:         queue,
+		Instance:      "lap-a",
+		LeaseTimeout:  time.Hour,
+		PullInterval:  time.Minute,
+	})
 
 	return svc, fake, func() { _ = queue.Close(context.Background()) }
 }

@@ -163,8 +163,7 @@ type Backends struct {
 }
 
 // UnmarshalYAML decodes the backends mapping with a closed key set. Unknown
-// names fail loudly instead of being silently ignored, and a leftover
-// runner entry gets a dedicated retirement message.
+// names fail loudly instead of being silently ignored.
 func (b *Backends) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.MappingNode {
 		return fmt.Errorf("backends must be a mapping")
@@ -189,10 +188,6 @@ func (b *Backends) UnmarshalYAML(node *yaml.Node) error {
 			if err := decodeStrictEntry(val, b.Architect); err != nil {
 				return fmt.Errorf("backends.architect: %w", err)
 			}
-		case "runner":
-			return fmt.Errorf("backends.runner: the runner backend has been removed " +
-				"(deprecate-frozen since multi-user; see the runner-eos tag for the last supported commit): " +
-				"use backends.agent for task execution and backends.chat for chat")
 		default:
 			return fmt.Errorf("invalid backend name %q: must be one of \"agent\", \"chat\", \"architect\"", key)
 		}

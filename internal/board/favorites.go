@@ -11,7 +11,7 @@ type TierFavorites struct {
 }
 
 // MarshalYAML emits t.All (YAML sequence) when ByRole is empty, and t.ByRole
-// (YAML mapping) otherwise — the inverse of the two shapes UnmarshalYAML accepts.
+// (YAML mapping) otherwise - the inverse of the two shapes UnmarshalYAML accepts.
 func (t TierFavorites) MarshalYAML() (any, error) {
 	if len(t.ByRole) > 0 {
 		return t.ByRole, nil

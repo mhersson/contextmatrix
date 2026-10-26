@@ -68,7 +68,7 @@ func TestAdminChats_RegisteredWithoutAuthService(t *testing.T) {
 	_, mgr := newChatFixture(t, defaultFixtureOpts())
 	seedSession(t, mgr, "human:alice")
 
-	server := httptest.NewServer(NewRouter(RouterConfig{ChatManager: mgr}))
+	server := httptest.NewServer(newTestRouter(RouterConfig{ChatManager: mgr}))
 	t.Cleanup(server.Close)
 
 	req, err := http.NewRequest(http.MethodGet, server.URL+"/api/admin/chats", nil)

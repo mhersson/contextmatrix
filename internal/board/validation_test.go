@@ -358,18 +358,6 @@ func TestValidateCard(t *testing.T) {
 	})
 }
 
-func TestCanTransition(t *testing.T) {
-	v := NewValidator()
-	cfg := testProjectConfigForValidation()
-
-	assert.True(t, v.CanTransition(cfg, "todo", "in_progress"))
-	assert.True(t, v.CanTransition(cfg, "todo", "stalled"))
-	assert.False(t, v.CanTransition(cfg, "todo", "not_planned")) // not in Transitions["todo"]
-	assert.False(t, v.CanTransition(cfg, "done", "not_planned")) // not in Transitions["done"]
-	assert.False(t, v.CanTransition(cfg, "todo", "done"))
-	assert.False(t, v.CanTransition(cfg, "invalid", "todo"))
-}
-
 func TestAllowedTransitions(t *testing.T) {
 	v := NewValidator()
 	cfg := testProjectConfigForValidation()

@@ -19,7 +19,7 @@ import (
 //
 //   - dir: a fresh /tmp/cm-int-runs/<scenarioID>-<timestamp>/ directory.
 //   - combined: a chronological merge of every line emitted by the
-//     subprocesses (cm, runner) plus transcript SSE events plus
+//     subprocesses (cm, agent, chat) plus transcript SSE events plus
 //     test-side chat sends, each prefixed with [<source>] and an
 //     RFC3339Nano timestamp. Useful for "what happened, in order?"
 //     post-mortems.
@@ -107,7 +107,7 @@ func (r *runLog) writeLine(source, line string) {
 		time.Now().UTC().Format(time.RFC3339Nano), source, line)
 }
 
-// finalize flushes per-source files (cm.log, runner.log) and the
+// finalize flushes per-source files (cm.log, agent.log, chat.log) and the
 // markdown report, then closes the combined log handle. Safe to call
 // multiple times.
 //
@@ -427,7 +427,7 @@ func summarizeWorkerStream(raw []byte) (map[string]int, map[string]int) {
 	return types, tools
 }
 
-// summarizeTranscript walks the runner's parsed SSE-event JSONL and
+// summarizeTranscript walks the worker's parsed SSE-event JSONL and
 // returns counts by event type. Same skip-bad-line behaviour.
 func summarizeTranscript(raw []byte) map[string]int {
 	types := map[string]int{}

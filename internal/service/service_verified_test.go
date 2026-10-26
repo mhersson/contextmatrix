@@ -80,7 +80,7 @@ func newVerifiedService(t *testing.T) (*CardService, *fakeRunner, func()) {
 
 	svc, _, cleanup := newSharedService(t, 30*time.Minute)
 	runner := &fakeRunner{svc: svc}
-	svc.SetSyncRunner(runner.run)
+	require.NoError(t, svc.SetSyncRunnerFor(DefaultRepoName, runner.run))
 
 	return svc, runner, cleanup
 }
@@ -380,7 +380,7 @@ func TestPrivateBoardNeverUsesTheRunner(t *testing.T) {
 	defer cleanup()
 
 	runner := &fakeRunner{svc: svc}
-	svc.SetSyncRunner(runner.run)
+	require.NoError(t, svc.SetSyncRunnerFor(DefaultRepoName, runner.run))
 
 	_, err := svc.CreateCard(context.Background(), "test-project", CreateCardInput{Title: "t", Type: "task", Priority: "medium"})
 	require.NoError(t, err)

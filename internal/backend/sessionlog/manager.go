@@ -611,7 +611,7 @@ func projectKey(project string) string {
 // The provided ctx is not used to drive the pump lifecycle - the upstream pump
 // goroutine runs under its own internal context so it can outlive the caller's
 // request scope (e.g. an HTTP handler whose client disconnected). The pump is
-// terminated only by StopProject, upstream permanent failure, or Close.
+// terminated only by the idle sweeper, upstream permanent failure, or Close.
 //
 // Snapshot-then-live ordering and cancellation guarantees are identical to
 // Start/Subscribe for card-scoped sessions.  The internal key is prefixed with
@@ -640,7 +640,7 @@ func (m *Manager) StartProject(_ context.Context, project string) error {
 
 	// Pump context is rooted at Background so it cannot be cancelled by an
 	// HTTP handler's request scope. Cancellation flows through sess.cancel,
-	// which StopProject/Close invoke explicitly.
+	// which Stop (the idle sweeper's path) and Close invoke explicitly.
 	pumpCtx, cancel := context.WithCancel(context.Background())
 	sess := &activeSession{
 		cancel:    cancel,
@@ -672,20 +672,12 @@ func (m *Manager) StartProject(_ context.Context, project string) error {
 	return nil
 }
 
-// StopProject cancels the upstream connection for the project, sends a
-// terminal event to all subscribers, and clears the project buffer.
-//
-// StopProject is idempotent: if no session is running for the project it
-// returns immediately.
-func (m *Manager) StopProject(project string) {
-	m.Stop(projectKey(project))
-}
-
 // SubscribeProject returns a channel that first delivers a snapshot of all
 // buffered project events and then delivers live events as they arrive.
 // The second return value is an unsubscribe function; calling it removes this
-// subscriber.  The channel is closed either by a terminal StopProject/error or
-// by the unsubscribe func (whichever comes first).
+// subscriber.  The channel is closed either by the session ending (idle
+// sweep, upstream failure, Close) or by the unsubscribe func (whichever comes
+// first).
 //
 // Ordering guarantee: every snapshot event (events already buffered at the
 // moment SubscribeProject is called) is delivered before any live event, with
@@ -693,8 +685,8 @@ func (m *Manager) StopProject(project string) {
 // protocol is shared.
 //
 // Cancellation: calling the returned unsub function causes the snapshot
-// goroutine to exit promptly.  StopProject and terminal upstream errors also
-// close the channel cleanly with no panic.
+// goroutine to exit promptly.  The session ending also closes the channel
+// cleanly with no panic.
 //
 // If no project session is running, the snapshot channel is still returned
 // (possibly empty); live events will begin arriving once StartProject is called.
@@ -830,8 +822,8 @@ func (m *Manager) readUpstreamStream(ctx context.Context, key, project string, s
 	}
 
 	sigHeader, tsHeader := signSSERequest(m.backendAPIKey, req.URL.RequestURI())
-	req.Header.Set("X-Signature-256", sigHeader)
-	req.Header.Set("X-Webhook-Timestamp", tsHeader)
+	req.Header.Set(protocol.SignatureHeader, sigHeader)
+	req.Header.Set(protocol.TimestampHeader, tsHeader)
 
 	resp, err := sseHTTPClient.Do(req)
 	if err != nil {

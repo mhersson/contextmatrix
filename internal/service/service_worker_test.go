@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -93,6 +94,104 @@ func TestMarkQueued_RefusesALiveWorker(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, "queued", got.WorkerStatus)
+		})
+	}
+}
+
+// TestUpdateWorkerStatus_RunningDoesNotReplaceKilled pins the kill guard: a
+// late running report is dropped, while a fresh launch (queued) reaches running.
+func TestUpdateWorkerStatus_RunningDoesNotReplaceKilled(t *testing.T) {
+	svc, gitMgr := setupDeferredTest(t)
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "killed run", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "killed", "stopped")
+	require.NoError(t, err)
+
+	before, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+
+	commitsBefore := commitCount(t, gitMgr)
+
+	got, err := svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "late report")
+	require.NoError(t, err)
+	assert.Equal(t, "killed", got.WorkerStatus)
+
+	after, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "killed", after.WorkerStatus)
+	assert.Equal(t, before.ActivityLog, after.ActivityLog, "an ignored report writes no log entry")
+	assert.True(t, before.Updated.Equal(after.Updated))
+	assert.Equal(t, commitsBefore, commitCount(t, gitMgr), "an ignored report commits nothing")
+
+	_, err = svc.MarkQueued(ctx, "test-project", card.ID, "relaunch")
+	require.NoError(t, err)
+
+	got, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "container started")
+	require.NoError(t, err)
+	assert.Equal(t, "running", got.WorkerStatus)
+}
+
+// TestUpdateWorkerStatus_KilledWorkerReports pins which backend reports may
+// replace killed: a late running or failed on a live card may not, completed
+// clears it, and a failed on a done card is the cleanup normalization.
+func TestUpdateWorkerStatus_KilledWorkerReports(t *testing.T) {
+	tests := []struct {
+		name    string
+		done    bool
+		status  string
+		want    string
+		ignored bool
+	}{
+		{name: "running over killed", status: "running", want: "killed", ignored: true},
+		{name: "failed over killed", status: "failed", want: "killed", ignored: true},
+		{name: "completed over killed", status: "completed", want: ""},
+		{name: "failed over killed on a done card", done: true, status: "failed", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, gitMgr := setupDeferredTest(t)
+			ctx := context.Background()
+
+			card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "killed run", Type: "task", Priority: "medium"})
+			require.NoError(t, err)
+
+			if tt.done {
+				_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateInProgress)
+				require.NoError(t, err)
+				_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateDone)
+				require.NoError(t, err)
+			}
+
+			// Seed through the store: a killed report on a done card would
+			// itself normalize to completed.
+			seeded, err := svc.store.GetCard(ctx, "test-project", card.ID)
+			require.NoError(t, err)
+
+			seeded.WorkerStatus = "killed"
+			require.NoError(t, svc.store.UpdateCard(ctx, "test-project", seeded))
+
+			before, err := svc.GetCard(ctx, "test-project", card.ID)
+			require.NoError(t, err)
+
+			commitsBefore := commitCount(t, gitMgr)
+
+			_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, tt.status, "late report")
+			require.NoError(t, err)
+
+			after, err := svc.GetCard(ctx, "test-project", card.ID)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, after.WorkerStatus)
+
+			if tt.ignored {
+				assert.Equal(t, before.ActivityLog, after.ActivityLog, "an ignored report writes no log entry")
+				assert.Equal(t, commitsBefore, commitCount(t, gitMgr), "an ignored report commits nothing")
+			} else {
+				assert.Greater(t, commitCount(t, gitMgr), commitsBefore)
+			}
 		})
 	}
 }

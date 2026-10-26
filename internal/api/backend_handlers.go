@@ -102,8 +102,7 @@ type backendHandlers struct {
 	// providerForProject resolves the project-scoped git-token provider used
 	// to mint the trigger payload's GitToken: the project's credential
 	// binding when set (fail-closed on a broken one), else the instance
-	// provider. nil preserves pre-token-authority behavior - no GitToken is
-	// attached and the trigger is never rejected on its account.
+	// provider. Never nil: NewRouter defaults it.
 	providerForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string, error)
 
 	// llmEndpoint is the CM-provisioned inference endpoint attached to every
@@ -115,7 +114,7 @@ type backendHandlers struct {
 	// to task-skills-source responses. Unlike providerForProject (per-project,
 	// fail-closed on a broken binding), this is the flat instance provider -
 	// task-skills is never project-scoped, so there is no binding to fail
-	// closed on. nil disables the token fields (pre-token-authority behavior).
+	// closed on. nil disables the token fields.
 	instanceTokenProvider githubauth.TokenGenerator
 
 	// healthCache memoises /api/backend/health responses so concurrent browser
@@ -137,7 +136,7 @@ type backendHandlers struct {
 type healthProbeCache struct {
 	mu      sync.Mutex
 	expires time.Time
-	info    backend.HealthInfo
+	info    protocol.HealthResponse
 	err     error
 
 	flight singleflight.Group

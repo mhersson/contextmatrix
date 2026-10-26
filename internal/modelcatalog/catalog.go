@@ -1065,7 +1065,7 @@ type lookupKey struct {
 }
 
 // lookupKeys is the ordered family keys a served model is looked up under:
-// its id (familyKey drops any vendor prefix, so the vendor-stripped id is
+// its id (familyKeyParts drops any vendor prefix, so the vendor-stripped id is
 // the same key), then each gateway alias, without duplicate keys or empties.
 func lookupKeys(slug string, aliases []string) []lookupKey {
 	names := make([]string, 0, len(aliases)+1)

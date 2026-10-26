@@ -403,7 +403,7 @@ func TestRouter_BlueprintRoutesFollowTheArchitectEntry(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(NewRouter(RouterConfig{
+			server := httptest.NewServer(newTestRouter(RouterConfig{
 				ChatManager: mgr, ChatHub: chat.NewSSEHub(8), ArchitectBackendCfg: tt.archCfg,
 			}))
 			t.Cleanup(server.Close)
@@ -442,7 +442,7 @@ func TestRouter_ChatModelsWiresArchitectDefaultAndPricing(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(NewRouter(RouterConfig{
+			server := httptest.NewServer(newTestRouter(RouterConfig{
 				ChatManager: mgr, ChatHub: chat.NewSSEHub(8), ArchitectBackendCfg: tt.archCfg,
 				ChatEndpointModels: func(context.Context) ([]EndpointModelView, error) {
 					return []EndpointModelView{{ID: "priced"}, {ID: "free"}}, nil
@@ -506,7 +506,7 @@ func TestBlueprintLive_NoBrowserFacingRoute(t *testing.T) {
 	bp := seedBlueprint(t, mgr, "human:web")
 
 	opts := blueprintFixtureOpts(fa.URL)
-	srv := httptest.NewServer(NewRouter(RouterConfig{
+	srv := httptest.NewServer(newTestRouter(RouterConfig{
 		ChatManager: mgr, ChatHub: chat.NewSSEHub(8), ArchitectBackendCfg: opts.architectBackendCfg,
 	}))
 	t.Cleanup(srv.Close)
@@ -525,7 +525,7 @@ func TestRouter_WiresTheCostCapRoute(t *testing.T) {
 		chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CostCapUSD: 2, CreatedBy: "human:web-x"})
 	require.NoError(t, err)
 
-	server := httptest.NewServer(NewRouter(RouterConfig{
+	server := httptest.NewServer(newTestRouter(RouterConfig{
 		ChatManager: mgr, ChatHub: chat.NewSSEHub(8),
 		ArchitectBackendCfg: blueprintFixtureOpts("http://architect:9094").architectBackendCfg,
 	}))
@@ -562,7 +562,7 @@ func TestRouter_WiresTheModeRoute(t *testing.T) {
 		chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web-x"})
 	require.NoError(t, err)
 
-	server := httptest.NewServer(NewRouter(RouterConfig{
+	server := httptest.NewServer(newTestRouter(RouterConfig{
 		ChatManager: mgr, ChatHub: chat.NewSSEHub(8),
 		ArchitectBackendCfg: blueprintFixtureOpts("http://architect:9094").architectBackendCfg,
 	}))
@@ -685,7 +685,7 @@ func TestBlueprintView_RecordsTheSpend(t *testing.T) {
 			mux.ServeHTTP(rec, jsonReq(t, http.MethodGet, "/api/chats/"+bp.ID+"/blueprint", ""))
 
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-			assert.Equal(t, tt.body, rec.Body.String(), "the relay stays byte for byte") //nolint:testifylint // byte identity is the contract
+			assert.Equal(t, tt.body, rec.Body.String(), "the relay stays byte for byte")
 
 			got, err := mgr.GetSession(t.Context(), bp.ID)
 			require.NoError(t, err)

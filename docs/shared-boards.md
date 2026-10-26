@@ -89,8 +89,10 @@ Cards:
   terminal state. At equal raised epochs an active claim beats a release or
   stall. Both sides claiming from an unclaimed base goes to the earlier
   `claimed_at`.
-- Within the tuple at equal epochs, a terminal state absorbs a non-terminal
-  one; otherwise the later `updated` wins.
+- Within the tuple at equal epochs, a side that moved into a terminal state
+  absorbs a non-terminal one; otherwise the later `updated` wins. A terminal
+  state kept unchanged from the ancestor absorbs nothing, so a reopen on the
+  other side stands.
 - Scalars and flags (title, type, priority, parent, assignee, model pins,
   branch fields, `autonomous`, PR flags, `best_of_n`, `mob_participants`,
   `verify`, `custom`): three-way pick, later `updated` breaks a real conflict.

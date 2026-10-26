@@ -1126,7 +1126,7 @@ func TestWorkerGitCredentials_RegisteredWithArchitectBackendOnly(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(NewRouter(tt.cfg))
+			server := httptest.NewServer(newTestRouter(tt.cfg))
 			t.Cleanup(server.Close)
 
 			resp, err := http.Get(server.URL + "/api/worker/git-credentials?host=github.com&path=acme/alpha")

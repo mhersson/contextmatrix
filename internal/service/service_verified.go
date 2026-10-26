@@ -71,13 +71,6 @@ func DirectCommitter(git *gitops.Manager) DirectCommit {
 	}
 }
 
-// SetSyncRunner routes push-verified mutations through the syncer. Must be
-// called before the server starts accepting requests. Acts on the first
-// configured repo; multi-repo wiring uses the For variant.
-func (s *CardService) SetSyncRunner(run SyncRunner) {
-	s.repos[0].runner = run
-}
-
 // commitNow commits synchronously with shell git in the repo the first path
 // belongs to. It is the only commit path allowed inside a sync cycle: the
 // queue is paused there, and a queued job would wait for a resume that only

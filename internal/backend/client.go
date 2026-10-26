@@ -30,26 +30,10 @@ const (
 	// by this header; it is sent on trigger webhooks only. Named here
 	// because the protocol module does not export the constant.
 	correlationIDHeader = "X-Correlation-ID"
-)
 
-// BackoffBase is the base duration for exponential retry backoff
-// (waits of BackoffBase, 2*BackoffBase, 4*BackoffBase between attempts).
-// Exported so tests can override it (remember to restore via t.Cleanup).
-var BackoffBase = time.Second
-
-// Wire DTOs are defined in contextmatrix-protocol; aliased here so existing
-// call sites and tests keep compiling unchanged.
-type (
-	TriggerPayload    = protocol.TriggerPayload
-	KillPayload       = protocol.KillPayload
-	MessagePayload    = protocol.MessagePayload
-	PromotePayload    = protocol.PromotePayload
-	EndSessionPayload = protocol.EndSessionPayload
-	StopAllPayload    = protocol.StopAllPayload
-
-	// HealthInfo is the parsed /health response; Build is nil from a backend
-	// older than protocol v0.36.0.
-	HealthInfo = protocol.HealthResponse
+	// defaultBackoffBase is the base duration for exponential retry backoff
+	// (waits of base, 2*base, 4*base between attempts).
+	defaultBackoffBase = time.Second
 )
 
 // ContainerInfo is a decoded entry from GET /containers. The agent backend
@@ -70,23 +54,38 @@ type ContainerInfo struct {
 
 // Client sends signed webhooks to the task backend.
 type Client struct {
-	httpClient *http.Client
-	baseURL    string
-	apiKey     string
+	httpClient  *http.Client
+	baseURL     string
+	apiKey      string
+	backoffBase time.Duration
 }
 
-func NewClient(baseURL, apiKey string) *Client {
-	return &Client{
-		httpClient: &http.Client{Timeout: requestTimeout},
-		baseURL:    baseURL,
-		apiKey:     apiKey,
+// ClientOption configures a Client.
+type ClientOption func(*Client)
+
+// WithBackoffBase replaces the one-second retry backoff base.
+func WithBackoffBase(d time.Duration) ClientOption {
+	return func(c *Client) { c.backoffBase = d }
+}
+
+func NewClient(baseURL, apiKey string, opts ...ClientOption) *Client {
+	c := &Client{
+		httpClient:  &http.Client{Timeout: requestTimeout},
+		baseURL:     baseURL,
+		apiKey:      apiKey,
+		backoffBase: defaultBackoffBase,
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	return c
 }
 
 // Trigger sends a trigger webhook to start a task. Each attempt carries its
 // own fresh X-Correlation-ID, logged here with the card it belongs to, so the
 // id the agent admits is unique to the one launch it produced.
-func (c *Client) Trigger(ctx context.Context, p TriggerPayload) error {
+func (c *Client) Trigger(ctx context.Context, p protocol.TriggerPayload) error {
 	return c.send(ctx, c.baseURL+"/trigger", p, func(correlationID string, attempt int) {
 		ctxlog.Logger(ctx).Info("backend trigger webhook",
 			"correlation_id", correlationID,
@@ -98,45 +97,46 @@ func (c *Client) Trigger(ctx context.Context, p TriggerPayload) error {
 }
 
 // Kill sends a kill webhook to stop a specific task.
-func (c *Client) Kill(ctx context.Context, p KillPayload) error {
+func (c *Client) Kill(ctx context.Context, p protocol.KillPayload) error {
 	return c.send(ctx, c.baseURL+"/kill", p, nil)
 }
 
 // StopAll sends a stop-all webhook to stop all tasks.
-func (c *Client) StopAll(ctx context.Context, p StopAllPayload) error {
+func (c *Client) StopAll(ctx context.Context, p protocol.StopAllPayload) error {
 	return c.send(ctx, c.baseURL+"/stop-all", p, nil)
 }
 
 // Message sends a human message to a running interactive task.
-func (c *Client) Message(ctx context.Context, p MessagePayload) error {
+func (c *Client) Message(ctx context.Context, p protocol.MessagePayload) error {
 	return c.send(ctx, c.baseURL+"/message", p, nil)
 }
 
 // Promote sends a promote webhook to signal that an interactive task may proceed.
-func (c *Client) Promote(ctx context.Context, p PromotePayload) error {
+func (c *Client) Promote(ctx context.Context, p protocol.PromotePayload) error {
 	return c.send(ctx, c.baseURL+"/promote", p, nil)
 }
 
 // EndSession sends an end-session webhook so the backend closes the worker
 // container's stdin; claude receives EOF and exits, ending the interactive
 // session.
-func (c *Client) EndSession(ctx context.Context, p EndSessionPayload) error {
+func (c *Client) EndSession(ctx context.Context, p protocol.EndSessionPayload) error {
 	return c.send(ctx, c.baseURL+"/end-session", p, nil)
 }
 
 // Health queries the backend's /health endpoint. The backend exposes
 // max_concurrent (its global capacity cap) and the live container count.
 // /health is unauthenticated on the backend side; we still sign so the
-// shared transport stays consistent.
-func (c *Client) Health(ctx context.Context) (HealthInfo, error) {
+// shared transport stays consistent. Build is nil from a backend older than
+// protocol v0.36.0.
+func (c *Client) Health(ctx context.Context) (protocol.HealthResponse, error) {
 	body, err := c.sendGet(ctx, c.baseURL+"/health")
 	if err != nil {
-		return HealthInfo{}, err
+		return protocol.HealthResponse{}, err
 	}
 
 	var parsed protocol.HealthResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		return HealthInfo{}, fmt.Errorf("parse /health response: %w", err)
+		return protocol.HealthResponse{}, fmt.Errorf("parse /health response: %w", err)
 	}
 
 	return parsed, nil
@@ -323,7 +323,7 @@ func (c *Client) send(ctx context.Context, rawURL string, payload any, correlate
 		// past ~30 (1<<31 overflows int32 on 32-bit; 1<<63 overflows int64).
 		shift := min(attempt, 30)
 
-		base := time.Duration(1<<uint(shift)) * BackoffBase
+		base := time.Duration(1<<uint(shift)) * c.backoffBase
 		// jitter is in [-25%, +25%] of base
 		jitter := time.Duration(rand.Int64N(int64(base)/2) - int64(base)/4) //nolint:gosec // non-security jitter
 		backoff := base + jitter

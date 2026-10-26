@@ -58,7 +58,14 @@ transitions:
 
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
-	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil, true, false)
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           git,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	return svc, bus, func() {}
 }
@@ -81,7 +88,7 @@ func TestListBranches_NoGitHubRepo(t *testing.T) {
 	provider, err := githubauth.NewPATProvider("test-token")
 	require.NoError(t, err)
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, GitHubTokenProvider: provider})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, GitHubTokenProvider: provider})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -106,7 +113,7 @@ func TestListBranches_NonGitHubRepo(t *testing.T) {
 	provider, err := githubauth.NewPATProvider("test-token")
 	require.NoError(t, err)
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, GitHubTokenProvider: provider})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, GitHubTokenProvider: provider})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -130,7 +137,7 @@ func TestListBranches_ProjectNotFound(t *testing.T) {
 	provider, err := githubauth.NewPATProvider("test-token")
 	require.NoError(t, err)
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, GitHubTokenProvider: provider})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, GitHubTokenProvider: provider})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -157,9 +164,11 @@ func TestListBranches_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	bh := &branchHandlers{
-		svc:             svc,
-		provider:        provider,
-		allowedHosts:    []string{"github.com"},
+		svc:          svc,
+		allowedHosts: []string{"github.com"},
+		providerForProject: func(context.Context, string) (githubauth.TokenGenerator, string, error) {
+			return provider, "", nil
+		},
 		newBranchClient: func(_ githubauth.TokenGenerator, _ string) BranchFetcher { return mock },
 	}
 
@@ -191,9 +200,11 @@ func TestListBranches_FetchError(t *testing.T) {
 	require.NoError(t, err)
 
 	bh := &branchHandlers{
-		svc:             svc,
-		provider:        provider,
-		allowedHosts:    []string{"github.com"},
+		svc:          svc,
+		allowedHosts: []string{"github.com"},
+		providerForProject: func(context.Context, string) (githubauth.TokenGenerator, string, error) {
+			return provider, "", nil
+		},
 		newBranchClient: func(_ githubauth.TokenGenerator, _ string) BranchFetcher { return mock },
 	}
 
@@ -239,7 +250,7 @@ func TestBranchHandler_UsesProviderToken(t *testing.T) {
 		GitHubAPIBaseURL:    upstream.URL,
 		GitHubAllowedHosts:  []string{"github.com"},
 	}
-	mux := NewRouter(cfg)
+	mux := newTestRouter(cfg)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/projects/gh-project/branches", nil)
@@ -248,19 +259,15 @@ func TestBranchHandler_UsesProviderToken(t *testing.T) {
 	assert.Equal(t, "Bearer test-token", gotAuth)
 }
 
-// TestBranchHandler_ProviderForProject_UsesBoundProvider asserts that when
-// providerForProject is set, the branch handler resolves the token provider
-// and API base URL per request (by project) instead of using the fixed
-// fallback provider/baseURL - and that the resolved (bound) provider's token
-// is what actually gets used.
+// TestBranchHandler_ProviderForProject_UsesBoundProvider asserts that the
+// branch handler resolves the token provider and API base URL per request (by
+// project) and that the resolved (bound) provider's token is what actually
+// gets used.
 func TestBranchHandler_ProviderForProject_UsesBoundProvider(t *testing.T) {
 	svc, _, cleanup := testSetupWithGitHubRepo(t, "https://github.com/owner/repo")
 	defer cleanup()
 
 	mock := &mockBranchFetcher{branches: []string{"main"}}
-
-	fallbackProvider, err := githubauth.NewPATProvider("fallback-token")
-	require.NoError(t, err)
 
 	boundProvider, err := githubauth.NewPATProvider("bound-token")
 	require.NoError(t, err)
@@ -272,10 +279,8 @@ func TestBranchHandler_ProviderForProject_UsesBoundProvider(t *testing.T) {
 	)
 
 	bh := &branchHandlers{
-		svc:              svc,
-		provider:         fallbackProvider,
-		githubAPIBaseURL: "http://fallback.invalid",
-		allowedHosts:     []string{"github.com"},
+		svc:          svc,
+		allowedHosts: []string{"github.com"},
 		providerForProject: func(_ context.Context, project string) (githubauth.TokenGenerator, string, error) {
 			gotProject = project
 
@@ -312,8 +317,8 @@ func TestBranchHandler_ProviderForProject_UsesBoundProvider(t *testing.T) {
 
 // TestBranchHandler_ProviderForProject_CredentialUnavailable asserts that a
 // named-but-broken credential binding fails closed with a 422
-// VALIDATION_ERROR rather than silently falling back to the fixed
-// provider/baseURL.
+// VALIDATION_ERROR rather than silently falling back to the instance
+// provider.
 func TestBranchHandler_ProviderForProject_CredentialUnavailable(t *testing.T) {
 	svc, bus, cleanup := testSetupWithGitHubRepo(t, "https://github.com/owner/repo")
 	defer cleanup()
@@ -330,7 +335,7 @@ func TestBranchHandler_ProviderForProject_CredentialUnavailable(t *testing.T) {
 			return nil, "", auth.ErrCredentialUnavailable
 		},
 	}
-	mux := NewRouter(cfg)
+	mux := newTestRouter(cfg)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/projects/gh-project/branches", nil)

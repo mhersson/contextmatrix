@@ -95,7 +95,7 @@ func newSelectorAdminServer(t *testing.T, cfg RouterConfig, multiMode bool) *htt
 		cfg.AuthMode = "multi"
 	}
 
-	server := httptest.NewServer(NewRouter(cfg))
+	server := httptest.NewServer(newTestRouter(cfg))
 	t.Cleanup(server.Close)
 
 	return server

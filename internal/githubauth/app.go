@@ -42,21 +42,9 @@ type AppProvider struct {
 // Compile-time check.
 var _ TokenGenerator = (*AppProvider)(nil)
 
-// WithAPIBaseURL overrides the GitHub API base URL. Trailing slashes are
-// trimmed. An empty string is a no-op.
-func WithAPIBaseURL(u string) Option {
-	return func(p *AppProvider) {
-		if u == "" {
-			return
-		}
-
-		p.apiBaseURL = strings.TrimRight(u, "/")
-	}
-}
-
-// NewAppProvider constructs an AppProvider by reading the PEM private
-// key from disk.
-func NewAppProvider(appID, installationID int64, privateKeyPath string, opts ...Option) (*AppProvider, error) {
+// NewAppProvider constructs an AppProvider by reading the PEM private key
+// from disk; see NewAppProviderWithKey for apiBaseURL.
+func NewAppProvider(appID, installationID int64, privateKeyPath, apiBaseURL string) (*AppProvider, error) {
 	keyData, err := os.ReadFile(privateKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("read private key: %w", err)
@@ -67,22 +55,12 @@ func NewAppProvider(appID, installationID int64, privateKeyPath string, opts ...
 		return nil, fmt.Errorf("parse private key: %w", err)
 	}
 
-	p := &AppProvider{
-		appID:          appID,
-		installationID: installationID,
-		privateKey:     key,
-		apiBaseURL:     defaultAPIBaseURL,
-		httpClient:     &http.Client{Timeout: tokenRequestTimeout},
-	}
-	for _, opt := range opts {
-		opt(p)
-	}
-
-	return p, nil
+	return NewAppProviderWithKey(appID, installationID, key, apiBaseURL)
 }
 
 // NewAppProviderWithKey constructs an AppProvider from an already-parsed
-// RSA key and a custom API base URL, as used by the credential pool.
+// RSA key, as used by the credential pool. An empty apiBaseURL targets
+// github.com; trailing slashes are trimmed.
 func NewAppProviderWithKey(appID, installationID int64, key *rsa.PrivateKey, apiBaseURL string) (*AppProvider, error) {
 	if key == nil {
 		return nil, errors.New("private key is nil")

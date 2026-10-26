@@ -91,12 +91,21 @@ transitions:
 
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil, true, false)
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           git,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	pbStore, err := storage.NewFilesystemPlaybookStore(boardsDir)
 	require.NoError(t, err)
 
-	pbSvc := service.NewPlaybookService(pbStore, store, bus, nil, false) // gitAutoCommit=false: API tests skip git
+	// No git auto-commit: API tests skip git.
+	pbSvc, err := service.NewPlaybookServiceRepos(pbStore, store, bus, nil, &service.PlaybookRepo{Name: service.DefaultRepoName})
+	require.NoError(t, err)
 
 	svc.SetPlaybookLister(pbStore)
 	pbSvc.SetCardForcer(svc)
@@ -149,7 +158,7 @@ func TestPlaybooksAPI_CRUD(t *testing.T) {
 	svc, pbSvc, bus, cleanup := playbookTestSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -271,7 +280,7 @@ func TestPlaybooksAPI_ErrorContract(t *testing.T) {
 	svc, pbSvc, bus, cleanup := playbookTestSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -400,7 +409,7 @@ func TestPlaybooksAPI_AttributionFallback(t *testing.T) {
 	svc, pbSvc, bus, cleanup := playbookTestSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -433,7 +442,7 @@ func TestPlaybooksAPI_SessionGuard(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, store.SetPasswordHash(t.Context(), root.ID, hash, time.Now()))
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc, AuthService: authSvc, AuthMode: "multi"})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc, AuthService: authSvc, AuthMode: "multi"})
 
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
@@ -507,7 +516,7 @@ func TestCreatePlaybook_BoardsRepo(t *testing.T) {
 	svc, pbSvc, bus, cleanup := playbookTestSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -547,7 +556,7 @@ func TestPlaybooksAPI_NilServiceIs404(t *testing.T) {
 	svc, _, bus, cleanup := playbookTestSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -562,7 +571,7 @@ func TestPlaybooksAPI_MakeRunnable(t *testing.T) {
 	svc, pbSvc, bus, cleanup := playbookTestSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -663,7 +672,7 @@ func TestPlaybooksAPI_AddCardEntryToRunnableIsHumanOnly(t *testing.T) {
 	svc, pbSvc, bus, cleanup := playbookTestSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -734,7 +743,7 @@ func TestPlaybooksAPI_MakeRunnableNoRepo(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -774,7 +783,7 @@ func lockedCardSetup(t *testing.T, backendClient *backend.Client) (*httptest.Ser
 		cfg.MCPAPIKey = "test-mcp-key"
 	}
 
-	server := httptest.NewServer(NewRouter(cfg))
+	server := httptest.NewServer(newTestRouter(cfg))
 	t.Cleanup(server.Close)
 
 	return server, svc, pbSvc, lockCardInPlaybook(t, svc, pbSvc)
@@ -1041,7 +1050,7 @@ func TestPlaybooksAPI_MakeRunnableCardForceFailureIs422(t *testing.T) {
 	svc, pbSvc, bus, cleanup := playbookTestSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -1082,7 +1091,7 @@ func TestPlaybooksAPI_MakeRunnableUnvetted(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
+	router := newTestRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -1109,7 +1118,7 @@ func TestPlaybooksAPI_Followups(t *testing.T) {
 	svc, pbSvc, bus, cleanup := playbookTestSetup(t)
 	defer cleanup()
 
-	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc}))
+	server := httptest.NewServer(newTestRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc}))
 	defer server.Close()
 
 	decode := func(t *testing.T, resp *http.Response) service.PlaybookDetail {

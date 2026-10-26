@@ -436,6 +436,20 @@ worker endpoint.
 Closes the container's stdin and stops it. A session the backend no longer
 tracks answers `404 not_found`.
 
+#### POST {chat_url}/message
+
+```json
+{ "session_id": "01K8ZQH7R3VYJE9XPK4MBWN5T2", "content": "...", "message_id": "01K8ZQJ2..." }
+```
+
+Delivers a message to the session's worker. CM persists a user message only
+after the backend accepts it. Recovery: when a user message is answered with
+404 and the protocol's `not_found` code (the chat backend restarted or the
+worker exited), CM ends the session cold, opens it again with a resume built
+from the persisted transcript, which therefore never carries the message, and
+sends the message once more with the same message id. A failed reopen or a
+second failed send is returned to the caller.
+
 ### CM → architect backend
 
 The architect backend (contextmatrix-architect) speaks the chat-backend
@@ -507,8 +521,8 @@ a start of its own. The architect must answer an unknown session with 404
 re-sends `/chat/start` with the same payload when the architect's `/logs` stream
 ends or drops, and before the first stream of a consumer CM attaches after its
 own restart; frames the architect publishes in between are kept and replayed. The consumer stops once its
-session row is gone, cold or no longer an architect session. Chat sessions do
-not take these paths.
+session row is gone, cold or no longer an architect session. Chat sessions
+recover by a cold reopen instead (see `POST {chat_url}/message`).
 
 CM also reads blueprints for the web UI's blueprint pane, through
 `GET /api/chats/{id}/blueprint` and
@@ -749,7 +763,7 @@ code, message}`). `code` is the stable enum in the protocol module's
 | Rule                | Value                                                                 |
 | ------------------- | --------------------------------------------------------------------- |
 | Attempts            | 3 in total.                                                           |
-| Backoff             | 1s, 2s, 4s (`BackoffBase` doubling) with plus or minus 25% jitter.    |
+| Backoff             | 1s, 2s, 4s (a 1s base, doubling) with plus or minus 25% jitter.       |
 | Retried             | Network errors and HTTP 5xx.                                          |
 | Not retried         | HTTP 4xx, and a 2xx body with `ok: false`.                            |
 | Per-request timeout | 10 seconds.                                                           |
@@ -797,7 +811,7 @@ CM explicitly.
    at startup, then every `backends.agent.reconcile_interval` (default 60s).
    Each tick calls `GET /containers` and kills every card container whose
    card is missing, is in `done` / `not_planned`, or is older than
-   `ContainerMaxAge` (150 minutes). These kills reason only from the
+   `DefaultContainerMaxAge` (150 minutes). These kills reason only from the
    backend's list and the card store, never from `worker_status`. The same
    tick then marks a lost worker `failed`, with an activity entry: a card
    whose `worker_status` is `queued` or `running`, that two consecutive

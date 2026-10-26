@@ -42,7 +42,7 @@ func healthServer(t *testing.T, body string) (*httptest.Server, *atomic.Int32) {
 func getAboutRaw(t *testing.T, cfg RouterConfig) []byte {
 	t.Helper()
 
-	server := httptest.NewServer(NewRouter(cfg))
+	server := httptest.NewServer(newTestRouter(cfg))
 	t.Cleanup(server.Close)
 
 	req, err := http.NewRequest(http.MethodGet, server.URL+"/api/about", nil)

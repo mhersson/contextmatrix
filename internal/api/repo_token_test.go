@@ -63,7 +63,7 @@ func TestRepoNameFromURL(t *testing.T) {
 type triggerOutcome struct {
 	status        int
 	code          string
-	payload       backend.TriggerPayload
+	payload       protocol.TriggerPayload
 	backendCalled bool
 	workerStatus  string
 }
@@ -95,7 +95,7 @@ func triggerWithProvider(t *testing.T, repo string, provider githubauth.TokenGen
 	}))
 	defer mockBackend.Close()
 
-	router := NewRouter(RouterConfig{
+	router := newTestRouter(RouterConfig{
 		Service: svc, Bus: bus,
 		Backend:         backend.NewClient(mockBackend.URL, testBackendAPIKey),
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: testBackendAPIKey},
@@ -224,7 +224,7 @@ func gitCredentialsGET(t *testing.T, repo string, provider githubauth.TokenGener
 	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "test setup")
 	require.NoError(t, err)
 
-	router := NewRouter(RouterConfig{
+	router := newTestRouter(RouterConfig{
 		Service: svc, Bus: bus,
 		Backend:         backend.NewClient("http://localhost:9090", testBackendAPIKey),
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: testBackendAPIKey},

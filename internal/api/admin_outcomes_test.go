@@ -68,7 +68,7 @@ func newOutcomeAdminServer(t *testing.T, store outcomeAdminStore, multiMode bool
 		cfg.AuthMode = "multi"
 	}
 
-	router := NewRouter(cfg)
+	router := newTestRouter(cfg)
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
 

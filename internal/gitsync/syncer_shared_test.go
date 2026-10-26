@@ -104,6 +104,10 @@ func newSharedNode(t *testing.T, upstream, instance string) *sharedNode {
 	lockMgr := lock.NewManagerWithClock(store, 30*time.Minute, clk)
 	lockMgr.SetShared(instance, 5*time.Minute, time.Hour)
 
+	queue := gitops.NewCommitQueue(gitMgr, 0)
+
+	t.Cleanup(func() { _ = queue.Close(context.Background()) })
+
 	// The service names this repo "team" so the syncer's WithRepo("team")
 	// resolves to it for the write lock, the sync stamp and the leases.
 	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
@@ -112,19 +116,17 @@ func newSharedNode(t *testing.T, upstream, instance string) *sharedNode {
 		Git:           gitMgr,
 		Dir:           dir,
 		GitAutoCommit: true,
+		Shared:        true,
 		Lock:          lockMgr,
+		Queue:         queue,
+		Instance:      instance,
+		LeaseTimeout:  time.Hour,
+		PullInterval:  time.Minute,
 	})
 	require.NoError(t, err)
 
-	svc.SetSharedRepo(true)
-	svc.SetLease(instance, time.Hour, time.Minute)
-
-	queue := gitops.NewCommitQueue(gitMgr, 0)
-	svc.SetCommitQueue(queue)
-	t.Cleanup(func() { _ = queue.Close(context.Background()) })
-
 	syncer := NewSyncer(gitMgr, store, svc, bus, dir, true, true, time.Minute,
-		WithRepo("team"), WithShared(instance), WithSyncTimeout(5*time.Second), WithLeaseInterval(5*time.Minute))
+		WithRepo("team"), WithShared(instance), WithLeaseInterval(5*time.Minute))
 	require.NotNil(t, syncer)
 
 	runner := func(ctx context.Context, trigger string, m service.SyncMutation) (service.SyncOutcome, error) {
@@ -133,14 +135,14 @@ func newSharedNode(t *testing.T, upstream, instance string) *sharedNode {
 		return service.SyncOutcome{BodyRan: r.BodyRan, Pushed: r.Pushed, Resolutions: r.Resolutions}, err
 	}
 
-	svc.SetSyncRunner(runner)
+	require.NoError(t, svc.SetSyncRunnerFor("team", runner))
 
 	pbStore, err := storage.NewFilesystemPlaybookStore(dir)
 	require.NoError(t, err)
 
-	pb := service.NewPlaybookService(pbStore, store, bus, clk, true)
-	pb.SetCommitQueue(queue)
-	pb.SetSyncRunner(runner, service.DirectCommitter(gitMgr))
+	pb, err := service.NewPlaybookServiceRepos(pbStore, store, bus, clk, &service.PlaybookRepo{Name: "team", Queue: queue, GitAutoCommit: true})
+	require.NoError(t, err)
+	require.NoError(t, pb.SetSyncRunnerFor("team", runner, service.DirectCommitter(gitMgr)))
 	syncer.SetPlaybooks(pb)
 
 	return &sharedNode{
@@ -236,9 +238,11 @@ func (n *sharedNode) create(t *testing.T, title string) *board.Card {
 // state two clones are in when both mint before either pushes, and it is the
 // only way to build an add/add id collision: a verified create pushes before
 // it returns, so the second clone would already hold the first clone's card.
-func (n *sharedNode) unpushed(fn func()) {
-	n.svc.SetSyncRunner(nil)
-	defer n.svc.SetSyncRunner(n.runner)
+func (n *sharedNode) unpushed(t *testing.T, fn func()) {
+	t.Helper()
+
+	require.NoError(t, n.svc.SetSyncRunnerFor("team", nil))
+	defer func() { require.NoError(t, n.svc.SetSyncRunnerFor("team", n.runner)) }()
 
 	fn()
 }
@@ -248,7 +252,7 @@ func (n *sharedNode) createUnpushed(t *testing.T, title string) *board.Card {
 
 	var c *board.Card
 
-	n.unpushed(func() { c = n.create(t, title) })
+	n.unpushed(t, func() { c = n.create(t, title) })
 
 	return c
 }
@@ -258,7 +262,7 @@ func (n *sharedNode) dependentUnpushed(t *testing.T, title, dependsOn string) *b
 
 	var c *board.Card
 
-	n.unpushed(func() { c = n.dependent(t, title, dependsOn) })
+	n.unpushed(t, func() { c = n.dependent(t, title, dependsOn) })
 
 	return c
 }

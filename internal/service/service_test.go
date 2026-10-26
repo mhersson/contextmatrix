@@ -82,10 +82,14 @@ func setupTestTB(tb testing.TB) (*CardService, string, func()) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
-
 	commitQueue := gitops.NewCommitQueue(gitMgr, 0)
-	svc.SetCommitQueue(commitQueue)
+	svc := newTestCardService(tb, store, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+		Queue:         commitQueue,
+	})
 
 	cleanup := func() {
 		// Drain the queue so deferred commit workers do not leak into
@@ -642,37 +646,6 @@ func TestHeartbeatCard(t *testing.T) {
 		"heartbeat must not go backwards")
 }
 
-func TestGetCardContext(t *testing.T) {
-	svc, tmpDir, cleanup := setupTest(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Create template
-	templateDir := filepath.Join(tmpDir, "boards", "test-project", "templates")
-	require.NoError(t, os.MkdirAll(templateDir, 0o755))
-	require.NoError(t, os.WriteFile(
-		filepath.Join(templateDir, "task.md"),
-		[]byte("## Plan\n\n## Progress\n"),
-		0o644,
-	))
-
-	createInput := CreateCardInput{
-		Title:    "Test",
-		Type:     "task",
-		Priority: "medium",
-	}
-	card, err := svc.CreateCard(ctx, "test-project", createInput)
-	require.NoError(t, err)
-
-	cardCtx, err := svc.GetCardContext(ctx, "test-project", card.ID)
-	require.NoError(t, err)
-
-	assert.Equal(t, card.ID, cardCtx.Card.ID)
-	assert.Equal(t, "test-project", cardCtx.Project.Name)
-	assert.Equal(t, "## Plan\n\n## Progress\n", cardCtx.Template)
-}
-
 func TestConcurrentCardCreation(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
@@ -739,7 +712,12 @@ func TestTimeoutCheckerIntegration(t *testing.T) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManagerWithClock(store, 50*time.Millisecond, fake)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
 
 	ctx := t.Context()
 
@@ -940,9 +918,10 @@ func TestGetCard_BlockedByField(t *testing.T) {
 	assert.True(t, *fetched.DependenciesMet)
 	assert.Nil(t, fetched.BlockedBy)
 
-	// Deleting a dependency does not strip it from dependents: the transition
-	// stays blocked by the unknown id, so blocked_by keeps naming it.
-	require.NoError(t, svc.DeleteCard(ctx, "test-project", depA.ID))
+	// A dangling dependency (the service refuses this delete; a hand edit or
+	// a reopened terminal dependent gets here) keeps the transition blocked by
+	// the unknown id, so blocked_by keeps naming it.
+	require.NoError(t, svc.store.DeleteCard(ctx, "test-project", depA.ID))
 
 	fetched, err = svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
@@ -1037,10 +1016,14 @@ func setupTestWithReview(t *testing.T) (*CardService, string, func()) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
-
 	commitQueue := gitops.NewCommitQueue(gitMgr, 0)
-	svc.SetCommitQueue(commitQueue)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+		Queue:         commitQueue,
+	})
 
 	return svc, tmpDir, func() {
 		_ = commitQueue.Close(context.Background())
@@ -1283,7 +1266,12 @@ func setupTestWithCosts(t *testing.T) (*CardService, string, func()) {
 		"claude-opus-4-7":   {Prompt: 0.000005, Completion: 0.000025},
 	}
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, tokenCosts, true, false)
+	svc := newTestCardService(t, store, bus, tokenCosts, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
 
 	return svc, tmpDir, func() {}
 }
@@ -1830,7 +1818,12 @@ func setupEmptyTest(t *testing.T) (*CardService, string) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
 
 	return svc, boardsDir
 }
@@ -2333,6 +2326,53 @@ func TestUpdateProject_RemoteExecutionImageValidation(t *testing.T) {
 	}
 }
 
+// TestUpdateProject_GitHubImportSettingsMustBeListed: an importer card_type or
+// default_priority outside the board's lists would have every import create
+// refused, so the save is rejected and .board.yaml keeps its prior content.
+func TestUpdateProject_GitHubImportSettingsMustBeListed(t *testing.T) {
+	tests := []struct {
+		name    string
+		github  board.GitHubImportConfig
+		wantErr error
+	}{
+		{"unset", board.GitHubImportConfig{ImportIssues: true}, nil},
+		{"listed", board.GitHubImportConfig{ImportIssues: true, CardType: "bug", DefaultPriority: "high"}, nil},
+		{"unlisted card_type", board.GitHubImportConfig{ImportIssues: true, CardType: "epic"}, board.ErrInvalidType},
+		{"unlisted default_priority", board.GitHubImportConfig{ImportIssues: true, DefaultPriority: "urgent"}, board.ErrInvalidPriority},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, tmpDir, cleanup := setupTest(t)
+			defer cleanup()
+
+			ctx := context.Background()
+			boardFile := filepath.Join(tmpDir, "boards", "test-project", ".board.yaml")
+
+			before, err := os.ReadFile(boardFile)
+			require.NoError(t, err)
+
+			input := remoteExecBaseInput(nil)
+			input.GitHub = &tt.github
+
+			_, err = svc.UpdateProject(ctx, "test-project", input)
+			if tt.wantErr == nil {
+				require.NoError(t, err)
+
+				return
+			}
+
+			var ve *board.ValidationError
+			require.ErrorAs(t, err, &ve)
+			require.ErrorIs(t, err, tt.wantErr)
+
+			after, err := os.ReadFile(boardFile)
+			require.NoError(t, err)
+			assert.Equal(t, string(before), string(after))
+		})
+	}
+}
+
 // TestUpdateProject_MCPShapePreservesFields is the regression for the MCP
 // update_project fix: the read-modify-write shape the fixed handler now sends
 // (DefaultSkills backfilled from the current config, Repo backfilled when the
@@ -2640,7 +2680,11 @@ func TestGitAutoCommitDisabled(t *testing.T) {
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
 	// Create service with gitAutoCommit disabled
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, false, false)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:  gitMgr,
+		Dir:  boardsDir,
+		Lock: lockMgr,
+	})
 	ctx := context.Background()
 
 	// Create a card - should write file but not commit
@@ -2684,10 +2728,26 @@ func setupDeferredTest(t *testing.T) (*CardService, *gitops.Manager) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	// gitAutoCommit=true, gitDeferredCommit=true
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, true)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:               gitMgr,
+		Dir:               boardsDir,
+		GitAutoCommit:     true,
+		GitDeferredCommit: true,
+		Lock:              lockMgr,
+	})
 
 	return svc, gitMgr
+}
+
+// commitCount returns the number of commits in the boards repo, so a test can
+// tell whether a write committed without reading commit messages.
+func commitCount(t *testing.T, gitMgr *gitops.Manager) int {
+	t.Helper()
+
+	n, err := gitMgr.CommitCount()
+	require.NoError(t, err)
+
+	return n
 }
 
 // TestDeferredCommitAccumulates verifies that with deferred mode on,
@@ -2793,6 +2853,47 @@ func TestDeferredCommitUnclaimedMutationCommitsImmediately(t *testing.T) {
 			_, deferred := svc.deferredPaths[card.ID]
 			svc.writeMu.Unlock()
 			assert.False(t, deferred, "unclaimed mutation must not be parked in deferredPaths")
+		})
+	}
+}
+
+// TestDeferredCommitTransitionToFollowsTheClaim: TransitionTo on an unclaimed
+// card has no flush point, so it commits at once; a claimed card's step stays
+// in the claimed batch.
+func TestDeferredCommitTransitionToFollowsTheClaim(t *testing.T) {
+	for _, claimed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("claimed=%v", claimed), func(t *testing.T) {
+			svc, gitMgr := setupDeferredTest(t)
+			ctx := context.Background()
+
+			card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+				Title: "Transitioned", Type: "task", Priority: "medium",
+			})
+			require.NoError(t, err)
+
+			if claimed {
+				_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+				require.NoError(t, err)
+			}
+
+			_, err = svc.TransitionTo(ctx, "test-project", card.ID, "in_progress")
+			require.NoError(t, err)
+
+			svc.writeMu.Lock()
+			_, deferred := svc.deferredPaths[card.ID]
+			svc.writeMu.Unlock()
+
+			_, dirty, err := gitMgr.IsClean(ctx)
+			require.NoError(t, err)
+
+			if claimed {
+				assert.True(t, deferred, "a claimed card's step stays in the batch")
+
+				return
+			}
+
+			assert.False(t, deferred, "an unclaimed transition must not be parked in deferredPaths")
+			assert.NotContains(t, dirty, svc.cardPath("test-project", card.ID), "card file must be committed")
 		})
 	}
 }
@@ -2947,7 +3048,13 @@ func TestDeferredCommitFlushOnStalled(t *testing.T) {
 	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 	lockMgr := lock.NewManagerWithClock(store, 1*time.Millisecond, fake)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, true)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:               gitMgr,
+		Dir:               boardsDir,
+		GitAutoCommit:     true,
+		GitDeferredCommit: true,
+		Lock:              lockMgr,
+	})
 	ctx := context.Background()
 
 	// Create and claim a card.
@@ -3318,7 +3425,12 @@ func TestReportUsageUnknownModelEndToEnd(t *testing.T) {
 		"claude-opus-4-7": {Prompt: 0.000005, Completion: 0.000025},
 	}
 
-	svc2 := NewCardService(store2, gitMgr2, lockMgr2, bus2, boardsDir, costsWithOpus, true, false)
+	svc2 := newTestCardService(t, store2, bus2, costsWithOpus, &BoardsRepo{
+		Git:           gitMgr2,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr2,
+	})
 
 	result, err := svc2.RecalculateCosts(ctx, "test-project", "")
 	require.NoError(t, err)
@@ -3498,12 +3610,6 @@ func TestCaseInsensitiveCardID(t *testing.T) {
 		assert.Equal(t, "Patched via lowercase", patched.Title)
 	})
 
-	t.Run("GetCardContext", func(t *testing.T) {
-		cardCtx, err := svc.GetCardContext(ctx, "test-project", lowercaseID)
-		require.NoError(t, err)
-		assert.Equal(t, "TEST-001", cardCtx.Card.ID)
-	})
-
 	t.Run("AddLogEntry", func(t *testing.T) {
 		_, err := svc.AddLogEntry(ctx, "test-project", lowercaseID, board.ActivityEntry{
 			Agent:     "test-agent",
@@ -3635,7 +3741,13 @@ func setupDeferredTestWithReview(t *testing.T) (*CardService, *gitops.Manager) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, true)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:               gitMgr,
+		Dir:               boardsDir,
+		GitAutoCommit:     true,
+		GitDeferredCommit: true,
+		Lock:              lockMgr,
+	})
 
 	return svc, gitMgr
 }
@@ -3929,6 +4041,66 @@ func TestCreateCard_RejectsSubtaskWithoutParent(t *testing.T) {
 	}
 }
 
+// TestCreateCard_RefusedOrDedupedCreateKeepsNextID: a create the validator
+// refuses or the duplicate guard answers with an existing card allocates no
+// ID, so .board.yaml stays as committed and the next create takes the number.
+func TestCreateCard_RefusedOrDedupedCreateKeepsNextID(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   func(parentID string) CreateCardInput
+		refused bool
+	}{
+		{
+			name:    "unknown type",
+			input:   func(string) CreateCardInput { return CreateCardInput{Title: "Bad", Type: "epic", Priority: "medium"} },
+			refused: true,
+		},
+		{
+			name: "duplicate subtask",
+			input: func(parentID string) CreateCardInput {
+				return CreateCardInput{Title: " step one ", Type: "task", Priority: "medium", Parent: parentID}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, tmpDir, cleanup := setupTest(t)
+			defer cleanup()
+
+			ctx := context.Background()
+
+			parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "Parent", Type: "task", Priority: "medium"})
+			require.NoError(t, err)
+
+			sub, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+				Title: "Step one", Type: "task", Priority: "medium", Parent: parent.ID,
+			})
+			require.NoError(t, err)
+
+			boardFile := filepath.Join(tmpDir, "boards", "test-project", ".board.yaml")
+			before, err := os.ReadFile(boardFile)
+			require.NoError(t, err)
+
+			got, err := svc.CreateCard(ctx, "test-project", tt.input(parent.ID))
+			if tt.refused {
+				require.ErrorIs(t, err, board.ErrInvalidType)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, sub.ID, got.ID)
+			}
+
+			after, err := os.ReadFile(boardFile)
+			require.NoError(t, err)
+			assert.Equal(t, string(before), string(after), ".board.yaml must not change")
+
+			next, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "Next", Type: "task", Priority: "medium"})
+			require.NoError(t, err)
+			assert.Equal(t, "TEST-003", next.ID, "the next create takes the unburned number")
+		})
+	}
+}
+
 // TestCreateCard_RejectsSubtaskAsParent verifies that a subtask cannot be used
 // as a parent for another card (no subtask-of-subtask chains).
 func TestCreateCard_RejectsSubtaskAsParent(t *testing.T) {
@@ -4185,7 +4357,12 @@ func TestNotPlannedDoesNotAppearInStalledDetection(t *testing.T) {
 	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 	lockMgr := lock.NewManagerWithClock(store, 1*time.Millisecond, fake)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
 	ctx := context.Background()
 
 	// Create, claim, then immediately move to not_planned.
@@ -4215,6 +4392,59 @@ func TestNotPlannedDoesNotAppearInStalledDetection(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "not_planned", reloaded.State, "not_planned card must not be stalled by timeout checker")
 	assert.Empty(t, reloaded.AssignedAgent, "agent must remain cleared")
+}
+
+// TestDoneCardWithLiveClaimIsNotStalled verifies that processStalled leaves a
+// done card alone even when it still holds a claim past the timeout.
+func TestDoneCardWithLiveClaimIsNotStalled(t *testing.T) {
+	tmpDir := t.TempDir()
+	boardsDir := filepath.Join(tmpDir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	projectDir := filepath.Join(boardsDir, "test-project")
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
+	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
+
+	store, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	gitMgr, err := gitops.NewManager(boardsDir, "", "test", gitopsTestProvider(t))
+	require.NoError(t, err)
+
+	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+	lockMgr := lock.NewManagerWithClock(store, 1*time.Millisecond, fake)
+
+	svc := newTestCardService(t, store, events.NewBus(), nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Done With Claim", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "some-agent")
+	require.NoError(t, err)
+
+	// Reach done while keeping the claim (the agent still holds it).
+	stored, err := svc.store.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+
+	stored.State = board.StateDone
+	require.NoError(t, svc.store.UpdateCard(ctx, "test-project", stored))
+	require.NotEmpty(t, stored.AssignedAgent)
+
+	fake.Advance(20 * time.Millisecond)
+
+	require.NoError(t, svc.processStalled(ctx))
+
+	reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, board.StateDone, reloaded.State, "done card must not be stalled by the timeout checker")
 }
 
 func TestGenerateBranchName(t *testing.T) {
@@ -4839,7 +5069,12 @@ func TestRecordPush_BranchName_CommitFailureRollback(t *testing.T) {
 	gitMgr, err := gitops.NewManager(boardsDir, "", "test", gitopsTestProvider(t))
 	require.NoError(t, err)
 
-	svc := NewCardService(realStore, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+	svc := newTestCardService(t, realStore, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
 
 	// Create and claim a card using the real store + git.
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
@@ -4870,7 +5105,8 @@ func TestRecordPush_BranchName_CommitFailureRollback(t *testing.T) {
 	failingQueue := gitops.NewCommitQueueWithCommitter(failOnCommit, 0)
 
 	t.Cleanup(func() { _ = failingQueue.Close(ctx) })
-	svc.SetCommitQueue(failingQueue)
+
+	svc.repos[0].Queue = failingQueue
 
 	// Attempt push with the failing queue.
 	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "cm/rollback-test-001", "https://github.com/org/repo/pull/99")
@@ -5265,57 +5501,53 @@ func TestUpdateWorkerStatus_FailedMidRunStaysFailed(t *testing.T) {
 // entry was written to disk but never committed because UpdateWorkerStatus
 // called commitCardChange (which defers the path) without ever flushing.
 func TestDeferredCommitFlushOnUpdateWorkerStatus(t *testing.T) {
-	svc, gitMgr := setupDeferredTest(t)
-	ctx := context.Background()
+	for _, status := range []string{"completed", "failed", "killed"} {
+		t.Run(status, func(t *testing.T) {
+			svc, gitMgr := setupDeferredTest(t)
+			ctx := context.Background()
 
-	// Create and claim a card - simulates an autonomous worker session.
-	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title: "Worker deferred flush test", Type: "task", Priority: "medium",
-	})
-	require.NoError(t, err)
+			// Create and claim a card - simulates an autonomous worker session.
+			card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+				Title: "Worker deferred flush test", Type: "task", Priority: "medium",
+			})
+			require.NoError(t, err)
 
-	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent:one")
-	require.NoError(t, err)
+			createdCount := commitCount(t, gitMgr)
 
-	// Accumulate a deferred mutation (body update, no commit yet).
-	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
-		Body: new("## Progress\n\n- [x] Step 1: done\n"),
-	})
-	require.NoError(t, err)
+			_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent:one")
+			require.NoError(t, err)
 
-	// Record commit message before release - should still be the creation commit.
-	creationMsg, err := gitMgr.GetLastCommitMessage()
-	require.NoError(t, err)
-	assert.Contains(t, creationMsg, card.ID, "pre-release commit must be the creation commit")
+			// Accumulate a deferred mutation (body update, no commit yet).
+			_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+				Body: new("## Progress\n\n- [x] Step 1: done\n"),
+			})
+			require.NoError(t, err)
 
-	// ReleaseCard flushes all deferred commits accumulated so far.
-	_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "agent:one")
-	require.NoError(t, err)
+			// The claim and the patch are deferred: the creation commit is still HEAD.
+			require.Equal(t, createdCount, commitCount(t, gitMgr), "claimed mutations stay deferred")
 
-	releaseMsg, err := gitMgr.GetLastCommitMessage()
-	require.NoError(t, err)
-	assert.Contains(t, releaseMsg, card.ID, "release should flush deferred commits")
-	assert.Contains(t, releaseMsg, "deferred commit", "release flush commit should say 'deferred commit'")
+			// ReleaseCard flushes all deferred commits accumulated so far.
+			_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "agent:one")
+			require.NoError(t, err)
 
-	// Now simulate the backend calling UpdateWorkerStatus after the agent released.
-	// This is the scenario from the bug: the backend sends "container exited normally"
-	// after complete_task has already released the card.
-	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "completed", "container exited normally")
-	require.NoError(t, err)
+			releasedCount := commitCount(t, gitMgr)
+			assert.Greater(t, releasedCount, createdCount, "release should flush deferred commits")
 
-	// The worker_status update must be committed - not left as an uncommitted deferred path.
-	afterStatusMsg, err := gitMgr.GetLastCommitMessage()
-	require.NoError(t, err)
-	assert.NotEqual(t, releaseMsg, afterStatusMsg,
-		"UpdateWorkerStatus must produce a new commit for the worker_status log entry")
-	assert.Contains(t, afterStatusMsg, card.ID,
-		"worker_status commit must reference the card ID")
+			// The backend reports a terminal status after the agent released.
+			_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, status, "container exited")
+			require.NoError(t, err)
 
-	// deferredPaths must be cleared after the flush.
-	svc.writeMu.Lock()
-	_, hasPaths := svc.deferredPaths[card.ID]
-	svc.writeMu.Unlock()
-	assert.False(t, hasPaths, "deferredPaths should be cleared after UpdateWorkerStatus flush")
+			// The worker_status update must be committed - not left as an uncommitted deferred path.
+			assert.Greater(t, commitCount(t, gitMgr), releasedCount,
+				"UpdateWorkerStatus must produce a new commit for the worker_status log entry")
+
+			// deferredPaths must be cleared after the flush.
+			svc.writeMu.Lock()
+			_, hasPaths := svc.deferredPaths[card.ID]
+			svc.writeMu.Unlock()
+			assert.False(t, hasPaths, "deferredPaths should be cleared after UpdateWorkerStatus flush")
+		})
+	}
 }
 
 func TestDeferredCommitPathsPreservedOnFailure(t *testing.T) {
@@ -5338,8 +5570,13 @@ func TestDeferredCommitPathsPreservedOnFailure(t *testing.T) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	// gitAutoCommit=true, gitDeferredCommit=true
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, true)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:               gitMgr,
+		Dir:               boardsDir,
+		GitAutoCommit:     true,
+		GitDeferredCommit: true,
+		Lock:              lockMgr,
+	})
 	ctx := context.Background()
 
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
@@ -6394,7 +6631,12 @@ func TestStartTimeoutCheckerPanicRecovery(t *testing.T) {
 
 	bus := events.NewBus()
 	lockMgr := lock.NewManagerWithClock(store, 30*time.Minute, fake)
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
 
 	ctx := t.Context()
 
@@ -6510,7 +6752,12 @@ func TestCreateCard_RollbackErrorsJoined(t *testing.T) {
 		saveErr:   saveErr,
 	}
 
-	svc := NewCardService(wrappedStore, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+	svc := newTestCardService(t, wrappedStore, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
 
 	ctx := context.Background()
 
@@ -6628,7 +6875,7 @@ func TestPatchCard_ReferenceValidation(t *testing.T) {
 
 	newPriority := func(s string) *string { return &s }
 
-	t.Run("stale depends_on reference is rejected", func(t *testing.T) {
+	t.Run("stale depends_on stays editable but a new missing id is rejected", func(t *testing.T) {
 		svc, _, cleanup := setupTest(t)
 		defer cleanup()
 
@@ -6643,12 +6890,20 @@ func TestPatchCard_ReferenceValidation(t *testing.T) {
 		card.DependsOn = []string{"TEST-999"}
 		require.NoError(t, svc.store.UpdateCard(ctx, "test-project", card))
 
-		// PatchCard (even a no-op field change) must surface the bad reference.
-		_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
 			Priority: newPriority("high"),
 		})
-		require.Error(t, err)
-		assert.ErrorContains(t, err, "TEST-999")
+		require.NoError(t, err)
+		assert.Equal(t, "high", patched.Priority)
+
+		_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			DependsOn: []string{"TEST-999", "TEST-998"},
+		})
+		require.ErrorIs(t, err, board.ErrDependenciesNotMet)
+
+		var ve *board.ValidationError
+		require.ErrorAs(t, err, &ve)
+		assert.Equal(t, "TEST-998", ve.Value, "only the added id is checked")
 	})
 
 	t.Run("stale parent reference is rejected", func(t *testing.T) {
@@ -6929,7 +7184,12 @@ func TestProcessStalled_IncrementsStallCardsMarked(t *testing.T) {
 	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 	lockMgr := lock.NewManagerWithClock(store, 1*time.Millisecond, fake)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
 
 	ctx := context.Background()
 
@@ -7151,12 +7411,17 @@ func newTwoProjectServiceWithGate(
 
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
 
 	// Use a real queue for setup writes (CreateCard, ClaimCard) so they land
 	// without blocking the test.
 	setupQueue := gitops.NewCommitQueue(gitMgr, 0)
-	svc.SetCommitQueue(setupQueue)
+	svc := newTestCardService(t, store, bus, nil, &BoardsRepo{
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+		Queue:         setupQueue,
+	})
 
 	cleanup := func() {
 		_ = setupQueue.Close(context.Background())
@@ -7202,7 +7467,8 @@ func TestTransitionTo_DoesNotHoldWriteMuAcrossCommit(t *testing.T) {
 
 		_ = gateQueue.Close(context.Background())
 	})
-	svc.SetCommitQueue(gateQueue)
+
+	svc.repos[0].Queue = gateQueue
 
 	first := make(chan error, 1)
 	second := make(chan error, 1)
@@ -7291,7 +7557,7 @@ func TestLockWrites_SharedRepoDrainsBufferedCommits(t *testing.T) {
 	svc.Repos()[0].Queue.Pause()
 	done := enqueueBufferedCardCommit(t, svc, "test-project", card.ID)
 
-	svc.SetSharedRepo(true)
+	svc.repos[0].Shared = true
 	svc.LockWrites("")
 
 	after, err := svc.Repos()[0].Git.CommitCount()

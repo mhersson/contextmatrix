@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/events"
@@ -106,8 +107,8 @@ func (f *fakeCardGetter) setAgent(project, id, agent string) {
 
 type fakeClient struct {
 	mu         sync.Mutex
-	calls      []backend.EndSessionPayload
-	killCalls  []backend.KillPayload
+	calls      []protocol.EndSessionPayload
+	killCalls  []protocol.KillPayload
 	err        error
 	killErr    error
 	listResult []backend.ContainerInfo
@@ -118,7 +119,7 @@ type fakeClient struct {
 	listFunc func(n int) ([]backend.ContainerInfo, error)
 }
 
-func (f *fakeClient) EndSession(_ context.Context, p backend.EndSessionPayload) error {
+func (f *fakeClient) EndSession(_ context.Context, p protocol.EndSessionPayload) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -127,7 +128,7 @@ func (f *fakeClient) EndSession(_ context.Context, p backend.EndSessionPayload) 
 	return f.err
 }
 
-func (f *fakeClient) Kill(_ context.Context, p backend.KillPayload) error {
+func (f *fakeClient) Kill(_ context.Context, p protocol.KillPayload) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -171,21 +172,21 @@ func (f *fakeClient) ListCount() int {
 	return f.listCount
 }
 
-func (f *fakeClient) Calls() []backend.EndSessionPayload {
+func (f *fakeClient) Calls() []protocol.EndSessionPayload {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	out := make([]backend.EndSessionPayload, len(f.calls))
+	out := make([]protocol.EndSessionPayload, len(f.calls))
 	copy(out, f.calls)
 
 	return out
 }
 
-func (f *fakeClient) KillCalls() []backend.KillPayload {
+func (f *fakeClient) KillCalls() []protocol.KillPayload {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	out := make([]backend.KillPayload, len(f.killCalls))
+	out := make([]protocol.KillPayload, len(f.killCalls))
 	copy(out, f.killCalls)
 
 	return out

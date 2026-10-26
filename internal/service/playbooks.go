@@ -319,7 +319,7 @@ type PlaybookService struct {
 	githubHosts []string
 }
 
-// NewPlaybookServiceRepos creates a PlaybookService over several boards
+// NewPlaybookServiceRepos creates a PlaybookService over one or more boards
 // repositories. store routes by playbook ID; each repo carries its own
 // commit queue. A nil clk defaults to clock.Real().
 func NewPlaybookServiceRepos(
@@ -351,30 +351,6 @@ func NewPlaybookServiceRepos(
 		store: store, cards: cards, bus: bus, clk: clk, repos: repos, repoIndex: index,
 		githubHosts: []string{"github.com"},
 	}, nil
-}
-
-// NewPlaybookService creates a PlaybookService over one boards repository
-// named boards. A nil clk defaults to clock.Real().
-func NewPlaybookService(store PlaybookStore, cards storage.Store, bus *events.Bus, clk clock.Clock, gitAutoCommit bool) *PlaybookService {
-	s, err := NewPlaybookServiceRepos(store, cards, bus, clk, &PlaybookRepo{Name: DefaultRepoName, GitAutoCommit: gitAutoCommit})
-	if err != nil {
-		panic(err) // one named repo cannot fail validation
-	}
-
-	return s
-}
-
-// SetCommitQueue registers the commit queue of the first configured repo.
-// Passing nil disables git commits there (mutations still apply to the
-// store; see enqueueCommit).
-func (s *PlaybookService) SetCommitQueue(q *gitops.CommitQueue) {
-	s.repos[0].Queue = q
-}
-
-// SetOnCommit registers the callback invoked after each successful git
-// commit in the first configured repo.
-func (s *PlaybookService) SetOnCommit(fn func()) {
-	s.repos[0].onCommit = fn
 }
 
 // SetOnCommitFor registers the callback for one repo.
@@ -583,15 +559,11 @@ func (p *RepoPlaybooks) Reload(ctx context.Context) error {
 	return p.svc.ReloadRepo(ctx, p.repo)
 }
 
-// SetSyncRunner routes playbook creation in the first configured repo
-// through the syncer so the slug is allocated against the merged playbooks
-// directory. commit is the direct commit path used inside the cycle. Must be
-// called before the server starts accepting requests.
-func (s *PlaybookService) SetSyncRunner(run SyncRunner, commit DirectCommit) {
-	s.repos[0].runner, s.repos[0].directCommit = run, commit
-}
-
-// SetSyncRunnerFor is SetSyncRunner for one repo.
+// SetSyncRunnerFor routes playbook creation in repo through the syncer so
+// the slug is allocated against the merged playbooks directory. commit is the
+// direct commit path used inside the cycle; run and commit are set together
+// or not at all (ErrSyncRunnerPair). Must be called before the server starts
+// accepting requests.
 func (s *PlaybookService) SetSyncRunnerFor(repo string, run SyncRunner, commit DirectCommit) error {
 	r, err := s.repoNamed(repo)
 	if err != nil {
@@ -920,7 +892,13 @@ func (s *PlaybookService) UpdateMeta(ctx context.Context, id string, input Updat
 		}
 
 		switch {
-		case *input.Runnable && !p.Runnable:
+		case *input.Runnable:
+			// Also re-asserts on an already-runnable playbook: a card added by
+			// hand-editing the file, or edited through an unguarded path, gets
+			// the settings again. Goes through the same validate-then-force
+			// path as first make-runnable - a hand-added entry never passed
+			// AddEntry's ownership check, so it may already belong to another
+			// runnable playbook.
 			names, err := s.makeRunnable(ctx, p, agentID)
 			forced = append(forced, names...)
 
@@ -929,19 +907,6 @@ func (s *PlaybookService) UpdateMeta(ctx context.Context, id string, input Updat
 			}
 
 			p.Runnable = true
-		case *input.Runnable && p.Runnable:
-			// Re-assert: a card added by hand-editing the file, or a card
-			// edited through an unguarded path, gets the settings again.
-			// Goes through the same validate-then-force path as first make-
-			// runnable - a hand-added entry never passed AddEntry's
-			// ownership check, so it may already belong to another runnable
-			// playbook.
-			names, err := s.makeRunnable(ctx, p, agentID)
-			forced = append(forced, names...)
-
-			if err != nil {
-				return err
-			}
 		case !*input.Runnable && p.Runnable:
 			if p.RunActive() {
 				return fmt.Errorf("%w: stop the run before making the playbook not runnable", ErrPlaybookRunActive)
@@ -1351,19 +1316,21 @@ func (s *PlaybookService) buildEntry(ctx context.Context, p *board.Playbook, in 
 			return nil, fmt.Errorf("%w: card entries need project and card", ErrInvalidPlaybookEntry)
 		}
 
-		if p.HasCardEntry(in.Project, in.Card) {
-			return nil, fmt.Errorf("%w: %s/%s", ErrDuplicateCardEntry, in.Project, in.Card)
+		cardID := strings.ToUpper(in.Card)
+
+		if p.HasCardEntry(in.Project, cardID) {
+			return nil, fmt.Errorf("%w: %s/%s", ErrDuplicateCardEntry, in.Project, cardID)
 		}
 
-		if _, err := s.cards.GetCard(ctx, in.Project, in.Card); err != nil {
+		if _, err := s.cards.GetCard(ctx, in.Project, cardID); err != nil {
 			if errors.Is(err, storage.ErrCardNotFound) || errors.Is(err, storage.ErrProjectNotFound) {
-				return nil, fmt.Errorf("%w: card %s/%s not found", ErrInvalidPlaybookEntry, in.Project, in.Card)
+				return nil, fmt.Errorf("%w: card %s/%s not found", ErrInvalidPlaybookEntry, in.Project, cardID)
 			}
 
-			return nil, fmt.Errorf("check card %s/%s: %w", in.Project, in.Card, err)
+			return nil, fmt.Errorf("check card %s/%s: %w", in.Project, cardID, err)
 		}
 
-		e.Project, e.Card = in.Project, in.Card
+		e.Project, e.Card = in.Project, cardID
 	case board.EntryTypeManual:
 		if strings.TrimSpace(in.Text) == "" {
 			return nil, fmt.Errorf("%w: manual entries need text", ErrInvalidPlaybookEntry)
@@ -1543,7 +1510,8 @@ func buildFollowup(p *board.Playbook, in PlaybookFollowupInput) (*board.Playbook
 		return nil, fmt.Errorf("%w: follow-ups need text", ErrInvalidPlaybookFollowup)
 	}
 
-	if err := validateCardRefs(in.Cards); err != nil {
+	cards, err := validateCardRefs(in.Cards)
+	if err != nil {
 		return nil, err
 	}
 
@@ -1553,18 +1521,23 @@ func buildFollowup(p *board.Playbook, in PlaybookFollowupInput) (*board.Playbook
 	return &board.PlaybookFollowup{
 		ID:    fmt.Sprintf("f%d", n),
 		Text:  in.Text,
-		Cards: slices.Clone(in.Cards),
+		Cards: cards,
 	}, nil
 }
 
-func validateCardRefs(refs []board.PlaybookCardRef) error {
-	for _, ref := range refs {
+// validateCardRefs returns a copy of refs with card ids upper-cased.
+func validateCardRefs(refs []board.PlaybookCardRef) ([]board.PlaybookCardRef, error) {
+	out := slices.Clone(refs)
+
+	for i, ref := range out {
 		if ref.Project == "" || ref.Card == "" {
-			return fmt.Errorf("%w: a card ref needs project and card", ErrInvalidPlaybookFollowup)
+			return nil, fmt.Errorf("%w: a card ref needs project and card", ErrInvalidPlaybookFollowup)
 		}
+
+		out[i].Card = strings.ToUpper(ref.Card)
 	}
 
-	return nil
+	return out, nil
 }
 
 // AddFollowup adds a follow-up at in.Position, or at the end when nil. Like
@@ -1614,11 +1587,12 @@ func (s *PlaybookService) UpdateFollowup(ctx context.Context, id, followupID str
 		}
 
 		if in.Cards != nil {
-			if err := validateCardRefs(*in.Cards); err != nil {
+			cards, err := validateCardRefs(*in.Cards)
+			if err != nil {
 				return err
 			}
 
-			f.Cards = slices.Clone(*in.Cards)
+			f.Cards = cards
 		}
 
 		if in.Done != nil {

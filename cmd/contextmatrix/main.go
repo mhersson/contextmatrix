@@ -102,6 +102,18 @@ func main() {
 
 	configPath := flag.String("config", "", "path to config file")
 
+	flag.Usage = func() {
+		out := flag.CommandLine.Output()
+
+		fmt.Fprintf(out, "usage: %s [-config path]\n\n", os.Args[0])
+		flag.PrintDefaults()
+		fmt.Fprint(out, "\nsubcommands:\n"+
+			"  config defaults                               print the complete default configuration as YAML\n"+
+			"  config validate <file>                        load <file> as the server would; exit 1 on the first error\n"+
+			"  auth reset-admin [--config PATH] <username>   issue a password-reset link for a locked-out admin\n"+
+			"  auth rotate-master-key [--config PATH]        re-encrypt the credential pool under a fresh master key\n")
+	}
+
 	flag.Parse()
 
 	if *configPath == "" {
@@ -142,7 +154,7 @@ func main() {
 			cfg.GitHub.App.AppID,
 			cfg.GitHub.App.InstallationID,
 			cfg.GitHub.App.PrivateKeyPath,
-			githubauth.WithAPIBaseURL(cfg.GitHub.ResolvedAPIBaseURL()),
+			cfg.GitHub.ResolvedAPIBaseURL(),
 		)
 	case "pat":
 		inner, err = githubauth.NewPATProvider(cfg.GitHub.PAT.Token)
@@ -278,14 +290,12 @@ func main() {
 	httpCtx, httpCancel := context.WithCancel(ctx)
 	defer httpCancel()
 
-	// The timeout checker's interval is configurable so test harnesses can
-	// shrink it for fast heartbeat-timeout scenarios; production default is
-	// 1m. Validate ensures the duration parses and is positive.
+	// Validate guarantees stalled_check_interval parses and is positive.
 	stalledTick, err := cfg.StalledCheckIntervalDuration()
 	if err != nil {
-		slog.Error("invalid stalled_check_interval; falling back to 1m", "error", err)
-
-		stalledTick = time.Minute
+		slog.Error("invalid stalled_check_interval", "error", err)
+		cancel()
+		os.Exit(1) //nolint:gocritic // cancel called explicitly above
 	}
 
 	// Initialize git sync
@@ -293,7 +303,7 @@ func main() {
 	if err != nil {
 		slog.Error("failed to wire git sync", "error", err)
 		cancel()
-		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+		os.Exit(1)
 	}
 
 	// After the sync wiring: on a shared board the checker's stall writes are
@@ -316,7 +326,7 @@ func main() {
 		if err != nil {
 			slog.Error("failed to load auth master key", "path", cfg.Auth.MasterKeyFile, "error", err)
 			cancel()
-			os.Exit(1) //nolint:gocritic // cancel called explicitly above
+			os.Exit(1)
 		}
 
 		if keyCreated {
@@ -328,7 +338,7 @@ func main() {
 		if err != nil {
 			slog.Error("failed to open auth store", "path", cfg.Auth.DBPath, "error", err)
 			cancel()
-			os.Exit(1) //nolint:gocritic // cancel called explicitly above
+			os.Exit(1)
 		}
 		defer authStore.Close()
 
@@ -339,7 +349,7 @@ func main() {
 			// Unreachable: Validate() parses it. Belt and suspenders.
 			slog.Error("invalid auth.session_idle_ttl", "error", err)
 			cancel()
-			os.Exit(1) //nolint:gocritic // cancel called explicitly above
+			os.Exit(1)
 		}
 
 		authSvc = auth.NewService(authStore, idleTTL)
@@ -348,7 +358,7 @@ func main() {
 		if err != nil {
 			slog.Error("failed to derive credential key", "error", err)
 			cancel()
-			os.Exit(1) //nolint:gocritic // cancel called explicitly above
+			os.Exit(1)
 		}
 
 		authSvc.SetCredentialKey(credKey)
@@ -360,7 +370,7 @@ func main() {
 		if err != nil {
 			slog.Error("failed to check for existing users", "error", err)
 			cancel()
-			os.Exit(1) //nolint:gocritic // cancel called explicitly above
+			os.Exit(1)
 		}
 
 		if len(users) == 0 {
@@ -368,7 +378,7 @@ func main() {
 			if err != nil {
 				slog.Error("failed to issue bootstrap token", "error", err)
 				cancel()
-				os.Exit(1) //nolint:gocritic // cancel called explicitly above
+				os.Exit(1)
 			}
 
 			slog.Info("=======================================================================")
@@ -464,7 +474,7 @@ func main() {
 	if err != nil {
 		slog.Error("failed to initialize image store", "path", cfg.Images.DBPath, "error", err)
 		cancel()
-		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+		os.Exit(1)
 	}
 	defer imageStore.Close()
 
@@ -478,7 +488,7 @@ func main() {
 	if err != nil {
 		slog.Error("failed to open op store", "path", cfg.OpStore.DBPath, "error", err)
 		cancel()
-		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+		os.Exit(1)
 	}
 	defer opStore.Close()
 
@@ -615,19 +625,22 @@ func main() {
 		playbookPlayer = pbRunner
 	}
 
+	_, architectConfigured := cfg.ArchitectBackend()
+
 	// Create MCP server
 	mcpSrv := mcpserver.NewServer(mcpserver.ServerConfig{
-		Service:           svc,
-		WorkflowSkillsDir: cfg.WorkflowSkillsDir,
-		ChatManager:       chatMgr,
-		ImageStore:        imageStore,
-		Blacklist:         opStore,
-		Outcomes:          opStore,
-		Bus:               bus,
-		AwaitMax:          awaitMax,
-		Playbooks:         pbSvc,
-		CardRunner:        runnerSlot,
-		PlaybookPlayer:    playbookPlayer,
+		Service:             svc,
+		WorkflowSkillsDir:   cfg.WorkflowSkillsDir,
+		ChatManager:         chatMgr,
+		ImageStore:          imageStore,
+		Blacklist:           opStore,
+		Outcomes:            opStore,
+		Bus:                 bus,
+		AwaitMax:            awaitMax,
+		Playbooks:           pbSvc,
+		CardRunner:          runnerSlot,
+		PlaybookPlayer:      playbookPlayer,
+		ArchitectConfigured: architectConfigured,
 	})
 
 	mcpHandler := mcpserver.NewHandler(mcpSrv, cfg.MCPAPIKey)
@@ -639,7 +652,7 @@ func main() {
 	if err != nil {
 		slog.Error("failed to construct jira client", "error", err)
 		cancel()
-		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+		os.Exit(1)
 	}
 
 	if jiraClient != nil {
@@ -656,7 +669,7 @@ func main() {
 	if err != nil {
 		slog.Error("failed to start jira writeback", "error", err)
 		cancel()
-		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+		os.Exit(1)
 	}
 
 	if jiraWriteback != nil {
@@ -794,7 +807,7 @@ func main() {
 	if err != nil {
 		slog.Error("failed to create dist filesystem", "error", err)
 		cancel()
-		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+		os.Exit(1)
 	}
 
 	handler := newSPAHandler(mux, distFS)

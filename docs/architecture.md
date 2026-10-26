@@ -468,7 +468,9 @@ order matches seq order.
   startup. A failed read leaves it unrecorded until the next view read.
 - **SSEHub.** One `sessionHub` per session with a 128-event ring buffer,
   replayed on `Subscribe(sinceSeq)` so reconnects inside the window are
-  gapless; `DeleteSession` drops the hub. Two event kinds: `message` (a
+  gapless. `EndSession` empties the ring, the stream handler backfills a
+  reconnect the ring no longer covers from the store, and `DeleteSession`
+  drops the hub. Two event kinds: `message` (a
   transcript row) and `session_updated` (metadata: `context_tokens`,
   `rehydration_active`, model, `status` as a pointer so `omitempty` separates
   "no change" from a transition, and the five cost fields).
@@ -477,8 +479,8 @@ order matches seq order.
   active), the `OnSubscribe` callback (warm-idle -> active), `MarkWarmIdle`
   and `EndSession` (any -> cold).
 - **Store.** `opstore/sqlite.Store` in WAL mode with `MaxOpenConns=5`, so
-  readers bypass the single-writer gate that `chat.Manager.mu` enforces above
-  the pool. The unique index on `(session_id, seq)` backs the in-memory seq
+  readers do not queue behind a writer; above the pool, `chat.Manager`'s
+  per-session append lock serialises each session's appends. The unique index on `(session_id, seq)` backs the in-memory seq
   cache. `DeleteSession` archives cost columns to `chat_cost_archive` before
   the hard delete, and `AggregateCost` unions both tables. Both use one cost
   per session: a chat's cost (gateway-reported per frame, else the rate-table
@@ -582,10 +584,10 @@ and playbook creation picks the repo, defaulting to the first entry.
 **Shared repos.** Several instances may share one boards repo through its
 remote (`boards.shared: true`). Each instance commits as
 `ContextMatrix <contextmatrix@<instance.id>>`. Conflicts are resolved by
-`internal/boardmerge` with card-aware three-way rules: terminal state
-absorbs, later `updated` breaks scalar ties, usage is additive, lists are set
-unions, activity logs union, delete wins, and on an add/add the remote keeps
-the ID and the local card is re-minted. Field, state, body, re-mint and
+`internal/boardmerge` with card-aware three-way rules: a move into a terminal
+state absorbs, later `updated` breaks scalar ties, usage is additive, lists
+are set unions, activity logs union, delete wins, and on an add/add the remote
+keeps the ID and the local card is re-minted. Field, state, body, re-mint and
 invariant overrides write a `merge` activity entry on the surviving card;
 every resolution appears under `resolutions` in `GET /api/sync`. Claims on a
 shared board are owned by `(assigned_agent, claimed_via)` plus a

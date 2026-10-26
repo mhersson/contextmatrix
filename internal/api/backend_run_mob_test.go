@@ -37,7 +37,7 @@ func mobRunConfig() config.MobConfig {
 // triggers /run against a payload-capturing mock backend wired with mobCfg,
 // and returns the captured payload, the service (for activity assertions),
 // and the card ID.
-func runMobTrigger(t *testing.T, mobCfg config.MobConfig, patch *service.PatchCardInput) (backend.TriggerPayload, *service.CardService, string) {
+func runMobTrigger(t *testing.T, mobCfg config.MobConfig, patch *service.PatchCardInput) (protocol.TriggerPayload, *service.CardService, string) {
 	t.Helper()
 
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
@@ -56,7 +56,7 @@ func runMobTrigger(t *testing.T, mobCfg config.MobConfig, patch *service.PatchCa
 		require.NoError(t, err)
 	}
 
-	var received backend.TriggerPayload
+	var received protocol.TriggerPayload
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&received)
@@ -66,7 +66,7 @@ func runMobTrigger(t *testing.T, mobCfg config.MobConfig, patch *service.PatchCa
 	t.Cleanup(mockBackend.Close)
 
 	backendClient := backend.NewClient(mockBackend.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
-	router := NewRouter(RouterConfig{
+	router := newTestRouter(RouterConfig{
 		Service: svc, Bus: bus, Backend: backendClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 		BestOfN:         config.BestOfNConfig{MaxCandidates: 5, DefaultCandidates: 3},

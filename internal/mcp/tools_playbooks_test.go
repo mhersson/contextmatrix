@@ -46,12 +46,20 @@ func setupMCPWithPlaybooks(t *testing.T, opts ...func(*ServerConfig)) *testEnv {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	svc := service.NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          service.DefaultRepoName,
+		Git:           gitMgr,
+		Dir:           boardsDir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
 
 	pbStore, err := storage.NewFilesystemPlaybookStore(boardsDir)
 	require.NoError(t, err)
 
-	pbSvc := service.NewPlaybookService(pbStore, store, bus, nil, false)
+	pbSvc, err := service.NewPlaybookServiceRepos(pbStore, store, bus, nil, &service.PlaybookRepo{Name: service.DefaultRepoName})
+	require.NoError(t, err)
 	svc.SetPlaybookLister(pbStore)
 	pbSvc.SetCardForcer(svc)
 

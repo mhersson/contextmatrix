@@ -124,7 +124,8 @@ func TestFamilyKey(t *testing.T) {
 	}
 
 	for in, want := range cases {
-		assert.Equal(t, want, familyKey(in), in)
+		key, _, _ := familyKeyParts(in)
+		assert.Equal(t, want, key, in)
 	}
 }
 

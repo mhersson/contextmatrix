@@ -8,6 +8,13 @@ export interface GitHubImportSectionProps {
   priorities: string[];
 }
 
+// A saved value the board no longer lists still needs an option: without one
+// the select shows Board default, and choosing it fires no change.
+function UnlistedOption({ value, listed }: { value?: string; listed: string[] }) {
+  if (!value || listed.includes(value)) return null;
+  return <option value={value}>{value} (not on this board)</option>;
+}
+
 export function GitHubImportSection({ github, onChange, types, priorities }: GitHubImportSectionProps) {
   const update = (patch: Partial<GitHubImportConfig>) => onChange({ ...github, ...patch });
   const labelsStr = github.labels?.join(', ') ?? '';
@@ -72,7 +79,8 @@ export function GitHubImportSection({ github, onChange, types, priorities }: Git
                 onChange={(e) => update({ card_type: e.target.value || undefined })}
                 className="bf-state-select"
               >
-                <option value="">task (default)</option>
+                <option value="">Board default</option>
+                <UnlistedOption value={github.card_type} listed={types} />
                 {types.map((t) => (
                   <option key={t} value={t}>
                     {t}
@@ -90,7 +98,8 @@ export function GitHubImportSection({ github, onChange, types, priorities }: Git
                 onChange={(e) => update({ default_priority: e.target.value || undefined })}
                 className="bf-state-select"
               >
-                <option value="">medium (default)</option>
+                <option value="">Board default</option>
+                <UnlistedOption value={github.default_priority} listed={priorities} />
                 {priorities.map((p) => (
                   <option key={p} value={p}>
                     {p}

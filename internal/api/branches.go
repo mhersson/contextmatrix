@@ -19,15 +19,11 @@ type BranchFetcher interface {
 
 // branchHandlers contains handlers for the branch listing endpoint.
 type branchHandlers struct {
-	svc              *service.CardService
-	provider         githubauth.TokenGenerator
-	githubAPIBaseURL string
-	allowedHosts     []string
-	newBranchClient  func(provider githubauth.TokenGenerator, baseURL string) BranchFetcher
-	// providerForProject resolves the token provider per request, by
-	// project (credential binding support). nil preserves the fixed
-	// provider/githubAPIBaseURL fallback above - the pre-binding behavior
-	// used by tests that don't wire it.
+	svc             *service.CardService
+	allowedHosts    []string
+	newBranchClient func(provider githubauth.TokenGenerator, baseURL string) BranchFetcher
+	// providerForProject resolves the token provider and API base URL per
+	// request, by project (credential binding support).
 	providerForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string, error)
 }
 
@@ -56,26 +52,18 @@ func (h *branchHandlers) listBranches(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider := h.provider
-	apiBaseURL := h.githubAPIBaseURL
-
-	if h.providerForProject != nil {
-		resolvedProvider, resolvedAPIBase, err := h.providerForProject(r.Context(), projectName)
-		if err != nil {
-			if errors.Is(err, auth.ErrCredentialUnavailable) {
-				writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError,
-					"project credential unavailable", "")
-
-				return
-			}
-
-			handleServiceError(w, r, err)
+	provider, apiBaseURL, err := h.providerForProject(r.Context(), projectName)
+	if err != nil {
+		if errors.Is(err, auth.ErrCredentialUnavailable) {
+			writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError,
+				"project credential unavailable", "")
 
 			return
 		}
 
-		provider = resolvedProvider
-		apiBaseURL = resolvedAPIBase
+		handleServiceError(w, r, err)
+
+		return
 	}
 
 	client := h.newBranchClient(provider, apiBaseURL)

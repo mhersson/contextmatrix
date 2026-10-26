@@ -18,6 +18,10 @@ import (
 	"github.com/mhersson/contextmatrix/internal/config"
 )
 
+// projectSessionKey is the session key sessionlog files a project-scoped
+// session under, for driving Snapshot and Stop on it directly.
+func projectSessionKey(project string) string { return "project:" + project }
+
 // makeBackendHandlers returns a backendHandlers wired to the given backend URL and API key.
 func makeBackendHandlers(backendURL, apiKey string) *backendHandlers {
 	return &backendHandlers{
@@ -313,7 +317,7 @@ func TestStreamProjectSession_AssignsSeqToWireFrames(t *testing.T) {
 	upstreamCh <- protocol.LogEntry{Type: "text", Content: "world", CardID: cardID}
 
 	require.Eventually(t, func() bool {
-		return len(mgr.SnapshotProject(project)) == 1
+		return len(mgr.Snapshot(projectSessionKey(project))) == 1
 	}, 3*time.Second, 10*time.Millisecond)
 
 	rh := &backendHandlers{
@@ -334,7 +338,7 @@ func TestStreamProjectSession_AssignsSeqToWireFrames(t *testing.T) {
 	// Stop session and disconnect client before closing servers.
 	cancelClient()
 	close(upstreamCh)
-	mgr.StopProject(project)
+	mgr.Stop(projectSessionKey(project))
 	srv.Close()
 	upstream.Close()
 
@@ -438,7 +442,7 @@ func TestStreamProjectSession_AgentFieldOnlyWhenSet(t *testing.T) {
 	upstreamCh <- protocol.LogEntry{Type: "text", Content: "plain", CardID: cardID}
 
 	require.Eventually(t, func() bool {
-		return len(mgr.SnapshotProject(project)) == 2
+		return len(mgr.Snapshot(projectSessionKey(project))) == 2
 	}, 3*time.Second, 10*time.Millisecond)
 
 	rh := &backendHandlers{
@@ -458,7 +462,7 @@ func TestStreamProjectSession_AgentFieldOnlyWhenSet(t *testing.T) {
 
 	cancelClient()
 	close(upstreamCh)
-	mgr.StopProject(project)
+	mgr.Stop(projectSessionKey(project))
 	srv.Close()
 	upstream.Close()
 

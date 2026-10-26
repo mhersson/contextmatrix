@@ -76,7 +76,7 @@ func jiraServer(t *testing.T, importer JiraImporter) *httptest.Server {
 		cfg.JiraImport = importer
 	}
 
-	server := httptest.NewServer(NewRouter(cfg))
+	server := httptest.NewServer(newTestRouter(cfg))
 	t.Cleanup(server.Close)
 
 	return server

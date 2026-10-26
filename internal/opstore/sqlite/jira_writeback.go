@@ -72,7 +72,7 @@ func (s *Store) DueJiraWritebacks(ctx context.Context, now int64, limit int) ([]
 		return nil, fmt.Errorf("list due jira writebacks: %w", err)
 	}
 
-	defer rows.Close() //nolint:errcheck
+	defer rows.Close()
 
 	var out []JiraWriteback
 

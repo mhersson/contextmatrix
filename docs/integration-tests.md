@@ -73,7 +73,8 @@ authenticate browser routes in multi mode.
 
 ## The scripting model
 
-Worker containers reach three host services via `host.docker.internal`:
+Three host services back the scenarios; workers reach the git server and
+ContextMatrix via `host.docker.internal`:
 
 - **Scripted LLM** (`stubllm_test.go`): an OpenAI-compatible endpoint on
   `0.0.0.0:<port>` serving `POST /chat/completions` as SSE. It matches on
@@ -104,9 +105,10 @@ Worker containers reach three host services via `host.docker.internal`:
   over MCP at `container_contextmatrix_url` + `/mcp`, Bearer-authed with the
   configured `mcp_api_key`.
 
-CM itself cannot resolve `host.docker.internal` (the host has no such alias),
-so its own catalog and chat-picker fetch of `llm_endpoint` fails. That fetch is
-best-effort and fail-open by design; only the containers reach the endpoint.
+The `llm_endpoint` base URL is `http://127.0.0.1:<port>`: CM and the backends'
+`serve` processes call it from the host (CM for its catalog and chat-picker
+fetch). Workers never reach the endpoint directly; they call the LLM proxy on
+`serve`, which forwards to it.
 
 ## Runlog artifacts
 

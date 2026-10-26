@@ -88,16 +88,19 @@ func newPlaybookTestEnv(t *testing.T) *playbookTestEnv {
 	gitMgr, err := gitops.NewManager(dir, "", "test", gitopsTestProvider(t))
 	require.NoError(t, err)
 
-	cardSvc := NewCardService(cards, gitMgr, lock.NewManager(cards, 30*time.Minute), bus, dir, nil, false, false)
+	cardSvc := newTestCardService(t, cards, bus, nil, &BoardsRepo{
+		Git:  gitMgr,
+		Dir:  dir,
+		Lock: lock.NewManager(cards, 30*time.Minute),
+	})
 	cardSvc.SetPlaybookLister(pbStore)
 
-	svc := NewPlaybookService(pbStore, cards, bus, fake, true)
-	svc.SetCommitQueue(queue)
+	svc := newTestPlaybookService(t, pbStore, cards, bus, fake, &PlaybookRepo{Queue: queue, GitAutoCommit: true})
 	svc.SetCardForcer(cardSvc)
 
 	pushed := 0
 
-	svc.SetOnCommit(func() { pushed++ })
+	require.NoError(t, svc.SetOnCommitFor(DefaultRepoName, func() { pushed++ }))
 
 	return &playbookTestEnv{svc: svc, cardSvc: cardSvc, cards: cards, committer: committer, bus: bus, clk: fake, pushed: &pushed}
 }
@@ -554,7 +557,7 @@ func TestSummarizeDetail_NextAndGates(t *testing.T) {
 func TestPlaybookCreateVerified_PublishesNothingWhenThePushNeverLands(t *testing.T) {
 	env := newPlaybookTestEnv(t)
 
-	env.svc.SetSyncRunner(func(ctx context.Context, _ string, m SyncMutation) (SyncOutcome, error) {
+	require.NoError(t, env.svc.SetSyncRunnerFor(DefaultRepoName, func(ctx context.Context, _ string, m SyncMutation) (SyncOutcome, error) {
 		env.svc.LockWrites()
 		defer env.svc.UnlockWrites()
 
@@ -567,7 +570,7 @@ func TestPlaybookCreateVerified_PublishesNothingWhenThePushNeverLands(t *testing
 		}
 
 		return SyncOutcome{BodyRan: true}, errors.New("push: remote unreachable")
-	}, func(_ context.Context, _ []string, _ string) error { return nil })
+	}, func(_ context.Context, _ []string, _ string) error { return nil }))
 
 	ch, unsub := env.bus.Subscribe()
 	defer unsub()
@@ -592,7 +595,7 @@ func TestPlaybookCreateVerified_RunsInsideTheCycle(t *testing.T) {
 	env := newPlaybookTestEnv(t)
 	calls, commits := 0, 0
 
-	env.svc.SetSyncRunner(func(ctx context.Context, trigger string, m SyncMutation) (SyncOutcome, error) {
+	require.NoError(t, env.svc.SetSyncRunnerFor(DefaultRepoName, func(ctx context.Context, trigger string, m SyncMutation) (SyncOutcome, error) {
 		calls++
 
 		env.svc.LockWrites()
@@ -609,7 +612,7 @@ func TestPlaybookCreateVerified_RunsInsideTheCycle(t *testing.T) {
 		assert.Equal(t, []string{"playbooks/release-train.yaml"}, paths)
 
 		return nil
-	})
+	}))
 
 	detail, err := env.svc.Create(context.Background(), CreatePlaybookInput{Title: "Release train", AgentID: "human:a"})
 	require.NoError(t, err)
@@ -1127,7 +1130,6 @@ func TestPlaybookService_RemoveEntryDuringRun(t *testing.T) {
 	// would keep running unowned and still merge into the playbook branch.
 	_, err = env.svc.RemoveEntry(ctx, "rollout", "e1", "human:alice")
 	require.ErrorIs(t, err, ErrPlaybookRunActive)
-	assert.Contains(t, err.Error(), "stop the run first")
 
 	got, err := env.svc.Get(ctx, "rollout")
 	require.NoError(t, err)
@@ -1853,9 +1855,9 @@ func TestPlaybookCreateVerified_ReturnsThePlaybookAPeerMergedFirst(t *testing.T)
 
 	// The peer's playbook arrives with the cycle's fetch and merge, after
 	// any check made before the cycle.
-	env.svc.SetSyncRunner(verifiedRunner(env, func(ctx context.Context) {
+	require.NoError(t, env.svc.SetSyncRunnerFor(DefaultRepoName, verifiedRunner(env, func(ctx context.Context) {
 		require.NoError(t, env.svc.store.Create(ctx, peer))
-	}, true), func(_ context.Context, _ []string, _ string) error { return nil })
+	}, true), func(_ context.Context, _ []string, _ string) error { return nil }))
 
 	ch, unsub := env.bus.Subscribe()
 	defer unsub()
@@ -1877,7 +1879,7 @@ func TestPlaybookCreateVerified_UndoKeepsTheExistingPlaybookItReturned(t *testin
 	seeded, err := env.svc.Create(ctx, CreatePlaybookInput{Title: "PROJ-1 Checkout", AgentID: "human:a", Source: jiraSource("acme", "PROJ-1")})
 	require.NoError(t, err)
 
-	env.svc.SetSyncRunner(verifiedRunner(env, nil, false), func(_ context.Context, _ []string, _ string) error { return nil })
+	require.NoError(t, env.svc.SetSyncRunnerFor(DefaultRepoName, verifiedRunner(env, nil, false), func(_ context.Context, _ []string, _ string) error { return nil }))
 
 	ch, unsub := env.bus.Subscribe()
 	defer unsub()
@@ -2198,7 +2200,7 @@ func TestPlaybookService_QueueUnlessRunActive(t *testing.T) {
 
 	t.Run("a listing error refuses", func(t *testing.T) {
 		env := setup(t, "")
-		svc := NewPlaybookService(listFailingStore{env.svc.store}, env.cards, env.bus, env.clk, false)
+		svc := newTestPlaybookService(t, listFailingStore{env.svc.store}, env.cards, env.bus, env.clk, &PlaybookRepo{})
 
 		called := false
 		err := svc.QueueUnlessRunActive(ctx, "project-alpha", "ALPHA-001", func() error {
@@ -2496,4 +2498,31 @@ func TestPlaybookDetail_ListsAreNeverNull(t *testing.T) {
 	raw, err = json.Marshal(d)
 	require.NoError(t, err)
 	assert.Contains(t, string(raw), `"cards":[]`)
+}
+
+func TestPlaybookService_CardIDsAreUpperCased(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	detail, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Case", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "alpha-001"}},
+		Followups: []PlaybookFollowupInput{
+			{Text: "check", Cards: []board.PlaybookCardRef{{Project: "project-alpha", Card: "alpha-001"}}},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, detail.Entries, 1)
+	assert.Equal(t, "ALPHA-001", detail.Entries[0].Card)
+	assert.Equal(t, "First card", detail.Entries[0].CardTitle)
+	assert.Equal(t, "ALPHA-001", detail.Followups[0].Cards[0].Card)
+
+	_, err = env.svc.AddEntry(ctx, detail.ID, PlaybookEntryInput{Type: board.EntryTypeCard, Project: "project-alpha", Card: "alpha-001"}, "human:alice")
+	require.ErrorIs(t, err, ErrDuplicateCardEntry, "a lower-cased id duplicates the stored upper-case entry")
+
+	refs := []board.PlaybookCardRef{{Project: "project-alpha", Card: "alpha-002"}}
+	detail, err = env.svc.UpdateFollowup(ctx, detail.ID, "f1", UpdateFollowupInput{Cards: &refs}, "human:alice")
+	require.NoError(t, err)
+	assert.Equal(t, "ALPHA-002", detail.Followups[0].Cards[0].Card)
+	assert.Equal(t, "alpha-002", refs[0].Card, "the caller's slice is not rewritten")
 }

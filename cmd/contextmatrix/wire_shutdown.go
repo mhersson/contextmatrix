@@ -77,7 +77,8 @@ type shutdownComponents struct {
 //     the playbook walkers, the Jira imports and the Jira writeback worker
 //     on one shared budget.
 //  5. commit_queue_close - flush buffered commits to disk.
-//  6. syncers_drain   - wait for git syncers to finish any late push.
+//  6. syncers_drain   - wait for git syncers, then push private auto-push
+//     repos that are still ahead of their remote.
 //
 // Returns the main HTTP server's shutdown error, if any (caller should
 // os.Exit(1) on non-nil). All other phase errors are logged and swallowed
@@ -182,27 +183,37 @@ func runShutdownSequence(ctx context.Context, c shutdownComponents) error {
 	// worker channel - but whose go-git commit had not yet started when
 	// ctx was cancelled - still make it to disk before we exit. Running
 	// this before the syncers' Wait ensures the on-disk commits exist to
-	// be pushed by a final push iteration.
+	// be pushed by the final push in phase 6. Own budget, like phases 4 and
+	// 6: the shutdown ctx has usually run out by now, and a drain on an
+	// expired ctx returns at once and leaves the queue draining behind us.
 	slog.Info("shutdown: phase=commit_queue_close")
 
+	const phase5Timeout = 3 * time.Second
+
+	phase5Ctx, phase5Cancel := context.WithTimeout(context.Background(), phase5Timeout)
+
 	for _, q := range c.CommitQueues {
-		if err := q.Close(ctx); err != nil {
+		if err := q.Close(phase5Ctx); err != nil {
 			slog.Error("commit queue shutdown error", "error", err)
 		}
 	}
 
+	phase5Cancel()
+
 	// Phase 6: let the git syncers finish any late commit/push triggered by
-	// requests that were in flight when HTTP drain began. Running this after
-	// HTTP drain (not before) ensures those late mutations still get pushed
-	// to the remote before we exit.
+	// requests that were in flight when HTTP drain began, then push what the
+	// cancelled push listeners never served (including the commits phase 5
+	// just flushed). Running this after HTTP drain (not before) ensures
+	// those late mutations still reach the remote before we exit.
 	//
-	// Each syncer.Wait() is bounded by a per-phase deadline so a wedged
-	// subprocess (e.g. a git push that ignores the cancelled ctx) cannot hang
-	// shutdown past systemd's TimeoutStopSec. The root ctx.cancel() above is
-	// still the primary signal; this wait-timeout is the safety net.
+	// The wait and the final push share one deadline so a wedged subprocess
+	// (e.g. a git push that ignores the cancelled ctx) cannot hang shutdown
+	// past the 30s k8s grace period. The root ctx.cancel() above is still the
+	// primary signal; this deadline is the safety net. Worst case in total:
+	// 5s (phases 1-2) + 10s (phase 4) + 3s (phase 5) + 7s (phase 6) = 25s.
 	slog.Info("shutdown: phase=syncers_drain")
 
-	const phase6Timeout = 10 * time.Second
+	const phase6Timeout = 7 * time.Second
 
 	phase6Ctx, phase6Cancel := context.WithTimeout(context.Background(), phase6Timeout)
 	defer phase6Cancel()
@@ -222,6 +233,15 @@ func runShutdownSequence(ctx context.Context, c shutdownComponents) error {
 			slog.Error("shutdown: github syncer drain exceeded budget",
 				"phase", "syncers_drain",
 				"timeout", phase6Timeout,
+				"error", err,
+			)
+		}
+	}
+
+	if c.Syncer != nil {
+		if err := c.Syncer.PushPending(phase6Ctx); err != nil {
+			slog.Error("shutdown: final push failed",
+				"phase", "syncers_drain",
 				"error", err,
 			)
 		}

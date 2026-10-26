@@ -1186,6 +1186,10 @@ func TestFilesystemStore_CardCache_DeepCopyContract(t *testing.T) {
 	card.Subtasks = []string{"SUB-001"}
 	card.Context = []string{"ctx-a"}
 	card.LastHeartbeat = &now
+	claimedAt := now
+	card.ClaimedAt = &claimedAt
+	card.MobPhases = []string{"review"}
+	card.MobGuests = []string{"guest/model"}
 	card.Source = &board.Source{System: "jira", ExternalID: "JIRA-1", ExternalURL: "http://example"}
 	card.TokenUsage = &board.TokenUsage{PromptTokens: 100, CompletionTokens: 50}
 	card.Custom = map[string]any{"key": "value"}
@@ -1203,6 +1207,9 @@ func TestFilesystemStore_CardCache_DeepCopyContract(t *testing.T) {
 	got1.Subtasks[0] = "mutated"
 	got1.Context[0] = "mutated"
 	*got1.LastHeartbeat = now.Add(24 * time.Hour)
+	*got1.ClaimedAt = now.Add(24 * time.Hour)
+	got1.MobPhases[0] = "mutated"
+	got1.MobGuests[0] = "mutated"
 	got1.Source.ExternalID = "mutated"
 	got1.TokenUsage.PromptTokens = 99999
 	got1.Custom["key"] = "mutated"
@@ -1220,6 +1227,10 @@ func TestFilesystemStore_CardCache_DeepCopyContract(t *testing.T) {
 	assert.Equal(t, []string{"ctx-a"}, got2.Context)
 	require.NotNil(t, got2.LastHeartbeat)
 	assert.True(t, got2.LastHeartbeat.Equal(now), "LastHeartbeat should be unchanged")
+	require.NotNil(t, got2.ClaimedAt)
+	assert.True(t, got2.ClaimedAt.Equal(now), "ClaimedAt should be unchanged")
+	assert.Equal(t, []string{"review"}, got2.MobPhases)
+	assert.Equal(t, []string{"guest/model"}, got2.MobGuests)
 	require.NotNil(t, got2.Source)
 	assert.Equal(t, "JIRA-1", got2.Source.ExternalID)
 	require.NotNil(t, got2.TokenUsage)
@@ -1433,4 +1444,24 @@ func TestFilesystemStore_ListCards_FilterBySourceSystem(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, cards, 1)
 	assert.Equal(t, "TEST-001", cards[0].ID)
+}
+
+// TestFilesystemStore_GetCard_DiskFallbackRefusesIDMismatch verifies that a
+// file served for a differently-cased id is not adopted under that id.
+func TestFilesystemStore_GetCard_DiskFallbackRefusesIDMismatch(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	fp, err := store.cardPath("test-project", "test-042")
+	require.NoError(t, err)
+	data, err := board.SerializeCard(testCard("TEST-042", "todo"))
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(fp), 0o755))
+	require.NoError(t, os.WriteFile(fp, data, 0o644))
+
+	_, err = store.GetCard(context.Background(), "test-project", "test-042")
+	require.ErrorIs(t, err, ErrCardNotFound)
 }

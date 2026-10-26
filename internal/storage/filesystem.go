@@ -174,6 +174,11 @@ func copyCard(c *board.Card) *board.Card {
 		cp.LastHeartbeat = &ts
 	}
 
+	if c.ClaimedAt != nil {
+		ts := *c.ClaimedAt
+		cp.ClaimedAt = &ts
+	}
+
 	if c.Subtasks != nil {
 		cp.Subtasks = slices.Clone(c.Subtasks)
 	}
@@ -197,6 +202,14 @@ func copyCard(c *board.Card) *board.Card {
 
 	if c.Labels != nil {
 		cp.Labels = slices.Clone(c.Labels)
+	}
+
+	if c.MobPhases != nil {
+		cp.MobPhases = slices.Clone(c.MobPhases)
+	}
+
+	if c.MobGuests != nil {
+		cp.MobGuests = slices.Clone(c.MobGuests)
 	}
 
 	if c.Source != nil {
@@ -622,6 +635,12 @@ func (s *FilesystemStore) GetCard(ctx context.Context, project, id string) (*boa
 	card, err := board.ParseCard(data)
 	if err != nil {
 		return nil, fmt.Errorf("parse card: %w", err)
+	}
+
+	// A case-insensitive filesystem can serve a file for a differently-cased
+	// id; adopting it would index the card under the wrong key.
+	if card.ID != id {
+		return nil, ErrCardNotFound
 	}
 
 	// Adopt the disk card into the index so it is not merely readable but also
