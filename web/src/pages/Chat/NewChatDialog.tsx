@@ -127,7 +127,7 @@ function NewChatDialogBody({ onClose, choices, handoff, initialKind }: NewChatDi
         aria-labelledby={headingId}
         className={`nd-dialog${blueprint ? ' nd-dialog--blueprint' : ''}`}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+          if (e.key === 'Enter' && !e.nativeEvent.isComposing && (e.ctrlKey || e.metaKey)) {
             // The model combobox commits its pick on Enter; submitting now would send the stale model.
             if ((e.target as HTMLElement).closest('[role="combobox"]')) return;
             e.preventDefault();
@@ -160,7 +160,7 @@ function NewChatDialogBody({ onClose, choices, handoff, initialKind }: NewChatDi
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) {
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing && !e.ctrlKey && !e.metaKey) {
                   e.preventDefault();
                   submit();
                 }

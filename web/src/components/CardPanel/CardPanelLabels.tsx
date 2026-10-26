@@ -84,7 +84,7 @@ export function LabelsSection({ editedLabels, disabled, onLabelsChange, lockedRe
               value={labelInput}
               onChange={(e) => setLabelInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') { e.preventDefault(); addLabel(); }
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); addLabel(); }
                 if (e.key === 'Escape') { setLabelInput(''); setAdding(false); }
               }}
               placeholder="Add label..."

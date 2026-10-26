@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { SettingsMenu } from './SettingsMenu';
 import type { Palette } from '../../lib/palettes';
 
@@ -51,29 +51,28 @@ function openMenu() {
 describe('SettingsMenu', () => {
   it('opens a menu with the none-mode admin pages and the appearance radios from a Settings chip', () => {
     render(<SettingsMenu />);
-    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Settings menu' })).toBeNull();
 
     const chip = screen.getByRole('button', { name: /settings/i });
-    expect(chip).toHaveAttribute('aria-haspopup', 'menu');
     fireEvent.click(chip);
 
     expect(chip).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Settings menu' })).toBeInTheDocument();
     expect(screen.getByText('ADMIN')).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: 'Chats' })).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: 'Model selection' })).toBeInTheDocument();
-    expect(screen.getByRole('menuitemradio', { name: 'Dark' })).toBeInTheDocument();
-    expect(screen.getByRole('menuitemradio', { name: 'Catppuccin' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Chats' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Model selection' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Dark' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Catppuccin' })).toBeInTheDocument();
   });
 
   it('offers only the pages that exist without accounts', () => {
     render(<SettingsMenu />);
     openMenu();
 
-    expect(screen.queryByRole('menuitem', { name: 'Users' })).toBeNull();
-    expect(screen.queryByRole('menuitem', { name: 'Credentials' })).toBeNull();
-    expect(screen.queryByRole('menuitem', { name: /sign out/i })).toBeNull();
-    expect(screen.queryByRole('menuitem', { name: /change password/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Users' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Credentials' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /sign out/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /change password/i })).toBeNull();
   });
 
   it('navigates to an admin page, closes the menu and tells the caller', () => {
@@ -81,14 +80,14 @@ describe('SettingsMenu', () => {
     render(<SettingsMenu onNavigate={onNavigate} />);
     openMenu();
 
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Model selection' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Model selection' }));
 
     expect(navMock).toHaveBeenCalledWith('/admin/model-selection');
     expect(onNavigate).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Settings menu' })).toBeNull();
 
     openMenu();
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Chats' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Chats' }));
     expect(navMock).toHaveBeenCalledWith('/admin/chats');
   });
 
@@ -100,29 +99,29 @@ describe('SettingsMenu', () => {
       </div>
     );
     const chip = openMenu();
-    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Settings menu' })).toBeInTheDocument();
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Settings menu' })).toBeNull();
 
     fireEvent.click(chip);
-    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Settings menu' })).toBeInTheDocument();
     fireEvent.mouseDown(screen.getByText('outside'));
-    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Settings menu' })).toBeNull();
   });
 
   it('stays open after an appearance pick so theme and palette can be chosen together', () => {
     render(<SettingsMenu />);
     openMenu();
-    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Catppuccin' }));
-    expect(screen.getByRole('menu')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Catppuccin' }));
+    expect(screen.getByRole('group', { name: 'Settings menu' })).toBeInTheDocument();
   });
 
   it('returns focus to the chip when Escape closes the menu from inside it', () => {
     render(<SettingsMenu />);
     const chip = openMenu();
-    screen.getByRole('menuitemradio', { name: 'Light' }).focus();
+    screen.getByRole('button', { name: 'Light' }).focus();
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Settings menu' })).toBeNull();
     expect(document.activeElement).toBe(chip);
   });
 
@@ -134,9 +133,9 @@ describe('SettingsMenu', () => {
       </div>
     );
     const chip = openMenu();
-    screen.getByRole('menuitemradio', { name: 'Light' }).focus();
+    screen.getByRole('button', { name: 'Light' }).focus();
     fireEvent.mouseDown(screen.getByText('outside'));
-    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Settings menu' })).toBeNull();
     expect(document.activeElement).toBe(chip);
   });
 });
@@ -145,14 +144,14 @@ describe('SettingsMenu About ContextMatrix', () => {
   it('offers About ContextMatrix as the last item', () => {
     render(<SettingsMenu />);
     openMenu();
-    const items = screen.getAllByRole('menuitem');
+    const items = screen.getAllByRole('button');
     expect(items[items.length - 1]).toHaveTextContent('About ContextMatrix');
   });
 
   it('returns focus to the trigger once the dialog closes', () => {
     render(<SettingsMenu />);
     const trigger = openMenu();
-    fireEvent.click(screen.getByRole('menuitem', { name: /About ContextMatrix/ }));
+    fireEvent.click(screen.getByRole('button', { name: /About ContextMatrix/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Close about' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(document.activeElement).toBe(trigger);
@@ -161,8 +160,8 @@ describe('SettingsMenu About ContextMatrix', () => {
   it('opens the dialog and closes the menu', () => {
     render(<SettingsMenu />);
     openMenu();
-    fireEvent.click(screen.getByRole('menuitem', { name: /About ContextMatrix/ }));
-    expect(screen.queryByRole('menu')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /About ContextMatrix/ }));
+    expect(screen.queryByRole('group', { name: 'Settings menu' })).toBeNull();
     expect(screen.getByRole('dialog', { name: 'About ContextMatrix' })).toBeInTheDocument();
   });
 
@@ -170,13 +169,13 @@ describe('SettingsMenu About ContextMatrix', () => {
     aboutState.hasUnseen = true;
     render(<SettingsMenu />);
     const chip = openMenu();
-    expect(chip).toHaveTextContent('(new changes)');
-    expect(screen.getByRole('menuitem', { name: /About ContextMatrix/ })).toHaveTextContent('(new changes)');
+    expect(within(chip).getByTestId('new-dot')).toBeInTheDocument();
+    expect(within(screen.getByRole('button', { name: /About ContextMatrix/ })).getByTestId('new-dot')).toBeInTheDocument();
   });
 
   it('shows no dot without news', () => {
     render(<SettingsMenu />);
     openMenu();
-    expect(screen.queryByText('(new changes)')).toBeNull();
+    expect(screen.queryByTestId('new-dot')).toBeNull();
   });
 });

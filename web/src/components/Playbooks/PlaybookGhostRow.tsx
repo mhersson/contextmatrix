@@ -62,7 +62,7 @@ export function PlaybookGhostRow({
   const epicKey = jiraSiteURL ? parseJiraRef(title, jiraSiteURL) : null;
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') onCreate();
+    if (e.key === 'Enter' && !e.nativeEvent.isComposing) onCreate();
     if (e.key === 'Escape') onCancel();
   };
 

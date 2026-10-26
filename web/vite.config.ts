@@ -13,25 +13,9 @@ export default defineConfig({
     },
   },
   build: {
-    // The lazy-loaded md-editor chunk is ~1 MB: @uiw/react-md-editor drags in
-    // react-markdown-preview plus the full rehype/remark/mdast/hast/micromark/
-    // refractor toolchain. They all load together when the editor mounts, so
-    // splitting further just adds HTTP round-trips. 1200 kB leaves headroom
-    // for that chunk while still catching future accidental bloat.
-    chunkSizeWarningLimit: 1200,
-    rollupOptions: {
-      output: {
-        manualChunks: (id) => {
-          if (id.includes('node_modules')) {
-            if (id.includes('react-md-editor') || id.includes('react-markdown-preview')) return 'md-editor'
-            if (id.includes('@dnd-kit')) return 'dnd-kit'
-            if (id.includes('react-router')) return 'react-router'
-            if (id.match(/[\\/]react[\\/]|[\\/]react-dom[\\/]/)) return 'react'
-            return 'vendor'
-          }
-        },
-      },
-    },
+    // No manualChunks: under rolldown a vendor split pulls react/jsx-runtime
+    // into the md-editor chunk, so the entry imports it and index.html
+    // preloads it on every page. Default splitting keeps the editor lazy.
   },
   test: {
     environment: 'jsdom',

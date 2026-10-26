@@ -160,7 +160,7 @@ type getSkillInput struct {
 	// skillNameSchemaDescription, so adding a skill in one place but not the
 	// other fails the test.
 	SkillName       string `json:"skill_name" jsonschema:"required,skill name: brainstorming, create-plan, create-task, document-task, execute-task, init-project, plan-draft, review-task, run-autonomous, systematic-debugging"`
-	CardID          string `json:"card_id,omitempty" jsonschema:"card ID (required for create-plan, execute-task, review-task, document-task, brainstorming, systematic-debugging, plan-draft)"`
+	CardID          string `json:"card_id,omitempty" jsonschema:"card ID (required for create-plan, execute-task, review-task, document-task, brainstorming, systematic-debugging, plan-draft, run-autonomous)"`
 	Description     string `json:"description,omitempty" jsonschema:"free-text description (used by create-task)"`
 	Name            string `json:"name,omitempty" jsonschema:"project name (used by init-project)"`
 	CallerModel     string `json:"caller_model,omitempty" jsonschema:"your model's short name or family (e.g. sonnet, opus on Claude harnesses) - enables inline execution when matching the skill model"`

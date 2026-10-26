@@ -12,7 +12,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { isTouchDevice } from '../../utils/isTouchDevice';
 import type { PlaybookFollowup } from '../../types';
-import { followupMovePosition } from './playbookUtils';
+import { followupMovePosition, PLAYBOOK_DND_ACCESSIBILITY } from './playbookUtils';
 import { PlaybookManualStep } from './PlaybookManualStep';
 
 interface PlaybookFollowupsProps {
@@ -123,7 +123,7 @@ function AddCheck({ onAdd }: { onAdd: (text: string) => void }) {
         if (text && !cancelled.current) onAdd(text);
       }}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); }
+        if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); }
         else if (e.key === 'Escape') { cancelled.current = true; setDraft(''); setOpen(false); }
       }}
       className="w-full px-1 rounded resize-none overflow-hidden"
@@ -159,7 +159,12 @@ export function PlaybookFollowups({ followups, locked, onToggle, onSaveText, onR
           : 'Ticks are only your record; they never change the run.'}
       </p>
       {followups.length > 0 && (
-        <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          onDragEnd={handleDragEnd}
+          accessibility={PLAYBOOK_DND_ACCESSIBILITY}
+        >
           <SortableContext items={followups.map((f) => f.id)} strategy={verticalListSortingStrategy}>
             <ul>
               {followups.map((f) => (

@@ -5,8 +5,8 @@
  * below don't bleed into the standalone helper-component suite there.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { render, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { Link, MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { ChatPage } from './ChatPage';
 import type { PaneSlots, Slot } from '../../components/ChatLayout/types';
 
@@ -26,7 +26,7 @@ vi.mock('./NewChatDialog', () => ({
 vi.mock('./MobileChatHeader', () => ({ MobileChatHeader: () => null }));
 vi.mock('../../components/ConfirmModal/ConfirmModal', () => ({ ConfirmModal: () => null }));
 
-const layoutSpy = vi.fn<(props: { panes: PaneSlots; focused: Slot | null }) => void>();
+const layoutSpy = vi.fn<(props: { panes: PaneSlots; focused: Slot | null; onClose: (slot: Slot) => void }) => void>();
 
 vi.mock('../../components/ChatLayout', async () => {
   const real = await vi.importActual<typeof import('../../components/ChatLayout')>(
@@ -34,14 +34,47 @@ vi.mock('../../components/ChatLayout', async () => {
   );
   return {
     ...real,
-    ChatLayout: (props: { panes: PaneSlots; focused: Slot | null }) => {
-      layoutSpy({ panes: props.panes, focused: props.focused });
+    ChatLayout: (props: { panes: PaneSlots; focused: Slot | null; onClose: (slot: Slot) => void }) => {
+      layoutSpy({ panes: props.panes, focused: props.focused, onClose: props.onClose });
       return null;
     },
   };
 });
 
+function LocationProbe() {
+  const { pathname } = useLocation();
+  return (
+    <>
+      <span data-testid="path">{pathname}</span>
+      <Link to="/chat/chat-a">reopen</Link>
+    </>
+  );
+}
+
 describe('ChatPage deep link', () => {
+  it('bounces /chat/:id back to /chat and reopens the same chat on a second click', async () => {
+    layoutSpy.mockClear();
+    render(
+      <MemoryRouter initialEntries={['/chat/chat-a']}>
+        <LocationProbe />
+        <Routes>
+          <Route path="chat" element={<ChatPage />} />
+          <Route path="chat/:id" element={<ChatPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('path').textContent).toBe('/chat'));
+    expect(layoutSpy.mock.calls.at(-1)?.[0].panes.TL?.chatId).toBe('chat-a');
+
+    act(() => layoutSpy.mock.calls.at(-1)?.[0].onClose('TL'));
+    expect(layoutSpy.mock.calls.at(-1)?.[0].panes.TL?.chatId).toBeUndefined();
+
+    fireEvent.click(screen.getByText('reopen'));
+    await waitFor(() => expect(screen.getByTestId('path').textContent).toBe('/chat'));
+    expect(layoutSpy.mock.calls.at(-1)?.[0].panes.TL?.chatId).toBe('chat-a');
+  });
+
   it('opens the deep-linked chat as a pane on first mount at /chat/:id', async () => {
     render(
       <MemoryRouter initialEntries={['/chat/chat-a']}>

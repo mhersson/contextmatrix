@@ -52,8 +52,8 @@ export function useWorkingState(
 ): { working: WorkingState | null; armOptimistic: () => void; disarmOptimistic: () => void } {
   const [working, setWorking] = useState<WorkingState | null>(null);
 
-  // Reset synchronously on session switch - see web/AGENTS.md § CardPanel
-  // for why this lives in render, not useEffect.
+  // Reset in render on session switch so the previous chat's state never
+  // paints under the new one.
   const [prevSessionID, setPrevSessionID] = useState(sessionID);
   if (sessionID !== prevSessionID) {
     setPrevSessionID(sessionID);

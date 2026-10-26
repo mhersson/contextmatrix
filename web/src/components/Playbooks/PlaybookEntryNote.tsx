@@ -24,7 +24,7 @@ export function PlaybookEntryNote({ note, onSave }: PlaybookEntryNoteProps) {
         onTouchStart={(e) => e.stopPropagation()}
         onBlur={() => { setEditing(false); onSave(draft.trim()); }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey) {
+          if (e.key === 'Enter' && !e.nativeEvent.isComposing && !e.shiftKey) {
             e.preventDefault();
             (e.target as HTMLTextAreaElement).blur();
           } else if (e.key === 'Escape') {

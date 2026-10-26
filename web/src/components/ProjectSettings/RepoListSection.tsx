@@ -53,7 +53,7 @@ function ListEditor({
           value={newValue}
           onChange={(e) => setNewValue(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') onAdd();
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) onAdd();
           }}
           placeholder={`Add ${itemName}...`}
           className="bf-input"

@@ -18,6 +18,8 @@ export interface UseChatSessions {
  */
 export const CHAT_SESSIONS_CHANGED_EVENT = 'cm:chat-sessions-changed';
 
+export const CHAT_SESSIONS_POLL_MS = 30_000;
+
 /** Notify all useChatSessions consumers that the chat list changed. */
 export function notifyChatSessionsChanged() {
   if (typeof window === 'undefined') return;
@@ -33,6 +35,11 @@ export function notifyChatSessionsChanged() {
  * The event listener debounces N rapid-fire notifications (e.g. up to 4 panes
  * each calling notifyChatSessionsChanged on the same status transition) into a
  * single refetch within a 100 ms window.
+ *
+ * Status changes the server makes on its own (worker idle-out, backend
+ * reconcile) fire no event for a session without an open pane (an open
+ * pane's stream reports them), so a visible tab also refetches every
+ * CHAT_SESSIONS_POLL_MS and when it becomes visible again.
  */
 export function useChatSessions(): UseChatSessions {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -76,6 +83,18 @@ export function useChatSessions(): UseChatSessions {
     return () => {
       window.removeEventListener(CHAT_SESSIONS_CHANGED_EVENT, handler);
       if (debounceTimer !== null) clearTimeout(debounceTimer);
+    };
+  }, []);
+
+  useEffect(() => {
+    const bump = () => {
+      if (document.visibilityState === 'visible') setTick((n) => n + 1);
+    };
+    const interval = setInterval(bump, CHAT_SESSIONS_POLL_MS);
+    document.addEventListener('visibilitychange', bump);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', bump);
     };
   }, []);
 

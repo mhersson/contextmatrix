@@ -1,4 +1,4 @@
-import MDEditor, { type MDEditorProps } from '@uiw/react-md-editor';
+import MDEditor, { type MDEditorProps } from '@uiw/react-md-editor/common';
 import { safeMarkdownOptions } from './safeMarkdownOptions';
 
 type SafeMDEditorProps = Omit<MDEditorProps, 'previewOptions' | 'components'> & {

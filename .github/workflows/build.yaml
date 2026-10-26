@@ -133,6 +133,9 @@ jobs:
       - name: npm run build
         run: npm run build
 
+      - name: npm run size
+        run: npm run size
+
       - name: npm audit
         run: npm audit --audit-level=high
 

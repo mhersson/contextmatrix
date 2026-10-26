@@ -18,7 +18,7 @@ interface PlaybookDetailHeaderProps {
 const editableInputStyle = { color: 'var(--fg)', border: '1px solid var(--bg3)' };
 
 function blurOnEnter(e: React.KeyboardEvent<HTMLInputElement>) {
-  if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+  if (e.key === 'Enter' && !e.nativeEvent.isComposing) (e.target as HTMLInputElement).blur();
 }
 
 function descriptionRows(description?: string): number {
@@ -49,11 +49,17 @@ export function PlaybookDetailHeader({
           />
         ) : (
           <h1
-            onClick={onStartEditTitle}
-            className="cursor-text flex-1 min-w-0"
+            className="flex-1 min-w-0"
             style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: '24px', color: 'var(--fg)' }}
           >
-            {detail.title}
+            <button
+              type="button"
+              onClick={onStartEditTitle}
+              className="cursor-text text-left"
+              style={{ font: 'inherit', color: 'inherit', background: 'none', border: 'none', padding: 0 }}
+            >
+              {detail.title}
+            </button>
           </h1>
         )}
         {detail.source && isSafeHttpUrl(detail.source.external_url) && (
@@ -90,13 +96,14 @@ export function PlaybookDetailHeader({
           onStartEdit={onStartEditDescription}
         />
       ) : (
-        <p
+        <button
+          type="button"
           onClick={onStartEditDescription}
-          className="cursor-text mb-4 text-sm"
-          style={{ color: 'var(--grey2)' }}
+          className="cursor-text block mb-4 text-sm text-left"
+          style={{ color: 'var(--grey2)', background: 'none', border: 'none', padding: 0 }}
         >
           Add a description
-        </p>
+        </button>
       )}
     </>
   );

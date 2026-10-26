@@ -15,7 +15,7 @@ type BlacklistWriter interface {
 }
 
 type reportIncapableModelInput struct {
-	ModelSlug    string `json:"model_slug"    jsonschema:"required,OpenRouter slug that could not drive the tool loop"`
+	ModelSlug    string `json:"model_slug"    jsonschema:"required,model slug or name as the run's gateway serves it, for the model that could not drive the tool loop"`
 	Reason       string `json:"reason"        jsonschema:"required,why the model was incapable (parse failures / no-progress)"`
 	SampleCardID string `json:"sample_card_id,omitempty" jsonschema:"card where the incapability was observed"`
 	AgentID      string `json:"agent_id"      jsonschema:"required,agent ID reporting the incapability"`

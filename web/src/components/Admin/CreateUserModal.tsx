@@ -29,8 +29,8 @@ export function CreateUserModal({ open, busy, error, onClose, onCreate }: Create
 
   useFocusTrap(dialogRef, open);
 
-  // Fresh fields every time the dialog opens (render-time pattern - see
-  // useBoard.ts / web/AGENTS.md § rail sync for why this isn't a useEffect).
+  // Fresh fields every time the dialog opens (render-time reset: avoids a
+  // stale-field flash that an effect would paint first).
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);

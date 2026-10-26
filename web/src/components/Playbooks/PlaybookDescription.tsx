@@ -56,17 +56,27 @@ export function PlaybookDescription({ description, onStartEdit }: PlaybookDescri
           />
         )}
       </div>
-      {overflows && (
+      <div className="flex gap-3 mt-1">
         <button
           type="button"
-          aria-expanded={expanded}
-          className="block mt-1 text-xs font-mono underline decoration-dotted cursor-pointer"
+          className="text-xs font-mono underline decoration-dotted cursor-pointer"
           style={{ color: 'var(--grey1)' }}
-          onClick={() => setExpanded((v) => !v)}
+          onClick={onStartEdit}
         >
-          {expanded ? 'Show less' : 'Show more'}
+          Edit
         </button>
-      )}
+        {overflows && (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            className="text-xs font-mono underline decoration-dotted cursor-pointer"
+            style={{ color: 'var(--grey1)' }}
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? 'Show less' : 'Show more'}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

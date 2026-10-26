@@ -24,7 +24,7 @@ type createProjectToolInput struct {
 	Prefix      string              `json:"prefix" jsonschema:"required,card ID prefix (e.g. ALPHA)"`
 	Repo        string              `json:"repo,omitempty" jsonschema:"git repository URL for the project code"`
 	BoardsRepo  string              `json:"boards_repo,omitempty" jsonschema:"boards repository to create the project in (a name from the server's boards config); defaults to the first configured repo"`
-	States      []string            `json:"states" jsonschema:"required,workflow states (must include stalled)"`
+	States      []string            `json:"states" jsonschema:"required,workflow states (must include stalled and not_planned)"`
 	Types       []string            `json:"types" jsonschema:"required,card types (e.g. task bug feature)"`
 	Priorities  []string            `json:"priorities" jsonschema:"required,priority levels (e.g. low medium high)"`
 	Transitions map[string][]string `json:"transitions" jsonschema:"required,state transition rules mapping each state to allowed target states"`
@@ -33,7 +33,7 @@ type createProjectToolInput struct {
 type updateProjectToolInput struct {
 	Project     string              `json:"project" jsonschema:"required,project name to update"`
 	Repo        string              `json:"repo,omitempty" jsonschema:"git repository URL"`
-	States      []string            `json:"states" jsonschema:"required,workflow states (must include stalled)"`
+	States      []string            `json:"states" jsonschema:"required,workflow states (must include stalled and not_planned)"`
 	Types       []string            `json:"types" jsonschema:"required,card types"`
 	Priorities  []string            `json:"priorities" jsonschema:"required,priority levels"`
 	Transitions map[string][]string `json:"transitions" jsonschema:"required,state transition rules"`

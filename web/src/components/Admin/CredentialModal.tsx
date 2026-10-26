@@ -18,8 +18,7 @@ interface CredentialModalProps {
  * prop contract (`{open, mode, existing?, onClose, onSaved}`) has no
  * `busy`/`error` props, so AdminCredentialsPage only reacts to `onSaved`
  * (refetch) and `onClose` (dismiss) rather than driving the request itself.
- * Field markup lives in `CredentialFields` (split out to stay under the
- * ~150-line component guideline); this file owns state, the submit call,
+ * Field markup lives in `CredentialFields`; this file owns state, the submit call,
  * and the dialog chrome (backdrop, focus trap, error display, actions).
  */
 export function CredentialModal({ open, mode, existing, onClose, onSaved }: CredentialModalProps) {
@@ -38,8 +37,8 @@ export function CredentialModal({ open, mode, existing, onClose, onSaved }: Cred
 
   useFocusTrap(dialogRef, open);
 
-  // Fresh fields every time the dialog opens (render-time pattern - see
-  // useBoard.ts / web/AGENTS.md § rail sync for why this isn't a useEffect).
+  // Fresh fields every time the dialog opens (render-time reset: avoids a
+  // stale-field flash that an effect would paint first).
   // The secret/private-key field always starts blank, even in rotate mode.
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {

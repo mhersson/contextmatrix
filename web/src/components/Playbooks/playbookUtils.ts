@@ -170,3 +170,10 @@ export function followupMovePosition(
   if (from < 0 || to < 0) return null;
   return to;
 }
+
+/** Replaces dnd-kit's keyboard-only default, which names keys these rows do not wire up. */
+export const PLAYBOOK_DND_ACCESSIBILITY = {
+  screenReaderInstructions: {
+    draggable: 'Drag this step with the mouse or by touch to reorder it.',
+  },
+};

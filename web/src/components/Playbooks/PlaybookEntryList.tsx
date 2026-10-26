@@ -10,7 +10,7 @@ import {
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { isTouchDevice } from '../../utils/isTouchDevice';
 import type { PlaybookEntry, PlaybookRun } from '../../types';
-import { frontierIndex } from './playbookUtils';
+import { frontierIndex, PLAYBOOK_DND_ACCESSIBILITY } from './playbookUtils';
 import { PlaybookEntryRow } from './PlaybookEntryRow';
 
 interface PlaybookEntryListProps {
@@ -35,7 +35,12 @@ export function PlaybookEntryList({
   const entryIds = entries.map((e) => e.id);
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={onDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCorners}
+      onDragEnd={onDragEnd}
+      accessibility={PLAYBOOK_DND_ACCESSIBILITY}
+    >
       <SortableContext items={entryIds} strategy={verticalListSortingStrategy}>
         <ul className="mb-4">
           {entries.map((entry, index) => (

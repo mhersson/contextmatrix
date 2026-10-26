@@ -455,10 +455,11 @@ Assembly rules:
 
 ## How the agent picks
 
-Everything in this section is **agent side** - implemented in the
-`contextmatrix-agent` repository (`internal/registry` and
-`internal/orchestrator`). ContextMatrix ships the inputs only; check that
-repository when a constant here drifts.
+Everything in this section is **agent side**. The selection rule lives in
+`contextmatrix-protocol/selection` (the run-level cap is
+`selection.Input.MaxCapability`); the `contextmatrix-agent` repository
+(`internal/registry` and `internal/orchestrator`) applies it. ContextMatrix
+ships the inputs only; check those repositories when a constant here drifts.
 
 ### Tiers are quality floors, not buckets
 
@@ -649,10 +650,10 @@ selection admin page's tier ladders for whichever rung keeps emptying.
 `max_capability` (a per-card, human-set flag) narrows this sequence when the
 card is configured for automatic selection. ContextMatrix stores the flag and
 ships it in the trigger payload; the agent backend consumes it as
-`registry.Selection.MaxCapability`, a run-level field set once when the registry
-is built. Every automatic pick in the run inherits it: the coder, the planner's
-model floor, the review-panel seats, the judge, the verify/propose step, and mob
-and Best-of-N seats. Only a resolvable card pin escapes it.
+`selection.Input.MaxCapability` (contextmatrix-protocol), a run-level field set
+once when the registry is built. Every automatic pick in the run inherits it:
+the coder, the planner's model floor, the review-panel seats, the judge, the
+verify/propose step, and mob and Best-of-N seats. Only a resolvable card pin escapes it.
 
 - A card pin (step 1) still wins. Note that a card can carry both: the
   "Maximum capability" checkbox is *hidden* when automatic selection is off,
@@ -762,8 +763,10 @@ no automatic tier escalation on failure - escalation to `complex` is policy
 
 ## Blacklist and the outcome ledger
 
-Two data sets persist in ContextMatrix's `ops.db`. Only the blacklist feeds
-back into selection; the outcome ledger is observability for operators.
+`ops.db` holds four selection data sets: the operator-edited tier ladders
+(`selector_ladder`) and price headroom (`selector_headroom`), the blacklist,
+and the outcome ledger. Of the two outcome-derived sets, only the blacklist
+feeds back into selection; the outcome ledger is observability for operators.
 Recorded win-rates never bias a pick - the sample volumes a single instance
 collects are far too small to out-signal the Artificial Analysis priors, and
 a solo completion is not evidence of anything comparative.
@@ -911,5 +914,6 @@ endpoints, and the equal prompt+completion price weighting.
   `favorites` in `.board.yaml`.
 - [Configuration](configuration.md) and `config.yaml.example` - every key
   above with full comments and env names.
-- The `contextmatrix-agent` repository - the selection algorithm's source
-  (`internal/registry`) and its `serve.yaml.example`.
+- The `contextmatrix-protocol` repository (`selection`) - the selection
+  algorithm's source; the `contextmatrix-agent` repository applies it
+  (`internal/registry`) and ships `serve.yaml.example`.

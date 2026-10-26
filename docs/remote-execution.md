@@ -1126,7 +1126,7 @@ name, a leftover `runner` entry, or an unknown per-entry key fails startup.
 | `chat.max_concurrent`                  | global                 | `0`         | Cap on active plus warm-idle chat containers; `0` means unlimited.                                                                       |
 | `chat.resume_budget_tokens`            | global                 | `40000`     | Rough token budget for the rehydration payload.                                                                                          |
 | `chat.rehydration_timeout`             | global                 | `10m`       | Forces the rehydration phase off if the worker never signals completion.                                                                 |
-| `op_store.db_path`                     | global                 | state dir   | `ops.db`: chat sessions and transcripts, the model blacklist, Best-of-N outcomes.                                                        |
+| `op_store.db_path`                     | global                 | state dir   | `ops.db` (tables: see configuration.md).                                                                                             |
 
 **Environment overrides** map to each entry as `CONTEXTMATRIX_BACKEND_<NAME>_*`
 (`<NAME>` is `AGENT`, `CHAT` or `ARCHITECT`); env values win over the file, and a backend

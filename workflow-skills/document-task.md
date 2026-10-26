@@ -85,7 +85,7 @@ Your only commit responsibility is the doc files you wrote in Step 3.
      the doc files you wrote/updated, and commit with a `docs(scope): summary`
      conventional message + blank line + bullet-point list of files changed. No
      card IDs in commit messages.
-   - **No Branch field:** the doc lives in the boards repo only; commit and stop.
+   - **No Branch field:** leave the doc changes uncommitted and report the files written.
 
 In all cases this skill never pushes and never creates a PR.
 

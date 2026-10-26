@@ -19,7 +19,7 @@ vi.mock('../../hooks/useTheme', () => ({
 
 // MDEditor is only mounted in edit mode. The mock exposes a textarea under
 // the `md-editor` testid so tests can type into it.
-vi.mock('@uiw/react-md-editor', () => ({
+vi.mock('@uiw/react-md-editor/common', () => ({
   default: ({
     value,
     onChange,
@@ -37,7 +37,7 @@ vi.mock('@uiw/react-md-editor', () => ({
 
 // MarkdownPreview is mounted in the read-only path. Raw HTML handling is
 // covered against the real library in CardPanelEditor.test.tsx.
-vi.mock('@uiw/react-markdown-preview', () => ({
+vi.mock('@uiw/react-markdown-preview/common', () => ({
   default: ({ source }: { source: string }) => <div data-testid="md-preview">{source}</div>,
 }));
 

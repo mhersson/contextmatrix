@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
-import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
+import { act, render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { AdminModelSelectionPage } from './AdminModelSelectionPage';
+import { PREVIEW_DEBOUNCE_MS } from './useSelectorPreview';
 import type { ModelBlacklistEntry, SelectorCandidatesResponse, SelectorLadders, SelectorLaddersResponse, SelectorPreview } from '../../types';
 import { CANDIDATES, previewFixture } from './selector.fixtures';
 
@@ -352,15 +353,23 @@ describe('AdminModelSelectionPage - preview', () => {
 
   it('debounces drag steps into one preview request', async () => {
     await renderLoaded();
+    const callsBefore = mocks.adminSelectorPreview.mock.calls.length;
 
-    const handle = screen.getByRole('slider', { name: 'coder complex bar' });
-    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 180, button: 0 });
-    for (const y of [170, 160, 150, 145]) fireEvent.pointerMove(handle, { pointerId: 1, clientY: y });
-    fireEvent.pointerUp(handle, { pointerId: 1, clientY: 145 });
+    vi.useFakeTimers();
+    try {
+      const handle = screen.getByRole('slider', { name: 'coder complex bar' });
+      fireEvent.pointerDown(handle, { pointerId: 1, clientY: 180, button: 0 });
+      for (const y of [170, 160, 150, 145]) fireEvent.pointerMove(handle, { pointerId: 1, clientY: y });
+      fireEvent.pointerUp(handle, { pointerId: 1, clientY: 145 });
+      expect(mocks.adminSelectorPreview).toHaveBeenCalledTimes(callsBefore);
 
-    await waitFor(() => expect(mocks.adminSelectorPreview).toHaveBeenCalledTimes(2));
-    await new Promise((r) => setTimeout(r, 250));
-    expect(mocks.adminSelectorPreview).toHaveBeenCalledTimes(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(PREVIEW_DEBOUNCE_MS); });
+      expect(mocks.adminSelectorPreview).toHaveBeenCalledTimes(callsBefore + 1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(PREVIEW_DEBOUNCE_MS * 5); });
+      expect(mocks.adminSelectorPreview).toHaveBeenCalledTimes(callsBefore + 1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

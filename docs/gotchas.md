@@ -251,9 +251,9 @@ Developer traps in this codebase. Each entry names the code it describes.
   `CardChat` opens no `EventSource` of its own.
 - **`useChatStream` ring buffer + REST bootstrap seam:** the hook keeps a
   2000-entry `useRingBuffer` and pairs the SSE subscription with
-  `GET /api/chats/{id}/messages?since_seq=0`. On mount or session change it
-  fetches the persisted transcript, records the highest `seq`, then
-  subscribes with `since_seq=<last>`; SSE events inside the bootstrap window
+  `GET /api/chats/{id}/messages?tail=1&limit=200` (the newest page). On mount or
+  session change it fetches that page, records the highest `seq`, then
+  subscribes with `since_seq=<last>`, and `loadOlder` pages backward; SSE events inside the bootstrap window
   are deduped. SSE-only would lose everything older than the server-side
   128-entry ring on refresh. Architect live frames ride the same stream as
   `kind: "blueprint"` events with `seq: 0`; the hook hands them to
@@ -310,8 +310,8 @@ Developer traps in this codebase. Each entry names the code it describes.
   replayed after the ring).
 - **Op-store schema has no migration ledger.** `ensureSchema` in
   `internal/opstore/sqlite/schema.go` runs idempotent
-  `CREATE TABLE IF NOT EXISTS` DDL for `model_blacklist`, `chat_sessions`,
-  `chat_messages`, `chat_cost_archive`, and `model_outcomes` in `ops.db`.
+  `CREATE TABLE IF NOT EXISTS` DDL for every table in `ops.db` (tables: see
+  `docs/configuration.md`).
   There is no `schema_migrations` table. A new table is an edit to that DDL;
   a column added to an existing table also needs an `addColumnIfMissing` call
   after the DDL, since `IF NOT EXISTS` leaves an old table untouched. Such a

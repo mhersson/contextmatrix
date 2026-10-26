@@ -1703,8 +1703,7 @@ textarea {
 /* ─── Multi-pane chat layout ──────────────────────────────────────────
    Shell + per-pane styling for the global /chat route's tiled view.
    Mirrors the CardPanel visual vocabulary (Everforest vars, .bf-rail-tab
-   typography, panel-slide-in animation). See web/AGENTS.md § Global Chat -
-   multi-pane layout. */
+   typography, panel-slide-in animation). */
 
 .chat-layout {
   width: 100%;

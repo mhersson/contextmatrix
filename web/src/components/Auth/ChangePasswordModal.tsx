@@ -38,6 +38,12 @@ export function ChangePasswordModal({ open, onClose }: Props) {
     onClose();
   };
 
+  // The Escape listener must call the latest onClose, not the one from the render that opened the modal.
+  const closeRef = useRef(close);
+  useEffect(() => {
+    closeRef.current = close;
+  });
+
   // Focus trap, initial focus falls back to the first focusable field.
   useFocusTrap(dialogRef, open);
 
@@ -45,11 +51,10 @@ export function ChangePasswordModal({ open, onClose }: Props) {
   useEffect(() => {
     if (!open) return;
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') close();
+      if (e.key === 'Escape') closeRef.current();
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   if (!open) return null;

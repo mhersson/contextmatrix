@@ -43,7 +43,7 @@ export function ChatComposer({ onSend, sendDisabled, maxBytes, footer, focusKey,
   const canSend = message.trim().length > 0 && !sending && !isOverLimit && !sendDisabled;
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.nativeEvent.isComposing && !e.shiftKey) {
       e.preventDefault();
       if (canSend) void handleSend();
     }

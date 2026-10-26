@@ -157,7 +157,7 @@ export function RoundBlock({
     if (e.altKey || e.ctrlKey || e.metaKey) return;
     const target = e.target as HTMLElement;
     if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
-      if (e.key === 'Enter' && target.hasAttribute('data-own-answer')) {
+      if (e.key === 'Enter' && !e.nativeEvent.isComposing && target.hasAttribute('data-own-answer')) {
         e.preventDefault();
         move(1);
       }
@@ -166,7 +166,7 @@ export function RoundBlock({
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       e.preventDefault();
       move(e.key === 'ArrowLeft' ? -1 : 1);
-    } else if (e.key === 'Enter' && target.getAttribute('role') === 'tab') {
+    } else if (e.key === 'Enter' && !e.nativeEvent.isComposing && target.getAttribute('role') === 'tab') {
       e.preventDefault();
       move(1);
     } else if (question && mode === 'open' && /^[1-9]$/.test(e.key)) {

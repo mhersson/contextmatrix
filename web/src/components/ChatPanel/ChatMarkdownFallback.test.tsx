@@ -7,7 +7,7 @@ import type { LogEntry } from '../../types';
 // Separate file from ChatPanel.test.tsx on purpose: this mock makes every
 // markdown render throw (as a rejected md-editor chunk import would), which
 // must not leak into the suites that exercise the real lazy/Suspense path.
-vi.mock('@uiw/react-markdown-preview', () => ({
+vi.mock('@uiw/react-markdown-preview/common', () => ({
   default: () => {
     throw new Error('chunk load failed');
   },

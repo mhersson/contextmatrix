@@ -58,8 +58,9 @@ before any auth review - the security properties fork on it.
   `internal/api/auth.go`); passwords are argon2id-hashed, session tokens stored
   only as SHA-256. The session-derived `human:<username>` **always wins** over
   any `X-Agent-ID` header, upgrading the card-ownership check into real
-  enforcement. `requireAdmin` gates user, credential, project, admin-chat, and
-  model-outcome/blacklist management only; card work needs just a session.
+  enforcement. `requireAdmin` gates user, credential, project, admin-chat,
+  model-outcome/blacklist, and selector (ladders, candidates, preview) management
+  plus `GET /api/backends/{backend}/images`; card work needs just a session.
 
 **Both modes:** MCP is Bearer-token auth (`mcp_api_key`); backend webhooks are
 HMAC-signed; `/healthz` + `/readyz` are open; the admin listener (pprof +
@@ -86,7 +87,7 @@ enforces a workflow contract, not a security boundary, in both modes.
 cmd/contextmatrix/main.go  → entrypoint; wires dependencies, starts server
 internal/board/            → domain types: Card, ProjectConfig, StateMachine
 internal/storage/          → Store interface + FilesystemStore
-internal/gitops/           → GitManager (commit/pull/push via go-git, merges via shell git) + async CommitQueue
+internal/gitops/           → Manager (commit/pull/push via go-git, merges via shell git) + async CommitQueue
 internal/gitsync/          → background board-repo sync
 internal/boardmerge/       → pure three-way merge rules for a shared boards repo
 internal/lock/             → claim/release/heartbeat + timeout checker
@@ -95,7 +96,7 @@ internal/api/              → REST handlers (stdlib http.ServeMux) + SSE endpoi
 internal/mcp/              → MCP server: tools + prompts
 internal/backend/          → task-backend webhook client + reconcile sweep + end-session subscriber + session-log bridge (sessionlog subpkg)
 internal/chat/             → chat session manager (dispatches by session kind: chat, architect), SSE hub, chat-backend log bridge (persists via opstore)
-internal/opstore/          → ops.db (SQLite): chat sessions/messages, model outcomes, blacklist, cost archive
+internal/opstore/          → ops.db (SQLite): chat sessions/messages, model outcomes, blacklist, cost archive, selector ladders and headroom, Jira writeback outbox
 internal/modelcatalog/     → cached model catalog + candidate rating (Artificial Analysis + OpenRouter or OpenAI-compatible endpoint)
 internal/auth/             → sessions, users, one-time tokens, credential-pool crypto, master key
 internal/authstore/        → auth.db (SQLite): users, sessions, tokens, credentials
@@ -110,6 +111,10 @@ internal/events/           → in-process pub/sub event bus
 internal/config/           → global config loading
 internal/ctxlog/           → request_id context logger
 internal/metrics/          → Prometheus metric vars + Register()
+internal/playbookrun/      → runnable-playbook execution
+internal/githuburl/        → GitHub repository URL parsing shared by github and service
+internal/sqliteutil/       → shared SQLite plumbing: DSN, pooled open, schema_migrations runner
+internal/buildinfo/        → stamped version, commit and build time
 web/                       → React frontend (Vite + TypeScript + Tailwind)
 workflow-skills/           → agent lifecycle skills (markdown, served via MCP prompts)
 ```
@@ -123,8 +128,6 @@ workflow-skills/           → agent lifecycle skills (markdown, served via MCP 
 - **Go MCP SDK** (`github.com/modelcontextprotocol/go-sdk`) - MCP over
   Streamable HTTP.
 - **modernc.org/sqlite** - pure-Go SQLite for `auth.db` and `ops.db` (no cgo).
-- **`internal/githubauth`** - GitHub auth (App + PAT + caching) behind
-  `githubauth.TokenGenerator`.
 - **`contextmatrix-protocol`** - shared wire types across the server, the agent
   backend, and the chat backend.
 - **React 19 + TypeScript**, **Vite**, **Tailwind**, **@dnd-kit**,
@@ -137,7 +140,8 @@ workflow-skills/           → agent lifecycle skills (markdown, served via MCP 
 
 - `internal/` for all packages - nothing exported outside the module.
 - Interfaces live in the package that _uses_ them, not the one that implements
-  them. Exception: `storage.Store` (multiple consumers).
+  them. Exceptions: `storage.Store`, `images.Store`, `githubauth.TokenGenerator`,
+  `clock.Clock` (multiple consumers).
 - Wrap errors with `fmt.Errorf("operation: %w", err)`. Never swallow.
 - `context.Context` is the first parameter of any function doing I/O; required
   for every exported function that writes to disk or network.
@@ -206,7 +210,7 @@ Full detail and examples: `docs/data-model.md`.
    `not_planned`) cannot be claimed (409), except by the agent already holding
    the claim.
 4. **Human identity** - agent IDs prefixed `human:` (e.g. `human:alice`).
-5. **Every mutation auto-commits** via `GitManager.CommitFile()`. With
+5. **Every mutation auto-commits** via `gitops.Manager.CommitFile()`. With
    `git_deferred_commit`, a claimed card's commits batch until release or
    completion, entry into `review` or `not_planned`, a stall, or a terminal
    worker status. Updates, state changes and log entries on an unclaimed
@@ -224,7 +228,7 @@ Full detail and examples: `docs/data-model.md`.
 9. **External source tracking** - `source` field (Jira/GitHub imports),
    immutable after creation.
 10. **Parent auto-transitions** - parent goes `in_progress` when its first
-    subtask is claimed; the orchestrator moves it to `review` after
+    subtask enters `in_progress`; the orchestrator moves it to `review` after
     documentation.
 11. **Subtask type** - automatic when `parent` is set; immutable; built-in (not
     in `.board.yaml` types).
@@ -234,10 +238,11 @@ Full detail and examples: `docs/data-model.md`.
     orphaning duplicates.
 13. **Promote to autonomous** -
     `POST /api/projects/{project}/cards/{id}/promote` (human-only) flips
-    `autonomous: true`, logs, and commits. Idempotent; rejects terminal cards
-    with 409. The `promote_to_autonomous` MCP tool is the same operation, also
-    human-only (`agent_id` must start with `human:`). The agent backend's
-    `/promote` webhook calls this endpoint first, fail-closed.
+    `autonomous: true`, logs, and commits, then sends the backend's `/promote`
+    webhook (reverting the flip on failure). Idempotent; rejects terminal cards
+    with 409. The `promote_to_autonomous` MCP tool flips the flag the same way,
+    also human-only (`agent_id` must start with `human:`), but sends no webhook.
+    The backend re-reads the flag, fail-closed.
 14. **`assignee`** - human-only informational responsibility label (a bare
     username), fully independent of `assigned_agent` (the execution claim).
     Never a permission boundary. Validated against the user roster in multi
@@ -284,9 +289,10 @@ installed config in sync with this repo.
 - `make lint` - clean.
 - `make build` - builds (run `make install-frontend` first in a fresh checkout).
 - When `web/` changed: `make test-frontend` and `make lint-frontend` - both clean.
-- API / frontend / MCP changes - exercise the real surface (curl an endpoint,
-  drive the browser flow, invoke the tool). Agents verify via MCP tools, never
-  curl (see below).
+- API / frontend / MCP changes - exercise the real surface (drive the browser
+  flow, invoke the tool); verify REST changes against a scratch instance you
+  started on a spare port; the MCP-only rule covers the boards you coordinate
+  through (see below).
 
 Target-project agents need `Edit` and `Write` allowed in their Claude Code
 permissions, or they report `TASK_BLOCKED` (see `docs/agent-workflow.md`).
@@ -302,6 +308,7 @@ make build     # builds (run make install-frontend first in a fresh checkout)
 ```
 
 - When `web/` changed: `make test-frontend` and `make lint-frontend` - both clean.
+- No session links in commits or PRs.
 - **Never commit to `main`.** Work on a feature branch; tasks of a plan or
   scope the user approved commit there without asking again. Never push
   without explicit user approval.

@@ -13,7 +13,8 @@ You are the planning and execution orchestrator for a ContextMatrix card.
 
 - Before prompting the user at any gate: call `heartbeat` + `report_usage`.
 - On resume (first tool call after the user's reply): call `heartbeat`.
-  If it returns `agent_mismatch` or the card is `stalled`:
+  If it fails (not claimed, or owned by someone else) or `get_card` shows the
+  card `stalled`:
   `transition_card(new_state='in_progress')`, `claim_card`, continue.
   If that transition is rejected (409, board disallows it):
   `transition_card(new_state='todo')`, then `claim_card` (claiming from
@@ -38,7 +39,7 @@ You are the planning and execution orchestrator for a ContextMatrix card.
 ## Step 0: Ensure the card is claimed
 
 If the card is not already claimed by you, call `claim_card(card_id, agent_id)`.
-Hold this claim through Phase 5.
+Hold this claim through Phase 5 step 5.
 
 If the error starts with `remote unreachable:`, wait 10 seconds and retry, at
 most 3 times. The same rule applies to `create_card` in Phase 3.
@@ -49,7 +50,8 @@ Call `get_card(card_id=<parent_id>)`. The top-level `autonomous` field
 is the ONLY source of truth for mode.
 
 - **If `autonomous: true`:** the brainstorming branch (Branch C below) is
-  skipped; Branches A and B still apply. Phase 1 Step 2.5 is the fallback for vague designs in autonomous
+  skipped; Branches A and B still apply. The drafting sub-agent's placeholder
+  scan (Phase 1 Step 2) is the fallback for vague designs in autonomous
   creative cards.
 - **If `autonomous: false` (HITL):** all three branches are available.
 
@@ -111,8 +113,8 @@ card to `blocked` with the reason and stop.
 
 ### Branch C - Creative work, run brainstorming (HITL only)
 
-**In autonomous mode, this branch is skipped.** Proceed directly to Phase 1; Phase 1 Step 2.5 catches vague
-designs in autonomous creative cards.
+**In autonomous mode, this branch is skipped.** Proceed directly to Phase 1; the drafting sub-agent's placeholder
+scan (Phase 1 Step 2) catches vague designs in autonomous creative cards.
 
 **In HITL mode**, call:
 
@@ -121,7 +123,8 @@ get_skill(skill_name='brainstorming', card_id=<parent_id>,
           caller_model='<your_model>')
 ```
 
-The response will include `inline: true`. Run the returned `content` directly in this same session.
+Run the returned `content` directly in this same session, whatever the
+`inline` field says.
 
 **Do NOT spawn a sub-agent for brainstorming.** Sub-agents have no chat
 channel back to the user; dialogue requires running inline.
@@ -136,14 +139,6 @@ Cards that straddle bug + feature: prefer Branch B; the diagnosis sub-agent flag
 ---
 
 # Phase 1: Plan Drafting
-
-## Step 0: Ensure the card is claimed
-
-If the card is not already claimed by you, call `claim_card(card_id, agent_id)`.
-Hold this claim through Phase 5.
-
-If the error starts with `remote unreachable:`, wait 10 seconds and retry, at
-most 3 times. The same rule applies to `create_card` in Phase 3.
 
 ## Step 1: Fetch the drafting skill
 
@@ -262,16 +257,18 @@ the plan lives on the card, not in your context.
 If the plan draft contains a `## Split` section, execute it before creating
 subtasks:
 
-1. For each split entry, call `create_card` (no parent) with its title and
-   self-contained body. Set `depends_on` to the original card's ID (plus
-   earlier split cards) only where ordering is real.
-2. Copy the original card's `autonomous` flag onto each new card with
-   `update_card`.
-3. Narrow the original card's body to the first deliverable with
-   `update_card`, and confirm the narrowed scope with the human.
-4. Call `add_log` on the original card listing the created card IDs and the
-   reason for the split.
-5. Continue planning ONLY the original (narrowed) card.
+1. Handle each split entry without a `Created:` line completely before the
+   next: call `create_card` (no parent) with its title and self-contained
+   body, setting `depends_on` to the original card's ID (plus earlier split
+   cards) only where ordering is real; copy the original card's `autonomous`
+   flag onto it with `update_card`; upsert the `Split` section with
+   `Created: <card ID>` added to that entry.
+2. When cards were created, narrow the original card's body to the first
+   deliverable with `update_card`; in HITL mode, confirm the narrowed scope
+   with the human.
+3. When cards were created, call `add_log` on the original card listing their
+   IDs and the reason for the split.
+4. Continue planning ONLY the original (narrowed) card.
 
 For each subtask described in the `## Plan` section:
 
@@ -284,7 +281,7 @@ For each subtask described in the `## Plan` section:
 3. For each subtask that does NOT already exist, call `create_card` with:
    - `parent`: the parent card ID
    - `title`, `body`, `priority`, `depends_on` as specified in the plan
-   - Note: the `type` field is automatically set to `subtask` by the backend
+   - `type: task` (the server stores `subtask`)
 
 Proceed immediately to Phase 4.
 
@@ -319,12 +316,9 @@ the orchestrator's working tree on the feature branch.
    and read `branch_name`. If `branch_name` is non-empty:
    `git checkout -b <branch_name>` (or `git checkout <branch_name>` if it
    already exists). Run unconditionally - both HITL and autonomous paths.
-1. Claim the parent card:
-   `claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`. Hold this claim
-   through the entire execution phase.
-2. Call `get_ready_tasks` for the project to find subtasks with all dependencies
+1. Call `get_ready_tasks` for the project to find subtasks with all dependencies
    met (state `todo`, no unfinished deps).
-3. For each ready task, call
+2. For each ready task, call
    `get_skill(skill_name='execute-task', card_id=<id>, caller_model='<your_model>')`.
    The response contains `model` (which model to use) and `content` (the full
    prompt). **Never pass `include_preamble: false`** - sub-agents need the
@@ -347,14 +341,14 @@ the orchestrator's working tree on the feature branch.
    the parent stalled during the block). Then call `get_ready_tasks` again:
    tasks ready - repeat Spawn mode; none ready but `get_subtask_summary`
    still shows non-terminal subtasks (others are already in progress or
-   stalled from an earlier spawn cycle) - go to step 4 and enter the
+   stalled from an earlier spawn cycle) - go to step 3 and enter the
    monitoring loop at (a); all subtasks terminal - proceed to Phase 6. This
    last case is the only one that skips the monitoring loop entirely - it
    only applies to the single-task path, and only once nothing else remains.
 
-   **After a parallel multi-task spawn**, go to step 4.
-4. **Monitor sub-agents.** To record your own token consumption since the
-   last report:
+   **After a parallel multi-task spawn**, go to step 3.
+3. **Monitor sub-agents.** To record your own token consumption since the
+   last report, call `report_usage` with:
    - `card_id`: the parent card ID
    - `agent_id`: your agent ID
    - `model`: your own model identifier, read fresh from your system context
@@ -364,7 +358,7 @@ the orchestrator's working tree on the feature branch.
      report; omit `source`
 
    a. Call `await_subtasks(parent_id=<parent_id>, agent_id=<your_agent_id>,
-      timeout_seconds=480)` - only after step 3 has spawned the sub-agents;
+      timeout_seconds=480)` - only after step 2 has spawned the sub-agents;
       calling it on a parent with no subtask cards yet returns an instant
       vacuous `completed: true` (there is nothing to wait on). It blocks
       server-side until all subtasks finish, any subtask stalls, or the
@@ -377,14 +371,14 @@ the orchestrator's working tree on the feature branch.
       (`check_agent_health` gives per-card detail), then run the same
       `get_ready_tasks` sweep as (d). Call `report_usage`, repeat from (a).
    d. Otherwise (`timed_out`): call `get_ready_tasks` and spawn any newly
-      ready tasks using the Spawn mode mechanics in step 3 (blocking for one,
+      ready tasks using the Spawn mode mechanics in step 2 (blocking for one,
       `run_in_background` for two-plus, `heartbeat` first) - this is what
       picks up subtasks a sibling's completion just unblocked (`depends_on`
       chains); a chain step's latency is bounded by the await window, same
       order as the old 10-minute poll. You are already inside the monitoring
       loop here, so no matter how many you spawn, always call `report_usage`
       and repeat from (a) - "skip the monitoring loop" never applies once
-      you're past step 3's single-task path.
+      you're past step 2's single-task path.
 
    ### Respawning a dead agent
 
@@ -411,12 +405,12 @@ the orchestrator's working tree on the feature branch.
         agent. Review it and continue from where it left off rather than
         starting from scratch."
    5. Call
-      `add_log(card_id=<id>, action='respawned', message='Agent stalled, respawning (attempt N)')`.
+      `add_log(card_id=<parent_id>, agent_id=<your_agent_id>, action='respawned', message='Agent stalled, respawning <id> (attempt N)')`.
 
-5. Sub-agent changes are already in the working tree on the feature branch.
-   Phase 9 commits them. Proceed to step 6.
+4. Sub-agent changes are already in the working tree on the feature branch.
+   Phase 9 commits them. Proceed to step 5.
 
-6. Release your claim on the parent card so the documentation agent can claim
+5. Release your claim on the parent card so the documentation agent can claim
    it: `release_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
 
 ---
@@ -429,14 +423,14 @@ Call
 from the response, `description` set to `"document-task for <parent_id>"`, and
 `prompt` set to the returned `content`. Documentation is always a sub-agent for
 context isolation - ignore the `inline` field. The parent stays in `in_progress`
-during documentation. Call `heartbeat`, then block on completion (do **NOT**
-use `run_in_background` - the doc gate needs `DOCS_WRITTEN` in hand).
+during documentation. Block on completion (do **NOT** use
+`run_in_background` - the doc gate needs `DOCS_WRITTEN` in hand). You hold no
+claim during the block, so call no `heartbeat` until you reclaim.
 
-On `DOCS_WRITTEN`, call `heartbeat` and `report_usage`; if the card went
-stalled during the block, recover per the Heartbeat section.
-
-After `DOCS_WRITTEN` is received: reclaim the parent card:
-`claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
+On `DOCS_WRITTEN`, call `report_usage`, then reclaim the parent card:
+`claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`, then call
+`heartbeat`. If `claim_card` fails or `get_card` shows the card `stalled`,
+recover per the Heartbeat section.
 
 ---
 
@@ -519,7 +513,8 @@ Phase 10:
 3. If `create_pr` is enabled, create a PR using `gh pr create`. If the card has
    a `base_branch` field, pass `--base <base_branch>` so the PR targets the
    correct branch.
-4. Call `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
+4. Call
+   `report_push(card_id=<parent_id>, agent_id=<your_agent_id>, branch=<branch_name>, pr_url=<url>)`.
 5. If the card context shows a PR-gate flag, run the PR Gates section now. If
    it parks the card, stop - do not proceed to Phase 10.
 6. Proceed directly to Phase 10.
@@ -541,7 +536,7 @@ If the user approves the commit and the parent card has a `branch_name`, ask:
 - **User approves push:** push to the feature branch; if `create_pr` is
   enabled, create a PR using `gh pr create`. If the card has a `base_branch`
   field, pass `--base <base_branch>`. Call
-  `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
+  `report_push(card_id=<parent_id>, agent_id=<your_agent_id>, branch=<branch_name>, pr_url=<url>)`.
   Then, if a PR-gate flag is set, run the PR Gates section.
 - **User declines push:** skip push and PR - no `report_push` call.
 

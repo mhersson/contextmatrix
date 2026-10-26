@@ -5,7 +5,7 @@ import { ErrorBoundary } from '../ErrorBoundary';
 // bundle cost until first use. The chat markdown styling is fully driven by
 // CSS custom properties, so dark/light switches automatically without
 // data-color-mode. The per-message Suspense fallback shows the raw source,
-// so the transcript reads as plain text during the (preloaded, one-off)
+// so the transcript reads as plain text during the (lazy, one-off)
 // chunk fetch instead of blanking behind a single transcript-level boundary.
 const MarkdownPreview = lazy(() => import('../Markdown/SafeMarkdownPreview'));
 

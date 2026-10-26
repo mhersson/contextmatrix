@@ -93,9 +93,10 @@ live in [architecture](architecture.md); the HTTP surface in the
    (`internal/service/service_locks.go`) sets the card to `stalled`, clears
    the claim, commits and publishes `CardStalled`. `lock.Manager.FindStalled`
    only enumerates candidates and never mutates. The same sweep reaps
-   abandoned parents: a parent in `in_progress`, unclaimed, untouched within
-   the timeout and with no active subtask is stalled as well, since a parent
-   is never itself claimed and would otherwise never time out.
+   abandoned work: an `in_progress` card with no claim and no active subtask
+   (a parent whose run died, or a standalone card worked without a claim),
+   untouched within the timeout, is stalled as well; a parent is never itself
+   claimed and would otherwise never time out.
 
    `last_heartbeat` is refreshed by the `heartbeat` MCP tool and by any
    owner-attributed mutation (`update_card`, `add_log`, `transition_card`,
@@ -1015,7 +1016,7 @@ Top-level `.board.yaml` fields (full reference in
 | `prefix`            | Card ID prefix (`ALPHA` -> `ALPHA-001`).                                         |
 | `next_id`           | Server-managed ID counter.                                                       |
 | `repo`              | Code repository URL (single-repo form).                                          |
-| `repos`             | Multi-repo list of `{name, url, primary}`; takes precedence over `repo`.         |
+| `repos`             | Reserved list of `{name, url, primary}`. Read only for worker-credential matching, the chat repo fallback when `repo` is empty and the card self-containment lint; runs, branch listing, the runnable check and compare links use `repo`. |
 | `github_credential` | Credential-pool entry name (multi mode); see below.                              |
 | `states`            | Workflow states; must include `stalled` and `not_planned`.                       |
 | `types`             | Card types; `subtask` is built in.                                               |
@@ -1210,8 +1211,8 @@ no server-side coupling to `create_pr` or `await_ci`.
 ## `chat_sessions` SQLite schema
 
 Chat state lives in the operational store `ops.db`, separate from the boards
-repo and `images.db`; the same file holds `model_blacklist` and
-`model_outcomes`. `ensureSchema` in `internal/opstore/sqlite/schema.go` runs
+repo and `images.db`; the same file holds the other tables (tables: see
+`configuration.md`). `ensureSchema` in `internal/opstore/sqlite/schema.go` runs
 `CREATE TABLE IF NOT EXISTS` for every table; there is no migration ledger. A
 column added to an existing table is grown by `addColumnIfMissing`, without a
 schema version bump when it has a default that older binaries never name, so a

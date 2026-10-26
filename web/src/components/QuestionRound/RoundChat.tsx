@@ -97,7 +97,7 @@ export function RoundChat({ round, disabled, sent = [], onSendChat }: RoundChatP
                   if (error) setError(null);
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
+                  if (e.key === 'Enter' && !e.nativeEvent.isComposing && !e.shiftKey) {
                     e.preventDefault();
                     void send();
                   }

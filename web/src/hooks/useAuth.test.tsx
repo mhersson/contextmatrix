@@ -1,6 +1,7 @@
 import { render, screen, act, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AuthProvider, useAuth } from './useAuth';
+import { APP_CONFIG_RETRY_BACKOFFS_MS } from './appConfigRetry';
 import { SESSION_EXPIRED_EVENT } from '../api/client';
 
 const mocks = vi.hoisted(() => ({
@@ -108,15 +109,22 @@ describe('AuthProvider', () => {
   it('unmount mid-backoff cancels the retry loop - no stray request fires', async () => {
     mocks.getAppConfig.mockRejectedValue(new TypeError('Failed to fetch'));
 
-    const { unmount } = render(<AuthProvider><Probe /></AuthProvider>);
+    vi.useFakeTimers();
+    try {
+      const { unmount } = render(<AuthProvider><Probe /></AuthProvider>);
 
-    // Let the first attempt fail, then unmount inside the 100ms backoff.
-    await waitFor(() => expect(mocks.getAppConfig).toHaveBeenCalledTimes(1));
-    unmount();
+      // Let the first attempt fail, then unmount inside the first backoff.
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(mocks.getAppConfig).toHaveBeenCalledTimes(1);
+      unmount();
 
-    // Wait past every backoff window; the aborted loop must not fire again.
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    expect(mocks.getAppConfig).toHaveBeenCalledTimes(1);
+      // Advance past every backoff window; the aborted loop must not fire again.
+      const total = APP_CONFIG_RETRY_BACKOFFS_MS.reduce((a, b) => a + b, 0);
+      await act(async () => { await vi.advanceTimersByTimeAsync(total * 2); });
+      expect(mocks.getAppConfig).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not retry a structured non-transient app-config error - falls back to none immediately', async () => {

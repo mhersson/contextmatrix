@@ -95,7 +95,7 @@ export function ModelCombobox({
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setHighlight((h) => Math.max(h - 1, 0));
-    } else if (e.key === 'Enter') {
+    } else if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
       if (open && highlight >= 0 && filtered[highlight]) {
         e.preventDefault();
         commit(filtered[highlight]);

@@ -39,12 +39,11 @@ export function useRevealWindow<T>(
 ): RevealWindow<T> {
   const [extraRevealed, setExtraRevealed] = useState(0);
 
-  // Adjust synchronously in render when the list identity changes - same
-  // pattern as the sessionID reset in ChatThread (see web/AGENTS.md on
-  // render-time resets). The whole previous array is the baseline (not just
-  // its length): at ring capacity an append changes items[0] with the length
-  // unchanged, and a length-gated baseline would go stale and misclassify
-  // later growth.
+  // Adjust synchronously in render when the list identity changes, as the
+  // sessionID reset in ChatThread does. The whole previous array is the
+  // baseline (not just its length): at ring capacity an append changes
+  // items[0] with the length unchanged, and a length-gated baseline would go
+  // stale and misclassify later growth.
   const [prevItems, setPrevItems] = useState(items);
   if (items !== prevItems) {
     setPrevItems(items);
