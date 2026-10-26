@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { UserMenu } from './UserMenu';
 import type { Palette } from '../../lib/palettes';
 
@@ -162,15 +162,15 @@ describe('UserMenu About ContextMatrix', () => {
     aboutState.hasUnseen = true;
     render(<UserMenu />);
     const trigger = screen.getByRole('button', { name: /Root/ });
-    expect(trigger).toHaveTextContent('(new changes)');
+    expect(within(trigger).getByTestId('new-dot')).toBeInTheDocument();
     fireEvent.click(trigger);
-    expect(screen.getByRole('button', { name: /About ContextMatrix/ })).toHaveTextContent('(new changes)');
+    expect(within(screen.getByRole('button', { name: /About ContextMatrix/ })).getByTestId('new-dot')).toBeInTheDocument();
   });
 
   it('shows no dot without news', () => {
     setAuth(false);
     render(<UserMenu />);
     fireEvent.click(screen.getByRole('button', { name: /Root/ }));
-    expect(screen.queryByText('(new changes)')).toBeNull();
+    expect(screen.queryByTestId('new-dot')).toBeNull();
   });
 });

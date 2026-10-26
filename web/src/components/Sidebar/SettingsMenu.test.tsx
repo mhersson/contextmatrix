@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { SettingsMenu } from './SettingsMenu';
 import type { Palette } from '../../lib/palettes';
 
@@ -169,13 +169,13 @@ describe('SettingsMenu About ContextMatrix', () => {
     aboutState.hasUnseen = true;
     render(<SettingsMenu />);
     const chip = openMenu();
-    expect(chip).toHaveTextContent('(new changes)');
-    expect(screen.getByRole('button', { name: /About ContextMatrix/ })).toHaveTextContent('(new changes)');
+    expect(within(chip).getByTestId('new-dot')).toBeInTheDocument();
+    expect(within(screen.getByRole('button', { name: /About ContextMatrix/ })).getByTestId('new-dot')).toBeInTheDocument();
   });
 
   it('shows no dot without news', () => {
     render(<SettingsMenu />);
     openMenu();
-    expect(screen.queryByText('(new changes)')).toBeNull();
+    expect(screen.queryByTestId('new-dot')).toBeNull();
   });
 });
