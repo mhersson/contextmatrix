@@ -200,8 +200,7 @@ most 65536 bytes) and `projects` (at least one existing project), and returns
 into the chat named by `X-CM-Chat-Session`. It is registered only when an
 architect backend is configured, and refused without that header and from a
 blueprint session. Nothing is created until the operator presses Create on the
-hand-off block. A chat container lists tools when it starts, so chats started
-before the tool shipped do not see it.
+hand-off block.
 
 ## Slash commands
 
