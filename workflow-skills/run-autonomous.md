@@ -118,8 +118,8 @@ Based on the card's current state and body content:
    return call `heartbeat` and `report_usage`. The sub-agent writes `## Plan`
    and `## Decisions` (and `## Split` when the card holds several
    deliverables) and prints `PLAN_DRAFTED`; confirm `## Plan` via `get_card`.
-   On `PLAN_BLOCKED`, transition the card to `blocked` with the reason and
-   stop.
+   On `PLAN_BLOCKED`, transition the card to `blocked` with the reason,
+   call `release_card(card_id, agent_id)`, and stop.
 4. Skip user approval - proceed directly to Phase 2.
 
 ## Phase 2: Subtask Creation (always inline)
