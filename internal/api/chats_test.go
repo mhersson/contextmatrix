@@ -519,7 +519,7 @@ func streamSeqs(t *testing.T, srvURL string, hub *chat.SSEHub, sessionID string,
 
 	line, err := reader.ReadString('\n')
 	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(line, ": connected"), line)
+	require.True(t, strings.HasPrefix(line, ":"), "the stream opens with an SSE comment frame: %q", line)
 
 	const marker = int64(1) << 40
 

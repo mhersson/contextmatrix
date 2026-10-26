@@ -113,8 +113,7 @@ func TestUpdateWorkerStatus_RunningDoesNotReplaceKilled(t *testing.T) {
 	before, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
 
-	msgBefore, err := gitMgr.GetLastCommitMessage()
-	require.NoError(t, err)
+	commitsBefore := commitCount(t, gitMgr)
 
 	got, err := svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "late report")
 	require.NoError(t, err)
@@ -125,10 +124,7 @@ func TestUpdateWorkerStatus_RunningDoesNotReplaceKilled(t *testing.T) {
 	assert.Equal(t, "killed", after.WorkerStatus)
 	assert.Equal(t, before.ActivityLog, after.ActivityLog, "an ignored report writes no log entry")
 	assert.True(t, before.Updated.Equal(after.Updated))
-
-	msgAfter, err := gitMgr.GetLastCommitMessage()
-	require.NoError(t, err)
-	assert.Equal(t, msgBefore, msgAfter, "an ignored report commits nothing")
+	assert.Equal(t, commitsBefore, commitCount(t, gitMgr), "an ignored report commits nothing")
 
 	_, err = svc.MarkQueued(ctx, "test-project", card.ID, "relaunch")
 	require.NoError(t, err)
@@ -181,8 +177,7 @@ func TestUpdateWorkerStatus_KilledWorkerReports(t *testing.T) {
 			before, err := svc.GetCard(ctx, "test-project", card.ID)
 			require.NoError(t, err)
 
-			msgBefore, err := gitMgr.GetLastCommitMessage()
-			require.NoError(t, err)
+			commitsBefore := commitCount(t, gitMgr)
 
 			_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, tt.status, "late report")
 			require.NoError(t, err)
@@ -191,14 +186,11 @@ func TestUpdateWorkerStatus_KilledWorkerReports(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, after.WorkerStatus)
 
-			msgAfter, err := gitMgr.GetLastCommitMessage()
-			require.NoError(t, err)
-
 			if tt.ignored {
 				assert.Equal(t, before.ActivityLog, after.ActivityLog, "an ignored report writes no log entry")
-				assert.Equal(t, msgBefore, msgAfter, "an ignored report commits nothing")
+				assert.Equal(t, commitsBefore, commitCount(t, gitMgr), "an ignored report commits nothing")
 			} else {
-				assert.NotEqual(t, msgBefore, msgAfter)
+				assert.Greater(t, commitCount(t, gitMgr), commitsBefore)
 			}
 		})
 	}

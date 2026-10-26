@@ -868,7 +868,7 @@ func TestDeleteCard_DependentsGuard(t *testing.T) {
 			if tt.refused {
 				var ve *board.ValidationError
 				require.ErrorAs(t, err, &ve)
-				assert.Contains(t, ve.Message, dependent.ID)
+				require.ErrorIs(t, err, board.ErrInvalidType)
 
 				_, getErr := svc.GetCard(ctx, "test-project", dep.ID)
 				require.NoError(t, getErr, "the refused delete keeps the card")

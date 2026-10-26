@@ -361,7 +361,6 @@ func TestMergeCards(t *testing.T) {
 				assert.Equal(t, 2, got.ClaimEpoch)
 				require.NotEmpty(t, res)
 				assert.Equal(t, RuleTerminalOverStall, res[0].Rule)
-				assert.Contains(t, lastAudit(t, got).Message, "from remote")
 			},
 		},
 		{

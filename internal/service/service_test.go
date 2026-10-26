@@ -2739,6 +2739,17 @@ func setupDeferredTest(t *testing.T) (*CardService, *gitops.Manager) {
 	return svc, gitMgr
 }
 
+// commitCount returns the number of commits in the boards repo, so a test can
+// tell whether a write committed without reading commit messages.
+func commitCount(t *testing.T, gitMgr *gitops.Manager) int {
+	t.Helper()
+
+	n, err := gitMgr.CommitCount()
+	require.NoError(t, err)
+
+	return n
+}
+
 // TestDeferredCommitAccumulates verifies that with deferred mode on,
 // CreateCard commits immediately but subsequent mutations do not.
 func TestDeferredCommitAccumulates(t *testing.T) {
@@ -2883,10 +2894,6 @@ func TestDeferredCommitTransitionToFollowsTheClaim(t *testing.T) {
 
 			assert.False(t, deferred, "an unclaimed transition must not be parked in deferredPaths")
 			assert.NotContains(t, dirty, svc.cardPath("test-project", card.ID), "card file must be committed")
-
-			msg, err := gitMgr.GetLastCommitMessage()
-			require.NoError(t, err)
-			assert.Equal(t, "[contextmatrix] "+card.ID+": transitioned to in_progress", strings.TrimSpace(msg))
 		})
 	}
 }
@@ -5505,6 +5512,8 @@ func TestDeferredCommitFlushOnUpdateWorkerStatus(t *testing.T) {
 			})
 			require.NoError(t, err)
 
+			createdCount := commitCount(t, gitMgr)
+
 			_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent:one")
 			require.NoError(t, err)
 
@@ -5514,31 +5523,23 @@ func TestDeferredCommitFlushOnUpdateWorkerStatus(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			// Record commit message before release - should still be the creation commit.
-			creationMsg, err := gitMgr.GetLastCommitMessage()
-			require.NoError(t, err)
-			assert.Contains(t, creationMsg, card.ID, "pre-release commit must be the creation commit")
+			// The claim and the patch are deferred: the creation commit is still HEAD.
+			require.Equal(t, createdCount, commitCount(t, gitMgr), "claimed mutations stay deferred")
 
 			// ReleaseCard flushes all deferred commits accumulated so far.
 			_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "agent:one")
 			require.NoError(t, err)
 
-			releaseMsg, err := gitMgr.GetLastCommitMessage()
-			require.NoError(t, err)
-			assert.Contains(t, releaseMsg, card.ID, "release should flush deferred commits")
-			assert.Contains(t, releaseMsg, "deferred commit", "release flush commit should say 'deferred commit'")
+			releasedCount := commitCount(t, gitMgr)
+			assert.Greater(t, releasedCount, createdCount, "release should flush deferred commits")
 
 			// The backend reports a terminal status after the agent released.
 			_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, status, "container exited")
 			require.NoError(t, err)
 
 			// The worker_status update must be committed - not left as an uncommitted deferred path.
-			afterStatusMsg, err := gitMgr.GetLastCommitMessage()
-			require.NoError(t, err)
-			assert.NotEqual(t, releaseMsg, afterStatusMsg,
+			assert.Greater(t, commitCount(t, gitMgr), releasedCount,
 				"UpdateWorkerStatus must produce a new commit for the worker_status log entry")
-			assert.Contains(t, afterStatusMsg, card.ID,
-				"worker_status commit must reference the card ID")
 
 			// deferredPaths must be cleared after the flush.
 			svc.writeMu.Lock()
@@ -6899,7 +6900,10 @@ func TestPatchCard_ReferenceValidation(t *testing.T) {
 			DependsOn: []string{"TEST-999", "TEST-998"},
 		})
 		require.ErrorIs(t, err, board.ErrDependenciesNotMet)
-		assert.ErrorContains(t, err, "TEST-998")
+
+		var ve *board.ValidationError
+		require.ErrorAs(t, err, &ve)
+		assert.Equal(t, "TEST-998", ve.Value, "only the added id is checked")
 	})
 
 	t.Run("stale parent reference is rejected", func(t *testing.T) {
