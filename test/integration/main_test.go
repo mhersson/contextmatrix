@@ -31,7 +31,15 @@ var workerLabels = []string{
 // are built lazily by ensureAgentAssets/ensureChatAssets so backend-free tests
 // (TestMultiUserAdminSurface, TestChatREST, TestSmoke) run with no sibling
 // checkout present. Docker worker images are likewise built on demand.
+//
+// It first drops the repository variables git exports to hooks, `rebase
+// --exec` and `bisect run`: with GIT_DIR set, the harness's git calls and the
+// processes it starts would act on the repository running the tests.
 func TestMain(m *testing.M) {
+	for _, k := range []string{"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_PREFIX"} {
+		_ = os.Unsetenv(k)
+	}
+
 	if err := setup(); err != nil {
 		log.Fatalf("integration harness setup failed: %v", err)
 	}
