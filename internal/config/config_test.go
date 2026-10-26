@@ -150,6 +150,8 @@ github:
 func TestLoad_MissingFile_NoBoardsDir_ReturnsError(t *testing.T) {
 	// Clear any env that might set boards.dir.
 	t.Setenv("CONTEXTMATRIX_BOARDS_DIR", "")
+	t.Setenv("CONTEXTMATRIX_GITHUB_AUTH_MODE", "pat")
+	t.Setenv("CONTEXTMATRIX_GITHUB_PAT_TOKEN", "ghp_test")
 
 	_, err := Load(filepath.Join(t.TempDir(), "nonexistent.yaml"))
 	require.Error(t, err)
@@ -387,6 +389,7 @@ func TestValidate_MissingBoardsDir(t *testing.T) {
 		Boards:           Boards{{Dir: ""}},
 		HeartbeatTimeout: "30m",
 		AwaitMax:         "8m",
+		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 	}
 	err := cfg.Validate()
 	require.Error(t, err)
@@ -407,6 +410,7 @@ func TestValidate_InvalidHeartbeatTimeout(t *testing.T) {
 			cfg := &Config{
 				Boards:           Boards{{Dir: "/some/path"}},
 				HeartbeatTimeout: tt.timeout,
+				AwaitMax:         "8m",
 				GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 			}
 			err := cfg.Validate()
