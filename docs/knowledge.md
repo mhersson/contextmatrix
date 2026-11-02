@@ -264,7 +264,8 @@ CM writes one JSON line per provider call to its own file:
   missing, and appends; startup fails when it cannot be opened.
 - When a line would take the file past 10 MiB, `knowledge.log` becomes
   `knowledge.log.1`, the older files shift up one, and the previous
-  `knowledge.log.3` is deleted.
+  `knowledge.log.3` is deleted. When the rotation fails, CM logs the error and
+  still appends the line to `knowledge.log`.
 - A line is written for every `tools/call` CM sends, success or error, and for
   every `knowledge_item` cache hit (with `cached: true` and `duration_ms: 0`),
   including a cache hit while the provider is absent. Nothing else writes a

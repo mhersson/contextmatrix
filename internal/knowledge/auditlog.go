@@ -91,9 +91,13 @@ func (l *AuditLog) Write(e Entry) error {
 		return errors.New("audit log closed")
 	}
 
+	var rotErr error
+
 	if l.size > 0 && l.size+int64(len(line)) > l.maxBytes {
-		if err := l.rotate(); err != nil {
-			return err
+		// A failed rotation that could reopen the file still writes the line,
+		// so a rename that keeps failing never drops entries.
+		if rotErr = l.rotate(); l.f == nil {
+			return rotErr
 		}
 	}
 
@@ -101,10 +105,10 @@ func (l *AuditLog) Write(e Entry) error {
 	l.size += int64(n)
 
 	if err != nil {
-		return fmt.Errorf("write audit log: %w", err)
+		err = fmt.Errorf("write audit log: %w", err)
 	}
 
-	return nil
+	return errors.Join(rotErr, err)
 }
 
 func (l *AuditLog) rotate() error {

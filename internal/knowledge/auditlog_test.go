@@ -140,6 +140,32 @@ func TestAuditLog_RotatesAndKeepsN(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf("p%d", 9-len(cur)), prev[len(prev)-1])
 }
 
+func TestAuditLog_FailedRotationStillWritesTheLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "knowledge.log")
+	l := newTestLog(t, path, 50, 1)
+
+	// A non-empty directory where the rotated file belongs makes every
+	// rotation fail while the log itself can still be reopened.
+	require.NoError(t, os.MkdirAll(filepath.Join(path+".1", "blocker"), 0o700))
+
+	require.NoError(t, l.Write(Entry{Provider: "p0"}))
+
+	for _, p := range []string{"p1", "p2"} {
+		require.Error(t, l.Write(Entry{Provider: p}), p)
+	}
+
+	var got []string
+
+	for _, line := range readLines(t, path) {
+		var e Entry
+		require.NoError(t, json.Unmarshal([]byte(line), &e))
+
+		got = append(got, e.Provider)
+	}
+
+	assert.Equal(t, []string{"p0", "p1", "p2"}, got)
+}
+
 func TestAuditLog_OversizedEntryWrittenWhole(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "knowledge.log")
 	l := newTestLog(t, path, 50, 1)
