@@ -162,6 +162,59 @@ describe('ProjectSettings - handleSave payload construction for github_credentia
   });
 });
 
+describe('ProjectSettings - handleSave payload construction for knowledge', () => {
+  beforeEach(() => {
+    mocks.useTheme.mockReturnValue({ chatEnabled: true, taskBackend: 'agent', knowledgeProviders: ['intent'] });
+  });
+
+  async function saveAndGetBody() {
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    await waitFor(() => expect(saveButton).not.toBeDisabled());
+    fireEvent.click(saveButton);
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    return mocks.updateProject.mock.calls[0][1];
+  }
+
+  it('untouched stale provider: saving an unrelated field omits both knowledge keys', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig({ knowledge_provider: 'ghost', knowledge_scope: 'p' }));
+    mocks.updateProject.mockResolvedValue(baseConfig({ knowledge_provider: 'ghost', knowledge_scope: 'p' }));
+    await renderSettings();
+    fireEvent.change(screen.getByLabelText(/repository url/i), { target: { value: 'git@github.com:org/new.git' } });
+    const body = await saveAndGetBody();
+    expect(body).not.toHaveProperty('knowledge_provider');
+    expect(body).not.toHaveProperty('knowledge_scope');
+  });
+
+  it('choosing a provider and scope sends both', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    mocks.updateProject.mockResolvedValue(baseConfig());
+    await renderSettings();
+    fireEvent.change(screen.getByRole('combobox', { name: /knowledge provider/i }), { target: { value: 'intent' } });
+    fireEvent.change(screen.getByRole('textbox', { name: /knowledge scope/i }), { target: { value: 'payments' } });
+    const body = await saveAndGetBody();
+    expect(body.knowledge_provider).toBe('intent');
+    expect(body.knowledge_scope).toBe('payments');
+  });
+
+  it('choosing None sends both keys as empty strings', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig({ knowledge_provider: 'intent', knowledge_scope: 'payments' }));
+    mocks.updateProject.mockResolvedValue(baseConfig());
+    await renderSettings();
+    fireEvent.change(screen.getByRole('combobox', { name: /knowledge provider/i }), { target: { value: '' } });
+    const body = await saveAndGetBody();
+    expect(body.knowledge_provider).toBe('');
+    expect(body.knowledge_scope).toBe('');
+  });
+
+  it('a knowledge edit marks the Source tab dirty', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    await renderSettings();
+    expect(dirtyTabs()).toEqual([]);
+    fireEvent.change(screen.getByRole('combobox', { name: /knowledge provider/i }), { target: { value: 'intent' } });
+    expect(dirtyTabs()).toEqual(['Source (unsaved changes)']);
+  });
+});
+
 describe('ProjectSettings - handleSave payload construction for remote_execution', () => {
   it('untouched: saving an unrelated field omits remote_execution from the PUT body', async () => {
     mocks.getProject.mockResolvedValue(baseConfig());

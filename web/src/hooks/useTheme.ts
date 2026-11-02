@@ -89,6 +89,7 @@ interface ThemeContextValue {
   mobMaxParticipants: number | undefined;
   mobDefaultParticipants: number | undefined;
   mobGuestNames: string[] | undefined;
+  knowledgeProviders: string[] | undefined;
   /**
    * Whether the server allows the mob "execute" phase, from
    * `/api/app/config` (`mob_execute_checkpoints`). False on the slim
@@ -132,6 +133,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mobMaxParticipants, setMobMaxParticipants] = useState<number | undefined>(undefined);
   const [mobDefaultParticipants, setMobDefaultParticipants] = useState<number | undefined>(undefined);
   const [mobGuestNames, setMobGuestNames] = useState<string[] | undefined>(undefined);
+  const [knowledgeProviders, setKnowledgeProviders] = useState<string[] | undefined>(undefined);
   const [mobExecuteCheckpoints, setMobExecuteCheckpoints] = useState(false);
   const [instanceId, setInstanceId] = useState('');
   const [sharedBoards, setSharedBoards] = useState(false);
@@ -186,6 +188,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (config.mob_guest_names !== undefined) {
         setMobGuestNames(config.mob_guest_names);
       }
+      if (config.knowledge_providers !== undefined) {
+        setKnowledgeProviders(config.knowledge_providers);
+      }
       if (config.mob_execute_checkpoints !== undefined) {
         setMobExecuteCheckpoints(config.mob_execute_checkpoints);
       }
@@ -217,12 +222,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ThemeContextValue>(
     () => ({
       theme, palette, version, taskBackend, chatEnabled, architectEnabled, favorites, bestOfNMax, bestOfNDefault,
-      mobMaxParticipants, mobDefaultParticipants, mobGuestNames, mobExecuteCheckpoints,
+      mobMaxParticipants, mobDefaultParticipants, mobGuestNames, knowledgeProviders, mobExecuteCheckpoints,
       instanceId, sharedBoards, boardsRepos,
       setTheme, setPalette,
     }),
     [theme, palette, version, taskBackend, chatEnabled, architectEnabled, favorites, bestOfNMax, bestOfNDefault,
-      mobMaxParticipants, mobDefaultParticipants, mobGuestNames, mobExecuteCheckpoints,
+      mobMaxParticipants, mobDefaultParticipants, mobGuestNames, knowledgeProviders, mobExecuteCheckpoints,
       instanceId, sharedBoards, boardsRepos,
       setTheme, setPalette],
   );

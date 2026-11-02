@@ -182,6 +182,8 @@ export interface ProjectConfig {
    * Empty/absent means the instance `github.*` config default applies.
    */
   github_credential?: string;
+  knowledge_provider?: string;
+  knowledge_scope?: string;
   /** Proof-of-concept project: agent runs get one generic reviewer and main-behaviour tests. Absent = false. */
   poc?: boolean;
 }
@@ -511,6 +513,9 @@ export interface UpdateProjectInput {
    * default; a name sets/replaces it (422 if unknown, multi mode only).
    */
   github_credential?: string;
+  /** Pointer semantics like github_credential: omitted preserves, "" clears, a name sets. */
+  knowledge_provider?: string;
+  knowledge_scope?: string;
   /**
    * Field-level merge on the server: the whole object omitted preserves the
    * current config; each subfield present is applied (worker_image "" clears
@@ -683,6 +688,8 @@ export interface AppConfig {
   mob_max_participants?: number;
   mob_default_participants?: number;
   mob_guest_names?: string[];
+  /** Configured knowledge provider names; omitted when none. */
+  knowledge_providers?: string[];
   mob_execute_checkpoints?: boolean;
   /** This server's instance id on a shared boards repo; absent on private boards. */
   instance_id?: string;

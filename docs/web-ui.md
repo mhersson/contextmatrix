@@ -602,7 +602,9 @@ opens. The server caches backend answers for 2 seconds and bounds each probe at
   [boards](boards.md).
 - **Project Settings** (`s`) edits everything in `.board.yaml`, grouped into
   five tabs under a header that carries the project's name, prefix and card
-  count. **Source** holds the code repo URL, GitHub issue import and, in
+  count. **Source** holds the code repo URL, GitHub issue import, the
+  knowledge provider and scope (a dropdown of the configured provider names; a
+  name the server no longer configures stays selectable with a warning) and, in
   `multi` mode, the GitHub credential binding. **Workflow** holds states,
   types and priorities (`stalled` and `not_planned` cannot be removed) and the
   transition matrix: rows are where a card is, columns where it may go.
