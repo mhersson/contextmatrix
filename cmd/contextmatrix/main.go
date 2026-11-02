@@ -627,6 +627,29 @@ func main() {
 
 	_, architectConfigured := cfg.ArchitectBackend()
 
+	knowledgeSvc, err := wireKnowledge(cfg.Knowledge)
+	if err != nil {
+		slog.Error("failed to start knowledge providers", "path", cfg.Knowledge.LogPath, "error", err)
+		cancel()
+		os.Exit(1)
+	}
+
+	// The knowledge tools register only when providers exist. The interface
+	// is assigned only when non-nil (typed-nil gotcha).
+	var knowledgeReader mcpserver.KnowledgeReader
+
+	if knowledgeSvc != nil {
+		defer func() {
+			if err := knowledgeSvc.Close(); err != nil {
+				slog.Warn("close knowledge service", "error", err)
+			}
+		}()
+
+		knowledgeReader = knowledgeSvc
+
+		slog.Info("knowledge providers configured", "providers", len(cfg.Knowledge.Providers), "log_path", cfg.Knowledge.LogPath)
+	}
+
 	// Create MCP server
 	mcpSrv := mcpserver.NewServer(mcpserver.ServerConfig{
 		Service:             svc,
@@ -641,6 +664,7 @@ func main() {
 		CardRunner:          runnerSlot,
 		PlaybookPlayer:      playbookPlayer,
 		ArchitectConfigured: architectConfigured,
+		Knowledge:           knowledgeReader,
 	})
 
 	mcpHandler := mcpserver.NewHandler(mcpSrv, cfg.MCPAPIKey)

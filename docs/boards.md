@@ -111,6 +111,8 @@ Rules the validator applies on load and on every save:
   hand-edited values are loaded as written.
 - `knowledge_scope` is required when `knowledge_provider` is set, at most 200
   characters, when saved through CM; hand-edited values are loaded as written.
+  The two fields point the knowledge tools at a provider; see
+  [knowledge providers](knowledge.md).
 - The file is capped at 1 MiB.
 
 Two fields appear in API responses only and are never written to the file:
@@ -203,3 +205,4 @@ the upstream skills change. Task skills are a different system; see
 - [Remote execution](remote-execution.md) - `remote_execution` and `verify`
 - [Model selection](model-selection.md) - `favorites`
 - [Running cards](running-cards.md#poc-projects) - what a POC project's runs do differently
+- [Knowledge providers](knowledge.md) - `knowledge_provider` and `knowledge_scope`

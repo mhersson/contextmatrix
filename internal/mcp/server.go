@@ -76,6 +76,9 @@ type ServerConfig struct {
 	// ArchitectConfigured reports an architect backend; hand_off_to_architect
 	// is registered only when it and ChatManager are set.
 	ArchitectConfigured bool
+
+	// Knowledge is optional; the knowledge tools are registered only when set.
+	Knowledge KnowledgeReader
 }
 
 // NewServer creates a configured MCP server with all tools and prompts registered.
@@ -100,6 +103,7 @@ func NewServer(cfg ServerConfig) *mcp.Server {
 		Playbooks:         cfg.Playbooks,
 		CardRunner:        cfg.CardRunner,
 		PlaybookPlayer:    cfg.PlaybookPlayer,
+		Knowledge:         cfg.Knowledge,
 	})
 	registerPrompts(server, cfg.Service, cfg.WorkflowSkillsDir)
 

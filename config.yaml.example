@@ -536,6 +536,25 @@ images:
 #   #     url: http://192.168.1.50:8484   # http(s), reachable from the worker container network
 #   #     token: "bearer-secret"
 
+# Knowledge providers: read-only MCP servers that answer questions about the
+# product a project builds (agreed rules, open decisions, goals, architecture).
+# A project names one in knowledge_provider (Project Settings, Source tab).
+# Without providers nothing changes and the knowledge MCP tools are not
+# registered. Contract and audit log format: docs/knowledge.md.
+# knowledge:
+#   # One JSON line per provider call; written only when providers is set.
+#   # 0600, rotated at 10 MiB keeping 3 old files.
+#   # CONTEXTMATRIX_KNOWLEDGE_LOG_PATH overrides this.
+#   # Default: $XDG_STATE_HOME/contextmatrix/knowledge.log
+#   log_path: ""
+#   # Provider registry - config file only (tokens are secrets; the env-override
+#   # mechanism is scalar-only). Projects reference entries by name. A bad entry
+#   # stops startup; an unreachable provider does not.
+#   # providers:
+#   #   - name: intent
+#   #     url: https://knowledge.example/mcp   # https; http only for a loopback host (localhost, 127.0.0.0/8, ::1)
+#   #     token: "bearer-secret"
+
 # Multi-user authentication.
 auth:
   # "multi" (default) - login required. Users, sessions, and the GitHub

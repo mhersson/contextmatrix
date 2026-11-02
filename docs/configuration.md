@@ -159,6 +159,7 @@ expansion applies to every path field.
 | Image store             | `images.db_path` / `CONTEXTMATRIX_IMAGES_DB_PATH`               | `<state>/images.db`              | Pasted images for private boards repos and project-less uploads            |
 | Operational store       | `op_store.db_path` / `CONTEXTMATRIX_OP_STORE_DB_PATH`           | `<state>/ops.db`                 | Tables: `chat_sessions`, `chat_messages`, `chat_cost_archive`, `model_blacklist`, `model_outcomes`, `selector_ladder`, `selector_headroom`, `jira_writeback` (Jira writeback outbox). Schema v6; an older binary refuses a newer database |
 | Instance id             | `instance.id` / `CONTEXTMATRIX_INSTANCE_ID`                     | `<state>/instance_id`            | Generated `<hostname>-<6 hex>`; identifies this server on a shared boards repo |
+| Knowledge audit log     | `knowledge.log_path` / `CONTEXTMATRIX_KNOWLEDGE_LOG_PATH`       | `<state>/knowledge.log`          | One JSON line per knowledge-provider call; written only when `knowledge.providers` is set; 0600, rotated at 10 MiB keeping 3 |
 
 `<config-dir>` means the directory holding the loaded config file, so
 `-config /etc/contextmatrix/config.yaml` puts the skill defaults under
@@ -169,6 +170,9 @@ The selector tier ladders have no config key on either side: they are edited
 on the Model selection admin page, stored in the operational store, and sent
 to the agent with every run. See
 [model selection](model-selection.md#tiers-are-quality-floors-not-buckets).
+
+The `knowledge` block and the audit log's line format are described in
+[Knowledge providers](knowledge.md).
 
 ## Token cost rates
 
@@ -219,6 +223,7 @@ unset, so a free cache rate cannot be expressed. Config file only.
 - [GitHub auth setup](github-auth-setup.md) - the `github` block end to end
 - [GitHub issue import](github-issue-import.md) - `github.issue_importing.*`
 - [Jira import](jira-import.md) - `jira.*`
+- [Knowledge providers](knowledge.md) - `knowledge.*` and the audit log
 - [Shared boards](shared-boards.md) - the `boards` list form and `shared: true`
 - [Remote execution](remote-execution.md) - the `backends` block
 - [Deployment example](deployment-example.md) - env-only container config

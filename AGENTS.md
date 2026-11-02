@@ -42,6 +42,7 @@ Read the relevant one before working in its area:
 | `docs/shared-boards.md`        | Shared-repo sync cycle, merge rules, per-instance claims and leases, several boards repos.                                                        |
 | `docs/github-issue-import.md`  | Importer config, owner/repo resolution, vetting gate, `source` field, Enterprise hosts.                                                           |
 | `docs/jira-import.md`          | Jira site config and auth, connection status, epic import: wizard, card mapping, dedup, ordering, playbook source, vetting; status writeback.     |
+| `docs/knowledge.md`            | Knowledge providers: config, provider MCP contract, CM's knowledge tools, audit log.                                                              |
 | `web/AGENTS.md`                | Frontend. Auto-loaded when working in `web/`.                                                                                                     |
 
 ## Trust model (summary - canonical detail in `docs/architecture.md`)
@@ -106,6 +107,7 @@ internal/githubauth/       → GitHub token providers (App, PAT, caching) behind
 internal/jira/             → Jira Cloud REST v3 client: auth, issue reads, transitions, ADF to markdown
 internal/jiraimport/       → Jira epic preview and import: cards in existing projects plus a sourced playbook
 internal/jirawriteback/    → Jira status writeback: event subscriber, ops.db outbox worker, sweep
+internal/knowledge/        → knowledge-provider MCP client: sessions, tools check, timeouts, item cache, audit log
 internal/clock/            → injectable clock for service-layer time invariants
 internal/events/           → in-process pub/sub event bus
 internal/config/           → global config loading
