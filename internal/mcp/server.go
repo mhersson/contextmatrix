@@ -257,16 +257,17 @@ func mcpRequestInfoMiddleware(next http.Handler) http.Handler {
 					if msg.Method == "tools/call" {
 						call.Tool = truncateLogField(msg.Params.Name)
 
-						if msg.Params.Name == "await_subtasks" {
+						switch msg.Params.Name {
+						case "await_subtasks":
 							// Blocking waits outlive the server's 60s WriteTimeout, which is an
 							// absolute deadline not reset by writes.
 							_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
-						}
-
-						if msg.Params.Name == "run_playbook" {
+						case "run_playbook":
 							// Play can wait behind a Stop of the same playbook,
 							// past the 60s WriteTimeout; REST bounds it the same way.
 							_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(runPlaybookWriteTimeout))
+						case "get_knowledge_context", "query_knowledge", "get_knowledge_item":
+							_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(knowledgeWriteTimeout))
 						}
 					}
 				}
@@ -280,6 +281,11 @@ func mcpRequestInfoMiddleware(next http.Handler) http.Handler {
 // runPlaybookWriteTimeout bounds a run_playbook call: Play can wait behind a
 // Stop of the same playbook for up to about two minutes.
 const runPlaybookWriteTimeout = 3 * time.Minute
+
+// knowledgeWriteTimeout bounds a knowledge tool call: a wait behind another
+// caller's connect (10 s plus a 5 s close), its own 10 s connect, the 45 s call
+// and a wait behind a redial (15 s) come to 85 s, past the 60 s WriteTimeout.
+const knowledgeWriteTimeout = 2 * time.Minute
 
 // maxLogFieldLen bounds the mcp_method / mcp_tool values written to the request
 // log line. Real MCP method names and tool names are <40 chars; 64 leaves room

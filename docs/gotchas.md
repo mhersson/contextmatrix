@@ -160,10 +160,11 @@ Developer traps in this codebase. Each entry names the code it describes.
   streaming loop, applied in `internal/api/events.go`,
   `internal/api/worker_logs.go`, `internal/api/chats.go` (chat stream), and the
   `clearWriteDeadlineForStreaming` middleware in `internal/mcp/server.go` for
-  the MCP `GET` stream. `DELETE` and `POST` keep the timeout, except the
-  `await_subtasks` tool call, which blocks for minutes by design:
-  `mcpRequestInfoMiddleware` clears the deadline for it after sniffing the
-  tool name out of the JSON-RPC body. **Critical:**
+  the MCP `GET` stream. `DELETE` and `POST` keep the timeout, except tool
+  calls `mcpRequestInfoMiddleware` sniffs out of the JSON-RPC body:
+  `await_subtasks`, which blocks for minutes by design, gets no deadline, and
+  `run_playbook` (3 minutes) and the three knowledge tools (2 minutes) get a
+  later one. **Critical:**
   `ResponseController` reaches the connection by calling `Unwrap()` on the
   writer. Any middleware that wraps the writer must implement
   `Unwrap() http.ResponseWriter` or `SetWriteDeadline` fails silently and the

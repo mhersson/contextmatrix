@@ -213,8 +213,9 @@ checked.
 | `knowledge_scope` length                             | at most 200 characters                                  |
 | Audit rotation                                       | at 10 MiB, keep 3 old files (`knowledge.log.1` .. `.3`) |
 
-- The connect timeout plus the longest call timeout is 55 s, under CM's 60 s
-  HTTP write timeout, so the knowledge tools need no write-deadline override.
+- A call can wait behind another caller's connect before its own connect and
+  call, which can outlast CM's 60 s HTTP write timeout, so the three knowledge
+  tools get a 2-minute write deadline instead.
 - A timeout is CM's own per-call timeout firing; the reason says the provider
   did not answer in time. A caller that gives up first gets no answer, and a
   call already sent is logged as failed. Neither marks the provider absent.

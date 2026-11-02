@@ -174,11 +174,12 @@ func TestMCPRequestInfoMiddleware_truncatesLongFields(t *testing.T) {
 // http.NewResponseController uses inside mcpRequestInfoMiddleware.
 type deadlineResponseWriter struct {
 	*httptest.ResponseRecorder
-	deadlineCleared bool
+	deadlineSet bool
+	deadline    time.Time
 }
 
-func (d *deadlineResponseWriter) SetWriteDeadline(time.Time) error {
-	d.deadlineCleared = true
+func (d *deadlineResponseWriter) SetWriteDeadline(t time.Time) error {
+	d.deadlineSet, d.deadline = true, t
 
 	return nil
 }
@@ -233,7 +234,40 @@ func TestMCPRequestInfoMiddleware_AwaitSubtasksClearsWriteDeadline(t *testing.T)
 			rw := &deadlineResponseWriter{ResponseRecorder: httptest.NewRecorder()}
 			handler.ServeHTTP(rw, req)
 
-			assert.Equal(t, tc.wantClear, rw.deadlineCleared)
+			assert.Equal(t, tc.wantClear, rw.deadlineSet)
+			assert.True(t, rw.deadline.IsZero())
+		})
+	}
+}
+
+// TestMCPRequestInfoMiddleware_BoundedWriteDeadlines: tools that can run past
+// the server's 60 s WriteTimeout get a later deadline, never none.
+func TestMCPRequestInfoMiddleware_BoundedWriteDeadlines(t *testing.T) {
+	tests := []struct {
+		tool    string
+		timeout time.Duration
+	}{
+		{"get_knowledge_context", knowledgeWriteTimeout},
+		{"query_knowledge", knowledgeWriteTimeout},
+		{"get_knowledge_item", knowledgeWriteTimeout},
+		{"run_playbook", runPlaybookWriteTimeout},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.tool, func(t *testing.T) {
+			ctx, _ := ctxlog.WithMCPCall(t.Context())
+			handler := mcpRequestInfoMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+
+			body := `{"jsonrpc":"2.0","method":"tools/call","params":{"name":"` + tc.tool + `"}}`
+			req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body)).WithContext(ctx)
+			rw := &deadlineResponseWriter{ResponseRecorder: httptest.NewRecorder()}
+			start := time.Now()
+
+			handler.ServeHTTP(rw, req)
+
+			require.True(t, rw.deadlineSet)
+			assert.WithinDuration(t, start.Add(tc.timeout), rw.deadline, time.Second)
+			assert.Greater(t, rw.deadline.Sub(start), 60*time.Second)
 		})
 	}
 }
