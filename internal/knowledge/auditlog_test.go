@@ -103,21 +103,27 @@ func TestAuditLog_AppendsToExistingFile(t *testing.T) {
 
 func TestAuditLog_RotatesAndKeepsN(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "knowledge.log")
-	l := newTestLog(t, path, 200, 2)
 
-	pad := strings.Repeat("x", 40)
+	// Every entry marshals to the same length, so a file holds exactly three
+	// lines: the fourth would take it past maxBytes and rotates first.
+	line, err := json.Marshal(Entry{Provider: "p0"})
+	require.NoError(t, err)
+
+	maxBytes := 3 * int64(len(line)+1)
+	l := newTestLog(t, path, maxBytes, 2)
 
 	for i := range 10 {
-		require.NoError(t, l.Write(Entry{Provider: fmt.Sprintf("p%d", i), Caller: pad, Scope: pad}))
+		require.NoError(t, l.Write(Entry{Provider: fmt.Sprintf("p%d", i)}))
 	}
 
 	for _, p := range []string{path, path + ".1", path + ".2"} {
 		info, err := os.Stat(p)
 		require.NoError(t, err, p)
 		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), p)
+		assert.LessOrEqual(t, info.Size(), maxBytes, p)
 	}
 
-	_, err := os.Stat(path + ".3")
+	_, err = os.Stat(path + ".3")
 	assert.True(t, os.IsNotExist(err))
 
 	provider := func(p string) []string {
@@ -133,11 +139,9 @@ func TestAuditLog_RotatesAndKeepsN(t *testing.T) {
 		return out
 	}
 
-	cur, prev := provider(path), provider(path+".1")
-	require.NotEmpty(t, cur)
-	require.NotEmpty(t, prev)
-	assert.Equal(t, "p9", cur[len(cur)-1])
-	assert.Equal(t, fmt.Sprintf("p%d", 9-len(cur)), prev[len(prev)-1])
+	assert.Equal(t, []string{"p9"}, provider(path))
+	assert.Equal(t, []string{"p6", "p7", "p8"}, provider(path+".1"))
+	assert.Equal(t, []string{"p3", "p4", "p5"}, provider(path+".2"))
 }
 
 func TestAuditLog_FailedRotationStillWritesTheLine(t *testing.T) {
