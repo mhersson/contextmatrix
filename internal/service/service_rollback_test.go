@@ -589,6 +589,39 @@ func TestUpdateProject_RollbackRestoresPOC(t *testing.T) {
 	assert.False(t, onDisk.POC, "a failed commit must roll poc back on disk")
 }
 
+// TestUpdateProject_RollbackRestoresKnowledge pins that the pre-update snapshot
+// carries the knowledge fields, so a failed commit leaves them as they were.
+func TestUpdateProject_RollbackRestoresKnowledge(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	sentinel := errors.New("commit boom")
+	failing := &failingCommitter{err: sentinel}
+	failQueue := gitops.NewCommitQueueWithCommitter(failing, 0)
+
+	t.Cleanup(func() { _ = failQueue.Close(context.Background()) })
+
+	svc.repos[0].Queue = failQueue
+
+	_, err := svc.UpdateProject(ctx, "test-project", knowledgeInput(new("intent"), new("payments")))
+	require.ErrorIs(t, err, sentinel)
+
+	cached, err := svc.GetProject(ctx, "test-project")
+	require.NoError(t, err)
+	assert.Empty(t, cached.KnowledgeProvider)
+	assert.Empty(t, cached.KnowledgeScope)
+
+	fresh, err := storage.NewFilesystemStore(svc.Repos()[0].Dir)
+	require.NoError(t, err)
+
+	onDisk, err := fresh.GetProject(ctx, "test-project")
+	require.NoError(t, err)
+	assert.Empty(t, onDisk.KnowledgeProvider)
+	assert.Empty(t, onDisk.KnowledgeScope)
+}
+
 // TestUpdateProject_HappyPathNoRollback sanity-checks that a successful
 // UpdateProject commit does not trip the rollback path.
 func TestUpdateProject_HappyPathNoRollback(t *testing.T) {

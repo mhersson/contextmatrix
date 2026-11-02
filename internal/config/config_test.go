@@ -4281,3 +4281,89 @@ func TestArchitectResearch_EnvOverrides(t *testing.T) {
 	assert.Equal(t, ResearchProviderBrave, ab.ResearchProviderName())
 	assert.Equal(t, "brave-key", ab.ResearchAPIKey)
 }
+
+func TestKnowledgeConfigDefaultsAndOverrides(t *testing.T) {
+	t.Run("defaults", func(t *testing.T) {
+		state := t.TempDir()
+		t.Setenv("XDG_STATE_HOME", state)
+
+		cfg, err := loadFromYAML(t, mobBaseYAML(t))
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(state, "contextmatrix", "knowledge.log"), cfg.Knowledge.LogPath)
+		assert.Nil(t, cfg.Knowledge.Providers)
+		assert.Nil(t, cfg.Knowledge.ProviderNames())
+	})
+
+	t.Run("file value, tilde expanded", func(t *testing.T) {
+		home, _ := os.UserHomeDir()
+
+		cfg, err := loadFromYAML(t, mobBaseYAML(t)+"knowledge:\n  log_path: ~/k/knowledge.log\n")
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(home, "k", "knowledge.log"), cfg.Knowledge.LogPath)
+	})
+
+	t.Run("env wins", func(t *testing.T) {
+		t.Setenv("CONTEXTMATRIX_KNOWLEDGE_LOG_PATH", "/var/log/cm/knowledge.log")
+
+		cfg, err := loadFromYAML(t, mobBaseYAML(t)+"knowledge:\n  log_path: /tmp/other.log\n")
+		require.NoError(t, err)
+		assert.Equal(t, "/var/log/cm/knowledge.log", cfg.Knowledge.LogPath)
+	})
+
+	t.Run("providers decode in order", func(t *testing.T) {
+		cfg, err := loadFromYAML(t, mobBaseYAML(t)+"knowledge:\n  providers:\n"+
+			"    - name: intent\n      url: https://k.example/mcp\n      token: t1\n"+
+			"    - name: local\n      url: http://127.0.0.1:9000/mcp\n      token: t2\n")
+		require.NoError(t, err)
+		assert.Equal(t, []KnowledgeProvider{
+			{Name: "intent", URL: "https://k.example/mcp", Token: "t1"},
+			{Name: "local", URL: "http://127.0.0.1:9000/mcp", Token: "t2"},
+		}, cfg.Knowledge.Providers)
+		assert.Equal(t, []string{"intent", "local"}, cfg.Knowledge.ProviderNames())
+	})
+}
+
+func TestKnowledgeConfigValidation(t *testing.T) {
+	entry := func(name, url, token string) string {
+		return "knowledge:\n  providers:\n    - name: " + name + "\n      url: " + url + "\n      token: " + token + "\n"
+	}
+
+	tests := []struct {
+		name, fragment string
+		wantErr        bool
+	}{
+		{"https accepted", entry("intent", "https://k.example/mcp", "t"), false},
+		{"localhost http accepted", entry("intent", "http://localhost:9000/mcp", "t"), false},
+		{"localhost any case accepted", entry("intent", "http://LocalHost:9000/mcp", "t"), false},
+		{"127.0.0.1 accepted", entry("intent", "http://127.0.0.1:9000/mcp", "t"), false},
+		{"127/8 accepted", entry("intent", "http://127.5.6.7/mcp", "t"), false},
+		{"::1 accepted", entry("intent", "http://[::1]:9000/mcp", "t"), false},
+		{"remote http rejected", entry("intent", "http://k.example/mcp", "t"), true},
+		{"private http rejected", entry("intent", "http://192.168.1.5/mcp", "t"), true},
+		{"0.0.0.0 rejected", entry("intent", "http://0.0.0.0:9000/mcp", "t"), true},
+		{"localhost-prefixed host rejected", entry("intent", "http://localhost.evil.example/mcp", "t"), true},
+		{"other scheme rejected", entry("intent", "ftp://k.example/mcp", "t"), true},
+		{"no host rejected", entry("intent", "https:///mcp", "t"), true},
+		{"userinfo rejected", entry("intent", "https://u:p@k.example/mcp", "t"), true},
+		{"empty url rejected", entry("intent", "\"\"", "t"), true},
+		{"empty token rejected", entry("intent", "https://k.example/mcp", "\"\""), true},
+		{"empty name rejected", entry("\"\"", "https://k.example/mcp", "t"), true},
+		{"bad name rejected", entry("\"in tent\"", "https://k.example/mcp", "t"), true},
+		{"duplicate name rejected", entry("intent", "https://k.example/mcp", "t") +
+			"    - name: intent\n      url: https://j.example/mcp\n      token: t\n", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := loadFromYAML(t, mobBaseYAML(t)+tt.fragment)
+			if !tt.wantErr {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "knowledge.providers[")
+		})
+	}
+}

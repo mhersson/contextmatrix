@@ -1357,6 +1357,7 @@ payload.
   "mob_max_participants": 5,
   "mob_default_participants": 3,
   "mob_guest_names": ["laptop"],
+  "knowledge_providers": ["intent"],
   "mob_execute_checkpoints": true,
   "chat_enabled": true,
   "architect_enabled": false,
@@ -1376,6 +1377,7 @@ payload.
 | `best_of_n_max`, `best_of_n_default`               | full, omitempty | Mirror `best_of_n.max_candidates` / `default_candidates` (defaults 5 and 3)                        |
 | `mob_max_participants`, `mob_default_participants` | full, omitempty | Mirror `mob.max_participants` / `default_participants`                                             |
 | `mob_guest_names`                                  | full, omitempty | Names from the `mob.guests` registry - never URLs or tokens                                        |
+| `knowledge_providers`                              | full, omitempty | Names from `knowledge.providers` - never URLs or tokens                                            |
 | `mob_execute_checkpoints`                          | full, omitempty | `true` when `mob.execute_checkpoints_enabled` is on; absent (not `false`) when off                 |
 | `chat_enabled`                                     | full, always    | A chat backend entry is enabled with `url` and `api_key` set                                       |
 | `architect_enabled`                                | full, always    | An architect backend entry is enabled with `url` and `api_key` set; gates the blueprint option in the New Chat dialog |
@@ -1578,6 +1580,8 @@ them.
   "verify": { "command": "make test", "timeout_seconds": 600, "env": ["JAVA_HOME"] },
   "card_defaults": { "autonomous": true, "mob_participants": 3, "mob_phases": ["review"], "await_ci": true },
   "poc": true,
+  "knowledge_provider": "intent",
+  "knowledge_scope": "payments",
   "remote_execution": {
     "worker_image": "my-org/go-worker:latest",
     "chat_worker_image": "my-org/go-chat-worker:latest"
@@ -1593,6 +1597,8 @@ them.
 | `verify`            | Replace-whole-struct: omitted preserves, a present object replaces, a zero-value object clears. Invalid: 422 `VALIDATION_ERROR`. The card-level `verify` overrides it field by field.                                                                                 |
 | `card_defaults`     | Replace-whole-struct like `verify`: omitted preserves, a present object replaces, a block equal to the built-ins clears. `mob_participants` / `mob_phases` outside the server's mob bounds: 422 `VALIDATION_ERROR`. `create_pr` absent inside the block means `true`. |
 | `poc`               | Proof-of-concept flag: omitted preserves, `true` or `false` sets it. Not settable through MCP.                                                                                                                                                                        |
+| `knowledge_provider` | Omitted preserves, `""` clears, a name sets. 422 `VALIDATION_ERROR` for a name `knowledge.providers` does not configure. Not settable through MCP. |
+| `knowledge_scope`   | Omitted preserves, `""` clears, a value sets; the value is trimmed. Required when a provider is set; at most 200 characters; 422 `VALIDATION_ERROR` otherwise. Not settable through MCP. |
 | `remote_execution`  | Per-field merge: each of `worker_image` and `chat_worker_image` is independently omittable (preserves) or set; `""` clears back to the backend's default image. Charset and 512-byte cap: 422.                                                                        |
 
 Returns 200 with the updated `ProjectConfig`.

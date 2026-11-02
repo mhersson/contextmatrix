@@ -29,6 +29,7 @@ type registerToolsConfig struct {
 	Playbooks         *service.PlaybookService
 	CardRunner        *RunnerSlot
 	PlaybookPlayer    PlaybookPlayer
+	Knowledge         KnowledgeReader
 }
 
 // registerTools adds all MCP tools to the server.
@@ -85,6 +86,10 @@ func registerTools(cfg registerToolsConfig) {
 
 	if cfg.Playbooks != nil && cfg.PlaybookPlayer != nil {
 		registerRunPlaybook(server, cfg.Playbooks, cfg.PlaybookPlayer)
+	}
+
+	if cfg.Knowledge != nil {
+		registerKnowledgeTools(server, svc, cfg.Knowledge)
 	}
 }
 

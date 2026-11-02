@@ -530,6 +530,8 @@ type ProjectConfig struct {
     Verify           *VerifyConfig            `yaml:"verify,omitempty"            json:"verify,omitempty"`
     CardDefaults     *CardDefaults            `yaml:"card_defaults,omitempty"     json:"card_defaults,omitempty"`
     POC              bool                     `yaml:"poc,omitempty"               json:"poc,omitempty"`
+    KnowledgeProvider string                  `yaml:"knowledge_provider,omitempty" json:"knowledge_provider,omitempty"`
+    KnowledgeScope    string                  `yaml:"knowledge_scope,omitempty"    json:"knowledge_scope,omitempty"`
     Favorites        map[string]TierFavorites `yaml:"favorites,omitempty"         json:"-"`
     Templates        map[string]string        `yaml:"-"                           json:"templates,omitempty"`     // loaded from templates/ at runtime
 }
@@ -1033,6 +1035,8 @@ Top-level `.board.yaml` fields (full reference in
 | `verify`            | Project verify gate; see the card-level `verify` field.                          |
 | `card_defaults`     | Create-time defaults for the card automation fields; see below.                  |
 | `poc`               | Proof-of-concept flag; see below.                                                |
+| `knowledge_provider` | Name of a `knowledge.providers` entry; see below.                               |
+| `knowledge_scope`   | The product's name at that provider; see below.                                  |
 | `favorites`         | Per-tier model preferences, hand-edited only; see the `Favorites` note.          |
 
 ### `default_skills` (optional, `*[]string`)
@@ -1103,6 +1107,23 @@ Settings, Execution tab); MCP `update_project` preserves it. On a shared
 boards repo the three-way merge keeps a change made on one side only, so a
 remote `next_id` bump neither drops a local switch-on nor brings back a flag
 switched off locally.
+
+### `knowledge_provider` / `knowledge_scope` (optional, `string`)
+
+`knowledge_provider` names an entry of the server's `knowledge.providers`;
+`knowledge_scope` is a name only that provider understands. Absent means the
+project has no product knowledge. Set only by a human; the service validates on
+save: a provider needs a non-empty scope of at most 200 characters (both are
+trimmed, and an empty string clears). MCP `update_project` preserves both. On a
+shared boards repo the three-way merge keeps a change made on one side only.
+The fields are set through `PUT /api/projects/{project}` (the Project Settings
+Source tab sends it), which rejects a provider name the server does not
+configure. A project that names a provider the server does not configure (a
+hand edit, or a provider removed from the config) is not a load error: its
+knowledge tools answer with empty `items` and a `reason`, and CM logs a warning
+on each call when the project also has a scope (with no providers configured
+at all, the tools are not registered). What the tools return and what a
+provider implements are in [knowledge providers](knowledge.md).
 
 ### `verify` (optional) and `favorites` (optional)
 

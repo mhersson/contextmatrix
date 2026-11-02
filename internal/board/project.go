@@ -72,9 +72,13 @@ type ProjectConfig struct {
 	CardDefaults *CardDefaults `yaml:"card_defaults,omitempty" json:"card_defaults,omitempty"`
 	// POC marks a proof-of-concept project: agent runs get one generic
 	// reviewer and main-behaviour tests. Human-set; no MCP tool writes it.
-	POC       bool                     `yaml:"poc,omitempty" json:"poc,omitempty"`
-	Favorites map[string]TierFavorites `yaml:"favorites,omitempty"        json:"-"` // per-project tier overrides; merged with global at trigger time
-	Templates map[string]string        `yaml:"-" json:"templates,omitempty"`        // loaded from templates/ dir at runtime
+	POC bool `yaml:"poc,omitempty" json:"poc,omitempty"`
+	// KnowledgeProvider names a knowledge.providers entry; KnowledgeScope is a
+	// name only that provider understands.
+	KnowledgeProvider string                   `yaml:"knowledge_provider,omitempty" json:"knowledge_provider,omitempty"`
+	KnowledgeScope    string                   `yaml:"knowledge_scope,omitempty"    json:"knowledge_scope,omitempty"`
+	Favorites         map[string]TierFavorites `yaml:"favorites,omitempty"        json:"-"` // per-project tier overrides; merged with global at trigger time
+	Templates         map[string]string        `yaml:"-" json:"templates,omitempty"`        // loaded from templates/ dir at runtime
 }
 
 var (

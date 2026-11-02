@@ -84,10 +84,11 @@ Every phase and gate is specified in [agent workflow](agent-workflow.md).
 
 ## Tools
 
-The server registers up to 45 tools. The eleven playbook tools are absent while a
+The server registers up to 48 tools. The eleven playbook tools are absent while a
 project named `playbooks` disables the playbook subsystem, `run_card`
 registers only when a task backend is configured, and `run_playbook` registers
 only when a task backend is configured and the playbook subsystem is enabled.
+The three knowledge tools register only when `knowledge.providers` is set.
 The "Caller" column uses these values:
 
 | Value      | Meaning                                                          |
@@ -153,7 +154,7 @@ The "Caller" column uses these values:
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------ |
 | `list_projects`  | All projects with their configs                                                                                                    | any    |
 | `create_project` | Create a board; `boards_repo` picks the repo when several exist                                                                    | any    |
-| `update_project` | Change states, types, priorities, transitions, repo; default_skills, remote_execution, verify, card_defaults and poc are preserved | any    |
+| `update_project` | Change states, types, priorities, transitions, repo; default_skills, remote_execution, verify, card_defaults, poc, knowledge_provider and knowledge_scope are preserved | any    |
 | `delete_project` | Delete a project with zero cards                                                                                                   | any    |
 
 ### Playbooks
@@ -186,6 +187,20 @@ through `run_playbook`; stopping a run and setting the base branch stay web UI
 controls. Card summaries (`get_card`, `list_cards`,
 task context) carry `playbook_lock` mirrored from the card, naming the
 runnable playbook that owns its execution settings.
+
+### Knowledge
+
+Registered only when `knowledge.providers` is set. Each takes `project` or
+`card_id` and answers from the project's knowledge provider; a missing or
+failing provider is an empty `items` with a `reason`, never a tool error.
+Arguments, result shape and the provider contract are in
+[knowledge providers](knowledge.md).
+
+| Tool                    | Description                                                        | Caller |
+| ----------------------- | ------------------------------------------------------------------ | ------ |
+| `get_knowledge_context` | Ranked knowledge relevant to a `task` text                         | any    |
+| `query_knowledge`       | Search by `query`, optionally narrowed to item `kinds`             | any    |
+| `get_knowledge_item`    | Items by `ids`; `related` adds the items they link; `missing` lists unknown ids | any    |
 
 ### Chat
 
@@ -254,3 +269,4 @@ Shapes are in the [API reference](api-reference.md): § Card object and
 - [Data model](data-model.md) - card fields and human-only rules
 - [Remote execution](remote-execution.md) - how containers reach this endpoint
 - [Shared boards](shared-boards.md) - claims across instances
+- [Knowledge providers](knowledge.md) - the knowledge tools and the provider contract

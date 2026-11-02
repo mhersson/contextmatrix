@@ -14,6 +14,7 @@ import { DangerSection } from './DangerSection';
 import { DefaultSkillsSelector } from './DefaultSkillsSelector';
 import { PocSection } from './PocSection';
 import { GitHubCredentialSection } from './GitHubCredentialSection';
+import { KnowledgeSection } from './KnowledgeSection';
 import { GitHubImportSection } from './GitHubImportSection';
 import { RepoListSection } from './RepoListSection';
 import { SettingsHeader } from './SettingsHeader';
@@ -84,7 +85,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   const readOnly = mode === 'multi' && !isAdmin;
 
   const {
-    chatEnabled, taskBackend, mobMaxParticipants, mobDefaultParticipants, mobExecuteCheckpoints, boardsRepos = [],
+    chatEnabled, taskBackend, mobMaxParticipants, mobDefaultParticipants, mobExecuteCheckpoints, boardsRepos = [], knowledgeProviders,
   } = useTheme();
   // Mirrors the sidebar: the boards repo only means something when the
   // instance serves more than one.
@@ -110,6 +111,8 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   const [cardDefaults, setCardDefaults] = useState<ResolvedCardDefaults>(() => resolveCardDefaults());
   const [defaultSkills, setDefaultSkills] = useState<string[] | null>(null);
   const [githubCredential, setGithubCredential] = useState('');
+  const [knowledgeProvider, setKnowledgeProvider] = useState('');
+  const [knowledgeScope, setKnowledgeScope] = useState('');
   const [poc, setPoc] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -142,6 +145,8 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     setCardDefaults(resolveCardDefaults(cfg.card_defaults));
     setDefaultSkills(cfg.default_skills ?? null);
     setGithubCredential(cfg.github_credential ?? '');
+    setKnowledgeProvider(cfg.knowledge_provider ?? '');
+    setKnowledgeScope(cfg.knowledge_scope ?? '');
     setPoc(cfg.poc ?? false);
   }, []);
 
@@ -184,6 +189,9 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       repo: repo !== (config.repo || ''),
       credential: githubCredential !== (config.github_credential ?? ''),
       import: ghToString(github) !== ghToString(config.github),
+      knowledge:
+        knowledgeProvider !== (config.knowledge_provider ?? '') ||
+        knowledgeScope !== (config.knowledge_scope ?? ''),
       lists:
         JSON.stringify(states) !== JSON.stringify(config.states) ||
         JSON.stringify(types) !== JSON.stringify(config.types) ||
@@ -208,6 +216,8 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     verify,
     defaultSkills,
     githubCredential,
+    knowledgeProvider,
+    knowledgeScope,
     cardDefaults,
     poc,
   ]);
@@ -221,7 +231,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   }, [activeTab]);
 
   const tabs: SettingsTab[] = [
-    { key: 'source', label: 'Source', dirty: !!dirty && (dirty.repo || dirty.credential || dirty.import) },
+    { key: 'source', label: 'Source', dirty: !!dirty && (dirty.repo || dirty.credential || dirty.import || dirty.knowledge) },
     { key: 'workflow', label: 'Workflow', dirty: !!dirty && (dirty.lists || dirty.transitions) },
     { key: 'automation', label: 'Automation', dirty: !!dirty && (dirty.cardDefaults || dirty.skills) },
     { key: 'execution', label: 'Execution', dirty: !!dirty && (dirty.images || dirty.verify || dirty.poc) },
@@ -255,6 +265,11 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         // warning exists for. Comparing against the loaded config preserves
         // "save without touching it" even for a stale binding.
         ...(mode === 'multi' && dirty.credential ? { github_credential: githubCredential } : {}),
+        // Knowledge keys have pointer semantics like github_credential: send both
+        // only when edited, so a stale stored provider never blocks an unrelated save.
+        ...(dirty.knowledge
+          ? { knowledge_provider: knowledgeProvider, knowledge_scope: knowledgeScope }
+          : {}),
         // Send remote_execution only when the operator actually touched the
         // section this session; the server merges field-by-field and
         // preserves the stored config when the key is omitted. Both images
@@ -321,6 +336,8 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     verify,
     defaultSkills,
     githubCredential,
+    knowledgeProvider,
+    knowledgeScope,
     cardDefaults,
     poc,
     mode,
@@ -415,6 +432,22 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
 
             <SettingsSection title="GitHub issue import">
               <GitHubImportSection github={github} onChange={setGitHub} types={types} priorities={priorities} />
+            </SettingsSection>
+
+            <SettingsSection
+              title="Knowledge"
+              lead="A read-only source of the product's rules, decisions and architecture, served to agents as knowledge tools."
+            >
+              <KnowledgeSection
+                provider={knowledgeProvider}
+                scope={knowledgeScope}
+                providers={knowledgeProviders ?? []}
+                onProviderChange={(next) => {
+                  setKnowledgeProvider(next);
+                  if (next === '') setKnowledgeScope('');
+                }}
+                onScopeChange={setKnowledgeScope}
+              />
             </SettingsSection>
           </>
         );

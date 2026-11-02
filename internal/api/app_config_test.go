@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -252,6 +253,59 @@ func TestGetAppConfig_Mob(t *testing.T) {
 		assert.NotContains(t, got, "mob_max_participants")
 		assert.NotContains(t, got, "mob_default_participants")
 		assert.NotContains(t, got, "mob_guest_names")
+	})
+}
+
+func TestGetAppConfig_KnowledgeProviders(t *testing.T) {
+	get := func(h *appConfigHandlers) map[string]any {
+		t.Helper()
+
+		w := httptest.NewRecorder()
+		h.getAppConfig(w, httptest.NewRequest(http.MethodGet, "/api/app/config", nil))
+
+		res := w.Result()
+		defer closeBody(t, res.Body)
+
+		require.Equal(t, http.StatusOK, res.StatusCode)
+
+		var got map[string]any
+		require.NoError(t, json.NewDecoder(res.Body).Decode(&got))
+
+		return got
+	}
+
+	t.Run("full payload lists names", func(t *testing.T) {
+		got := get(&appConfigHandlers{theme: "everforest", knowledgeProviders: []string{"intent"}})
+		assert.Equal(t, []any{"intent"}, got["knowledge_providers"])
+	})
+
+	t.Run("absent when none", func(t *testing.T) {
+		assert.NotContains(t, get(&appConfigHandlers{theme: "everforest"}), "knowledge_providers")
+	})
+
+	t.Run("slim payload omits it", func(t *testing.T) {
+		got := get(&appConfigHandlers{theme: "everforest", authMode: "multi", knowledgeProviders: []string{"intent"}})
+		assert.NotContains(t, got, "knowledge_providers")
+	})
+
+	t.Run("router never leaks url or token", func(t *testing.T) {
+		svc, bus, cleanup := testSetup(t)
+		t.Cleanup(cleanup)
+
+		kc := config.KnowledgeConfig{Providers: []config.KnowledgeProvider{
+			{Name: "intent", URL: "https://k.example/mcp", Token: "tok-secret-123"},
+		}}
+		server := httptest.NewServer(newTestRouter(RouterConfig{Service: svc, Bus: bus, KnowledgeProviders: kc.ProviderNames()}))
+		t.Cleanup(server.Close)
+
+		resp := doGet(t, server.URL+"/api/app/config")
+		defer closeBody(t, resp.Body)
+
+		raw, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		assert.Contains(t, string(raw), `"knowledge_providers":["intent"]`)
+		assert.NotContains(t, string(raw), "k.example")
+		assert.NotContains(t, string(raw), "tok-secret-123")
 	})
 }
 
