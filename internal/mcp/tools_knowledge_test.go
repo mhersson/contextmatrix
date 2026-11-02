@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -287,15 +289,17 @@ func TestKnowledgeTools_NoProviderOrScope(t *testing.T) {
 
 func TestKnowledgeTools_ErrorsBecomeReasons(t *testing.T) {
 	env, fake := setupKnowledge(t)
+	logs := recordLogs(t)
 
 	tests := []struct {
 		err    error
 		source string
+		warns  int // WARN records naming the provider
 	}{
-		{knowledge.ErrUnknownProvider, "knowledge"},
-		{knowledge.ErrProviderAbsent, "knowledge"},
-		{knowledge.ErrTimeout, "knowledge:intent"},
-		{knowledge.ErrProviderFailed, "knowledge:intent"},
+		{knowledge.ErrUnknownProvider, "knowledge", 1},
+		{knowledge.ErrProviderAbsent, "knowledge", 0},
+		{knowledge.ErrTimeout, "knowledge:intent", 0},
+		{knowledge.ErrProviderFailed, "knowledge:intent", 0},
 	}
 
 	for _, tool := range knowledgeToolNames {
@@ -305,8 +309,25 @@ func TestKnowledgeTools_ErrorsBecomeReasons(t *testing.T) {
 			for _, tt := range tests {
 				fake.set(nil, fmt.Errorf("%w: intent: provider said LEAKMARK", tt.err))
 
+				seen := len(logs.snapshot())
+
 				res, err := callToolRaw(t, env, tool, knowledgeArgs(tool))
 				got := knowledgeResult(t, res, err)
+
+				var warns []map[string]any
+
+				for _, r := range logs.snapshot()[seen:] {
+					if attrs := recordAttrs(r); r.Level == slog.LevelWarn && attrs["provider"] != nil {
+						warns = append(warns, attrs)
+					}
+				}
+
+				require.Len(t, warns, tt.warns, tt.err)
+
+				for _, w := range warns {
+					assert.Equal(t, "test-project", w["project"], tt.err)
+					assert.Equal(t, "intent", w["provider"], tt.err)
+				}
 
 				assert.Equal(t, tt.source, got["source"], tt.err)
 				assert.Equal(t, []any{}, got["items"], tt.err)
@@ -429,4 +450,54 @@ func TestKnowledgeCaller(t *testing.T) {
 			assert.LessOrEqual(t, utf8.RuneCountInString(got), 256)
 		})
 	}
+}
+
+// recordedLogs keeps every record slog's default logger handles in one test.
+type recordedLogs struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+func recordLogs(t *testing.T) *recordedLogs {
+	t.Helper()
+
+	h := &recordedLogs{}
+	prev := slog.Default()
+
+	slog.SetDefault(slog.New(h))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	return h
+}
+
+func (h *recordedLogs) Enabled(context.Context, slog.Level) bool { return true }
+func (h *recordedLogs) WithAttrs([]slog.Attr) slog.Handler       { return h }
+func (h *recordedLogs) WithGroup(string) slog.Handler            { return h }
+
+func (h *recordedLogs) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.records = append(h.records, r.Clone())
+
+	return nil
+}
+
+func (h *recordedLogs) snapshot() []slog.Record {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	return slices.Clone(h.records)
+}
+
+func recordAttrs(r slog.Record) map[string]any {
+	attrs := make(map[string]any)
+
+	r.Attrs(func(a slog.Attr) bool {
+		attrs[a.Key] = a.Value.Any()
+
+		return true
+	})
+
+	return attrs
 }
