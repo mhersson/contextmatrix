@@ -267,8 +267,9 @@ CM writes one JSON line per provider call to its own file:
   `knowledge.log.1`, the older files shift up one, and the previous
   `knowledge.log.3` is deleted. When the rotation fails, CM logs the error and
   still appends the line to `knowledge.log`.
-- A line is written for every `tools/call` CM sends, success or error, and for
-  every `knowledge_item` cache hit (with `cached: true` and `duration_ms: 0`),
+- One line is written for each tool call CM makes once connected, success or
+  error (a call retried after a lost session is one line), and for every
+  `knowledge_item` cache hit (with `cached: true` and `duration_ms: 0`),
   including a cache hit while the provider is absent. Nothing else writes a
   line: not a project without a provider or scope, a provider the server does
   not configure, a call refused because the provider is absent, or an input

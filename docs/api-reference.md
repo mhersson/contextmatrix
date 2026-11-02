@@ -1598,7 +1598,7 @@ them.
 | `card_defaults`     | Replace-whole-struct like `verify`: omitted preserves, a present object replaces, a block equal to the built-ins clears. `mob_participants` / `mob_phases` outside the server's mob bounds: 422 `VALIDATION_ERROR`. `create_pr` absent inside the block means `true`. |
 | `poc`               | Proof-of-concept flag: omitted preserves, `true` or `false` sets it. Not settable through MCP.                                                                                                                                                                        |
 | `knowledge_provider` | Omitted preserves, `""` clears, a name sets. 422 `VALIDATION_ERROR` for a name `knowledge.providers` does not configure. Not settable through MCP. |
-| `knowledge_scope`   | Omitted preserves. Required when a provider is set; at most 200 characters; 422 `VALIDATION_ERROR` otherwise. Not settable through MCP. |
+| `knowledge_scope`   | Omitted preserves, `""` clears, a value sets; the value is trimmed. Required when a provider is set; at most 200 characters; 422 `VALIDATION_ERROR` otherwise. Not settable through MCP. |
 | `remote_execution`  | Per-field merge: each of `worker_image` and `chat_worker_image` is independently omittable (preserves) or set; `""` clears back to the backend's default image. Charset and 512-byte cap: 422.                                                                        |
 
 Returns 200 with the updated `ProjectConfig`.
