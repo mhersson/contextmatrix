@@ -40,6 +40,7 @@ type provider struct {
 	clk         clock.Clock
 	dialTimeout time.Duration
 	retryAfter  time.Duration
+	closeLost   func(*mcp.ClientSession) error // a field so tests can hold a close open
 
 	mu          sync.Mutex
 	session     *mcp.ClientSession
@@ -64,6 +65,7 @@ func newProvider(cfg config.KnowledgeProvider, base http.RoundTripper, clk clock
 		clk:         clk,
 		dialTimeout: dialTimeout,
 		retryAfter:  retryAfter,
+		closeLost:   (*mcp.ClientSession).Close,
 	}
 }
 
@@ -184,13 +186,20 @@ func (p *provider) callTool(ctx context.Context, sess *mcp.ClientSession, params
 
 	p.mu.Lock()
 
+	var lost *mcp.ClientSession
+
 	if p.session == sess {
-		_ = sess.Close()
-		p.session = nil
+		lost, p.session = sess, nil
 	}
 
 	fresh, err := p.acquireLocked(ctx)
 	p.mu.Unlock()
+
+	// Closing may wait up to 5 s on a DELETE to the provider; no other caller
+	// waits for it.
+	if lost != nil {
+		_ = p.closeLost(lost)
+	}
 
 	if err != nil {
 		return nil, err

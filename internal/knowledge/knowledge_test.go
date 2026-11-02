@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -298,6 +299,58 @@ func TestService_RedialsOnceOnLostSession(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	assert.Equal(t, 2, stub.Initializes())
+}
+
+func TestService_LostSessionClosedOutsideTheLock(t *testing.T) {
+	stub := newStubProvider(t, stubOptions{Token: testToken})
+	s, _ := newTestService(t, stub.URL(), testToken, Options{})
+
+	_, err := s.Context(t.Context(), testTarget, "t", 0)
+	require.NoError(t, err)
+
+	closing, hold := make(chan struct{}), make(chan struct{})
+	release := sync.OnceFunc(func() { close(hold) })
+	t.Cleanup(release)
+
+	s.providers["intent"].closeLost = func(sess *mcp.ClientSession) error {
+		close(closing)
+		<-hold
+
+		return sess.Close()
+	}
+
+	stub.DropSessions()
+
+	redialled := make(chan error, 1)
+
+	go func() {
+		_, err := s.Context(t.Context(), testTarget, "t", 0)
+		redialled <- err
+	}()
+
+	select {
+	case <-closing:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the lost session was never closed")
+	}
+
+	other := make(chan error, 1)
+
+	go func() {
+		_, err := s.Context(t.Context(), testTarget, "t", 0)
+		other <- err
+	}()
+
+	select {
+	case err := <-other:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("a caller waited for another caller's session close")
+	}
+
+	release()
+	require.NoError(t, <-redialled)
 	assert.Equal(t, 2, stub.Initializes())
 }
 
