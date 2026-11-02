@@ -743,6 +743,7 @@ func main() {
 		LLMEndpoint:            llmEndpointFromConfig(cfg.LLMEndpoint),
 		BestOfN:                cfg.BestOfN,
 		Mob:                    cfg.Mob,
+		KnowledgeProviders:     cfg.Knowledge.ProviderNames(),
 		Playbooks:              pbSvc,
 		PlaybookRunner:         pbRunner,
 		MCPCardRunner:          runnerSlot,

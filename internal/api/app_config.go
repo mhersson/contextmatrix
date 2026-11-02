@@ -47,6 +47,9 @@ type appConfigHandlers struct {
 	sharedBoards bool
 	// boardsRepos lists the configured repos in config order; full payload only.
 	boardsRepos []BoardsRepoInfo
+	// knowledgeProviders lists configured provider names (never URLs or
+	// tokens); full payload only.
+	knowledgeProviders []string
 }
 
 // BoardsRepoInfo is one boards repository as the UI sees it.
@@ -72,6 +75,7 @@ type appConfigResponse struct {
 	InstanceID             string              `json:"instance_id,omitempty"`
 	SharedBoards           bool                `json:"shared_boards,omitempty"`
 	BoardsRepos            []BoardsRepoInfo    `json:"boards_repos,omitempty"`
+	KnowledgeProviders     []string            `json:"knowledge_providers,omitempty"`
 }
 
 // appConfigSlimResponse is served to unauthenticated callers in multi mode:
@@ -142,6 +146,7 @@ func (h *appConfigHandlers) getAppConfig(w http.ResponseWriter, r *http.Request)
 		InstanceID:             h.instanceID,
 		SharedBoards:           h.sharedBoards,
 		BoardsRepos:            h.boardsRepos,
+		KnowledgeProviders:     h.knowledgeProviders,
 	})
 }
 

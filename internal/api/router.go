@@ -302,6 +302,10 @@ type RouterConfig struct {
 	// value disables mob sessions (MaxParticipants 0 → only 0 validates),
 	// matching BestOfN's pre-config.Load-defaults contract.
 	Mob config.MobConfig
+	// KnowledgeProviders are the configured knowledge.providers names: the
+	// set a project's knowledge_provider is validated against, and what app
+	// config lists.
+	KnowledgeProviders []string
 	// Playbooks is optional; playbook routes are registered only when set.
 	Playbooks *service.PlaybookService
 	// PlaybookRunner drives runnable playbooks; nil disables Play and Stop.
@@ -372,6 +376,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		authEnabled:      cfg.AuthService != nil,
 		credentialExists: cfg.CredentialExists,
 		mob:              cfg.Mob,
+
+		knowledgeProviders: cfg.KnowledgeProviders,
 	}
 	ch := &cardHandlers{svc: cfg.Service, taskSkills: taskSkillsLister, bestOfNMax: cfg.BestOfN.MaxCandidates, mob: cfg.Mob}
 	ah := &agentHandlers{svc: cfg.Service}
@@ -430,6 +436,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		instanceID:             cfg.InstanceID,
 		sharedBoards:           cfg.SharedBoards,
 		boardsRepos:            cfg.BoardsRepos,
+		knowledgeProviders:     cfg.KnowledgeProviders,
 	}
 	bh := &branchHandlers{
 		svc:                cfg.Service,

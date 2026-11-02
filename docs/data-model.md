@@ -1116,6 +1116,8 @@ project has no product knowledge. Set only by a human; the service validates on
 save: a provider needs a non-empty scope of at most 200 characters (both are
 trimmed, and an empty string clears). MCP `update_project` preserves both. On a
 shared boards repo the three-way merge keeps a change made on one side only.
+The fields are set through `PUT /api/projects/{project}`, which rejects a
+provider name the server does not configure.
 
 ### `verify` (optional) and `favorites` (optional)
 

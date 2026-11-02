@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
@@ -41,6 +43,10 @@ type updateProjectRequest struct {
 	CardDefaults *board.CardDefaults `json:"card_defaults,omitempty"`
 	// POC is omitted to preserve the flag; true or false sets it.
 	POC *bool `json:"poc,omitempty"`
+	// KnowledgeProvider/KnowledgeScope: omitted preserves, "" clears, a value
+	// sets. A provider name must be one the server configures.
+	KnowledgeProvider *string `json:"knowledge_provider,omitempty"`
+	KnowledgeScope    *string `json:"knowledge_scope,omitempty"`
 }
 
 // remoteExecutionUpdate is the field-level merge shape for remote_execution on
@@ -67,6 +73,9 @@ type projectHandlers struct {
 	// mob supplies the seat bound card_defaults.mob_participants is checked
 	// against - the same config cardHandlers uses for per-card values.
 	mob config.MobConfig
+	// knowledgeProviders are the configured knowledge.providers names a
+	// project may bind to.
+	knowledgeProviders []string
 }
 
 // listProjects handles GET /api/projects.
@@ -259,6 +268,15 @@ func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	if req.KnowledgeProvider != nil {
+		name := strings.TrimSpace(*req.KnowledgeProvider)
+		if name != "" && !slices.Contains(h.knowledgeProviders, name) {
+			writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "unknown knowledge provider", "")
+
+			return
+		}
+	}
+
 	var remoteExecution *service.RemoteExecutionUpdate
 	if req.RemoteExecution != nil {
 		remoteExecution = &service.RemoteExecutionUpdate{
@@ -280,6 +298,9 @@ func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) 
 		RemoteExecution:  remoteExecution,
 		CardDefaults:     req.CardDefaults,
 		POC:              req.POC,
+
+		KnowledgeProvider: req.KnowledgeProvider,
+		KnowledgeScope:    req.KnowledgeScope,
 	})
 	if err != nil {
 		handleServiceError(w, r, err)
