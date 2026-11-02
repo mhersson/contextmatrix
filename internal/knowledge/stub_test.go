@@ -24,11 +24,12 @@ const (
 var stubToolNames = []string{"knowledge_context", "knowledge_query", "knowledge_item"}
 
 type stubOptions struct {
-	Token string
-	Omit  []string
-	Delay map[string]time.Duration
-	Fail  map[string]string
-	Text  map[string]string // tool answers with only this text content
+	Token    string
+	EchoAuth bool // a rejected request gets a JSON-RPC error quoting its Authorization header
+	Omit     []string
+	Delay    map[string]time.Duration
+	Fail     map[string]string
+	Text     map[string]string // tool answers with only this text content
 }
 
 type stubCall struct {
@@ -75,7 +76,18 @@ func (p *stubProvider) newHandler() http.Handler {
 }
 
 func (p *stubProvider) serveHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("Authorization") != "Bearer "+p.opts.Token {
+	if auth := r.Header.Get("Authorization"); auth != "Bearer "+p.opts.Token {
+		if p.opts.EchoAuth {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0", "id": 1,
+				"error": map[string]any{"code": -32001, "message": "rejected " + auth},
+			})
+
+			return
+		}
+
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 
 		return

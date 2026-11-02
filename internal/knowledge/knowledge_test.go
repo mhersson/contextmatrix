@@ -1,13 +1,16 @@
 package knowledge
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -595,6 +598,27 @@ func TestService_TokenNeverLeaks(t *testing.T) {
 		assertNoToken(t, err, path)
 	})
 
+	t.Run("rejected token echoed in the provider's error body", func(t *testing.T) {
+		logs := recordLogs(t)
+		stub := newStubProvider(t, stubOptions{Token: "another", EchoAuth: true})
+		s, path := newTestService(t, stub.URL(), testToken, Options{})
+
+		_, err := s.Context(ctx, testTarget, "t", 0)
+		require.ErrorIs(t, err, ErrProviderAbsent)
+		assertNoToken(t, err, path)
+
+		warned := false
+
+		for _, r := range logs.snapshot() {
+			if r.Level == slog.LevelWarn && recordAttrs(r)["provider"] == "intent" {
+				warned = true
+			}
+		}
+
+		assert.True(t, warned, "the unavailable provider is logged")
+		assert.NotContains(t, logs.text(t), testToken)
+	})
+
 	t.Run("tool error echoing the token", func(t *testing.T) {
 		stub := newStubProvider(t, stubOptions{Token: testToken, Fail: map[string]string{"knowledge_context": "bad bearer " + testToken}})
 		s, path := newTestService(t, stub.URL(), testToken, Options{})
@@ -653,4 +677,69 @@ func TestService_Close(t *testing.T) {
 
 		require.NoError(t, s.Close())
 	})
+}
+
+// recordedLogs keeps every record slog's default logger handles in one test.
+type recordedLogs struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+func recordLogs(t *testing.T) *recordedLogs {
+	t.Helper()
+
+	h := &recordedLogs{}
+	prev := slog.Default()
+
+	slog.SetDefault(slog.New(h))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	return h
+}
+
+func (h *recordedLogs) Enabled(context.Context, slog.Level) bool { return true }
+func (h *recordedLogs) WithAttrs([]slog.Attr) slog.Handler       { return h }
+func (h *recordedLogs) WithGroup(string) slog.Handler            { return h }
+
+func (h *recordedLogs) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.records = append(h.records, r.Clone())
+
+	return nil
+}
+
+func (h *recordedLogs) snapshot() []slog.Record {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	return slices.Clone(h.records)
+}
+
+// text renders every record, message and attributes, as slog's text handler
+// writes them.
+func (h *recordedLogs) text(t *testing.T) string {
+	t.Helper()
+
+	var buf bytes.Buffer
+
+	out := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
+	for _, r := range h.snapshot() {
+		require.NoError(t, out.Handle(context.Background(), r))
+	}
+
+	return buf.String()
+}
+
+func recordAttrs(r slog.Record) map[string]any {
+	attrs := make(map[string]any)
+
+	r.Attrs(func(a slog.Attr) bool {
+		attrs[a.Key] = a.Value.Any()
+
+		return true
+	})
+
+	return attrs
 }
