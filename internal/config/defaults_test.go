@@ -58,6 +58,7 @@ func TestDefaultsRoundTrip(t *testing.T) {
 	assert.Empty(t, back.Auth.MasterKeyFile)
 	assert.Empty(t, back.Images.DBPath)
 	assert.Empty(t, back.OpStore.DBPath)
+	assert.Empty(t, back.Knowledge.LogPath)
 
 	// Non-path defaults match what Load applies.
 	assert.Equal(t, 8080, back.Port)
@@ -90,6 +91,7 @@ func TestDefaultsCoverLoadDefaults(t *testing.T) {
 		"auth.master_key_file":           true, // resolved beside the config file
 		"images.db_path":                 true, // resolved beside the config file
 		"op_store.db_path":               true, // resolved beside the config file
+		"knowledge.log_path":             true, // derived from the host at load time
 		"workflow_skills_dir":            true, // resolved relative to the config file
 		"task_skills.dir":                true, // resolved relative to the config file
 	}

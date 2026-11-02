@@ -106,6 +106,7 @@ with `.` replaced by `_`:
 | `jira.token`                            | `CONTEXTMATRIX_JIRA_TOKEN`                          |
 | `jira.writeback.enabled`                | `CONTEXTMATRIX_JIRA_WRITEBACK_ENABLED`              |
 | `instance.id`                           | `CONTEXTMATRIX_INSTANCE_ID`                         |
+| `knowledge.log_path`                    | `CONTEXTMATRIX_KNOWLEDGE_LOG_PATH`                  |
 
 Exceptions to the rule:
 
@@ -123,6 +124,7 @@ values fail validation at startup.
 
 No env override exists for `stalled_check_interval`, `token_costs`,
 `chat.resume_budget_tokens`, `chat.rehydration_timeout`, `mob.guests`,
+`knowledge.providers`,
 `backends.agent.favorites`, `model_priors`, `jira.project_map`,
 `jira.writeback.status_targets`, or the list form of `boards`. `CONTEXTMATRIX_BOARDS_*` applies to the single-repo form only;
 setting one while `boards` is a list is a startup error.

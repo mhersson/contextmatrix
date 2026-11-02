@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -754,6 +755,85 @@ type MobGuest struct {
 	Token string `yaml:"token"`
 }
 
+// KnowledgeProvider is one external knowledge source reached over MCP.
+// Config-file-only: Token is a bearer secret and env overrides are
+// scalar-only (see MobGuest).
+type KnowledgeProvider struct {
+	Name  string `yaml:"name"`
+	URL   string `yaml:"url"`
+	Token string `yaml:"token"`
+}
+
+// KnowledgeConfig lists the knowledge providers and the audit log path.
+type KnowledgeConfig struct {
+	LogPath   string              `yaml:"log_path"`
+	Providers []KnowledgeProvider `yaml:"providers"`
+}
+
+// ProviderNames returns the provider names in config order, nil when none.
+func (k KnowledgeConfig) ProviderNames() []string {
+	if len(k.Providers) == 0 {
+		return nil
+	}
+
+	names := make([]string, 0, len(k.Providers))
+	for _, p := range k.Providers {
+		names = append(names, p.Name)
+	}
+
+	return names
+}
+
+var knowledgeNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
+
+func (k KnowledgeConfig) validate() error {
+	seen := make(map[string]bool, len(k.Providers))
+
+	for i, p := range k.Providers {
+		if p.Name == "" {
+			return fmt.Errorf("knowledge.providers[%d]: name is required", i)
+		}
+
+		if !knowledgeNamePattern.MatchString(p.Name) {
+			return fmt.Errorf("knowledge.providers[%d] (%s): name must match %s", i, p.Name, knowledgeNamePattern)
+		}
+
+		if seen[p.Name] {
+			return fmt.Errorf("knowledge.providers[%d]: duplicate provider name %q", i, p.Name)
+		}
+
+		seen[p.Name] = true
+
+		if p.Token == "" {
+			return fmt.Errorf("knowledge.providers[%d] (%s): token is required", i, p.Name)
+		}
+
+		u, err := url.Parse(p.URL)
+		if err != nil || u.Hostname() == "" {
+			return fmt.Errorf("knowledge.providers[%d] (%s): url must be an absolute http(s) URL with a host", i, p.Name)
+		}
+
+		if u.User != nil {
+			return fmt.Errorf("knowledge.providers[%d] (%s): url must not contain credentials", i, p.Name)
+		}
+
+		switch u.Scheme {
+		case "https":
+		case "http":
+			host := u.Hostname()
+			ip := net.ParseIP(host)
+
+			if !strings.EqualFold(host, "localhost") && (ip == nil || !ip.IsLoopback()) {
+				return fmt.Errorf("knowledge.providers[%d] (%s): http url is allowed only for a loopback host", i, p.Name)
+			}
+		default:
+			return fmt.Errorf("knowledge.providers[%d] (%s): url scheme must be https (or http on loopback)", i, p.Name)
+		}
+	}
+
+	return nil
+}
+
 // MobConfig bounds the mob session discussion mode (agent backend). A card
 // with mob_participants >= 2 convenes N internal discussion seats in its
 // plan/review phases; guests join by registry name.
@@ -858,20 +938,21 @@ type Config struct {
 	MCPAPIKey         string               `yaml:"mcp_api_key"`
 	// Backends declares the agent (task execution) and chat backend entries.
 	// The mapping's key set is closed - see Backends.UnmarshalYAML.
-	Backends      Backends       `yaml:"backends"`
-	GitHub        GitHubConfig   `yaml:"github"`
-	Jira          JiraConfig     `yaml:"jira"`
-	LogFormat     string         `yaml:"log_format"`      // "json" or "text", default "text"
-	LogLevel      string         `yaml:"log_level"`       // "debug"/"info"/"warn"/"error", default "info"
-	AdminPort     int            `yaml:"admin_port"`      // 0 = disabled
-	AdminBindAddr string         `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
-	Chat          ChatConfig     `yaml:"chat"`
-	Images        ImagesConfig   `yaml:"images"`
-	OpStore       OpStoreConfig  `yaml:"op_store"`
-	BestOfN       BestOfNConfig  `yaml:"best_of_n"`
-	Mob           MobConfig      `yaml:"mob"`
-	Auth          AuthConfig     `yaml:"auth"`
-	Instance      InstanceConfig `yaml:"instance"`
+	Backends      Backends        `yaml:"backends"`
+	GitHub        GitHubConfig    `yaml:"github"`
+	Jira          JiraConfig      `yaml:"jira"`
+	LogFormat     string          `yaml:"log_format"`      // "json" or "text", default "text"
+	LogLevel      string          `yaml:"log_level"`       // "debug"/"info"/"warn"/"error", default "info"
+	AdminPort     int             `yaml:"admin_port"`      // 0 = disabled
+	AdminBindAddr string          `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
+	Chat          ChatConfig      `yaml:"chat"`
+	Images        ImagesConfig    `yaml:"images"`
+	OpStore       OpStoreConfig   `yaml:"op_store"`
+	BestOfN       BestOfNConfig   `yaml:"best_of_n"`
+	Mob           MobConfig       `yaml:"mob"`
+	Knowledge     KnowledgeConfig `yaml:"knowledge"`
+	Auth          AuthConfig      `yaml:"auth"`
+	Instance      InstanceConfig  `yaml:"instance"`
 }
 
 func defaults() *Config {
@@ -1148,6 +1229,7 @@ func (c *Config) Validate() error {
 	applyChatDefaults(c)
 	applyImagesDefaults(c)
 	applyOpStoreDefaults(c)
+	applyKnowledgeDefaults(c)
 	applyBestOfNDefaults(c)
 	applyMobDefaults(c)
 
@@ -1200,7 +1282,7 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	return nil
+	return c.Knowledge.validate()
 }
 
 // boardsLabel names an entry in error messages. A single entry that is
@@ -1381,6 +1463,7 @@ func Load(path string) (*Config, error) {
 			applyChatDefaults(cfg)
 			applyImagesDefaults(cfg)
 			applyOpStoreDefaults(cfg)
+			applyKnowledgeDefaults(cfg)
 			applyBestOfNDefaults(cfg)
 			applyMobDefaults(cfg)
 			applyAuthDefaults(cfg)
@@ -1421,6 +1504,7 @@ func Load(path string) (*Config, error) {
 	applyChatDefaults(cfg)
 	applyImagesDefaults(cfg)
 	applyOpStoreDefaults(cfg)
+	applyKnowledgeDefaults(cfg)
 	applyBestOfNDefaults(cfg)
 	applyMobDefaults(cfg)
 	applyAuthDefaults(cfg)
@@ -1492,6 +1576,13 @@ func resolvePaths(cfg *Config, configPath string) error {
 	}
 
 	cfg.Auth.MasterKeyFile = masterKey
+
+	knowledgeLog, err := expandTilde(cfg.Knowledge.LogPath)
+	if err != nil {
+		return err
+	}
+
+	cfg.Knowledge.LogPath = knowledgeLog
 
 	return nil
 }
@@ -1579,6 +1670,13 @@ func applyImagesDefaults(cfg *Config) {
 func applyOpStoreDefaults(cfg *Config) {
 	if cfg.OpStore.DBPath == "" {
 		cfg.OpStore.DBPath = defaultSQLiteDBPath("ops.db")
+	}
+}
+
+// applyKnowledgeDefaults sets the audit log path when YAML left it empty.
+func applyKnowledgeDefaults(cfg *Config) {
+	if cfg.Knowledge.LogPath == "" {
+		cfg.Knowledge.LogPath = defaultSQLiteDBPath("knowledge.log")
 	}
 }
 
@@ -1974,6 +2072,10 @@ func applyEnvOverrides(cfg *Config) error {
 
 	if v := os.Getenv("CONTEXTMATRIX_OP_STORE_DB_PATH"); v != "" {
 		cfg.OpStore.DBPath = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_KNOWLEDGE_LOG_PATH"); v != "" {
+		cfg.Knowledge.LogPath = v
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_AUTH_MODE"); v != "" {

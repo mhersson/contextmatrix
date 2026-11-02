@@ -9,9 +9,9 @@ package config
 // All three backend entries are declared before the chain runs and left enabled
 // while it runs, because applyBackendDefaults only fills an entry that is
 // enabled; they are switched off afterwards so their key sets are visible
-// without turning either backend on. The four path-valued keys whose default
+// without turning either backend on. The five path-valued keys whose default
 // depends on the host (auth.db_path, auth.master_key_file, images.db_path,
-// op_store.db_path) are blanked after the chain, so the schema carries no
+// op_store.db_path, knowledge.log_path) are blanked after the chain, so the schema carries no
 // machine-specific path. Nothing is read from disk or the environment.
 func Defaults() *Config {
 	cfg := defaults()
@@ -24,6 +24,7 @@ func Defaults() *Config {
 	applyChatDefaults(cfg)
 	applyImagesDefaults(cfg)
 	applyOpStoreDefaults(cfg)
+	applyKnowledgeDefaults(cfg)
 	applyBestOfNDefaults(cfg)
 	applyMobDefaults(cfg)
 	applyAuthDefaults(cfg)
@@ -41,6 +42,7 @@ func Defaults() *Config {
 
 	cfg.Auth.DBPath, cfg.Auth.MasterKeyFile = "", ""
 	cfg.Images.DBPath, cfg.OpStore.DBPath = "", ""
+	cfg.Knowledge.LogPath = ""
 
 	// Empty maps print as {} rather than null; the installer treats {} as
 	// an opaque node whose user content is kept verbatim.
