@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
@@ -71,6 +72,11 @@ type UpdateProjectInput struct {
 	//   nil pointer   - preserve the existing flag (MCP update_project never sets it)
 	//   non-nil       - set it
 	POC *bool
+	// KnowledgeProvider and KnowledgeScope use pointer-presence semantics:
+	//   nil pointer   - preserve (MCP update_project never sets them)
+	//   non-nil       - set the trimmed value; "" clears
+	KnowledgeProvider *string
+	KnowledgeScope    *string
 }
 
 // RemoteExecutionUpdate carries per-field edits to a project's remote-execution
@@ -90,7 +96,10 @@ var validWorkerImage = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:/@-]*$`)
 
 // maxWorkerImageLen caps the worker image reference length before it reaches
 // .board.yaml. Hygiene only - well above any real image reference.
-const maxWorkerImageLen = 512
+const (
+	maxWorkerImageLen    = 512
+	maxKnowledgeScopeLen = 200
+)
 
 // validProjectName matches safe directory names: alphanumeric, hyphens, underscores.
 var validProjectName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
@@ -505,6 +514,26 @@ func (s *CardService) updateProjectLocked(
 
 	if input.POC != nil {
 		cfg.POC = *input.POC
+	}
+
+	// Checked only when this update touches a knowledge field, so a hand-edited
+	// project lacking a scope can still save other fields.
+	if input.KnowledgeProvider != nil || input.KnowledgeScope != nil {
+		if input.KnowledgeProvider != nil {
+			cfg.KnowledgeProvider = strings.TrimSpace(*input.KnowledgeProvider)
+		}
+
+		if input.KnowledgeScope != nil {
+			cfg.KnowledgeScope = strings.TrimSpace(*input.KnowledgeScope)
+		}
+
+		if cfg.KnowledgeProvider != "" && cfg.KnowledgeScope == "" {
+			return nil, nil, fmt.Errorf("%w: knowledge_scope is required when knowledge_provider is set", board.ErrInvalidProjectConfig)
+		}
+
+		if utf8.RuneCountInString(cfg.KnowledgeScope) > maxKnowledgeScopeLen {
+			return nil, nil, fmt.Errorf("%w: knowledge_scope must be at most %d characters", board.ErrInvalidProjectConfig, maxKnowledgeScopeLen)
+		}
 	}
 
 	// SaveProject validates and persists

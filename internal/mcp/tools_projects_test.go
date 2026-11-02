@@ -164,6 +164,44 @@ func TestUpdateProject_MCP_PreservesPOC(t *testing.T) {
 	assert.True(t, cur.POC, "a poc argument on update_project must not reach the project")
 }
 
+// TestUpdateProject_MCP_PreservesKnowledge pins that no MCP call changes a
+// project's knowledge fields.
+func TestUpdateProject_MCP_PreservesKnowledge(t *testing.T) {
+	env := setupMCP(t)
+	ctx := context.Background()
+
+	seed := pocSeedInput(nil)
+	seed.KnowledgeProvider = new("intent")
+	seed.KnowledgeScope = new("payments")
+
+	_, err := env.svc.UpdateProject(ctx, "test-project", seed)
+	require.NoError(t, err)
+
+	args := map[string]any{
+		"project":     "test-project",
+		"states":      []string{"todo", "in_progress", "blocked", "review", "done", "stalled", "not_planned"},
+		"types":       []string{"task", "bug", "feature"},
+		"priorities":  []string{"low", "medium", "high", "critical"},
+		"transitions": testProjectConfig().Transitions,
+	}
+	result := callTool(t, env, "update_project", args)
+	require.False(t, result.IsError, "update_project should not error")
+
+	cur, err := env.svc.GetProject(ctx, "test-project")
+	require.NoError(t, err)
+	assert.Equal(t, "intent", cur.KnowledgeProvider)
+	assert.Equal(t, "payments", cur.KnowledgeScope)
+
+	args["knowledge_provider"] = "other"
+	args["knowledge_scope"] = "x"
+	_, _ = callToolRaw(t, env, "update_project", args)
+
+	cur, err = env.svc.GetProject(ctx, "test-project")
+	require.NoError(t, err)
+	assert.Equal(t, "intent", cur.KnowledgeProvider)
+	assert.Equal(t, "payments", cur.KnowledgeScope)
+}
+
 // TestProjectConfig_MCP_CarriesPOC pins the poc wire contract the workflow
 // skills (get_task_context) and the architect (list_projects) read: true when
 // set, absent when false.

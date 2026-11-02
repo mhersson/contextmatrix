@@ -90,6 +90,8 @@ card_defaults:                     # what a new card's Automation rail starts wi
   create_pr: false                 # omit to keep the built-in true
   await_ci: true
 poc: true                          # proof of concept: lighter review and test bar, see running-cards.md
+knowledge_provider: intent         # a knowledge.providers name in the server config
+knowledge_scope: payments          # the product's name at the provider
 favorites:                         # per-tier model preferences, merged with config.yaml
   complex: [anthropic/claude-opus-4.8]
   critical:
@@ -107,6 +109,8 @@ Rules the validator applies on load and on every save:
 - `card_defaults.mob_participants` must be 0 or 2..`mob.max_participants` and
   `mob_phases` a subset of plan/review/execute when saved through the API;
   hand-edited values are loaded as written.
+- `knowledge_scope` is required when `knowledge_provider` is set, at most 200
+  characters, when saved through CM; hand-edited values are loaded as written.
 - The file is capped at 1 MiB.
 
 Two fields appear in API responses only and are never written to the file:

@@ -175,6 +175,38 @@ func TestResolveProject_POCOneSidedChangeKept(t *testing.T) {
 	}
 }
 
+func TestResolveProject_KnowledgeOneSidedChangeKept(t *testing.T) {
+	tests := []struct {
+		name                       string
+		base, ours, theirs, wanted string
+	}{
+		{"local set kept", "", "intent", "", "intent"},
+		{"local clear kept", "intent", "", "intent", ""},
+		{"remote change taken", "intent", "intent", "other", "other"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base, ours, theirs := projCfg(), projCfg(), projCfg()
+			base.KnowledgeProvider, base.KnowledgeScope = tt.base, tt.base
+			ours.KnowledgeProvider, ours.KnowledgeScope = tt.ours, tt.ours
+			theirs.KnowledgeProvider, theirs.KnowledgeScope = tt.theirs, tt.theirs
+			theirs.NextID = base.NextID + 1
+
+			out, err := Resolve(Input{
+				Path: "alpha/.board.yaml", Base: serializeProj(t, base),
+				Ours: serializeProj(t, ours), Theirs: serializeProj(t, theirs),
+			}, testCtx())
+			require.NoError(t, err)
+
+			got, err := board.ParseProjectConfig(out.Content)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wanted, got.KnowledgeProvider)
+			assert.Equal(t, tt.wanted, got.KnowledgeScope)
+			assert.Empty(t, out.Resolutions)
+		})
+	}
+}
+
 func TestResolveProject_Unparseable(t *testing.T) {
 	theirs := projCfg()
 	valid := serializeProj(t, theirs)

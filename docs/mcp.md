@@ -153,7 +153,7 @@ The "Caller" column uses these values:
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------ |
 | `list_projects`  | All projects with their configs                                                                                                    | any    |
 | `create_project` | Create a board; `boards_repo` picks the repo when several exist                                                                    | any    |
-| `update_project` | Change states, types, priorities, transitions, repo; default_skills, remote_execution, verify, card_defaults and poc are preserved | any    |
+| `update_project` | Change states, types, priorities, transitions, repo; default_skills, remote_execution, verify, card_defaults, poc, knowledge_provider and knowledge_scope are preserved | any    |
 | `delete_project` | Delete a project with zero cards                                                                                                   | any    |
 
 ### Playbooks
