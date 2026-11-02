@@ -1121,9 +1121,9 @@ Source tab sends it), which rejects a provider name the server does not
 configure. A project that names a provider the server does not configure (a
 hand edit, or a provider removed from the config) is not a load error: its
 knowledge tools answer with empty `items` and a `reason`, and CM logs a warning
-on each call (with no providers configured at all, the tools are not
-registered). What the tools return and what a provider implements are in
-[knowledge providers](knowledge.md).
+on each call when the project also has a scope (with no providers configured
+at all, the tools are not registered). What the tools return and what a
+provider implements are in [knowledge providers](knowledge.md).
 
 ### `verify` (optional) and `favorites` (optional)
 

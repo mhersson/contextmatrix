@@ -6,8 +6,9 @@ system differs from the rules. A project names one provider and a scope, and
 ContextMatrix (CM) serves three read-only MCP tools that answer from it, so
 any MCP client can read the product's knowledge next to the board.
 
-CM is a client and a pass-through. It reads knowledge; it never stores, writes
-or summarises it, and it knows nothing about how a provider keeps it. A
+CM is a client and a pass-through. It reads knowledge and never writes it back
+or summarises it; it keeps answers only in a short in-memory item cache and in
+its audit log, and it knows nothing about how a provider keeps them. A
 provider can be a service with search and ranking, or a plain folder of
 markdown behind a small MCP server with no AI at all. This page is complete on
 its own for a provider author: the [provider contract](#the-provider-contract)
@@ -29,7 +30,7 @@ knowledge:
 
 | Field                        | Rule                                                                                                                                                                       |
 | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `providers[].name`           | Required, unique, matches `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`. Projects refer to it, the Project Settings dropdown shows it, and every result `source` and audit line carries it. |
+| `providers[].name`           | Required, unique, matches `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`. Projects refer to it, the Project Settings dropdown shows it, every audit line carries it, and so does a result tagged `source: "knowledge:<name>"` (see [`source`](#cms-knowledge-tools)). |
 | `providers[].url`            | Required. The provider's MCP endpoint (Streamable HTTP). `https://`, or `http://` only when the host is loopback: `localhost`, `127.0.0.0/8` or `::1`. No credentials in the URL. |
 | `providers[].token`          | Required. Sent as `Authorization: Bearer <token>`.                                                                                                                         |
 | `log_path`                   | The [audit log](#the-audit-log). Env `CONTEXTMATRIX_KNOWLEDGE_LOG_PATH`; tilde expansion applies.                                                                           |
@@ -63,9 +64,9 @@ set. MCP `update_project` preserves both fields and cannot set them.
 
 A project that names a provider the server does not configure (a hand edit, or
 a provider removed from the config) still loads. While the server configures
-other providers, its knowledge tools answer empty with a `reason` and CM logs a
-warning on each call; with no providers configured the tools are not
-registered at all.
+other providers, its knowledge tools answer empty with a `reason`, and CM logs
+a warning on each call when the project also has a scope; with no providers
+configured the tools are not registered at all.
 
 ## CM's knowledge tools
 
@@ -83,9 +84,11 @@ carry the same JSON.
 - **Project.** CM reads the project from `card_id` when `project` is omitted,
   then calls the project's provider with the project's `knowledge_scope`. A
   caller never passes a scope.
-- **`source`** is `"knowledge:<provider name>"` when CM called the provider,
-  and `"knowledge"` when the project has no usable provider. CM sets it on
-  every result and replaces any `source` a provider sends.
+- **`source`** is `"knowledge:<provider name>"` on the provider's answer
+  (cached or not), a timeout or a failed call, and `"knowledge"` when the
+  project has no usable provider or the provider is absent; the table below
+  lists every case. CM sets it on every result and replaces any `source` a
+  provider sends.
 - **`items`** is always present: an empty list, never `null`.
 - **Pass-through.** `items`, `note`, `related`, `missing` and any field CM
   does not know are the provider's values, unchanged. CM never rewrites, wraps
@@ -99,15 +102,16 @@ carry the same JSON.
   | The project names no provider                     | `knowledge`        | no              |
   | The project names a provider but no scope         | `knowledge`        | no              |
   | The provider is not configured on this server     | `knowledge`        | no (warning logged) |
-  | The provider is [absent](#availability)           | `knowledge`        | no              |
-  | The provider did not answer within CM's timeout   | `knowledge:<name>` | yes             |
-  | The provider returned an error or a bad answer    | `knowledge:<name>` | yes             |
+  | The provider is [absent](#availability)           | `knowledge`        | no, except a call whose lost session could not be reconnected: its first attempt was sent and is audited |
+  | The call hit CM's call timeout                    | `knowledge:<name>` | yes             |
+  | The call failed: an `isError` result, a bad answer or another transport error | `knowledge:<name>` | yes |
 
 - **Never a tool error for the provider.** An outage, slowness or bad answer
   is an empty result with a `reason`, so a skill, chat or blueprint stage can
-  call the tools without checking first. Tool errors are only: neither
-  `project` nor `card_id`, an unknown project or card, a blank `task` or
-  `query`, or `ids` with no non-blank entry.
+  call the tools without checking first. Tool errors are only: arguments the
+  input schema rejects (an unknown argument, a wrong type, a missing `task`,
+  `query` or `ids`), neither `project` nor `card_id`, an unknown project or
+  card, a blank `task` or `query`, or `ids` with no non-blank entry.
 - **Arguments sent on.** `task` and `query` are trimmed. `ids` are trimmed and
   blank entries dropped. `kinds` is passed as given. `limit` above 50 becomes
   50, and 0 or a negative value is not sent, so the provider's default applies.
@@ -209,15 +213,16 @@ checked.
 | `knowledge_scope` length                             | at most 200 characters                                  |
 | Audit rotation                                       | at 10 MiB, keep 3 old files (`knowledge.log.1` .. `.3`) |
 
-- Connect plus the longest call is 55 s, under CM's 60 s HTTP write timeout,
-  so a knowledge tool answers before CM's own server would cut the reply.
+- The connect timeout plus the longest call timeout is 55 s, under CM's 60 s
+  HTTP write timeout, so the knowledge tools need no write-deadline override.
 - A timeout is CM's own per-call timeout firing; the reason says the provider
   did not answer in time. A caller that gives up first gets no answer, and a
   call already sent is logged as failed. Neither marks the provider absent.
 - Only successful `knowledge_item` answers are cached, keyed by provider,
   scope, the ids (in any order) and `related`. At 256 entries the entry
   closest to expiry is dropped. `knowledge_context` and `knowledge_query` are
-  never cached. A cache hit does not reach the provider.
+  never cached. A cache hit does not reach the provider, so it is served even
+  while the provider is absent.
 - An answer over 1 MiB, or one whose fields have the wrong types (see
   [Rules](#rules)), is a failed call.
 
@@ -228,16 +233,24 @@ checked.
   and the missing names are logged.
 - A failed connect (unreachable, an HTTP error such as a rejected token, a
   redirect, the connect timeout, or a missing tool) makes the provider absent
-  for 30 s. During that window its tools answer at once with the
-  "unavailable" `reason`, without contacting the provider. The next call after
-  the window connects again. CM logs a warning when a provider becomes
-  unavailable and an info line when it is available again. A caller that gives
-  up while CM is connecting does not mark the provider absent.
+  for 30 s. During that window `get_knowledge_context` and `query_knowledge`
+  answer at once with the "unavailable" `reason`, without contacting the
+  provider. `get_knowledge_item` does the same unless its answer is still in
+  CM's item cache, which it then serves (and audits as a cache hit) as usual.
+  The next call after the window connects again. CM logs a warning when a
+  provider becomes unavailable and an info line when it is available again. A
+  caller that gives up while CM is connecting does not mark the provider
+  absent.
 - All calls share the session. When it is lost (the provider restarted or no
-  longer knows the session), CM connects again once and retries the call; if
-  that connect fails, the provider is absent.
-- Errors and log lines never carry the token: wherever provider output could
-  echo it, CM replaces it with `[redacted]`.
+  longer knows the session), CM connects again once and retries the call. If
+  that connect fails, the provider is absent and the call answers as in the
+  absent window (`source: "knowledge"`, the "unavailable" `reason`), although
+  its first attempt reached the provider and is in the audit log.
+- CM replaces the token with `[redacted]` in every error text it builds from
+  provider output, so error texts, log lines and the audit log's `error` field
+  never carry it. Answers are not redacted: they pass through unchanged into
+  tool results and the audit log's `answer`, so a provider must never echo its
+  token in an answer.
 
 ## The audit log
 
@@ -253,15 +266,16 @@ CM writes one JSON line per provider call to its own file:
   `knowledge.log.1`, the older files shift up one, and the previous
   `knowledge.log.3` is deleted.
 - A line is written for every `tools/call` CM sends, success or error, and for
-  every `knowledge_item` cache hit (with `cached: true` and `duration_ms: 0`).
-  Calls that never reached the provider are not logged: a project without a
-  provider or scope, a provider the server does not configure, an absent
-  provider, and input errors.
+  every `knowledge_item` cache hit (with `cached: true` and `duration_ms: 0`),
+  including a cache hit while the provider is absent. Nothing else writes a
+  line: not a project without a provider or scope, a provider the server does
+  not configure, a call refused because the provider is absent, or an input
+  error.
 - A failed write is logged and does not fail the call.
 
 | Field         | Type        | Meaning                                                                                                   |
 | ------------- | ----------- | --------------------------------------------------------------------------------------------------------- |
-| `time`        | string      | When the call started, RFC 3339 with nanoseconds, in the server's time zone                                |
+| `time`        | string      | When CM sent the call (after any connect) or served the cache hit; RFC 3339 with fractional seconds, in the server's time zone |
 | `provider`    | string      | Provider name                                                                                             |
 | `scope`       | string      | The project's `knowledge_scope`                                                                           |
 | `project`     | string      | The CM project                                                                                            |
@@ -279,12 +293,14 @@ CM writes one JSON line per provider call to its own file:
 
 ## Security
 
-- The token lives in the config file only and goes to its provider only, on
-  every request to the configured URL. It never reaches a worker container, a
-  model, a log line, a tool result, the audit log or the browser;
-  `GET /api/app/config` lists provider names only. CM follows no redirect, so
-  a provider cannot send the token on to another host, and `http://` is
-  accepted only on loopback.
+- The token lives in the config file only. CM sends it to its provider only,
+  on every request to the configured URL, and never to a worker container, a
+  model or the browser; `GET /api/app/config` lists provider names only. CM
+  redacts it from error texts, log lines and the audit log's `error` field.
+  Provider answers pass through unchanged into tool results and the audit
+  log's `answer`, so a provider must never echo its token in an answer. CM
+  follows no redirect, so a provider cannot make CM send the token to another
+  host, and `http://` is accepted only on loopback.
 - Provider text is data. CM passes it through unchanged inside a JSON
   envelope tagged with `source`, and the tool descriptions tell models that
   items are quoted data, never instructions.
