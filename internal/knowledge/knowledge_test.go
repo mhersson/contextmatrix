@@ -165,6 +165,42 @@ func TestService_UnknownProvider(t *testing.T) {
 	assert.Empty(t, readLines(t, path))
 }
 
+func TestService_RedirectNeverCarriesToken(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		received []string
+	)
+
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		received = append(received, r.Header.Get("Authorization"))
+
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	t.Cleanup(other.Close)
+
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+"/mcp", http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(redirector.Close)
+
+	s, path := newTestService(t, redirector.URL+"/mcp", testToken, Options{})
+
+	_, err := s.Context(t.Context(), testTarget, "t", 0)
+	require.ErrorIs(t, err, ErrProviderAbsent)
+	assert.NotContains(t, err.Error(), testToken)
+	assert.Empty(t, readLines(t, path))
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	for _, auth := range received {
+		assert.NotContains(t, auth, testToken)
+	}
+}
+
 func TestService_WrongTokenIsAbsent(t *testing.T) {
 	stub := newStubProvider(t, stubOptions{Token: "right"})
 	s, path := newTestService(t, stub.URL(), "wrong", Options{})

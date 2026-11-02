@@ -49,11 +49,18 @@ type provider struct {
 }
 
 func newProvider(cfg config.KnowledgeProvider, base http.RoundTripper, clk clock.Clock, dialTimeout, retryAfter time.Duration) *provider {
+	httpClient := &http.Client{
+		Transport: &bearerTransport{token: cfg.Token, base: base},
+		// bearerTransport sets the header on every hop, so a followed redirect
+		// would hand the token to whatever host the provider names.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+
 	return &provider{
 		name:        cfg.Name,
 		url:         cfg.URL,
 		token:       cfg.Token,
-		httpClient:  &http.Client{Transport: &bearerTransport{token: cfg.Token, base: base}},
+		httpClient:  httpClient,
 		clk:         clk,
 		dialTimeout: dialTimeout,
 		retryAfter:  retryAfter,
