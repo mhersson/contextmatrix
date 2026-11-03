@@ -75,8 +75,9 @@ func TestBuilderStatsOpenRouterLeg(t *testing.T) {
 
 	assert.Equal(t, CatalogStats{IndexVersion: "5", AAScored: 4, ServedScored: 3, BestAAScore: 59.4}, b.Stats(ctx))
 
+	prov := b.Provenance(ctx)
 	for slug := range slugs {
-		assert.Equal(t, PriorSourceAA, b.Provenance(ctx)[slug].PriorSource, slug)
+		assert.Equal(t, PriorSourceAA, prov[slug].PriorSource, slug)
 	}
 }
 
@@ -89,6 +90,7 @@ func TestBuilderStatsEndpointLeg(t *testing.T) {
 			{"id":"claude-opus-5.5","context_length":200000,"pricing":{"prompt":"0.000005","completion":"0.000025"},"capabilities":{"features":["tools"]}},
 			{"id":"gpt-6-astra","context_length":400000,"pricing":{"prompt":"0.00000125","completion":"0.00001"},"capabilities":{"features":["tools"]}},
 			{"id":"gpt-6-nano","context_length":400000,"pricing":{"prompt":"0.00000005","completion":"0.0000004"},"capabilities":{"features":["tools"]}},
+			{"id":"gpt-6-notools","context_length":400000,"pricing":{"prompt":"0.00000125","completion":"0.00001"},"capabilities":{"features":[]}},
 			{"id":"op/custom","context_length":100000,"pricing":{"prompt":"0.000001","completion":"0.000002"},"capabilities":{"features":["tools"]}}
 		]}`))
 	}))
@@ -115,9 +117,14 @@ func TestBuilderStatsEndpointLeg(t *testing.T) {
 func TestBuilderStatsKeepLastGoodOnFailedRefresh(t *testing.T) {
 	t.Parallel()
 
-	var fail atomic.Bool
+	var (
+		fail     atomic.Bool
+		requests atomic.Int32
+	)
 
 	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+
 		if fail.Load() {
 			w.WriteHeader(http.StatusInternalServerError)
 
@@ -143,6 +150,8 @@ func TestBuilderStatsKeepLastGoodOnFailedRefresh(t *testing.T) {
 	want := b.Stats(ctx)
 	require.Equal(t, 4, want.AAScored)
 
+	before := requests.Load()
+
 	fail.Store(true)
 	b.mu.Lock()
 	b.cachedAt = time.Now().Add(-2 * time.Hour)
@@ -150,7 +159,7 @@ func TestBuilderStatsKeepLastGoodOnFailedRefresh(t *testing.T) {
 	b.mu.Unlock()
 
 	assert.Equal(t, want, b.Stats(ctx))
-	assert.True(t, fail.Load())
+	assert.Greater(t, requests.Load(), before, "the expired TTL must have triggered a refresh attempt")
 
 	var nilBuilder *Builder
 
