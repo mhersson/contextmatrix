@@ -60,7 +60,7 @@ func TestPutSelectorLaddersPartialTiersMergeOverDefaults(t *testing.T) {
 	got, _, err := st.SelectorLadders(ctx)
 	require.NoError(t, err)
 	require.Len(t, got["coder"], 4, "every tier is stored, the unnamed ones at their default")
-	assert.InDelta(t, 0.65, got["coder"]["simple"], 1e-9)
+	assert.InDelta(t, 0.50, got["coder"]["simple"], 1e-9)
 	assert.InDelta(t, 0.82, got["coder"]["complex"], 1e-9)
 	assert.InDelta(t, 0.95, got["coder"]["critical"], 1e-9)
 	assert.InDelta(t, 0.85, got["reviewer"]["complex"], 1e-9)

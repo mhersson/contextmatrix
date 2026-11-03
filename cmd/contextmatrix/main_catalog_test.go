@@ -34,7 +34,7 @@ func TestNewCatalogBuilder_QualityFloor(t *testing.T) {
 			expectedFloor:  0.5,
 		},
 		{
-			name:    "agent AA with unset floor defaults to 0.65",
+			name:    "agent AA with unset floor defaults to 0.50",
 			llmType: config.LLMEndpointTypeOpenRouter,
 			agentCfg: &config.AgentBackendConfig{
 				AAAPIKey:            "some-key",
@@ -42,7 +42,7 @@ func TestNewCatalogBuilder_QualityFloor(t *testing.T) {
 			},
 			hasAgent:       true,
 			chatOpenRouter: false,
-			expectedFloor:  0.65,
+			expectedFloor:  0.50,
 		},
 		{
 			name:    "agent AA with endpoint type openai and configured floor 0.5",
@@ -56,22 +56,22 @@ func TestNewCatalogBuilder_QualityFloor(t *testing.T) {
 			expectedFloor:  0.5,
 		},
 		{
-			name:    "no agent, endpoint openai, unset floor defaults to 0.65",
+			name:    "no agent, endpoint openai, unset floor defaults to 0.50",
 			llmType: config.LLMEndpointTypeOpenAI,
 			agentCfg: &config.AgentBackendConfig{
 				CatalogQualityFloor: 0,
 			},
 			hasAgent:       false,
 			chatOpenRouter: false,
-			expectedFloor:  0.65,
+			expectedFloor:  0.50,
 		},
 		{
-			name:           "chat only, openrouter catalog, unset floor defaults to 0.65",
+			name:           "chat only, openrouter catalog, unset floor defaults to 0.50",
 			llmType:        config.LLMEndpointTypeOpenRouter,
 			agentCfg:       nil,
 			hasAgent:       false,
 			chatOpenRouter: true,
-			expectedFloor:  0.65,
+			expectedFloor:  0.50,
 		},
 		{
 			name:    "has agent without AA, openrouter, configured floor 0.5",
@@ -132,8 +132,8 @@ func TestFloorAccessor(t *testing.T) {
 		expected float64
 	}{
 		{"positive value passes through", 0.5, 0.5},
-		{"zero is replaced by default", 0, 0.65},
-		{"negative is replaced by default", -1, 0.65},
+		{"zero is replaced by default", 0, 0.50},
+		{"negative is replaced by default", -1, 0.50},
 	}
 
 	for _, tt := range tests {

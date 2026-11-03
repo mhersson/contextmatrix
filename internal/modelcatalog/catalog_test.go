@@ -1120,3 +1120,11 @@ func TestBuilderContextWindowNilReceiver(t *testing.T) {
 
 	assert.Zero(t, b.ContextWindow(context.Background(), "any-model"))
 }
+
+func TestNewBuilderDefaultsTheFloorToFiftyPercent(t *testing.T) {
+	for _, floor := range []float64{0, -1} {
+		assert.InDelta(t, 0.50, NewBuilder("", floor, nil, 0).Floor(), 1e-9)
+	}
+
+	assert.InDelta(t, 0.65, NewBuilder("", 0.65, nil, 0).Floor(), 1e-9, "an explicit floor is kept")
+}
