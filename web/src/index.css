@@ -2614,12 +2614,14 @@ textarea {
 
 /* ============================================================
    Tier ladders admin page (.tl-*). Sits on the .apd-* dashboard
-   language - same tokens, panels and KPI tiles; only the ladder,
-   preview and blacklist internals are new. Positions that follow
-   the data (top, left) and the per-element colour tokens
-   (--tier-c, --bar-c, --band-c, --sw-c) are set inline.
+   language - same tokens and panels; only the chart, preview and
+   blacklist internals are new. The per-element colour tokens
+   (--tier-c, --sw-c, --handle-c) are set inline.
    ============================================================ */
 .tl-page {
+  --tl-coder: var(--blue);
+  --tl-reviewer: var(--purple);
+  --tl-shared: var(--green);
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -2638,11 +2640,6 @@ textarea {
   gap: var(--apd-gap);
   padding: var(--apd-gap) var(--apd-pad) 28px;
 }
-.tl-kpis {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--apd-gap);
-}
 .tl-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.9fr);
@@ -2653,21 +2650,32 @@ textarea {
   .tl-grid {
     grid-template-columns: 1fr;
   }
-  .tl-kpis {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 @media (max-width: 768px) {
-  .tl-kpis {
-    grid-template-columns: 1fr;
+  /* The strip wraps here; its actions must wrap too or Save runs off the screen. */
+  .tl-page .apd-strip-actions {
+    flex-shrink: 1;
+    flex-wrap: wrap;
+    min-width: 0;
+    row-gap: 6px;
   }
 }
 .tl-error {
   font-size: 12.5px;
   color: var(--red);
 }
+/* The page scrolls as a whole: no inner height clip (the dashboard caps panel
+   bodies on narrow screens), and panel heads wrap rather than cut a control. */
+.tl-page .apd-panel-body {
+  max-height: none;
+}
+.tl-page .apd-panel-head,
+.tl-page .apd-panel-meta {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
 
-/* --- status pill and the linked switch --- */
+/* --- status pill and the separate reviewer ladder switch --- */
 .tl-status {
   display: inline-flex;
   align-items: center;
@@ -2749,263 +2757,6 @@ textarea {
   border-color: var(--red);
 }
 
-/* --- ladder --- */
-.tl-ladder-wrap {
-  /* The rail column's width and the column gap: the coder handles hang one
-     of each to the left of their column, so the three must agree. */
-  --tl-rail-w: 150px;
-  --tl-col-gap: 16px;
-  padding: 6px 14px 14px;
-}
-.tl-ladder-head {
-  display: grid;
-  grid-template-columns: var(--tl-rail-w) 1fr 1fr;
-  gap: 0 var(--tl-col-gap);
-  align-items: end;
-  margin-bottom: 8px;
-}
-.tl-rail-h {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--grey0);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-.tl-role-h {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--grey2);
-  font-weight: 500;
-}
-.tl-role-h small {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--grey0);
-}
-.tl-role-tag {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  letter-spacing: 0.04em;
-  padding: 1px 5px;
-  border-radius: 3px;
-  text-transform: uppercase;
-  font-weight: 500;
-}
-.tl-role-tag.coder {
-  background: var(--bg-blue);
-  color: var(--blue);
-}
-.tl-role-tag.reviewer {
-  background: var(--bg-purple);
-  color: var(--purple);
-}
-.tl-ladder {
-  position: relative;
-  height: 640px;
-  display: grid;
-  grid-template-columns: var(--tl-rail-w) 1fr 1fr;
-  gap: 0 var(--tl-col-gap);
-  user-select: none;
-  touch-action: none;
-}
-.tl-rail {
-  position: relative;
-}
-.tl-tick {
-  position: absolute;
-  right: 0;
-  transform: translateY(-50%);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--grey0);
-  padding-right: 8px;
-}
-.tl-tick::after {
-  content: "";
-  position: absolute;
-  left: 100%;
-  top: 50%;
-  width: 6px;
-  height: 1px;
-  background: var(--bg3);
-}
-.tl-col {
-  position: relative;
-  border-radius: 8px;
-  background: var(--bg-dim);
-  border: 1px solid var(--bg1);
-}
-.tl-band {
-  position: absolute;
-  left: 0;
-  right: 0;
-  pointer-events: none;
-  background: color-mix(in srgb, var(--band-c) 9%, transparent);
-  border-top: 1px solid color-mix(in srgb, var(--band-c) 30%, transparent);
-}
-.tl-band.first {
-  border-top: 0;
-}
-.tl-band.floor {
-  background: transparent;
-}
-.tl-band-label {
-  position: absolute;
-  right: 8px;
-  top: 5px;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--band-c);
-  text-align: right;
-  line-height: 1.3;
-}
-.tl-band-label small {
-  display: block;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  opacity: 0.8;
-}
-.tl-bar {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 0;
-  z-index: 6;
-  pointer-events: none;
-  transition: top 60ms linear;
-}
-.tl-bar.dragging {
-  transition: none;
-}
-.tl-bar-line {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: -1px;
-  height: 2px;
-  background: var(--bar-c);
-  opacity: 0.9;
-}
-.tl-bar.dragging .tl-bar-line {
-  height: 3px;
-}
-.tl-handle {
-  position: absolute;
-  top: -13px;
-  height: 26px;
-  pointer-events: auto;
-  cursor: grab;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 9px 0 7px;
-  border-radius: 6px;
-  background: var(--bg0);
-  border: 1px solid var(--bar-c);
-  color: var(--fg);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
-}
-/* Coder handles sit on the rail: one rail width plus the column gap to the left. */
-.tl-col-coder .tl-handle {
-  left: calc(-1 * (var(--tl-rail-w) + var(--tl-col-gap)));
-  width: 140px;
-}
-.tl-col-reviewer .tl-handle {
-  left: 6px;
-  width: 72px;
-}
-.tl-handle:focus-visible {
-  outline: 2px solid var(--bar-c);
-  outline-offset: 2px;
-}
-.tl-grip {
-  width: 9px;
-  height: 14px;
-  flex-shrink: 0;
-  opacity: 0.9;
-  background: repeating-linear-gradient(to bottom, var(--bar-c) 0 1.5px, transparent 1.5px 3.5px);
-}
-.tl-tname {
-  color: var(--bar-c);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  font-size: 9.5px;
-  flex: 1;
-}
-.tl-tval {
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  color: var(--fg);
-  font-size: 12px;
-  white-space: nowrap;
-}
-.tl-handle:hover {
-  background: color-mix(in srgb, var(--bar-c) 14%, var(--bg0));
-}
-.tl-bar.dragging .tl-handle {
-  cursor: grabbing;
-  background: color-mix(in srgb, var(--bar-c) 22%, var(--bg0));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bar-c) 25%, transparent);
-}
-.tl-dot {
-  position: absolute;
-  transform: translateY(-50%);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 16px;
-  padding: 0 7px 0 4px;
-  border-radius: 9999px;
-  background: var(--bg1);
-  border: 1px solid var(--bg2);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--fg);
-  white-space: nowrap;
-  z-index: 3;
-  transition:
-    border-color 120ms,
-    background 120ms;
-}
-.tl-dot i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--tier-c, var(--grey1));
-  flex-shrink: 0;
-}
-.tl-dot-p {
-  color: var(--grey1);
-}
-.tl-dot.picked {
-  border-color: var(--tier-c);
-  background: color-mix(in srgb, var(--tier-c) 14%, var(--bg1));
-}
-.tl-dot.seat {
-  outline: 1px dashed color-mix(in srgb, var(--tier-c) 60%, transparent);
-  outline-offset: 1px;
-}
-.tl-dot.banned {
-  opacity: 0.5;
-  border-style: dashed;
-}
-.tl-dot.banned i {
-  background: var(--red);
-}
-.tl-dot.banned .tl-dot-n {
-  text-decoration: line-through;
-  text-decoration-color: var(--red);
-}
-.tl-dot:hover {
-  z-index: 9;
-  border-color: var(--grey2);
-}
 .tl-menu {
   position: fixed;
   z-index: 40;
@@ -3073,27 +2824,33 @@ textarea {
 }
 .tl-provider-row {
   --provider-accent: var(--aqua);
-  /* flex child of .tl-legend: full basis keeps it on its own line under the swatches. */
-  flex-basis: 100%;
   display: flex;
-  gap: 14px;
+  gap: 6px;
   flex-wrap: wrap;
+  align-items: center;
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--grey1);
 }
-.tl-provider-row .tl-provider {
+.tl-provider-row .tl-chip {
+  font: inherit;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
+  border: 1px solid var(--bg4);
+  border-radius: 9999px;
+  padding: 1px 8px;
+  color: var(--fg);
+  background: var(--bg1);
   cursor: pointer;
 }
-.tl-provider-row .tl-provider-box {
-  width: 10px;
-  height: 10px;
-  margin: 0;
-  accent-color: var(--provider-accent);
-  cursor: pointer;
+.tl-provider-row .tl-chip small {
+  color: var(--grey1);
+  font-size: inherit;
+}
+.tl-provider-row .tl-chip.off {
+  opacity: 0.4;
+  text-decoration: line-through;
 }
 .tl-provider-row .tl-provider-btn {
   background: transparent;
@@ -3108,59 +2865,220 @@ textarea {
   color: var(--provider-accent);
 }
 
+/* --- selection chart (SVG); per-dot colours are set inline from the role tokens --- */
+.tl-chart {
+  position: relative;
+  min-width: 0;
+  user-select: none;
+}
+.tl-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.tl-chart text {
+  fill: var(--grey1);
+  font-family: var(--font-sans);
+  font-size: 11px;
+}
+.tl-chart-grid line {
+  stroke: var(--bg2);
+}
+.tl-chart-gutter {
+  fill: var(--bg1);
+  opacity: 0.6;
+}
+.tl-chart-band {
+  opacity: 0.16;
+}
+.tl-chart-floor-area {
+  fill: var(--bg-red);
+  opacity: 0.35;
+}
+.tl-chart-floor {
+  stroke: var(--red);
+  stroke-dasharray: 3 3;
+}
+.tl-chart text.tl-chart-floor-label {
+  fill: var(--red);
+}
+.tl-chart-link {
+  stroke: var(--grey1);
+  stroke-width: 1;
+}
+.tl-chart-pt {
+  stroke-width: 2;
+}
+.tl-chart-pt.has-menu {
+  cursor: context-menu;
+}
+.tl-chart-tier {
+  stroke-width: 1;
+  opacity: 0.9;
+}
+.tl-chart-tier.selected {
+  stroke-width: 2;
+  opacity: 1;
+}
+.tl-chart-connector {
+  stroke-width: 1;
+}
+.tl-chart-handle {
+  cursor: grab;
+  touch-action: none;
+  outline: none;
+}
+.tl-chart-handle rect {
+  fill: var(--bg1);
+  stroke: var(--handle-c);
+  stroke-width: 1;
+}
+.tl-chart .tl-chart-handle text {
+  fill: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.tl-chart-handle:hover rect {
+  fill: color-mix(in srgb, var(--handle-c) 14%, var(--bg1));
+}
+/* Outlines on SVG groups are unreliable, so focus thickens and tints the box. */
+.tl-chart-handle:focus-visible rect {
+  stroke-width: 2;
+  fill: color-mix(in srgb, var(--handle-c) 22%, var(--bg1));
+}
+.tl-chart-handle.dragging {
+  cursor: grabbing;
+}
+.tl-chart-handle.dragging rect {
+  fill: color-mix(in srgb, var(--handle-c) 22%, var(--bg1));
+}
+.tl-chart-strike {
+  stroke: var(--red);
+  stroke-width: 2;
+}
+.tl-chart text.tl-chart-label {
+  fill: var(--fg);
+  font-weight: 600;
+}
+/* Overlays must not steal the pointer from the dots under them. */
+.tl-chart-tier,
+.tl-chart-tier-label,
+.tl-chart-connector,
+.tl-chart-link,
+.tl-chart-strike,
+.tl-chart-label,
+.tl-chart-band,
+.tl-chart-band-label {
+  pointer-events: none;
+}
+.tl-chart-tip {
+  position: fixed;
+  z-index: 40;
+  pointer-events: none;
+  max-width: 280px;
+  padding: 6px 8px;
+  background: var(--bg0);
+  border: 1px solid var(--bg5);
+  border-radius: 6px;
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.tl-chart-tip b {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.tl-chart-tip-bl {
+  color: var(--red);
+}
+
 /* --- pick preview --- */
-.tl-pv-tier {
-  padding: 8px 14px 10px;
+.tl-pv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+.tl-pv-table th {
+  padding: 6px 7px;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--grey1);
+  border-bottom: 1px solid var(--bg1);
+}
+.tl-pv-table td {
+  padding: 8px 7px;
+  vertical-align: top;
   border-top: 1px solid var(--bg1);
 }
-.tl-pv-tier:first-of-type {
-  border-top: 0;
+.tl-pv-table th:first-child,
+.tl-pv-table td:first-child {
+  padding-left: 14px;
 }
-.tl-pv-tier-head {
+.tl-pv-table th:last-child,
+.tl-pv-table td:last-child {
+  padding-right: 14px;
+}
+/* Horizontal scrolling only if the columns' narrowest widths still overflow. */
+.tl-page .tl-pv {
+  overflow-x: auto;
+}
+.tl-pv-tier {
+  cursor: pointer;
+}
+.tl-pv-tier:hover {
+  background: var(--bg1);
+}
+.tl-pv-tier.sel {
+  background: var(--bg-blue);
+}
+.tl-pv-tiercell {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 6px;
+  flex-direction: column;
+  gap: 2px;
 }
 .tl-pv-tier-name {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
   font-family: var(--font-mono);
   font-size: 10.5px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+  white-space: nowrap;
   color: var(--tier-c);
 }
-.tl-pv-tier-bar {
+.tl-pv-tier-bar,
+.tl-pv-count {
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--grey0);
 }
-.tl-pv-row {
-  display: grid;
-  grid-template-columns: 64px 1fr auto;
-  gap: 10px;
-  align-items: center;
-  padding: 4px 0;
+.tl-pv-c {
+  color: var(--tl-coder);
 }
-.tl-pv-who {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--grey1);
+.tl-pv-r {
+  color: var(--tl-reviewer);
 }
 .tl-pv-model {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   min-width: 0;
 }
 .tl-pv-name {
+  min-width: 0;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--fg);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .tl-pv-none {
   font-family: var(--font-mono);
@@ -3190,11 +3108,7 @@ textarea {
   text-decoration: none;
   cursor: help;
 }
-.tl-pv[aria-busy="true"] .tl-pv-tier {
-  opacity: 0.55;
-  transition: opacity 120ms;
-}
-.tl-kpis[aria-busy="true"] .apd-kpi.pending {
+.tl-pv[aria-busy="true"] .tl-pv-table {
   opacity: 0.55;
   transition: opacity 120ms;
 }
@@ -3210,36 +3124,31 @@ textarea {
 }
 .tl-seats {
   display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
+  flex-direction: column;
+  gap: 3px;
 }
+/* One flowing line per seat; names may break anywhere so the column can shrink to its prices. */
 .tl-seat {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  border-radius: 9999px;
   font-family: var(--font-mono);
   font-size: 10.5px;
-  background: var(--bg1);
-  border: 1px solid var(--bg2);
+  line-height: 1.35;
   color: var(--fg);
+  overflow-wrap: anywhere;
 }
 .tl-seat b {
   font-weight: 500;
   color: var(--grey0);
 }
-.tl-seat.walk {
-  border-color: color-mix(in srgb, var(--orange) 55%, transparent);
-}
-.tl-seat.dup {
-  border-style: dashed;
+.tl-seat.dup .tl-seat-name {
+  color: var(--grey1);
 }
 .tl-seat-px {
   color: var(--grey1);
+  white-space: nowrap;
 }
 .tl-walked {
   color: var(--orange);
+  white-space: nowrap;
 }
 .tl-hint,
 .tl-foot {
@@ -9824,4 +9733,30 @@ button.bp-rv-head {
 
 .pb-followups-row + .pb-followups-row {
   border-top: 1px solid color-mix(in srgb, var(--yellow) 25%, transparent);
+}
+
+/* --- data-source strip and ladder panel body --- */
+.tl-source {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 12px;
+  color: var(--grey1);
+  background: var(--bg0);
+  border: 1px solid var(--bg3);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.tl-source b {
+  color: var(--fg);
+  font-weight: 600;
+}
+.tl-source a {
+  color: var(--blue);
+}
+.tl-panel-body {
+  padding: 0 14px 12px;
+}
+.tl-panel-body .tl-provider-row {
+  margin: 4px 0 8px;
 }

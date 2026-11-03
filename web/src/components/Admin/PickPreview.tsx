@@ -1,6 +1,6 @@
 import type { CSSProperties, MouseEvent } from 'react';
-import type { SelectorCandidate, SelectorLadders, SelectorPickReport, SelectorPreview, SelectorSeat, SelectorTier } from '../../types';
-import { TIERS_DESC, TIER_COLOR, formatBar, panelHasListPrice, panelPrice, priorOf, shortSlug, usdPerMillion } from './ladder';
+import type { SelectorCandidate, SelectorLadders, SelectorPickReport, SelectorPreview, SelectorRole, SelectorSeat, SelectorTier } from '../../types';
+import { TIERS_DESC, TIER_COLOR, clearedTiers, formatBar, panelHasListPrice, panelPrice, priorOf, shortSlug, usdPerMillion } from './ladder';
 
 interface PickPreviewProps {
   preview: SelectorPreview | null;
@@ -9,8 +9,13 @@ interface PickPreviewProps {
   disabled: boolean;
   error: string | null;
   ladders: SelectorLadders;
+  /** One bar per tier for both roles when false; the two bars show when they differ when true. */
+  separate: boolean;
   candidates: SelectorCandidate[];
+  blacklist: ReadonlySet<string>;
   headroom: number;
+  selectedTier: SelectorTier;
+  onSelectTier: (tier: SelectorTier) => void;
   /** Right-click on a pick or a seat: the slug and the pointer's viewport position. Unset leaves the browser menu alone. */
   onModelMenu?: ModelMenuHandler;
 }
@@ -42,66 +47,77 @@ function Price({ perTok, list }: { perTok: number; list: boolean }) {
   );
 }
 
-function PickRow({ who, pr, tier, onModelMenu }: { who: string; pr: SelectorPickReport; tier: SelectorTier; onModelMenu?: ModelMenuHandler }) {
+function PickCell({ pr, tier, onModelMenu }: { pr: SelectorPickReport; tier: SelectorTier; onModelMenu?: ModelMenuHandler }) {
   const p = pr.pick;
-  if (!p.ok) {
-    return (
-      <div className="tl-pv-row">
-        <span className="tl-pv-who">{who}</span>
-        <span className="tl-pv-none">nothing clears any rung</span>
-        <span />
-      </div>
-    );
-  }
-  const descended = p.met_tier !== tier;
+  if (!p.ok) return <span className="tl-pv-none">nothing clears any rung</span>;
   return (
-    <div className="tl-pv-row">
-      <span className="tl-pv-who">{who}</span>
-      <span className="tl-pv-model">
-        <span className="chip-pill tl-pv-chip">{descended ? `↓ ${p.met_tier}` : 'at bar'}</span>
-        <span className="tl-pv-name" onContextMenu={contextMenuFor(p.model, onModelMenu)}>
-          {p.model}
-        </span>
-        {p.source === 'favorite' && <span className="tl-pv-src">favorite</span>}
+    <span className="tl-pv-model">
+      <span className="tl-pv-name" onContextMenu={contextMenuFor(p.model, onModelMenu)}>
+        {shortSlug(p.model)}
       </span>
       <span className="tl-pv-price">
         <Price perTok={p.price_per_tok} list={p.price_source === 'aa'} />
       </span>
-    </div>
+      {p.met_tier !== tier && <span className="chip-pill tl-pv-chip">{`↓ ${p.met_tier}`}</span>}
+      {p.source === 'favorite' && <span className="tl-pv-src">favorite</span>}
+    </span>
   );
 }
 
-function SeatRow({ seats, tier, onModelMenu }: { seats: SelectorSeat[]; tier: SelectorTier; onModelMenu?: ModelMenuHandler }) {
+function SeatsCell({ seats, tier, onModelMenu }: { seats: SelectorSeat[]; tier: SelectorTier; onModelMenu?: ModelMenuHandler }) {
   return (
-    <div className="tl-pv-row">
-      <span className="tl-pv-who">panel ×3</span>
-      <span className="tl-seats">
-        {seats.length === 0 && <span className="tl-pv-none">no seat can be filled</span>}
-        {seats.map((s, i) => (
-          <span
-            key={`${s.pick.model}-${i}`}
-            className={`tl-seat${s.walked ? ' walk' : ''}${s.pick.duplicate ? ' dup' : ''}`}
-            data-testid={`tl-seat-${tier}-${i}`}
-            onContextMenu={s.pick.ok ? contextMenuFor(s.pick.model, onModelMenu) : undefined}
-          >
-            <b>{i + 1}</b>
-            {shortSlug(s.pick.model)}
-            <span className="tl-seat-px">
-              <Price perTok={s.pick.price_per_tok} list={s.pick.price_source === 'aa'} />
-            </span>
-            {s.walked && <span className="tl-walked">walked</span>}
-            {s.pick.duplicate && <span className="tl-walked">duplicate</span>}
+    <span className="tl-seats">
+      {seats.length === 0 && <span className="tl-pv-none">no seat can be filled</span>}
+      {seats.map((s, i) => (
+        <span
+          key={`${s.pick.model}-${i}`}
+          className={`tl-seat${s.walked ? ' walk' : ''}${s.pick.duplicate ? ' dup' : ''}`}
+          data-testid={`tl-seat-${tier}-${i}`}
+          onContextMenu={s.pick.ok ? contextMenuFor(s.pick.model, onModelMenu) : undefined}
+        >
+          <b>{i + 1}</b> <span className="tl-seat-name">{shortSlug(s.pick.model)}</span>{' '}
+          <span className="tl-seat-px">
+            <Price perTok={s.pick.price_per_tok} list={s.pick.price_source === 'aa'} />
           </span>
-        ))}
-      </span>
-      <span className="tl-pv-price">{seats.length > 0 && <Price perTok={panelPrice(seats)} list={panelHasListPrice(seats)} />}</span>
-    </div>
+          {s.walked && (
+            <>
+              {' '}
+              <span className="tl-walked">walked</span>
+            </>
+          )}
+          {s.pick.duplicate && (
+            <>
+              {' '}
+              <span className="tl-walked">duplicate</span>
+            </>
+          )}
+        </span>
+      ))}
+      {seats.length > 0 && (
+        <span className="tl-pv-price tl-pv-total">
+          <Price perTok={panelPrice(seats)} list={panelHasListPrice(seats)} />
+        </span>
+      )}
+    </span>
   );
 }
 
-export function PickPreview({ preview, pending, disabled, error, ladders, candidates, headroom, onModelMenu }: PickPreviewProps) {
-  const clearing = (tier: SelectorTier, role: 'coder' | 'reviewer') =>
-    candidates.filter((c) => priorOf(c, role) >= ladders[role][tier]).length;
+export function PickPreview({
+  preview,
+  pending,
+  disabled,
+  error,
+  ladders,
+  separate,
+  candidates,
+  blacklist,
+  headroom,
+  selectedTier,
+  onSelectTier,
+  onModelMenu,
+}: PickPreviewProps) {
+  const clearing = (tier: SelectorTier, role: SelectorRole) =>
+    candidates.filter((c) => !blacklist.has(c.slug) && clearedTiers(ladders[role], priorOf(c, role)).includes(tier)).length;
 
   const busy = pending && !disabled;
   const empty = error ? 'No preview yet.' : disabled ? 'Preview needs the candidate catalog.' : 'Waiting for the first preview…';
@@ -124,22 +140,72 @@ export function PickPreview({ preview, pending, disabled, error, ladders, candid
         {preview === null ? (
           <div className="apd-panel-empty">{empty}</div>
         ) : (
-          TIERS_DESC.map((tier) => {
-            const t = preview.tiers[tier];
-            return (
-              <div key={tier} className="tl-pv-tier" style={{ '--tier-c': TIER_COLOR[tier] } as CSSProperties} data-testid={`tl-pv-${tier}`}>
-                <div className="tl-pv-tier-head">
-                  <span className="tl-pv-tier-name">{tier}</span>
-                  <span className="tl-pv-tier-bar">
-                    {`bar c ${formatBar(ladders.coder[tier])} · r ${formatBar(ladders.reviewer[tier])} · ${clearing(tier, 'coder')} coders · ${clearing(tier, 'reviewer')} reviewers clear it`}
-                  </span>
-                </div>
-                <PickRow who="coder" pr={t.coder} tier={tier} onModelMenu={onModelMenu} />
-                <PickRow who="reviewer" pr={t.reviewer} tier={tier} onModelMenu={onModelMenu} />
-                <SeatRow seats={t.panel} tier={tier} onModelMenu={onModelMenu} />
-              </div>
-            );
-          })
+          <table className="tl-pv-table">
+            <thead>
+              <tr>
+                <th>Tier</th>
+                <th>Coder</th>
+                <th>Reviewer</th>
+                <th>Review panel</th>
+              </tr>
+            </thead>
+            <tbody>
+              {TIERS_DESC.map((tier) => {
+                const t = preview.tiers[tier];
+                const cBar = ladders.coder[tier];
+                const rBar = ladders.reviewer[tier];
+                const cCount = clearing(tier, 'coder');
+                const rCount = clearing(tier, 'reviewer');
+                const selected = tier === selectedTier;
+                return (
+                  <tr
+                    key={tier}
+                    className={`tl-pv-tier${selected ? ' sel' : ''}`}
+                    style={{ '--tier-c': TIER_COLOR[tier] } as CSSProperties}
+                    data-testid={`tl-pv-${tier}`}
+                    onClick={() => onSelectTier(tier)}
+                  >
+                    <td className="tl-pv-tiercell">
+                      <button type="button" className="tl-pv-tier-name" aria-pressed={selected}>
+                        {tier}
+                      </button>
+                      <span className="tl-pv-tier-bar">
+                        {separate && Math.abs(cBar - rBar) > 1e-9 ? (
+                          <>
+                            <span className="tl-pv-c">{`c ${formatBar(cBar)}`}</span>
+                            {' / '}
+                            <span className="tl-pv-r">{`r ${formatBar(rBar)}`}</span>
+                          </>
+                        ) : (
+                          formatBar(cBar)
+                        )}
+                      </span>
+                      <span className="tl-pv-count">
+                        {cCount === rCount ? (
+                          `${cCount} clear`
+                        ) : (
+                          <>
+                            <span className="tl-pv-c">{`${cCount} coder`}</span>
+                            {' · '}
+                            <span className="tl-pv-r">{`${rCount} reviewer`}</span>
+                          </>
+                        )}
+                      </span>
+                    </td>
+                    <td>
+                      <PickCell pr={t.coder} tier={tier} onModelMenu={onModelMenu} />
+                    </td>
+                    <td>
+                      <PickCell pr={t.reviewer} tier={tier} onModelMenu={onModelMenu} />
+                    </td>
+                    <td>
+                      <SeatsCell seats={t.panel} tier={tier} onModelMenu={onModelMenu} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         )}
       </div>
       <p className="tl-hint">

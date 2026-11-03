@@ -817,6 +817,9 @@ export interface SelectorLaddersResponse {
 /** Where a candidate's price came from; `aa` is the Artificial Analysis list price, shown when the gateway publishes none. */
 export type SelectorPriceSource = 'gateway' | 'aa' | 'token_costs' | 'none' | '';
 
+/** Whether a candidate's priors are AA scores or an operator model_priors entry. */
+export type SelectorPriorSource = 'aa' | 'model_priors';
+
 export interface SelectorCandidate {
   slug: string;
   creator: string;
@@ -828,6 +831,7 @@ export interface SelectorCandidate {
   price_source: SelectorPriceSource;
   /** The AA slug an automatic join scored the priors from; empty for a model_priors entry and on the OpenRouter leg. */
   scored_from: string;
+  prior_source: SelectorPriorSource;
 }
 
 export interface SelectorFavoriteRule {
@@ -844,6 +848,14 @@ export interface SelectorCandidatesResponse {
   catalog_refreshed_at: string;
   /** llm_endpoint.reasoning_effort, the effort the gateway pins for its OpenAI models; empty when unset. */
   reasoning_effort: string;
+  /** AA's intelligence_index_version; empty when AA sent none or the catalog has no AA data. */
+  intelligence_index_version: string;
+  /** AA rows with an intelligence index. */
+  aa_scored_models: number;
+  /** Gateway models with tool use joined to a scored AA row, before the allowlist and the floor; model_priors entries are not counted. */
+  served_scored_models: number;
+  /** The best AA score, the normalizer behind prior 1.00; 0 when there is none. */
+  best_aa_score: number;
 }
 
 export type SelectorPickSource = 'auto' | 'favorite' | 'pinned' | 'capable-default';

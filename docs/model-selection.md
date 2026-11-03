@@ -27,7 +27,7 @@ The operator-facing controls, most direct first:
 | Restrict which vendors are eligible   | `backends.agent.model_allowlist`            | `config.yaml`                                | Vendor prefixes (`qwen`, `z-ai`); replaces the built-in list; inert on the `openai` leg        |
 | Rate models AA does not know          | `backends.agent.model_priors`               | `config.yaml`                                | `openai` leg only; verbatim 0..1 priors                                                        |
 | Widen or narrow the price band        | Price headroom                              | Model selection admin page                   | Default 1.5; stored in `ops.db`, sent with every run as `selection.price_headroom`; never a config-file setting |
-| Raise or lower a tier's quality bar   | Tier ladders                                | Model selection admin page                   | One ladder per role (coder, reviewer), linked in the page when the saved ladders are equal; stored in `ops.db`, sent with every run as `selection.tier_bars`; never a config-file setting |
+| Raise or lower a tier's quality bar   | Tier ladders                                | Model selection admin page                   | One ladder per role (coder, reviewer); the page's Separate reviewer ladder switch, when off, keeps the two equal; stored in `ops.db`, sent with every run as `selection.tier_bars`; never a config-file setting |
 | Set the orchestrator model            | `backends.agent.default_model`              | `config.yaml`                                | Card pins override it; the selector's empty-pool fallback resolves to the trigger's `default_model` when set, else the agent's serve default, else the compiled-in `deepseek/deepseek-v4-flash`
 | Clear the outcome ledger              | `DELETE /api/admin/model-outcomes`          | REST (admin)                                 | Observability data only - selection never reads it; does not touch the blacklist               |
 | Blacklist a model by hand             | `POST /api/admin/model-blacklist`           | REST (admin) / right-click on the model-selection admin page | Same row an agent report writes; excluded from every automatic pick and seat until delisted |
@@ -95,7 +95,8 @@ and the served-model list of the configured gateway.
 `x-api-key` header (`backends.agent.aa_api_key`), paginated at 200 models
 per page, capped at 10 pages and 60 seconds per refresh. Three fields are
 consumed per model: the AA slug, the creator name, and the intelligence
-index. AA also publishes each row's list price (`price_1m_input_tokens`,
+index; the refresh also reads the page-level `intelligence_index_version`.
+AA also publishes each row's list price (`price_1m_input_tokens`,
 `price_1m_output_tokens`), which the `openai` leg uses to price candidates
 (see [endpoint pricing](#endpoint-pricing)). The free tier's 100 requests per
 day is ample: a refresh spends one request per page (the catalog is about 4
@@ -346,6 +347,12 @@ drift lands in the last-good path instead of emptying the candidate set).
 There is no background refresh loop, and the TTL and cooldown are not
 configurable. A restart forces a fresh fetch.
 
+Each successful refresh records the index version, the AA rows with an
+intelligence index, the gateway models with tool use joined to a scored row
+(counted before the allowlist and the floor; `model_priors` entries are not
+counted), and the best AA score (prior 1.00). The admin page's data-source
+strip shows them.
+
 The Builder also serves three adjacent read paths from the same cache: token
 pricing for cost tracking (every served model, including below-floor ones),
 the model pickers in the UI, and card-pin validation. On the OpenRouter leg
@@ -446,9 +453,10 @@ The ladder is set per role on the Model selection admin page
 as `selection.tier_bars`; it is not a config-file setting on either side.
 There is one ladder for coder picks and one for reviewer picks, so the two
 roles can demand different quality from the same prior (and a `model_priors`
-entry can carry separate values per role). The page links the two whenever
-the saved ladders are equal, so a drag moves the same tier in both; unlinked,
-each moves alone.
+entry can carry separate values per role). The page's **Separate reviewer
+ladder** switch starts on, so each ladder moves alone; turning it off copies
+the coder ladder onto the reviewer ladder, and a drag then moves the same tier
+in both.
 
 The ladders reach a run only when the candidate catalog is configured: CM
 attaches the `selection` block, ladders included, only with
@@ -465,45 +473,76 @@ and carry on; the other role is unaffected.
 
 #### The ladders page
 
-The page shows every candidate as a pill at its prior, one column per role,
-with the tier bands and their model counts, and the bars as draggable
-handles (coder handles on the rail, reviewer handles at the reviewer
-column's edge). A filled pill is the pick at its rung, a dashed outline a
-panel seat, a struck-through pill a blacklisted model. Membership, bands and
-counts are computed in the browser from the candidates and both ladders;
-picks and the three-seat panel come from `POST /api/admin/selector/preview`,
+A data-source strip under the header shows the catalog snapshot's stats (see
+[caching and refresh](#caching-and-refresh)): the index version, the AA models
+scored, the models scored and served with tool use, the candidate count and
+floor, the best AA score as prior 1.00, the reasoning effort the gateway pins
+for its OpenAI models when `llm_endpoint.reasoning_effort` is set, the refresh
+time and the attribution link to Artificial Analysis. While the catalog is
+loading or unavailable it shows no numbers.
+
+The chart plots every candidate by blended price (prompt + completion per
+million tokens, log scale; unpriced candidates sit in a "no price" gutter)
+against quality: the prior on the right axis, and AA Intelligence Index points
+on the left axis only when the best AA score is known. The quality floor is a
+read-only line with the area below it shaded. Each tier bar is a horizontal
+line with a handle that drags and steps from the keyboard. With the
+**Separate reviewer ladder** switch on, coder lines are solid with handles on
+the left edge and reviewer lines dashed with handles on the right edge; with
+it off, one set of lines moves both ladders. The switch always starts on;
+turning it off copies the coder ladder onto the reviewer ladder (unsaved), and
+**Discard changes** and **Reset to defaults** turn it back on. A
+`model_priors` entry whose coder and reviewer priors differ is two points at
+one price joined by a segment; each role's bars, counts and picks use that
+role's prior.
+
+Clicking a tier in the pick preview (`complex` at first) selects it on the
+chart: its coder pick is filled in the coder colour, its reviewer pick in the
+reviewer colour, its panel seats get a dashed ring, and only those points carry
+a label. Each role's price band for that tier is shaded above the bar of the
+rung the pick landed on, from the cheapest price in the preview's pool for that
+tier and role to that price × the applied headroom. Bands that coincide draw as
+one yellow stripe. The legend always names both roles and, with the
+separate-ladder switch off, the shared tier lines. A point's tooltip shows the
+prior and, when the best AA score is known, the AA score (prior × best AA
+score), or "operator prior" with both values for a `model_priors` entry; then
+the prices, the tiers it clears (per role when they differ), and the AA row it
+was scored from when an automatic join scored it.
+
+The preview table lists, per tier from `critical` to `simple`, the bar or
+bars, how many candidates clear it, the coder and reviewer picks and the
+three-seat panel with prices, `↓ <rung>` when a pick walked down and `walked`
+on a seat that re-anchored its band. The counts and the tiers a point clears
+are computed in the browser from the candidates, both ladders and the
+blacklist; picks, seats and bands come from `POST /api/admin/selector/preview`,
 debounced while a bar moves, and the last good preview stays visible with an
-error line if a request fails. The KPI row shows the reviewers clearing
-`complex`, the cheapest `complex` reviewer, the `complex` panel's price per
-million tokens (orange when a seat walked), and the `moderate` coder pick.
-A price marked *list* is the Artificial Analysis list price: the gateway
-published none for that model (see [endpoint pricing](#endpoint-pricing)).
-A pill's tooltip names the AA row the candidate was scored from, and the
-panel's meta line names the reasoning effort the gateway pins for its OpenAI
-models when `llm_endpoint.reasoning_effort` is set. When a provider filter is
-active, the panel meta also shows `N of M candidates shown`.
+error line if a request fails; the strip's stats come from the catalog
+snapshot (`GET /api/admin/selector/candidates`). A price marked *list* is the
+Artificial Analysis list price: the gateway published none for that model
+(see [endpoint pricing](#endpoint-pricing)).
 
-A row of provider checkboxes (per-provider counts plus `all` / `none`
-buttons) hides the unchecked providers' pills on both columns. The selection
-is remembered per browser and is display-only: it never changes picks, seats,
-KPIs, band counts, saved ladders or any request.
+Provider chips (per-provider counts plus `all` / `none` buttons) hide the
+unpressed providers' points, and the panel meta then shows
+`N of M candidates shown`. The selection is remembered per browser and is
+display-only: it never changes the scales, picks, seats, counts, saved
+ladders or any request.
 
-Right-clicking a pill, a pick name in the preview, or a panel seat opens a
+Right-clicking a point, a pick name in the preview, or a panel seat opens a
 one-item menu for that model: **Add to blacklist**, or **Remove from
 blacklist** when it is already struck (the same confirm as the table's
 delist button). Either change refetches the catalog and the blacklist
-panel and re-runs the preview, so the pills, picks and seats reflect the
+panel and re-runs the preview, so the points, picks and seats reflect the
 new blacklist at once. The ladders and headroom on screen are untouched;
 the blacklist is not part of the unsaved draft.
 
 Nothing is sent until **Save**; the status pill says whether the next run
 uses what is on screen. **Discard changes** returns to the saved ladders and
 headroom, **Reset to defaults** loads the built-in ladder into both roles and
-the built-in headroom (still unsaved). The price headroom field on the
-Ladders panel is saved with the ladders and applied by the preview. The
-preview applies the backend-level favorites and the blacklist; project
-favorites and in-run exclusions are not visible to it, so a run can pick
-differently at a tier where those apply.
+the built-in headroom (still unsaved), and **Save** keeps the switch as it
+is. The price headroom field on the Tier ladder panel is saved with the
+ladders and applied by the preview. The preview applies the backend-level
+favorites and the blacklist; project favorites and in-run exclusions are not
+visible to it, so a run can pick differently at a tier where those apply.
 
 The same model serves every tier whose bar it clears. Cost never decides a
 tier - it only orders models within the eligible set. The bar is compared
@@ -805,10 +844,11 @@ are the only evidence that exists about that choice.
   MODEL_NOT_BLACKLISTED` when it is not listed). All three are admin-gated
   in multi mode and open in none mode.
 - The admin UI's model-selection page (`/admin/model-selection`) is the
-  ladders page: both ladders, the candidate catalog and the pick preview,
-  with the blacklist panel below (per-row delist). Right-clicking a model
-  in the ladders or the preview blacklists or delists it. The outcome
-  ledger has no page; its endpoints remain.
+  ladders page: the catalog's data-source strip, the price × quality chart
+  with both ladders, and the pick preview, with the blacklist panel below
+  (per-row delist). Right-clicking a model on the chart or in the preview
+  blacklists or delists it. The outcome ledger has no page; its endpoints
+  remain.
 - Metrics: `contextmatrix_model_outcomes_total{model,result}` and
   `contextmatrix_model_blacklists_total{model}`. There are no catalog metrics
   (no refresh counter or candidate gauge); catalog health surfaces in logs.
@@ -848,7 +888,7 @@ endpoints, and the equal prompt+completion price weighting.
 | A favorite is never picked                     | Blacklisted, below the tier bar, not a candidate (outside the allowlist), or its tier entry was replaced wholesale by a project override | Favorites are preferences, not overrides; check `selection.blacklist` and the bar |
 | Endpoint models served but never selected      | No AA family matches the id or its aliases, the family has no scored row, the creator is outside the allowlist, below floor, or the gateway reports the model cannot use tools and a model_priors entry names it | One WARN per excluded model at refresh time, naming the slug, the reason, and the keys tried or the family's rows; for the no-tools exclusion remove or correct the `model_priors` entry, for the other reasons add a `model_priors` entry as the workaround and report the keys |
 | A preview price is marked *list*               | The gateway publishes no price for that model; the candidate carries the AA list price | Expected on an `openai` gateway without a pricing block; card costs use the same list price |
-| Every OpenAI model on an `openai` gateway rates too high or too low | The gateway pins one reasoning effort and serves bare ids, so the join scores from the family base row | Set `llm_endpoint.reasoning_effort` to the pinned effort; the pill tooltip then names the effort row. Other creators' models are unaffected by the setting |
+| Every OpenAI model on an `openai` gateway rates too high or too low | The gateway pins one reasoning effort and serves bare ids, so the join scores from the family base row | Set `llm_endpoint.reasoning_effort` to the pinned effort; the point tooltip then names the effort row. Other creators' models are unaffected by the setting |
 | A model keeps disappearing from selection      | It was reported incapable and blacklisted                             | Check the admin model-selection page; delist it there, or pin it for one card      |
 | A saved ladder has no effect on picks          | The agent predates protocol v0.19 and ignores `tier_bars`             | Upgrade the agent; until then it runs its built-in ladder                         |
 | `503 catalog not available yet` on the ladders page | No `aa_api_key`, or the first catalog refresh has not completed  | The ladders still load and save; candidates and preview appear after the first refresh |

@@ -154,6 +154,7 @@ func TestAdminSelectorLadders_EmptyStoreIsDefault(t *testing.T) {
 	assert.Len(t, got.Ladders["coder"], 4)
 	assert.InDelta(t, 0.82, got.Ladders["coder"]["complex"], 1e-9)
 	assert.InDelta(t, 0.90, got.Ladders["reviewer"]["critical"], 1e-9)
+	require.Len(t, got.Defaults, 4)
 	assert.InDelta(t, 0.76, got.Defaults["moderate"], 1e-9)
 }
 
@@ -311,6 +312,7 @@ type stubSelectorCatalog struct {
 	provenance  map[string]modelcatalog.CandidateProvenance
 	floor       float64
 	refreshedAt time.Time
+	stats       modelcatalog.CatalogStats
 }
 
 func (s *stubSelectorCatalog) Candidates(context.Context) []protocol.CandidateModel {
@@ -320,6 +322,8 @@ func (s *stubSelectorCatalog) Candidates(context.Context) []protocol.CandidateMo
 func (s *stubSelectorCatalog) Provenance(context.Context) map[string]modelcatalog.CandidateProvenance {
 	return s.provenance
 }
+
+func (s *stubSelectorCatalog) Stats(context.Context) modelcatalog.CatalogStats { return s.stats }
 
 func (s *stubSelectorCatalog) Floor() float64 { return s.floor }
 
@@ -340,8 +344,10 @@ func previewCatalog() *stubSelectorCatalog {
 			{Slug: "a/mid", Creator: "a", CoderPrior: 0.80, ReviewerPrior: 0.86, PromptPricePerTok: 2e-6, CompletionPricePerTok: 2e-6, ContextWindow: 200000},
 		},
 		provenance: map[string]modelcatalog.CandidateProvenance{
-			"a/cheap": {PriceSource: "aa", ScoredFrom: "cheap-1"}, "a/mid": {PriceSource: "gateway"},
-			"b/pricey": {PriceSource: "gateway"}, "c/weak": {PriceSource: "token_costs"},
+			"a/cheap":  {PriceSource: "aa", ScoredFrom: "cheap-1", PriorSource: modelcatalog.PriorSourceAA},
+			"a/mid":    {PriceSource: "gateway", PriorSource: modelcatalog.PriorSourceModelPriors},
+			"b/pricey": {PriceSource: "gateway", PriorSource: modelcatalog.PriorSourceAA},
+			"c/weak":   {PriceSource: "token_costs", PriorSource: modelcatalog.PriorSourceAA},
 		},
 	}
 }
@@ -377,6 +383,8 @@ func TestAdminSelectorCandidates_ReportsInputsSorted(t *testing.T) {
 	assert.Equal(t, "aa", got.Candidates[0].PriceSource)
 	assert.Equal(t, "token_costs", got.Candidates[3].PriceSource)
 	assert.Equal(t, "cheap-1", got.Candidates[0].ScoredFrom)
+	assert.Equal(t, "aa", got.Candidates[0].PriorSource)
+	assert.Equal(t, "model_priors", got.Candidates[1].PriorSource)
 	assert.Empty(t, got.Candidates[1].ScoredFrom, "a/mid joined no AA row")
 	assert.Empty(t, got.ReasoningEffort, "unset in this handler")
 	assert.Equal(t, []string{"c/weak"}, got.Blacklist)
@@ -385,6 +393,24 @@ func TestAdminSelectorCandidates_ReportsInputsSorted(t *testing.T) {
 	assert.Equal(t, "critical", got.Favorites[0].Tier)
 	assert.InDelta(t, 0.65, got.QualityFloor, 1e-9)
 	assert.Equal(t, "2026-09-10T06:00:00Z", got.CatalogRefreshedAt)
+}
+
+func TestAdminSelectorCandidates_ReportsCatalogStats(t *testing.T) {
+	cat := previewCatalog()
+	cat.stats = modelcatalog.CatalogStats{IndexVersion: "5", AAScored: 94, ServedScored: 27, BestAAScore: 59.4}
+	h := &selectorAdminHandlers{store: &stubSelectorAdminStore{}, catalog: cat}
+
+	w := httptest.NewRecorder()
+	h.getCandidates(w, httptest.NewRequest(http.MethodGet, "/api/admin/selector/candidates", nil))
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var got selectorCandidatesResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(t, "5", got.IntelligenceIndexVersion)
+	assert.Equal(t, 94, got.AAScoredModels)
+	assert.Equal(t, 27, got.ServedScoredModels)
+	assert.InDelta(t, 59.4, got.BestAAScore, 1e-9)
 }
 
 // TestAdminSelectorCandidates_EchoesReasoningEffort: the configured gateway

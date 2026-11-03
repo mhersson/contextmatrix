@@ -3,7 +3,9 @@ import { act, render, screen, waitFor, fireEvent, within } from '@testing-librar
 import { AdminModelSelectionPage } from './AdminModelSelectionPage';
 import { PREVIEW_DEBOUNCE_MS } from './useSelectorPreview';
 import type { ModelBlacklistEntry, SelectorCandidatesResponse, SelectorLadders, SelectorLaddersResponse, SelectorPreview } from '../../types';
-import { CANDIDATES, previewFixture } from './selector.fixtures';
+import { CHART_LAYOUT, qualityScale } from './chart';
+import { snapBar } from './ladder';
+import { CANDIDATES, pick, previewFixture } from './selector.fixtures';
 
 const mocks = vi.hoisted(() => ({
   adminSelectorLadders: vi.fn(),
@@ -49,6 +51,10 @@ function savedLadders(): SelectorLadders {
   return { coder: { ...DEFAULTS }, reviewer: { ...DEFAULTS, critical: 0.93 } };
 }
 
+function equalLadders(): SelectorLadders {
+  return { coder: { ...DEFAULTS }, reviewer: { ...DEFAULTS } };
+}
+
 function catalogRes(): SelectorCandidatesResponse {
   return {
     candidates: CANDIDATES,
@@ -57,6 +63,10 @@ function catalogRes(): SelectorCandidatesResponse {
     quality_floor: 0.65,
     catalog_refreshed_at: new Date(Date.now() - 6 * 3600 * 1000).toISOString(),
     reasoning_effort: '',
+    intelligence_index_version: '5',
+    aa_scored_models: 94,
+    served_scored_models: 27,
+    best_aa_score: 59.4,
   };
 }
 
@@ -72,20 +82,22 @@ function blacklistEntry(overrides: Partial<ModelBlacklistEntry> = {}): ModelBlac
   };
 }
 
-// jsdom has neither pointer capture nor layout; the rail is 650px tall so a
-// client y of (1 - v) * 1000 lands on prior v. Plain stubs rather than spies:
-// the per-test vi.resetAllMocks() below would otherwise restore the real
-// getBoundingClientRect and every drag would read a zero-height rail.
+// jsdom has neither pointer capture nor layout. The chart draws at its own
+// height, so one client px is one SVG px. Plain stubs rather than spies: the
+// per-test vi.resetAllMocks() below would otherwise restore the zero-height
+// box and every drag would read no travel.
 beforeAll(() => {
-  Object.defineProperty(HTMLElement.prototype, 'setPointerCapture', { value: () => {}, configurable: true });
-  Object.defineProperty(HTMLElement.prototype, 'releasePointerCapture', { value: () => {}, configurable: true });
-  Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', {
-    value: () =>
-      ({
-        top: 0, height: 650, left: 0, width: 300, bottom: 650, right: 300, x: 0, y: 0, toJSON: () => ({}),
-      }) as DOMRect,
-    configurable: true,
-  });
+  for (const proto of [HTMLElement.prototype, SVGElement.prototype]) {
+    Object.defineProperty(proto, 'setPointerCapture', { value: () => {}, configurable: true });
+    Object.defineProperty(proto, 'releasePointerCapture', { value: () => {}, configurable: true });
+    Object.defineProperty(proto, 'getBoundingClientRect', {
+      value: () =>
+        ({
+          top: 0, left: 0, height: CHART_LAYOUT.height, width: 760, bottom: CHART_LAYOUT.height, right: 760, x: 0, y: 0, toJSON: () => ({}),
+        }) as DOMRect,
+      configurable: true,
+    });
+  }
 });
 
 beforeEach(() => {
@@ -96,12 +108,28 @@ beforeEach(() => {
   mocks.adminModelBlacklist.mockResolvedValue({ models: [] });
 });
 
-function drag(name: string, from: number, to: number) {
+/** Prior change for a pointer travel of dy px on the chart (down is positive). */
+function travel(dy: number): number {
+  const q = qualityScale(catalogRes().quality_floor, CHART_LAYOUT.top, CHART_LAYOUT.height - CHART_LAYOUT.bottom);
+  return q.prior(200 + dy) - q.prior(200);
+}
+
+/** The complex bar after the default drag of 30 px up. */
+const DRAGGED = snapBar(DEFAULTS.complex + travel(-30));
+
+function drag(name: string, from = 200, to = 170) {
   const handle = screen.getByRole('slider', { name });
   fireEvent.pointerDown(handle, { pointerId: 1, clientY: from, button: 0 });
   fireEvent.pointerMove(handle, { pointerId: 1, clientY: to });
   fireEvent.pointerUp(handle, { pointerId: 1, clientY: to });
 }
+
+function bar(name: string): number {
+  return Number(screen.getByRole('slider', { name }).getAttribute('aria-valuenow'));
+}
+
+const separateSwitch = () => screen.getByRole('switch', { name: 'Separate reviewer ladder' });
+const marks = (id: string) => (screen.getByTestId(`tl-pt-${id}`).getAttribute('data-marks') ?? '').split(' ').filter(Boolean);
 
 async function renderLoaded() {
   render(<AdminModelSelectionPage />);
@@ -110,18 +138,17 @@ async function renderLoaded() {
 }
 
 describe('AdminModelSelectionPage - loading', () => {
-  it('renders the saved ladders, the catalog meta and the first preview', async () => {
+  it('renders the saved ladders, the chart marks and the first preview', async () => {
     await renderLoaded();
 
     expect(screen.getByTestId('tl-status')).toHaveTextContent('saved · in effect for the next run');
-    expect(screen.getByText(/4 candidates · priors normalised to the AA leader · refreshed 6 h ago/)).toBeInTheDocument();
-    expect(screen.getByRole('slider', { name: 'reviewer critical bar' })).toHaveTextContent('0.93');
-    expect(screen.getByRole('slider', { name: 'coder critical bar' })).toHaveTextContent('0.90 · 0.93');
-    expect(screen.getByTestId('tl-dot-coder-c/weak')).toHaveClass('banned');
+    expect(bar('coder critical bar')).toBeCloseTo(0.9, 9);
+    expect(bar('reviewer critical bar')).toBeCloseTo(0.93, 9);
+    expect(marks('c/weak')).toContain('blacklisted');
     await waitFor(() => expect(screen.getByTestId('tl-seat-complex-1')).toHaveTextContent('walked'));
-    expect(screen.getByTestId('tl-dot-reviewer-a/cheap')).toHaveClass('picked');
-    expect(screen.getByTestId('tl-dot-reviewer-b/pricey')).toHaveClass('seat');
-    expect(screen.getByTestId('tl-kpi-reviewers')).toHaveTextContent('3');
+    expect(marks('a/cheap-coder')).toContain('coder-pick');
+    expect(marks('a/cheap-reviewer')).toContain('reviewer-pick');
+    expect(marks('b/pricey-reviewer')).toContain('seat');
     expect(mocks.adminSelectorPreview).toHaveBeenCalledWith(savedLadders(), 1.5, expect.any(AbortSignal));
   });
 
@@ -147,7 +174,7 @@ describe('AdminModelSelectionPage - loading', () => {
     expect(screen.getByTestId('tl-status')).toHaveTextContent('ladders unavailable');
     expect(screen.getByTestId('tl-status')).not.toHaveTextContent('saved');
     expect(screen.queryByRole('slider')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('tl-kpi-reviewers')).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
 
     for (const name of ['Reset to defaults', 'Discard changes', 'Save']) {
       expect(screen.getByRole('button', { name })).toBeDisabled();
@@ -157,29 +184,131 @@ describe('AdminModelSelectionPage - loading', () => {
     expect(mocks.adminSelectorPutLadders).not.toHaveBeenCalled();
   });
 
-  it('loads unlinked when the saved coder and reviewer ladders differ', async () => {
+  it('shows the catalog stats in the data-source strip', async () => {
     await renderLoaded();
 
-    expect(screen.getByRole('switch', { name: 'Link the coder and reviewer ladders' })).toHaveAttribute('aria-checked', 'false');
-
-    drag('coder complex bar', 180, 145);
-
-    expect(screen.getByRole('slider', { name: 'coder complex bar' })).toHaveTextContent('0.855');
-    expect(screen.getByRole('slider', { name: 'reviewer complex bar' })).toHaveTextContent('0.82');
+    const strip = within(screen.getByTestId('tl-source'));
+    for (const n of ['94', '27', String(CANDIDATES.length), '59.4']) expect(strip.getByText(n, { selector: 'b' })).toBeInTheDocument();
+    expect(strip.getByText(/v5$/, { selector: 'b' })).toBeInTheDocument();
   });
 
-  it('loads linked when the saved ladders are equal', async () => {
-    mocks.adminSelectorLadders.mockResolvedValue(laddersRes({ coder: { ...DEFAULTS }, reviewer: { ...DEFAULTS } }, true));
-    await renderLoaded();
-
-    expect(screen.getByRole('switch', { name: 'Link the coder and reviewer ladders' })).toHaveAttribute('aria-checked', 'true');
-  });
-
-  it('names the gateway effort in the catalog meta when one is configured', async () => {
+  it('names the gateway effort in the data-source strip when one is configured', async () => {
     mocks.adminSelectorCandidates.mockResolvedValue({ ...catalogRes(), reasoning_effort: 'medium' });
     await renderLoaded();
 
-    expect(screen.getByText(/4 candidates · priors normalised to the AA leader · OpenAI effort medium · refreshed 6 h ago/)).toBeInTheDocument();
+    expect(within(screen.getByTestId('tl-source')).getByText(/medium/)).toBeInTheDocument();
+  });
+});
+
+describe('AdminModelSelectionPage - separate reviewer ladder switch', () => {
+  it('starts with the switch on, even when the saved ladders are equal', async () => {
+    mocks.adminSelectorLadders.mockResolvedValue(laddersRes(equalLadders(), true));
+    await renderLoaded();
+
+    expect(separateSwitch()).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('slider', { name: 'reviewer complex bar' })).toBeInTheDocument();
+
+    // On, a coder drag moves the coder ladder alone.
+    drag('coder complex bar');
+
+    expect(bar('coder complex bar')).toBeCloseTo(DRAGGED, 9);
+    expect(bar('reviewer complex bar')).toBeCloseTo(DEFAULTS.complex, 9);
+  });
+
+  it('turning the switch off over equal ladders leaves nothing to save, and one handle then moves both', async () => {
+    mocks.adminSelectorLadders.mockResolvedValue(laddersRes(equalLadders(), true));
+    await renderLoaded();
+
+    fireEvent.click(separateSwitch());
+
+    expect(separateSwitch()).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByTestId('tl-status')).toHaveTextContent('saved · in effect for the next run');
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+
+    drag('coder complex bar');
+
+    await waitFor(() =>
+      expect(mocks.adminSelectorPreview).toHaveBeenLastCalledWith(
+        { coder: { ...DEFAULTS, complex: DRAGGED }, reviewer: { ...DEFAULTS, complex: DRAGGED } },
+        1.5,
+        expect.any(AbortSignal),
+      ),
+    );
+  });
+
+  it('turning the switch off copies the coder ladder onto the reviewer, unsaved', async () => {
+    await renderLoaded();
+    const calls = mocks.adminSelectorPreview.mock.calls.length;
+
+    fireEvent.click(separateSwitch());
+
+    expect(separateSwitch()).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByTestId('tl-status')).toHaveTextContent('unsaved changes');
+    expect(screen.queryByRole('slider', { name: /^reviewer / })).not.toBeInTheDocument();
+    await waitFor(() => expect(mocks.adminSelectorPreview).toHaveBeenCalledTimes(calls + 1));
+    expect(mocks.adminSelectorPreview).toHaveBeenLastCalledWith(equalLadders(), 1.5, expect.any(AbortSignal));
+    expect(mocks.adminSelectorPutLadders).not.toHaveBeenCalled();
+
+    // Back on, the reviewer handles start where the coder handles are.
+    fireEvent.click(separateSwitch());
+
+    expect(separateSwitch()).toHaveAttribute('aria-checked', 'true');
+    expect(bar('reviewer critical bar')).toBeCloseTo(DEFAULTS.critical, 9);
+    expect(screen.getByTestId('tl-status')).toHaveTextContent('unsaved changes');
+  });
+
+  it('Discard turns the switch back on with the saved ladders', async () => {
+    await renderLoaded();
+
+    fireEvent.click(separateSwitch());
+    drag('coder complex bar');
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+
+    expect(separateSwitch()).toHaveAttribute('aria-checked', 'true');
+    expect(bar('reviewer critical bar')).toBeCloseTo(0.93, 9);
+    expect(bar('reviewer complex bar')).toBeCloseTo(DEFAULTS.complex, 9);
+    expect(bar('coder complex bar')).toBeCloseTo(DEFAULTS.complex, 9);
+    expect(screen.getByTestId('tl-status')).toHaveTextContent('saved · in effect for the next run');
+    expect(mocks.adminSelectorPutLadders).not.toHaveBeenCalled();
+  });
+
+  it('Reset loads the built-in ladder into both roles and leaves the switch on', async () => {
+    await renderLoaded();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to defaults' }));
+
+    expect(separateSwitch()).toHaveAttribute('aria-checked', 'true');
+    expect(bar('reviewer critical bar')).toBeCloseTo(DEFAULTS.critical, 9);
+    expect(bar('coder critical bar')).toBeCloseTo(DEFAULTS.critical, 9);
+    expect(screen.getByTestId('tl-status')).toHaveTextContent('unsaved changes');
+
+    fireEvent.click(separateSwitch());
+    expect(separateSwitch()).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to defaults' }));
+
+    expect(separateSwitch()).toHaveAttribute('aria-checked', 'true');
+    expect(bar('reviewer critical bar')).toBeCloseTo(DEFAULTS.critical, 9);
+    expect(mocks.adminSelectorPutLadders).not.toHaveBeenCalled();
+  });
+
+  it('Save keeps the switch as it is', async () => {
+    const sent: SelectorLadders = { coder: { ...DEFAULTS, complex: DRAGGED }, reviewer: { ...DEFAULTS, complex: DRAGGED } };
+    mocks.adminSelectorPutLadders.mockImplementation(async (ladders: SelectorLadders) => laddersRes(ladders));
+    mocks.adminSelectorLadders.mockResolvedValueOnce(laddersRes(savedLadders())).mockResolvedValueOnce(laddersRes(sent));
+    await renderLoaded();
+
+    fireEvent.click(separateSwitch());
+    drag('coder complex bar');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(mocks.adminSelectorPutLadders).toHaveBeenCalledTimes(1));
+    const put = mocks.adminSelectorPutLadders.mock.calls[0][0] as SelectorLadders;
+    expect(put.coder.complex).toBeCloseTo(DRAGGED, 9);
+    expect(put.reviewer.complex).toBeCloseTo(DRAGGED, 9);
+    expect(put.reviewer.critical).toBeCloseTo(DEFAULTS.critical, 9);
+    await waitFor(() => expect(mocks.adminSelectorLadders).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTestId('tl-status')).toHaveTextContent('saved · in effect for the next run'));
+    expect(separateSwitch()).toHaveAttribute('aria-checked', 'false');
   });
 });
 
@@ -188,23 +317,22 @@ describe('AdminModelSelectionPage - edit, save, discard, reset', () => {
     mocks.adminSelectorPutLadders.mockImplementation(async (ladders: SelectorLadders) => laddersRes(ladders));
     mocks.adminSelectorLadders
       .mockResolvedValueOnce(laddersRes(savedLadders()))
-      .mockResolvedValueOnce(laddersRes({ coder: { ...DEFAULTS, complex: 0.855 }, reviewer: { ...DEFAULTS, complex: 0.855, critical: 0.93 } }));
+      .mockResolvedValueOnce(laddersRes({ coder: { ...DEFAULTS, complex: DRAGGED }, reviewer: { ...DEFAULTS, critical: 0.93 } }));
     await renderLoaded();
 
-    fireEvent.click(screen.getByRole('switch', { name: 'Link the coder and reviewer ladders' }));
-    drag('coder complex bar', 180, 145);
+    drag('coder complex bar');
 
     expect(screen.getByTestId('tl-status')).toHaveTextContent('unsaved changes · next run still uses the saved values');
-    expect(screen.getByRole('slider', { name: 'coder complex bar' })).toHaveTextContent('0.855');
-    expect(screen.getByRole('slider', { name: 'reviewer complex bar' })).toHaveTextContent('0.855');
+    expect(bar('coder complex bar')).toBeCloseTo(DRAGGED, 9);
+    expect(bar('reviewer complex bar')).toBeCloseTo(DEFAULTS.complex, 9);
     await waitFor(() => expect(mocks.adminSelectorPreview).toHaveBeenCalledTimes(2));
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(mocks.adminSelectorPutLadders).toHaveBeenCalledTimes(1));
     const sent = mocks.adminSelectorPutLadders.mock.calls[0][0] as SelectorLadders;
-    expect(sent.coder.complex).toBeCloseTo(0.855, 9);
-    expect(sent.reviewer.complex).toBeCloseTo(0.855, 9);
+    expect(sent.coder.complex).toBeCloseTo(DRAGGED, 9);
+    expect(sent.reviewer.complex).toBeCloseTo(DEFAULTS.complex, 9);
     expect(sent.reviewer.critical).toBeCloseTo(0.93, 9);
     await waitFor(() => expect(mocks.adminSelectorLadders).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.getByTestId('tl-status')).toHaveTextContent('saved · in effect for the next run'));
@@ -214,73 +342,38 @@ describe('AdminModelSelectionPage - edit, save, discard, reset', () => {
   it('Discard restores the saved ladders without a request', async () => {
     await renderLoaded();
 
-    drag('coder complex bar', 180, 145);
+    drag('coder complex bar');
     expect(screen.getByRole('button', { name: 'Discard changes' })).toBeEnabled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
 
-    expect(screen.getByRole('slider', { name: 'coder complex bar' })).toHaveTextContent('0.82');
+    expect(bar('coder complex bar')).toBeCloseTo(DEFAULTS.complex, 9);
     expect(screen.getByTestId('tl-status')).toHaveTextContent('saved · in effect for the next run');
     expect(mocks.adminSelectorPutLadders).not.toHaveBeenCalled();
   });
 
-  it('Reset loads the defaults from the response into both roles, unsaved', async () => {
+  it('Reset puts the one default ladder in both roles, and Save sends it', async () => {
+    const defaults = { simple: 0.65, moderate: 0.75, complex: 0.84, critical: 0.94 };
+    mocks.adminSelectorLadders.mockResolvedValue({ ...laddersRes(savedLadders()), defaults });
+    mocks.adminSelectorPutLadders.mockImplementation(async (ladders: SelectorLadders) => laddersRes(ladders));
     await renderLoaded();
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset to defaults' }));
-
-    expect(screen.getByRole('slider', { name: 'reviewer critical bar' })).toHaveTextContent('0.90');
-    expect(screen.getByRole('slider', { name: 'coder critical bar' })).toHaveTextContent('0.90');
-    expect(screen.getByTestId('tl-status')).toHaveTextContent('unsaved changes');
-    expect(mocks.adminSelectorPutLadders).not.toHaveBeenCalled();
-  });
-
-  it('turning linked on snaps nothing; the next linked drag equalises the tier', async () => {
-    mocks.adminSelectorLadders.mockResolvedValue(laddersRes({ coder: { ...DEFAULTS, complex: 0.9 }, reviewer: { ...DEFAULTS } }));
-    await renderLoaded();
-
-    const toggle = screen.getByRole('switch', { name: 'Link the coder and reviewer ladders' });
-    expect(toggle).toHaveAttribute('aria-checked', 'false');
-    expect(screen.getByRole('slider', { name: 'coder complex bar' })).toHaveTextContent('0.90 · 0.82');
-
-    fireEvent.click(toggle);
-
-    expect(toggle).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByRole('slider', { name: 'coder complex bar' })).toHaveTextContent('0.90 · 0.82');
-    expect(screen.getByTestId('tl-status')).toHaveTextContent('saved');
-
-    drag('coder complex bar', 100, 145);
-
-    expect(screen.getByRole('slider', { name: 'coder complex bar' })).toHaveTextContent('0.855');
-    expect(screen.getByRole('slider', { name: 'reviewer complex bar' })).toHaveTextContent('0.855');
-  });
-
-  it('an operator toggle survives a save and refetch', async () => {
-    mocks.adminSelectorPutLadders.mockImplementation(async (ladders: SelectorLadders) => laddersRes(ladders));
-    mocks.adminSelectorLadders
-      .mockResolvedValueOnce(laddersRes(savedLadders()))
-      .mockResolvedValueOnce(laddersRes({ coder: { ...DEFAULTS, complex: 0.855 }, reviewer: { ...DEFAULTS, complex: 0.855, critical: 0.93 } }));
-    await renderLoaded();
-
-    const toggle = screen.getByRole('switch', { name: 'Link the coder and reviewer ladders' });
-    fireEvent.click(toggle);
-    drag('coder complex bar', 180, 145);
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-    await waitFor(() => expect(mocks.adminSelectorLadders).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.getByTestId('tl-status')).toHaveTextContent('saved · in effect for the next run'));
-    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    await waitFor(() => expect(mocks.adminSelectorPutLadders).toHaveBeenCalled());
+    expect(mocks.adminSelectorPutLadders.mock.calls[0][0]).toEqual({ coder: defaults, reviewer: defaults });
   });
 
   it('surfaces a save failure inline and keeps the draft', async () => {
     mocks.adminSelectorPutLadders.mockRejectedValue({ code: 'VALIDATION_ERROR', error: 'invalid selector ladders' });
     await renderLoaded();
 
-    drag('coder complex bar', 180, 145);
+    drag('coder complex bar');
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(await screen.findByText('invalid selector ladders')).toBeInTheDocument();
-    expect(screen.getByRole('slider', { name: 'coder complex bar' })).toHaveTextContent('0.855');
+    expect(bar('coder complex bar')).toBeCloseTo(DRAGGED, 9);
     expect(screen.getByTestId('tl-status')).toHaveTextContent('unsaved changes');
   });
 
@@ -343,7 +436,7 @@ describe('AdminModelSelectionPage - preview', () => {
     await waitFor(() => expect(screen.getByTestId('tl-preview')).toHaveAttribute('aria-busy', 'false'));
     expect(screen.getByTestId('tl-seat-complex-0')).toBeInTheDocument();
 
-    drag('coder complex bar', 180, 145);
+    drag('coder complex bar');
     expect(screen.getByTestId('tl-preview')).toHaveAttribute('aria-busy', 'true');
 
     expect(await screen.findByRole('alert')).toHaveTextContent('preview exploded');
@@ -358,9 +451,9 @@ describe('AdminModelSelectionPage - preview', () => {
     vi.useFakeTimers();
     try {
       const handle = screen.getByRole('slider', { name: 'coder complex bar' });
-      fireEvent.pointerDown(handle, { pointerId: 1, clientY: 180, button: 0 });
-      for (const y of [170, 160, 150, 145]) fireEvent.pointerMove(handle, { pointerId: 1, clientY: y });
-      fireEvent.pointerUp(handle, { pointerId: 1, clientY: 145 });
+      fireEvent.pointerDown(handle, { pointerId: 1, clientY: 200, button: 0 });
+      for (const y of [190, 180, 175, 170]) fireEvent.pointerMove(handle, { pointerId: 1, clientY: y });
+      fireEvent.pointerUp(handle, { pointerId: 1, clientY: 170 });
       expect(mocks.adminSelectorPreview).toHaveBeenCalledTimes(callsBefore);
 
       await act(async () => { await vi.advanceTimersByTimeAsync(PREVIEW_DEBOUNCE_MS); });
@@ -370,6 +463,36 @@ describe('AdminModelSelectionPage - preview', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('draws the selected tier price band once the first preview lands', async () => {
+    let resolveFirst: (p: SelectorPreview) => void = () => {};
+    mocks.adminSelectorPreview.mockImplementationOnce(() => new Promise<SelectorPreview>((resolve) => { resolveFirst = resolve; }));
+    const p = previewFixture();
+    p.tiers.complex.coder.report.pool = [{ model: 'a/cheap', prior: 0.9, price_per_tok: 2e-6, outcome: 'selected' }];
+
+    render(<AdminModelSelectionPage />);
+    await waitFor(() => expect(mocks.adminSelectorPreview).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('tl-band-coder')).not.toBeInTheDocument();
+
+    resolveFirst(p);
+
+    await waitFor(() => expect(screen.getByTestId('tl-band-coder')).toBeInTheDocument());
+  });
+
+  it('clicking a tier row moves the chart marks to that tier', async () => {
+    const p = previewFixture();
+    p.tiers.moderate.coder = pick('a/mid', 'coder', 'moderate', 'moderate', 4e-6);
+    mocks.adminSelectorPreview.mockResolvedValue(p);
+    await renderLoaded();
+
+    await waitFor(() => expect(marks('a/cheap-coder')).toContain('coder-pick'));
+    expect(marks('a/mid-coder')).not.toContain('coder-pick');
+
+    fireEvent.click(within(screen.getByTestId('tl-pv-moderate')).getByRole('button', { name: 'moderate' }));
+
+    expect(marks('a/mid-coder')).toContain('coder-pick');
+    expect(marks('a/cheap-coder')).not.toContain('coder-pick');
   });
 });
 
@@ -417,7 +540,7 @@ describe('AdminModelSelectionPage - blacklist', () => {
     await waitFor(() => expect(mocks.adminDelistModel).toHaveBeenCalledWith('moonshotai/kimi-k3'));
     await waitFor(() => expect(mocks.adminModelBlacklist).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByText('moonshotai/kimi-k3')).not.toBeInTheDocument());
-    // The catalog carries the blacklist the pills and the preview read, so
+    // The catalog carries the blacklist the chart and the preview read, so
     // it is refetched too.
     await waitFor(() => expect(mocks.adminSelectorCandidates).toHaveBeenCalledTimes(2));
   });
@@ -475,14 +598,14 @@ describe('AdminModelSelectionPage - preview meta', () => {
 });
 
 describe('AdminModelSelectionPage - context menu', () => {
-  it('right-clicking a ladder pill and adding it posts the slug, refetches the catalog and blacklist, and re-runs the preview', async () => {
+  it('right-clicking a chart point and adding it posts the slug, refetches the catalog and blacklist, and re-runs the preview', async () => {
     mocks.adminSelectorCandidates.mockResolvedValueOnce(catalogRes()).mockResolvedValueOnce({ ...catalogRes(), blacklist: ['c/weak', 'a/mid'] });
     mocks.adminBlacklistModel.mockResolvedValue({ slug: 'a/mid' });
 
     await renderLoaded();
-    expect(screen.getByTestId('tl-dot-coder-a/mid')).not.toHaveClass('banned');
+    expect(marks('a/mid-coder')).not.toContain('blacklisted');
 
-    fireEvent.contextMenu(screen.getByTestId('tl-dot-coder-a/mid'), { clientX: 50, clientY: 60 });
+    fireEvent.contextMenu(screen.getByTestId('tl-pt-a/mid-coder'), { clientX: 50, clientY: 60 });
     const menu = screen.getByRole('menu', { name: 'a/mid' });
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Add to blacklist' }));
 
@@ -490,17 +613,17 @@ describe('AdminModelSelectionPage - context menu', () => {
     await waitFor(() => expect(mocks.adminBlacklistModel).toHaveBeenCalledWith('a/mid'));
     await waitFor(() => expect(mocks.adminModelBlacklist).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(mocks.adminSelectorCandidates).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.getByTestId('tl-dot-coder-a/mid')).toHaveClass('banned'));
+    await waitFor(() => expect(marks('a/mid-coder')).toContain('blacklisted'));
     await waitFor(() => expect(mocks.adminSelectorPreview).toHaveBeenCalledTimes(2));
     expect(mocks.adminDelistModel).not.toHaveBeenCalled();
   });
 
-  it('right-clicking a struck pill offers delist, which goes through the confirm dialog', async () => {
+  it('right-clicking a struck point offers delist, which goes through the confirm dialog', async () => {
     mocks.adminDelistModel.mockResolvedValue({ deleted: 'c/weak' });
 
     await renderLoaded();
 
-    fireEvent.contextMenu(screen.getByTestId('tl-dot-reviewer-c/weak'), { clientX: 50, clientY: 60 });
+    fireEvent.contextMenu(screen.getByTestId('tl-pt-c/weak'), { clientX: 50, clientY: 60 });
     fireEvent.click(screen.getByRole('menuitem', { name: 'Remove from blacklist' }));
 
     const dialog = await screen.findByRole('dialog');
@@ -524,33 +647,33 @@ describe('AdminModelSelectionPage - context menu', () => {
     expect(screen.getByRole('menuitem', { name: 'Add to blacklist' })).toBeInTheDocument();
   });
 
-  it('keeps the ladder and reports the failure when the catalog refresh after an add fails', async () => {
+  it('keeps the chart and reports the failure when the catalog refresh after an add fails', async () => {
     mocks.adminSelectorCandidates.mockResolvedValueOnce(catalogRes()).mockRejectedValueOnce({ code: 'CATALOG_UNAVAILABLE', error: 'catalog not available yet' });
     mocks.adminBlacklistModel.mockResolvedValue({ slug: 'a/mid', created: true });
 
     await renderLoaded();
 
-    fireEvent.contextMenu(screen.getByTestId('tl-dot-coder-a/mid'), { clientX: 50, clientY: 60 });
+    fireEvent.contextMenu(screen.getByTestId('tl-pt-a/mid-coder'), { clientX: 50, clientY: 60 });
     fireEvent.click(screen.getByRole('menuitem', { name: 'Add to blacklist' }));
 
     await waitFor(() => expect(mocks.adminSelectorCandidates).toHaveBeenCalledTimes(2));
     expect(await screen.findByText(/catalog not available yet/i)).toBeInTheDocument();
-    // The loaded catalog stays on screen: the ladder is not replaced by the
+    // The loaded catalog stays on screen: the chart is not replaced by the
     // load-failure panel and the preview keeps working.
     expect(screen.getByRole('slider', { name: 'coder complex bar' })).toBeInTheDocument();
     expect(screen.queryByText('Failed to load the candidate catalog.')).not.toBeInTheDocument();
     expect(screen.queryByText('Preview needs the candidate catalog.')).not.toBeInTheDocument();
   });
 
-  it('surfaces a failed add as an inline error and leaves the pill unstruck', async () => {
+  it('surfaces a failed add as an inline error and leaves the point unstruck', async () => {
     mocks.adminBlacklistModel.mockRejectedValue({ code: 'INTERNAL_ERROR', error: 'failed to add blacklist entry' });
 
     await renderLoaded();
 
-    fireEvent.contextMenu(screen.getByTestId('tl-dot-coder-a/mid'), { clientX: 50, clientY: 60 });
+    fireEvent.contextMenu(screen.getByTestId('tl-pt-a/mid-coder'), { clientX: 50, clientY: 60 });
     fireEvent.click(screen.getByRole('menuitem', { name: 'Add to blacklist' }));
 
     expect(await screen.findByText(/failed to add blacklist entry/i)).toBeInTheDocument();
-    expect(screen.getByTestId('tl-dot-coder-a/mid')).not.toHaveClass('banned');
+    expect(marks('a/mid-coder')).not.toContain('blacklisted');
   });
 });

@@ -41,6 +41,7 @@ type selectorAdminStore interface {
 type selectorCatalog interface {
 	Candidates(ctx context.Context) []protocol.CandidateModel
 	Provenance(ctx context.Context) map[string]modelcatalog.CandidateProvenance
+	Stats(ctx context.Context) modelcatalog.CatalogStats
 	Floor() float64
 	LastRefreshed(ctx context.Context) time.Time
 }
@@ -295,6 +296,13 @@ type selectorCandidatesResponse struct {
 	// ReasoningEffort is llm_endpoint.reasoning_effort, the effort the
 	// gateway pins for its OpenAI models; empty when unset.
 	ReasoningEffort string `json:"reasoning_effort"`
+	// The stats describe the AA snapshot behind the priors; see
+	// modelcatalog.CatalogStats. Zero counts and score mean no AA data; an
+	// empty version means AA sent none.
+	IntelligenceIndexVersion string  `json:"intelligence_index_version"`
+	AAScoredModels           int     `json:"aa_scored_models"`
+	ServedScoredModels       int     `json:"served_scored_models"`
+	BestAAScore              float64 `json:"best_aa_score"`
 }
 
 type selectorCandidateView struct {
@@ -309,6 +317,9 @@ type selectorCandidateView struct {
 	// ScoredFrom is the AA slug an automatic join scored the priors from;
 	// empty for a model_priors entry and on the OpenRouter leg.
 	ScoredFrom string `json:"scored_from"`
+	// PriorSource is "aa" or "model_priors": whether the priors are AA
+	// scores or an operator entry.
+	PriorSource string `json:"prior_source"`
 }
 
 // selectorPreviewRequest carries the ladders being edited; they are
@@ -469,6 +480,8 @@ func (h *selectorAdminHandlers) getCandidates(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	stats := h.catalog.Stats(r.Context())
+
 	resp := selectorCandidatesResponse{
 		Candidates:         make([]selectorCandidateView, 0, len(in.candidates)),
 		Favorites:          h.favoriteRules(),
@@ -476,6 +489,11 @@ func (h *selectorAdminHandlers) getCandidates(w http.ResponseWriter, r *http.Req
 		QualityFloor:       h.catalog.Floor(),
 		CatalogRefreshedAt: in.refreshedAt.UTC().Format(time.RFC3339),
 		ReasoningEffort:    h.reasoningEffort,
+
+		IntelligenceIndexVersion: stats.IndexVersion,
+		AAScoredModels:           stats.AAScored,
+		ServedScoredModels:       stats.ServedScored,
+		BestAAScore:              stats.BestAAScore,
 	}
 
 	for _, c := range in.candidates {
@@ -486,6 +504,7 @@ func (h *selectorAdminHandlers) getCandidates(w http.ResponseWriter, r *http.Req
 			ContextWindow: c.ContextWindow,
 			PriceSource:   in.provenance[c.Slug].PriceSource,
 			ScoredFrom:    in.provenance[c.Slug].ScoredFrom,
+			PriorSource:   in.provenance[c.Slug].PriorSource,
 		})
 	}
 

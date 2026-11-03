@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -74,17 +75,41 @@ type aaPage struct {
 			CacheWrite *float64 `json:"price_1m_cache_write_tokens"`
 		} `json:"pricing"`
 	} `json:"data"`
-	Pagination struct {
+	IndexVersion json.RawMessage `json:"intelligence_index_version"`
+	Pagination   struct {
 		HasMore bool `json:"has_more"`
 	} `json:"pagination"`
 }
 
+// aaCatalog is the flattened AA catalog plus the page-level intelligence
+// index version, "" when AA sent none.
+type aaCatalog struct {
+	Models       []aaModel
+	IndexVersion string
+}
+
+// indexVersion reads the page-level version: a JSON number's literal text or
+// a JSON string's trimmed value, else "". Any other shape is ignored.
+func indexVersion(raw json.RawMessage) string {
+	var n json.Number
+	if err := json.Unmarshal(raw, &n); err == nil {
+		return n.String()
+	}
+
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return strings.TrimSpace(s)
+	}
+
+	return ""
+}
+
 // fetchAAModels pages through the AA catalog with the x-api-key header and
 // flattens it, resolving each creator name to its OR vendor prefix.
-func fetchAAModels(ctx context.Context, endpoint, key string) ([]aaModel, error) {
+func fetchAAModels(ctx context.Context, endpoint, key string) (aaCatalog, error) {
 	base, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("parse AA endpoint: %w", err)
+		return aaCatalog{}, fmt.Errorf("parse AA endpoint: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, aaFetchBudget)
@@ -92,12 +117,19 @@ func fetchAAModels(ctx context.Context, endpoint, key string) ([]aaModel, error)
 
 	client := &http.Client{Timeout: 30 * time.Second}
 
-	var out []aaModel
+	var (
+		out     []aaModel
+		version string
+	)
 
 	for page := 1; ; page++ {
 		raw, err := fetchAAPage(ctx, client, base, key, page)
 		if err != nil {
-			return nil, err
+			return aaCatalog{}, err
+		}
+
+		if version == "" {
+			version = indexVersion(raw.IndexVersion)
 		}
 
 		for _, d := range raw.Data {
@@ -125,10 +157,10 @@ func fetchAAModels(ctx context.Context, endpoint, key string) ([]aaModel, error)
 	}
 
 	if len(out) == 0 {
-		return nil, errors.New("AA returned no models")
+		return aaCatalog{}, errors.New("AA returned no models")
 	}
 
-	return out, nil
+	return aaCatalog{Models: out, IndexVersion: version}, nil
 }
 
 func fetchAAPage(ctx context.Context, client *http.Client, base *url.URL, key string, page int) (aaPage, error) {

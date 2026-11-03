@@ -3,23 +3,14 @@ import type { CSSProperties } from 'react';
 import { api } from '../../api/client';
 import { useAdminResource } from '../../hooks/useAdminResource';
 import { errorMessage } from '../../lib/errors';
-import { formatRelativeTime } from '../../lib/format';
-import type {
-  ModelBlacklist,
-  SelectorCandidatesResponse,
-  SelectorLadders,
-  SelectorLaddersResponse,
-  SelectorPreview,
-  SelectorRole,
-  TierBars,
-} from '../../types';
+import type { ModelBlacklist, SelectorCandidatesResponse, SelectorLadders, SelectorLaddersResponse, SelectorTier, TierBars } from '../../types';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
-import { LadderKpis } from './LadderKpis';
+import { LadderPanel } from './LadderPanel';
 import { ModelBlacklistTable } from './ModelBlacklistTable';
 import { ModelContextMenu } from './ModelContextMenu';
 import { PickPreview } from './PickPreview';
-import { TierLadder } from './TierLadder';
-import { ROLES, TIERS_ASC, isMonotone, laddersEqual, rolesEqual } from './ladder';
+import { SourceStrip } from './SourceStrip';
+import { ROLES, isMonotone, laddersEqual, rolesEqual } from './ladder';
 import { useSelectorPreview } from './useSelectorPreview';
 
 // Placeholders behind the loading state; never rendered as data. The
@@ -40,14 +31,16 @@ const EMPTY_CATALOG: SelectorCandidatesResponse = {
   quality_floor: 0.5,
   catalog_refreshed_at: '',
   reasoning_effort: '',
+  intelligence_index_version: '',
+  aa_scored_models: 0,
+  served_scored_models: 0,
+  best_aa_score: 0,
 };
 const EMPTY_BLACKLIST: ModelBlacklist = { models: [] };
 
 const fetchLadders = () => api.adminSelectorLadders();
 const fetchCandidates = () => api.adminSelectorCandidates();
 const fetchBlacklist = () => api.adminModelBlacklist();
-
-const EMPTY_SET: ReadonlySet<string> = new Set();
 
 /** What the operator is editing: an override over the saved response. */
 interface SelectorDraft {
@@ -62,31 +55,6 @@ interface ModelMenu {
   y: number;
 }
 
-/** Slugs that are the pick at some rung, per role. */
-function pickSets(preview: SelectorPreview | null): Record<SelectorRole, ReadonlySet<string>> {
-  const out: Record<SelectorRole, Set<string>> = { coder: new Set(), reviewer: new Set() };
-  if (!preview) return out;
-  for (const tier of TIERS_ASC) {
-    for (const role of ROLES) {
-      const p = preview.tiers[tier][role].pick;
-      if (p.ok) out[role].add(p.model);
-    }
-  }
-  return out;
-}
-
-/** Slugs holding a review panel seat at some tier. */
-function seatSet(preview: SelectorPreview | null): ReadonlySet<string> {
-  if (!preview) return EMPTY_SET;
-  const out = new Set<string>();
-  for (const tier of TIERS_ASC) {
-    for (const s of preview.tiers[tier].panel) {
-      if (s.pick.ok) out.add(s.pick.model);
-    }
-  }
-  return out;
-}
-
 /** Admin-only tier ladders page: edits the per-role selector ladders CM
  * stores and sends with every run, previews picks through the shared
  * selector, and hosts the incapable-model blacklist. Open in none mode (see
@@ -99,19 +67,18 @@ export function AdminModelSelectionPage() {
   const blacklist = useAdminResource(fetchBlacklist, EMPTY_BLACKLIST, 'Failed to load model blacklist.');
 
   const [draft, setDraft] = useState<SelectorDraft | null>(null);
-  // The switch follows the saved ladders until the operator touches it: two
-  // equal ladders load linked, two that differ load unlinked, so the first
-  // drag never pulls one ladder onto the other unasked. Once toggled, the
-  // choice sticks across saves, like the draft over the saved ladders.
-  const [linkedOverride, setLinkedOverride] = useState<boolean | null>(null);
+  // Starts on whatever the saved ladders are, and Discard and Reset turn it
+  // back on: off shows one set of handles, which must never hide a reviewer
+  // ladder that differs from it.
+  const [separate, setSeparate] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [delistSlug, setDelistSlug] = useState<string | null>(null);
   const [menu, setMenu] = useState<ModelMenu | null>(null);
+  const [selectedTier, setSelectedTier] = useState<SelectorTier>('complex');
 
   const ladders = draft?.ladders ?? saved.items.ladders;
   const headroom = draft?.headroom ?? saved.items.headroom;
-  const linked = linkedOverride ?? rolesEqual(saved.items.ladders);
   // NaN (an emptied field) compares unequal, so an emptied field is dirty
   // and can be discarded, while Save stays disabled through headroomValid.
   const dirty = draft !== null && (!laddersEqual(draft.ladders, saved.items.ladders) || !(Math.abs(draft.headroom - saved.items.headroom) < 1e-9));
@@ -127,13 +94,16 @@ export function AdminModelSelectionPage() {
   const setLadders = (next: SelectorLadders) => setDraft((d) => ({ ladders: next, headroom: d?.headroom ?? saved.items.headroom }));
   const setHeadroom = (next: number) => setDraft((d) => ({ ladders: d?.ladders ?? saved.items.ladders, headroom: next }));
 
-  // The catalog's blacklist is what strikes the pills and what re-keys the
+  // The catalog's blacklist is what strikes the dots and what re-keys the
   // preview after an add or a delist.
   const preview = useSelectorPreview(ladders, headroom, editable && headroomValid, catalog.items.blacklist);
 
   const blacklisted = useMemo(() => new Set(catalog.items.blacklist), [catalog.items.blacklist]);
-  const picks = useMemo(() => pickSets(preview.preview), [preview.preview]);
-  const seats = useMemo(() => seatSet(preview.preview), [preview.preview]);
+
+  const changeSeparate = (next: boolean) => {
+    if (!next && !rolesEqual(ladders)) setLadders({ coder: { ...ladders.coder }, reviewer: { ...ladders.coder } });
+    setSeparate(next);
+  };
 
   const save = async () => {
     if (!draft) return;
@@ -153,13 +123,16 @@ export function AdminModelSelectionPage() {
   const discard = () => {
     setDraft(null);
     setSaveError(null);
+    setSeparate(true);
   };
 
-  const reset = () =>
+  const reset = () => {
     setDraft({ ladders: { coder: { ...saved.items.defaults }, reviewer: { ...saved.items.defaults } }, headroom: saved.items.headroom_default });
+    setSeparate(true);
+  };
 
   // Every blacklist change refetches the table and refreshes the catalog:
-  // the catalog carries the blacklist the pills and the preview read. A
+  // the catalog carries the blacklist the chart and the preview read. A
   // refresh that fails keeps the loaded catalog (and the draft) on screen.
   const mutateBlacklist = async (fn: () => Promise<unknown>, failMessage: string) => {
     await blacklist.act(fn, failMessage);
@@ -177,18 +150,7 @@ export function AdminModelSelectionPage() {
 
   const openModelMenu = (slug: string, x: number, y: number) => setMenu({ slug, x, y });
 
-  const ladderMeta = catalogReady
-    ? [
-        `${catalog.items.candidates.length} candidates`,
-        'priors normalised to the AA leader',
-        ...(catalog.items.reasoning_effort ? [`OpenAI effort ${catalog.items.reasoning_effort}`] : []),
-        `refreshed ${formatRelativeTime(catalog.items.catalog_refreshed_at)}`,
-      ].join(' · ')
-    : catalog.loading
-      ? 'loading the catalog…'
-      : 'catalog unavailable';
-
-  // The ladder panel stands in for the rail whenever either half is missing;
+  // The loading panel stands in for the chart whenever either half is missing;
   // the ladders error wins because it blocks editing outright.
   const panelError = saved.listError ?? catalog.listError;
   const panelLoading = saved.loading ? 'Loading the tier ladders…' : 'Loading the candidate catalog…';
@@ -211,7 +173,8 @@ export function AdminModelSelectionPage() {
           <h1 className="apd-strip-title">Tier ladders</h1>
         </div>
         <p className="apd-strip-summary tl-summary">
-          One bar per tier and role. Drag a bar; every model, pick and panel re-sorts as you go. Nothing is sent until you save.
+          Every candidate by price and quality, one line per tier bar. Drag a handle; the picks, the panel and the price band follow.
+          Nothing is sent until you save.
         </p>
         <div className="apd-strip-actions">
           <span className={`tl-status${dirty ? ' dirty' : ''}`} data-testid="tl-status" aria-live="polite">
@@ -236,6 +199,7 @@ export function AdminModelSelectionPage() {
       </header>
 
       <div className="tl-body">
+        <SourceStrip catalog={catalog.items} ready={catalogReady} loading={catalog.loading} />
         {saveError && (
           <div className="tl-error" role="alert">
             {saveError}
@@ -252,32 +216,29 @@ export function AdminModelSelectionPage() {
           </div>
         )}
 
-        {laddersReady && (
-          <LadderKpis candidates={catalog.items.candidates} ladders={ladders} preview={preview.preview} pending={preview.pending} />
-        )}
-
         <div className="tl-grid">
           {editable ? (
-            <TierLadder
+            <LadderPanel
               candidates={catalog.items.candidates}
               ladders={ladders}
-              linked={linked}
-              onLinkedChange={setLinkedOverride}
+              separate={separate}
+              onSeparateChange={changeSeparate}
               onChange={setLadders}
               headroom={headroom}
               onHeadroomChange={setHeadroom}
               floor={catalog.items.quality_floor}
+              bestAAScore={catalog.items.best_aa_score}
+              indexVersion={catalog.items.intelligence_index_version}
+              selectedTier={selectedTier}
+              tierPreview={preview.preview?.tiers[selectedTier] ?? null}
+              appliedHeadroom={preview.appliedHeadroom}
               blacklist={blacklisted}
-              picks={picks}
-              seats={seats}
-              meta={ladderMeta}
               onModelMenu={openModelMenu}
             />
           ) : (
             <section className="apd-panel" style={{ '--apd-acc': 'var(--aqua)' } as CSSProperties}>
               <div className="apd-panel-head">
-                <h2 className="apd-panel-title">Ladders</h2>
-                <span className="apd-panel-meta">{ladderMeta}</span>
+                <h2 className="apd-panel-title">Tier ladder</h2>
               </div>
               <div className={`apd-panel-empty${panelError ? ' tl-error' : ''}`} role={panelError ? 'alert' : undefined}>
                 {panelError ?? panelLoading}
@@ -290,7 +251,11 @@ export function AdminModelSelectionPage() {
             disabled={!editable}
             error={preview.error}
             ladders={ladders}
+            separate={separate}
             candidates={catalog.items.candidates}
+            blacklist={blacklisted}
+            selectedTier={selectedTier}
+            onSelectTier={setSelectedTier}
             headroom={headroomValid ? headroom : (preview.appliedHeadroom ?? NaN)}
             onModelMenu={openModelMenu}
           />

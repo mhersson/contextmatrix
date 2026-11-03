@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, RefObject } from 'react';
 import type { SelectorLadders, SelectorRole, SelectorTier } from '../../types';
-import { AXIS_MAX, BAR_STEP, barRange, cloneLadders, railValue, round3 } from './ladder';
+import { AXIS_MAX, BAR_STEP, barRange, cloneLadders, round3, snapBar } from './ladder';
 
 export interface DragTarget {
   role: SelectorRole;
@@ -9,11 +9,11 @@ export interface DragTarget {
 }
 
 export interface HandleProps {
-  onPointerDown: (e: ReactPointerEvent<HTMLElement>) => void;
-  onPointerMove: (e: ReactPointerEvent<HTMLElement>) => void;
-  onPointerUp: (e: ReactPointerEvent<HTMLElement>) => void;
-  onPointerCancel: (e: ReactPointerEvent<HTMLElement>) => void;
-  onKeyDown: (e: ReactKeyboardEvent<HTMLElement>) => void;
+  onPointerDown: (e: ReactPointerEvent<Element>) => void;
+  onPointerMove: (e: ReactPointerEvent<Element>) => void;
+  onPointerUp: (e: ReactPointerEvent<Element>) => void;
+  onPointerCancel: (e: ReactPointerEvent<Element>) => void;
+  onKeyDown: (e: ReactKeyboardEvent<Element>) => void;
 }
 
 /** Arrow keys that step a bar, and the direction each one steps in. */
@@ -23,8 +23,10 @@ interface UseLadderDragOptions {
   ladders: SelectorLadders;
   linked: boolean;
   floor: number;
-  /** The element whose box is the rail: pointer y maps onto its height. */
-  railRef: RefObject<HTMLElement | null>;
+  /** Element whose box is measured at pointer down. */
+  targetRef: RefObject<Element | null>;
+  /** Prior change for a pointer travel of dy client px (down is positive) over an element of this box. */
+  valueDelta: (dy: number, rect: DOMRect) => number;
   onChange: (next: SelectorLadders) => void;
 }
 
@@ -36,17 +38,19 @@ interface UseLadderDragResult {
 /**
  * Pointer-capture drag for the ladder handles. Capture is taken on the
  * handle element, so the caller must keep handles mounted for the whole
- * drag. Every move computes an absolute bar from the pointer's y, so a
- * stale closure between a change and its re-render is harmless: the next
- * move overwrites it. A linked drag writes the same bar into both ladders,
- * clamped to the range both accept; an unlinked drag touches only the
- * handle's own ladder. The arrow keys, Home and End reach the same writer,
- * so a keyboard user gets the identical clamp and linked semantics.
+ * drag. Every move computes the bar from its value at the grab plus the
+ * pointer's travel since the grab, so a handle drawn offset from its line
+ * never jumps and a stale closure between a change and its re-render is
+ * harmless: the next move overwrites it. A linked drag writes the same bar
+ * into both ladders, clamped to the range both accept; an unlinked drag
+ * touches only the handle's own ladder. The arrow keys, Home and End reach
+ * the same writer, so a keyboard user gets the identical clamp and linked
+ * semantics.
  */
-export function useLadderDrag({ ladders, linked, floor, railRef, onChange }: UseLadderDragOptions): UseLadderDragResult {
+export function useLadderDrag({ ladders, linked, floor, targetRef, valueDelta, onChange }: UseLadderDragOptions): UseLadderDragResult {
   const [dragging, setDragging] = useState<DragTarget | null>(null);
   const activeRef = useRef<DragTarget | null>(null);
-  const rectRef = useRef<DOMRect | null>(null);
+  const grabRef = useRef<{ rect: DOMRect; y: number; value: number } | null>(null);
 
   const applyValue = useCallback(
     (target: DragTarget, wanted: number) => {
@@ -65,14 +69,14 @@ export function useLadderDrag({ ladders, linked, floor, railRef, onChange }: Use
   const moveTo = useCallback(
     (clientY: number) => {
       const target = activeRef.current;
-      const rect = rectRef.current;
-      if (!target || !rect || rect.height <= 0) return;
-      applyValue(target, railValue((clientY - rect.top) / rect.height));
+      const grab = grabRef.current;
+      if (!target || !grab || grab.rect.height <= 0) return;
+      applyValue(target, snapBar(grab.value + valueDelta(clientY - grab.y, grab.rect)));
     },
-    [applyValue],
+    [applyValue, valueDelta],
   );
 
-  const endDrag = useCallback((e: ReactPointerEvent<HTMLElement>) => {
+  const endDrag = useCallback((e: ReactPointerEvent<Element>) => {
     if (!activeRef.current) return;
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
@@ -80,7 +84,7 @@ export function useLadderDrag({ ladders, linked, floor, railRef, onChange }: Use
       /* the browser already released capture on cancel */
     }
     activeRef.current = null;
-    rectRef.current = null;
+    grabRef.current = null;
     setDragging(null);
   }, []);
 
@@ -88,11 +92,11 @@ export function useLadderDrag({ ladders, linked, floor, railRef, onChange }: Use
     (role: SelectorRole, tier: SelectorTier): HandleProps => ({
       onPointerDown: (e) => {
         if (e.pointerType === 'mouse' && e.button !== 0) return;
-        const rail = railRef.current;
-        if (!rail) return;
+        const el = targetRef.current;
+        if (!el) return;
         e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
-        rectRef.current = rail.getBoundingClientRect();
+        grabRef.current = { rect: el.getBoundingClientRect(), y: e.clientY, value: ladders[role][tier] };
         activeRef.current = { role, tier };
         setDragging({ role, tier });
       },
@@ -119,7 +123,7 @@ export function useLadderDrag({ ladders, linked, floor, railRef, onChange }: Use
         }
       },
     }),
-    [railRef, moveTo, endDrag, applyValue, ladders],
+    [targetRef, moveTo, endDrag, applyValue, ladders],
   );
 
   return { dragging, handleProps };

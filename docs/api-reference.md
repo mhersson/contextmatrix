@@ -915,9 +915,20 @@ not included - they are per `.board.yaml` and merged at trigger time.
 `price_source` says where the candidate's price came from (`gateway`, `aa`,
 `token_costs`, `none`); `scored_from` is the AA slug an automatic join scored
 the priors from, empty for a `model_priors` entry and on the OpenRouter leg;
-`reasoning_effort` echoes `llm_endpoint.reasoning_effort`, empty when unset.
+`prior_source` is `aa` when the priors are AA scores and `model_priors` when
+an operator entry supplies them; `reasoning_effort` echoes
+`llm_endpoint.reasoning_effort`, empty when unset.
 An AA-scored candidate carries the same `coder_prior` and `reviewer_prior`
 (see [quality priors](model-selection.md#quality-priors)).
+
+Four fields describe the AA snapshot behind the priors:
+`intelligence_index_version` is AA's page-level `intelligence_index_version`,
+empty when AA sends none; `aa_scored_models` counts the AA rows with an
+intelligence index; `served_scored_models` counts the gateway models with tool
+use that joined to a scored AA row, counted before the allowlist and the
+floor, with `model_priors` entries not counted; `best_aa_score` is the best AA
+score, the normalizer behind prior 1.00. The counts and the score are `0` when
+the catalog holds no AA data.
 
 ```json
 {
@@ -931,14 +942,19 @@ An AA-scored candidate carries the same `coder_prior` and `reviewer_prior`
       "completion_price_per_tok": 2.9e-6,
       "context_window": 200000,
       "price_source": "gateway",
-      "scored_from": "glm-5-3"
+      "scored_from": "glm-5-3",
+      "prior_source": "aa"
     }
   ],
   "favorites": [{ "tier": "critical", "role": "reviewer", "models": ["anthropic/claude-opus-5"] }],
   "blacklist": ["moonshotai/kimi-k2.7-code"],
   "quality_floor": 0.50,
   "catalog_refreshed_at": "2026-09-10T06:00:00Z",
-  "reasoning_effort": ""
+  "reasoning_effort": "",
+  "intelligence_index_version": "5",
+  "aa_scored_models": 94,
+  "served_scored_models": 27,
+  "best_aa_score": 59.4
 }
 ```
 
