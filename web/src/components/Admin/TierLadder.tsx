@@ -2,6 +2,8 @@ import { useMemo, useRef } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import type { SelectorCandidate, SelectorLadders, SelectorRole, SelectorTier } from '../../types';
 import {
+  AXIS_MAX,
+  AXIS_MIN,
   BELOW_FLOOR_COLOR,
   ROLES,
   TIERS_DESC,
@@ -86,7 +88,14 @@ export function TierLadder({
   onModelMenu,
 }: TierLadderProps) {
   const railRef = useRef<HTMLDivElement>(null);
-  const { dragging, handleProps } = useLadderDrag({ ladders, linked, floor, railRef, onChange });
+  const { dragging, handleProps } = useLadderDrag({
+    ladders,
+    linked,
+    floor,
+    targetRef: railRef,
+    valueDelta: (dy, rect) => (-dy / rect.height) * (AXIS_MAX - AXIS_MIN),
+    onChange,
+  });
 
   // View-only filter: the pills it hides never touch the tier bands or
   // anything upstream of the panel.

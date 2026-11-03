@@ -10,10 +10,10 @@ function ladders(): SelectorLadders {
   return { coder: { ...DEFAULTS }, reviewer: { ...DEFAULTS } };
 }
 
-// The rail is 650px tall so a client y of (1 - v) * 1000 lands on prior v.
-function rail(): { current: HTMLElement } {
+// The measured element is 1000px tall; valueDelta below is its own scale.
+function target(): { current: HTMLElement } {
   const el = document.createElement('div');
-  el.getBoundingClientRect = () => ({ top: 0, height: 650, left: 0, width: 300, bottom: 650, right: 300, x: 0, y: 0, toJSON: () => ({}) });
+  el.getBoundingClientRect = () => ({ top: 0, height: 1000, left: 0, width: 300, bottom: 1000, right: 300, x: 0, y: 0, toJSON: () => ({}) });
   return { current: el };
 }
 
@@ -34,9 +34,9 @@ function key(k: string): ReactKeyboardEvent<HTMLElement> {
 
 function setup(linked: boolean, initial = ladders(), floor = 0.65) {
   const onChange = vi.fn();
-  const railRef = rail();
+  const targetRef = target();
   const hook = renderHook(
-    ({ current }: { current: SelectorLadders }) => useLadderDrag({ ladders: current, linked, floor, railRef, onChange }),
+    ({ current }: { current: SelectorLadders }) => useLadderDrag({ ladders: current, linked, floor, targetRef, valueDelta: (dy) => -dy / 1000, onChange }),
     { initialProps: { current: initial } },
   );
   return { onChange, ...hook };
@@ -104,12 +104,24 @@ describe('useLadderDrag', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
-  it('does not report a change when the value is already in place', () => {
+  it('moves the bar by the pointer travel since the grab, wherever the grab landed', () => {
     const { result, onChange } = setup(false);
     const props = result.current.handleProps('coder', 'complex');
 
-    act(() => props.onPointerDown(ev(180)));
-    act(() => props.onPointerMove(ev(180)));
+    act(() => props.onPointerDown(ev(500)));
+    act(() => props.onPointerMove(ev(465)));
+
+    const next = onChange.mock.calls[0][0] as SelectorLadders;
+    expect(next.coder.complex).toBeCloseTo(0.855, 9);
+    expect(next.reviewer.complex).toBeCloseTo(0.82, 9);
+  });
+
+  it('a grab with no travel changes nothing', () => {
+    const { result, onChange } = setup(false);
+    const props = result.current.handleProps('coder', 'complex');
+
+    act(() => props.onPointerDown(ev(300)));
+    act(() => props.onPointerMove(ev(300)));
     expect(onChange).not.toHaveBeenCalled();
   });
 
