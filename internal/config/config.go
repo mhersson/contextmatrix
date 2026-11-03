@@ -262,7 +262,7 @@ type AgentBackendConfig struct {
 	// CatalogQualityFloor is the minimum normalized quality score (0..1) a
 	// model's coder or reviewer prior must clear on at least one role to stay
 	// in the candidate pool. 0 means unset, and modelcatalog.NewBuilder's
-	// existing <=0 fallback keeps it at 0.50. Validated to be in [0, 1).
+	// <=0 fallback keeps it at 0.50. Validated to be in [0, 1).
 	CatalogQualityFloor float64 `yaml:"catalog_quality_floor"`
 }
 

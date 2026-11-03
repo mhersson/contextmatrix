@@ -23,15 +23,15 @@ func TestNewCatalogBuilder_QualityFloor(t *testing.T) {
 		expectedFloor  float64
 	}{
 		{
-			name:    "agent AA with configured floor 0.5",
+			name:    "agent AA with configured floor 0.6",
 			llmType: config.LLMEndpointTypeOpenRouter,
 			agentCfg: &config.AgentBackendConfig{
 				AAAPIKey:            "some-key",
-				CatalogQualityFloor: 0.5,
+				CatalogQualityFloor: 0.6,
 			},
 			hasAgent:       true,
 			chatOpenRouter: false,
-			expectedFloor:  0.5,
+			expectedFloor:  0.6,
 		},
 		{
 			name:    "agent AA with unset floor defaults to 0.50",
@@ -45,15 +45,15 @@ func TestNewCatalogBuilder_QualityFloor(t *testing.T) {
 			expectedFloor:  0.50,
 		},
 		{
-			name:    "agent AA with endpoint type openai and configured floor 0.5",
+			name:    "agent AA with endpoint type openai and configured floor 0.6",
 			llmType: config.LLMEndpointTypeOpenAI,
 			agentCfg: &config.AgentBackendConfig{
 				AAAPIKey:            "some-key",
-				CatalogQualityFloor: 0.5,
+				CatalogQualityFloor: 0.6,
 			},
 			hasAgent:       true,
 			chatOpenRouter: false,
-			expectedFloor:  0.5,
+			expectedFloor:  0.6,
 		},
 		{
 			name:    "no agent, endpoint openai, unset floor defaults to 0.50",
@@ -74,15 +74,15 @@ func TestNewCatalogBuilder_QualityFloor(t *testing.T) {
 			expectedFloor:  0.50,
 		},
 		{
-			name:    "has agent without AA, openrouter, configured floor 0.5",
+			name:    "has agent without AA, openrouter, configured floor 0.6",
 			llmType: config.LLMEndpointTypeOpenRouter,
 			agentCfg: &config.AgentBackendConfig{
 				AAAPIKey:            "",
-				CatalogQualityFloor: 0.5,
+				CatalogQualityFloor: 0.6,
 			},
 			hasAgent:       true,
 			chatOpenRouter: false,
-			expectedFloor:  0.5,
+			expectedFloor:  0.6,
 		},
 	}
 
