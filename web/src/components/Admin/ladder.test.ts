@@ -4,10 +4,12 @@ import {
   bandsFor,
   barRange,
   clampBar,
+  clearedTiers,
   formatBar,
   isMonotone,
   ladderKey,
   laddersEqual,
+  money,
   panelHasListPrice,
   railValue,
   railY,
@@ -31,6 +33,14 @@ describe('tierOf', () => {
     expect(tierOf(DEFAULTS, 0.76)).toBe('moderate');
     expect(tierOf(DEFAULTS, 0.7)).toBe('simple');
     expect(tierOf(DEFAULTS, 0.6)).toBeNull();
+  });
+});
+
+describe('clearedTiers', () => {
+  it('lists every tier whose bar the prior reaches, lowest first', () => {
+    expect(clearedTiers(DEFAULTS, 0.85)).toEqual(['simple', 'moderate', 'complex']);
+    expect(clearedTiers(DEFAULTS, 0.9)).toEqual(['simple', 'moderate', 'complex', 'critical']);
+    expect(clearedTiers(DEFAULTS, 0.6)).toEqual([]);
   });
 });
 
@@ -123,6 +133,12 @@ describe('formatting', () => {
     expect(usdPerMillion(2e-6)).toBe('$2.0/M');
     expect(usdPerMillion(6.5e-7)).toBe('$0.65/M');
     expect(usdPerMillion(1.2e-5)).toBe('$12.0/M');
+  });
+
+  it('keeps three significant figures so a tiny price never prints as zero', () => {
+    expect(money(2e-6)).toBe('$2');
+    expect(money(1.5e-8)).toBe('$0.015');
+    expect(money(1.23456e-5)).toBe('$12.3');
   });
 });
 

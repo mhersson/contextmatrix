@@ -9,11 +9,11 @@ export interface DragTarget {
 }
 
 export interface HandleProps {
-  onPointerDown: (e: ReactPointerEvent<HTMLElement>) => void;
-  onPointerMove: (e: ReactPointerEvent<HTMLElement>) => void;
-  onPointerUp: (e: ReactPointerEvent<HTMLElement>) => void;
-  onPointerCancel: (e: ReactPointerEvent<HTMLElement>) => void;
-  onKeyDown: (e: ReactKeyboardEvent<HTMLElement>) => void;
+  onPointerDown: (e: ReactPointerEvent<Element>) => void;
+  onPointerMove: (e: ReactPointerEvent<Element>) => void;
+  onPointerUp: (e: ReactPointerEvent<Element>) => void;
+  onPointerCancel: (e: ReactPointerEvent<Element>) => void;
+  onKeyDown: (e: ReactKeyboardEvent<Element>) => void;
 }
 
 /** Arrow keys that step a bar, and the direction each one steps in. */
@@ -41,10 +41,11 @@ interface UseLadderDragResult {
  * drag. Every move computes the bar from its value at the grab plus the
  * pointer's travel since the grab, so a handle drawn offset from its line
  * never jumps and a stale closure between a change and its re-render is
- * harmless: the next move overwrites it. A linked drag writes the same bar into both ladders,
- * clamped to the range both accept; an unlinked drag touches only the
- * handle's own ladder. The arrow keys, Home and End reach the same writer,
- * so a keyboard user gets the identical clamp and linked semantics.
+ * harmless: the next move overwrites it. A linked drag writes the same bar
+ * into both ladders, clamped to the range both accept; an unlinked drag
+ * touches only the handle's own ladder. The arrow keys, Home and End reach
+ * the same writer, so a keyboard user gets the identical clamp and linked
+ * semantics.
  */
 export function useLadderDrag({ ladders, linked, floor, targetRef, valueDelta, onChange }: UseLadderDragOptions): UseLadderDragResult {
   const [dragging, setDragging] = useState<DragTarget | null>(null);
@@ -75,7 +76,7 @@ export function useLadderDrag({ ladders, linked, floor, targetRef, valueDelta, o
     [applyValue, valueDelta],
   );
 
-  const endDrag = useCallback((e: ReactPointerEvent<HTMLElement>) => {
+  const endDrag = useCallback((e: ReactPointerEvent<Element>) => {
     if (!activeRef.current) return;
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);

@@ -1,6 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { SelectorCandidate, SelectorLadders, SelectorPickReport, SelectorPoolEntry, SelectorRole, SelectorSeat, SelectorTierPreview } from '../../types';
+import { CHART_LAYOUT, qualityScale } from './chart';
+import { snapBar } from './ladder';
 import { SelectionChart, type SelectionChartProps } from './SelectionChart';
 
 function cand(slug: string, coder: number, reviewer: number, perMillion: number, prior_source: SelectorCandidate['prior_source'] = 'aa'): SelectorCandidate {
@@ -281,5 +283,181 @@ describe('SelectionChart', () => {
     expect(dot('op/custom-coder')).toHaveAttribute('data-marks', 'blacklisted');
     expect(dot('op/custom-reviewer')).toHaveAttribute('data-marks', 'blacklisted');
     expect(dot('a/mid').getAttribute('data-marks')).not.toContain('blacklisted');
+  });
+});
+
+// jsdom has neither layout nor pointer capture. The chart draws at its own
+// size, so one client px is one SVG px. Plain stubs, not spies, so a
+// vi.resetAllMocks() elsewhere cannot restore the zero-height jsdom box.
+beforeAll(() => {
+  Object.defineProperty(SVGElement.prototype, 'getBoundingClientRect', {
+    value: () =>
+      ({
+        top: 0, left: 0, height: CHART_LAYOUT.height, width: 760, bottom: CHART_LAYOUT.height, right: 760, x: 0, y: 0, toJSON: () => ({}),
+      }) as DOMRect,
+    configurable: true,
+  });
+  Object.defineProperty(Element.prototype, 'setPointerCapture', { value: () => {}, configurable: true });
+  Object.defineProperty(Element.prototype, 'releasePointerCapture', { value: () => {}, configurable: true });
+});
+
+/** Prior change for a pointer travel of dy px (down is positive). */
+function travel(dy: number, floor = 0.65): number {
+  const q = qualityScale(floor, CHART_LAYOUT.top, CHART_LAYOUT.height - CHART_LAYOUT.bottom);
+  return q.prior(200 + dy) - q.prior(200);
+}
+
+function translate(el: Element): [number, number] {
+  const m = /translate\(\s*([-\d.e]+)[\s,]+([-\d.e]+)\s*\)/.exec(el.getAttribute('transform') ?? '');
+  if (!m) throw new Error(`no translate on ${el.tagName}`);
+  return [Number(m[1]), Number(m[2])];
+}
+
+function drag(name: string, from: number, to: number) {
+  const handle = screen.getByRole('slider', { name });
+  fireEvent.pointerDown(handle, { pointerId: 1, clientY: from, button: 0 });
+  fireEvent.pointerMove(handle, { pointerId: 1, clientY: to });
+  fireEvent.pointerUp(handle, { pointerId: 1, clientY: to });
+}
+
+function lastChange(onChange: SelectionChartProps['onChange']): SelectorLadders {
+  const calls = vi.mocked(onChange).mock.calls;
+  expect(calls.length).toBeGreaterThan(0);
+  return calls[calls.length - 1][0];
+}
+
+const TIERS = ['simple', 'moderate', 'complex', 'critical'] as const;
+
+describe('SelectionChart tier handles', () => {
+  it('shows coder handles left and reviewer handles right when separate, one shared set otherwise', () => {
+    const { rerenderWith } = renderChart();
+
+    expect(screen.getAllByRole('slider')).toHaveLength(8);
+    const q = qualityScale(0.65, CHART_LAYOUT.top, CHART_LAYOUT.height - CHART_LAYOUT.bottom);
+    for (const tier of TIERS) {
+      const coderLine = screen.getByTestId(`tl-line-coder-${tier}`);
+      const reviewerLine = screen.getByTestId(`tl-line-reviewer-${tier}`);
+      expect(num(coderLine, 'y1')).toBeCloseTo(q.y(LADDERS.coder[tier]), 6);
+      expect(num(reviewerLine, 'y1')).toBeCloseTo(q.y(LADDERS.reviewer[tier]), 6);
+      expect(coderLine).not.toHaveAttribute('stroke-dasharray');
+      expect(reviewerLine).toHaveAttribute('stroke-dasharray');
+
+      const [coderX] = translate(screen.getByRole('slider', { name: `coder ${tier} bar` }));
+      const [reviewerX] = translate(screen.getByRole('slider', { name: `reviewer ${tier} bar` }));
+      expect(coderX + CHART_LAYOUT.handleW).toBeLessThanOrEqual(num(coderLine, 'x1'));
+      expect(reviewerX).toBeGreaterThanOrEqual(num(reviewerLine, 'x2'));
+    }
+
+    rerenderWith({ separate: false });
+
+    expect(screen.getAllByRole('slider')).toHaveLength(4);
+    expect(screen.queryByRole('slider', { name: /^reviewer / })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tl-line-reviewer-complex')).not.toBeInTheDocument();
+  });
+
+  it('labels each shared line with its bar, and with AA points only when a best AA score is known', () => {
+    const shared: SelectorLadders = { coder: { ...LADDERS.coder }, reviewer: { ...LADDERS.coder } };
+    const { container, rerenderWith } = renderChart({ ladders: shared, separate: false });
+    const svgText = () => container.querySelector('svg')!.textContent;
+
+    // complex 0.84 × 59.4 = 49.9 AA points.
+    expect(svgText()).toContain('49.9');
+    expect(svgText()).toContain('0.84');
+
+    rerenderWith({ bestAAScore: 0 });
+    expect(svgText()).not.toContain('49.9');
+    expect(svgText()).toContain('0.84');
+  });
+
+  it('dragging a coder handle moves only the coder ladder when separate', () => {
+    const { props } = renderChart();
+
+    drag('coder complex bar', 200, 170);
+
+    expect(props.onChange).toHaveBeenCalledTimes(1);
+    const next = lastChange(props.onChange);
+    expect(next.coder.complex).toBeCloseTo(snapBar(0.84 + travel(-30)), 9);
+    expect(next.coder.complex).not.toBeCloseTo(0.84, 3);
+    expect(next.reviewer).toEqual(LADDERS.reviewer);
+  });
+
+  it('dragging with one ladder moves both roles', () => {
+    const shared: SelectorLadders = { coder: { ...LADDERS.coder }, reviewer: { ...LADDERS.coder } };
+    const { props } = renderChart({ ladders: shared, separate: false });
+
+    drag('coder complex bar', 200, 170);
+
+    const next = lastChange(props.onChange);
+    const want = snapBar(0.84 + travel(-30));
+    expect(next.coder.complex).toBeCloseTo(want, 9);
+    expect(next.reviewer.complex).toBeCloseTo(want, 9);
+  });
+
+  it('every stacked handle of the default reviewer ladder is its own reachable slider', () => {
+    const { props } = renderChart();
+    const handles = TIERS.map((t) => screen.getByRole('slider', { name: `reviewer ${t} bar` }));
+
+    const ys = handles.map((h) => translate(h)[1]);
+    expect(new Set(handles.map((h) => h.getAttribute('transform'))).size).toBe(4);
+    const sorted = [...ys].sort((a, b) => a - b);
+    for (let i = 1; i < sorted.length; i++) expect(sorted[i] - sorted[i - 1]).toBeGreaterThanOrEqual(CHART_LAYOUT.handleH - 1e-6);
+
+    // A grab on a fanned handle, off its line, with no travel leaves every bar alone.
+    handles.forEach((h, i) => {
+      const at = ys[i] + CHART_LAYOUT.handleH / 2;
+      fireEvent.pointerDown(h, { pointerId: 1, clientY: at, button: 0 });
+      fireEvent.pointerMove(h, { pointerId: 1, clientY: at });
+      fireEvent.pointerUp(h, { pointerId: 1, clientY: at });
+    });
+    expect(props.onChange).not.toHaveBeenCalled();
+
+    drag('reviewer complex bar', 200, 192);
+
+    const next = lastChange(props.onChange);
+    expect(next.reviewer.complex).toBeCloseTo(snapBar(0.9 + travel(-8)), 9);
+    expect(next.reviewer.complex).toBeGreaterThan(0.9);
+    for (const t of ['simple', 'moderate', 'critical'] as const) expect(next.reviewer[t]).toBe(LADDERS.reviewer[t]);
+    expect(next.coder).toEqual(LADDERS.coder);
+  });
+
+  it('steps a bar from the keyboard', () => {
+    const { props } = renderChart();
+    const handle = screen.getByRole('slider', { name: 'coder complex bar' });
+    expect(handle).toHaveAttribute('tabindex', '0');
+
+    fireEvent.keyDown(handle, { key: 'ArrowUp' });
+
+    const next = lastChange(props.onChange);
+    expect(next.coder.complex).toBeCloseTo(0.845, 9);
+    expect(next.reviewer).toEqual(LADDERS.reviewer);
+  });
+
+  it('never drags a bar below the floor', () => {
+    const { props } = renderChart({ floor: 0.6 });
+    expect(screen.getByRole('slider', { name: 'coder simple bar' })).toHaveAttribute('aria-valuemin', '0.6');
+
+    drag('coder simple bar', 200, 400);
+
+    expect(lastChange(props.onChange).coder.simple).toBeCloseTo(0.6, 9);
+  });
+
+  it('keeps the handle mounted across a drag', () => {
+    const { props, rerenderWith } = renderChart();
+    const handle = screen.getByRole('slider', { name: 'coder complex bar' });
+    const before = handle.getAttribute('transform');
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 200, button: 0 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 170 });
+    rerenderWith({ ladders: lastChange(props.onChange) });
+
+    const moved = screen.getByRole('slider', { name: 'coder complex bar' });
+    expect(moved).toBe(handle);
+    expect(moved.getAttribute('transform')).not.toBe(before);
+
+    // The next move still counts from the grab, not from the re-rendered bar.
+    fireEvent.pointerMove(moved, { pointerId: 1, clientY: 160 });
+    fireEvent.pointerUp(moved, { pointerId: 1, clientY: 160 });
+    expect(lastChange(props.onChange).coder.complex).toBeCloseTo(snapBar(0.84 + travel(-40)), 9);
+    expect(screen.getByRole('slider', { name: 'coder complex bar' })).toBe(handle);
   });
 });

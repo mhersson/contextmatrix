@@ -1,9 +1,10 @@
 import { useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import type { SelectorCandidate, SelectorLadders, SelectorRole, SelectorTier, SelectorTierPreview, TierBars } from '../../types';
+import type { SelectorCandidate, SelectorLadders, SelectorRole, SelectorTier, SelectorTierPreview } from '../../types';
 import { usePaneWidth } from '../Blueprint/usePaneWidth';
-import { CHART_LAYOUT, placeLabels, priceScale, qualityScale } from './chart';
-import { ROLES, TIERS_ASC, blendedPrice, formatBar, priorOf, shortSlug } from './ladder';
+import { CHART_LAYOUT, formatHandle, placeLabels, priceScale, qualityScale, stackHandles } from './chart';
+import { ROLES, blendedPrice, clearedTiers, formatBar, money, priorOf, shortSlug } from './ladder';
+import { useLadderDrag } from './useLadderDrag';
 
 export interface SelectionChartProps {
   /** All candidates: the scales never change with the filter. */
@@ -93,17 +94,8 @@ function dotStyle(marks: readonly Mark[]): DotStyle {
   return s;
 }
 
-function cleared(bars: TierBars, prior: number): SelectorTier[] {
-  return TIERS_ASC.filter((t) => prior >= bars[t]);
-}
-
 function tierList(tiers: SelectorTier[]): string {
   return tiers.length > 0 ? tiers.join(', ') : 'no tier';
-}
-
-/** Dollars per million tokens to three significant figures, so a tiny price never reads as $0. */
-function money(perTok: number): string {
-  return `$${Number((perTok * 1e6).toPrecision(3))}`;
 }
 
 function formatHeadroom(h: number): string {
@@ -114,6 +106,7 @@ export function SelectionChart({
   candidates,
   visible,
   ladders,
+  separate,
   floor,
   bestAAScore,
   indexVersion,
@@ -121,13 +114,15 @@ export function SelectionChart({
   tierPreview,
   appliedHeadroom,
   blacklist,
+  onChange,
   onModelMenu,
 }: SelectionChartProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   const width = Math.max(MIN_WIDTH, usePaneWidth(wrapRef) ?? FALLBACK_WIDTH);
   const [tip, setTip] = useState<Tip | null>(null);
 
-  const { height, top, handleW } = CHART_LAYOUT;
+  const { height, top, handleW, handleH } = CHART_LAYOUT;
   const x0 = CHART_LAYOUT.left;
   const x1 = width - CHART_LAYOUT.right;
   const bottom = height - CHART_LAYOUT.bottom;
@@ -136,6 +131,22 @@ export function SelectionChart({
   const y = (prior: number): number => q.y(Number.isFinite(prior) ? prior : q.lo);
   const clampX = (v: number): number => (Number.isNaN(v) ? x0 : Math.min(x1, Math.max(x0, v)));
   const hasAA = bestAAScore > 0;
+
+  // Client px to SVG px, then SVG px to prior units; down is a lower bar.
+  const valueDelta = (dy: number, rect: DOMRect): number => -((dy * height) / rect.height) * ((q.hi - q.lo) / (bottom - top));
+  const { dragging, handleProps } = useLadderDrag({ ladders, linked: !separate, floor, targetRef: svgRef, valueDelta, onChange });
+  const handleBounds: [number, number] = [top + handleH / 2, bottom - handleH / 2];
+  const handleRoles: SelectorRole[] = separate ? ROLES : ['coder'];
+  const tierSets = handleRoles.map((role) => ({
+    role,
+    color: separate ? `var(--tl-${role})` : 'var(--tl-shared)',
+    slots: stackHandles(ladders[role], y, handleH, handleBounds),
+  }));
+  // One ladder: each line names its tier and bar. Lowest line first, so a label on a coinciding higher line lifts.
+  const lineLabels = separate
+    ? []
+    : [...tierSets[0].slots].sort((a, b) => b.lineY - a.lineY).map((s) => ({ tier: s.tier, bar: ladders.coder[s.tier], lineY: s.lineY }));
+  const lineLabelYs = placeLabels(lineLabels.map((l) => ({ x: x0, y: l.lineY - 8 })));
 
   const picks = picksOf(tierPreview);
   const shown = candidates.filter(visible);
@@ -180,7 +191,7 @@ export function SelectionChart({
 
   return (
     <div className="tl-chart" ref={wrapRef}>
-      <svg viewBox={`0 0 ${width} ${height}`}>
+      <svg ref={svgRef} viewBox={`0 0 ${width} ${height}`}>
         <g className="tl-chart-grid">
           {px.ticks.map((t) => (
             <g key={`x${t}`}>
@@ -251,6 +262,26 @@ export function SelectionChart({
         <text className="tl-chart-floor-label" x={x0 + 4} y={floorY + 13}>
           quality floor {formatBar(floor)} (config)
         </text>
+        {tierSets.flatMap(({ role, color, slots }) =>
+          slots.map((s) => (
+            <line
+              key={`${role}-${s.tier}`}
+              className={s.tier === selectedTier ? 'tl-chart-tier selected' : 'tl-chart-tier'}
+              data-testid={`tl-line-${role}-${s.tier}`}
+              x1={x0}
+              x2={x1}
+              y1={s.lineY}
+              y2={s.lineY}
+              strokeDasharray={role === 'reviewer' ? '6 4' : undefined}
+              style={{ stroke: color }}
+            />
+          )),
+        )}
+        {lineLabels.map((l, i) => (
+          <text key={l.tier} className="tl-chart-tier-label" x={x0 + 4} y={lineLabelYs[i]}>
+            {l.tier} ≥ {hasAA ? `${(l.bar * bestAAScore).toFixed(1)} AA · ${formatBar(l.bar)}` : formatBar(l.bar)}
+          </text>
+        ))}
         {links.map((c) => {
           const cx = px.x(blendedPrice(c) * 1e6);
           return <line key={c.slug} className="tl-chart-link" x1={cx} x2={cx} y1={y(c.coder_prior)} y2={y(c.reviewer_prior)} />;
@@ -261,7 +292,7 @@ export function SelectionChart({
           return (
             <g key={d.id}>
               <circle
-                className="tl-chart-pt"
+                className={onModelMenu ? 'tl-chart-pt has-menu' : 'tl-chart-pt'}
                 data-testid={`tl-pt-${d.id}`}
                 data-marks={d.marks.join(' ')}
                 cx={d.cx}
@@ -292,6 +323,42 @@ export function SelectionChart({
             </text>
           );
         })}
+        {tierSets.flatMap(({ role, color, slots }) =>
+          slots
+            .filter((s) => Math.abs(s.handleY - s.lineY) > 0.5)
+            .map((s) => {
+              const [edge, onLine] = role === 'coder' ? [x0 - 2, x0 + 8] : [x1 + 2, x1 - 8];
+              return <line key={`${role}-${s.tier}`} className="tl-chart-connector" x1={edge} y1={s.handleY} x2={onLine} y2={s.lineY} style={{ stroke: color }} />;
+            }),
+        )}
+        {tierSets.flatMap(({ role, color, slots }) =>
+          slots.map((s) => {
+            const bar = ladders[role][s.tier];
+            const hx = role === 'coder' ? x0 - 2 - handleW : x1 + 2;
+            const active = dragging?.role === role && dragging.tier === s.tier;
+            return (
+              <g
+                key={`${role}-${s.tier}`}
+                role="slider"
+                tabIndex={0}
+                className={active ? 'tl-chart-handle dragging' : 'tl-chart-handle'}
+                aria-label={`${role} ${s.tier} bar`}
+                aria-valuemin={floor}
+                aria-valuemax={1}
+                aria-valuenow={bar}
+                aria-valuetext={formatBar(bar)}
+                transform={`translate(${hx} ${s.handleY - handleH / 2})`}
+                style={{ '--handle-c': color } as CSSProperties}
+                {...handleProps(role, s.tier)}
+              >
+                <rect width={handleW} height={handleH} rx={4} />
+                <text x={handleW / 2} y={handleH / 2 + 3.5} textAnchor="middle">
+                  {formatHandle(s.tier, bar)}
+                </text>
+              </g>
+            );
+          }),
+        )}
       </svg>
       {tip && tipDot && (
         <ChartTip
@@ -339,8 +406,8 @@ function ChartTip({ c, role, x, y, ladders, bestAAScore, indexVersion, blacklist
     ? `${money(c.prompt_price_per_tok)} in / ${money(c.completion_price_per_tok)} out per Mtok${c.price_source === 'aa' ? ' · list price' : ''}`
     : 'no price';
 
-  const coderTiers = cleared(ladders.coder, c.coder_prior);
-  const reviewerTiers = cleared(ladders.reviewer, c.reviewer_prior);
+  const coderTiers = clearedTiers(ladders.coder, c.coder_prior);
+  const reviewerTiers = clearedTiers(ladders.reviewer, c.reviewer_prior);
   // One list would be untrue for a role whenever the two differ, whether the ladders or the priors split them.
   const tiers =
     coderTiers.join() === reviewerTiers.join()

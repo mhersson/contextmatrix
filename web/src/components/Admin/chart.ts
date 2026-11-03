@@ -100,15 +100,24 @@ export interface HandleSlot {
   handleY: number;
 }
 
-/** Fans handles whose bar lines are closer than handleH apart so each stays grabbable. */
-export function stackHandles(bars: TierBars, y: (prior: number) => number, handleH: number): HandleSlot[] {
+/**
+ * Fans handles whose bar lines are closer than handleH apart so each stays
+ * grabbable. With bounds (min and max handle centre), a cluster that would
+ * leave them shifts back inside, which can merge it into its neighbour.
+ */
+export function stackHandles(bars: TierBars, y: (prior: number) => number, handleH: number, bounds?: [number, number]): HandleSlot[] {
   const items = TIERS_DESC.map((tier) => ({ tier, lineY: y(bars[tier]) }));
   // Stable sort keeps the strictest tier on top among equal lines.
   const sorted = [...items].sort((a, b) => a.lineY - b.lineY);
 
   const place = (members: typeof items): number[] => {
     const mean = members.reduce((s, m) => s + m.lineY, 0) / members.length;
-    const first = mean - ((members.length - 1) * handleH) / 2;
+    let first = mean - ((members.length - 1) * handleH) / 2;
+    if (bounds) {
+      const last = first + (members.length - 1) * handleH;
+      if (first < bounds[0]) first = bounds[0];
+      else if (last > bounds[1]) first -= last - bounds[1];
+    }
     return members.map((_, i) => first + i * handleH);
   };
 

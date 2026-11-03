@@ -37,6 +37,11 @@ export function tierOf(bars: TierBars, prior: number): SelectorTier | null {
   return null;
 }
 
+/** Every tier whose bar the prior clears, lowest first. */
+export function clearedTiers(bars: TierBars, prior: number): SelectorTier[] {
+  return TIERS_ASC.filter((t) => prior >= bars[t]);
+}
+
 /** Vertical position on the rail as a percentage from the top. */
 export function railY(prior: number): number {
   const clamped = Math.min(AXIS_MAX, Math.max(AXIS_MIN, prior));
@@ -137,6 +142,11 @@ export function formatBar(v: number): string {
 export function usdPerMillion(perTok: number): string {
   const m = perTok * 1e6;
   return `$${m.toFixed(m < 1 ? 2 : 1)}/M`;
+}
+
+/** Dollars per million tokens to three significant figures: where usdPerMillion prints $0.00, a tiny price stays readable. */
+export function money(perTok: number): string {
+  return `$${Number((perTok * 1e6).toPrecision(3))}`;
 }
 
 /** The part of a slug after the vendor prefix. */

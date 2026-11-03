@@ -74,6 +74,35 @@ describe('stackHandles', () => {
     const slots = stackHandles({ simple: 0.65, moderate: 0.75, complex: 0.84, critical: 0.94 }, y, 16);
     slots.forEach((s) => expect(s.handleY).toBeCloseTo(s.lineY, 9));
   });
+
+  it('keeps every handle centre inside the bounds, handleH apart', () => {
+    for (const bar of [1, 0]) {
+      const slots = stackHandles({ simple: bar, moderate: bar, complex: bar, critical: bar }, y, 16, [8, 992]);
+      const ys = slots.map((s) => s.handleY);
+      ys.forEach((hy) => {
+        expect(hy).toBeGreaterThanOrEqual(8 - 1e-9);
+        expect(hy).toBeLessThanOrEqual(992 + 1e-9);
+      });
+      for (let i = 1; i < ys.length; i++) expect(ys[i] - ys[i - 1]).toBeCloseTo(16, 9);
+    }
+  });
+
+  it('merges only the near pair of a mixed ladder pushed off the top bound', () => {
+    // Lines at y 0, 5, 50 and 300: the top pair fans to 8 and 24, clear of the line at 50.
+    const slots = stackHandles({ simple: 0.7, moderate: 0.95, complex: 0.995, critical: 1 }, y, 16, [8, 992]);
+    const at = Object.fromEntries(slots.map((s) => [s.tier, s]));
+    expect(at.critical.handleY).toBeCloseTo(8, 9);
+    expect(at.complex.handleY).toBeCloseTo(24, 9);
+    expect(at.moderate.handleY).toBeCloseTo(at.moderate.lineY, 9);
+    expect(at.simple.handleY).toBeCloseTo(at.simple.lineY, 9);
+  });
+
+  it('merges a cluster the bounds push into its neighbour', () => {
+    // The pair on y 0 lands on 8 and 24, which covers the line at 30.
+    const slots = stackHandles({ simple: 0.5, moderate: 0.97, complex: 1, critical: 1 }, y, 16, [8, 992]);
+    [8, 24, 40].forEach((want, i) => expect(slots[i].handleY).toBeCloseTo(want, 9));
+    expect(slots[3].handleY).toBeCloseTo(slots[3].lineY, 9);
+  });
 });
 
 describe('placeLabels', () => {

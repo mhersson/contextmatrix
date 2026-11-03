@@ -3154,7 +3154,49 @@ textarea {
 }
 .tl-chart-pt {
   stroke-width: 2;
-  cursor: pointer;
+}
+.tl-chart-pt.has-menu {
+  cursor: context-menu;
+}
+.tl-chart-tier {
+  stroke-width: 1;
+  opacity: 0.9;
+}
+.tl-chart-tier.selected {
+  stroke-width: 2;
+  opacity: 1;
+}
+.tl-chart-connector {
+  stroke-width: 1;
+}
+.tl-chart-handle {
+  cursor: grab;
+  touch-action: none;
+  outline: none;
+}
+.tl-chart-handle rect {
+  fill: var(--bg1);
+  stroke: var(--handle-c);
+  stroke-width: 1;
+}
+.tl-chart .tl-chart-handle text {
+  fill: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.tl-chart-handle:hover rect {
+  fill: color-mix(in srgb, var(--handle-c) 14%, var(--bg1));
+}
+/* Outlines on SVG groups are unreliable, so focus thickens and tints the box. */
+.tl-chart-handle:focus-visible rect {
+  stroke-width: 2;
+  fill: color-mix(in srgb, var(--handle-c) 22%, var(--bg1));
+}
+.tl-chart-handle.dragging {
+  cursor: grabbing;
+}
+.tl-chart-handle.dragging rect {
+  fill: color-mix(in srgb, var(--handle-c) 22%, var(--bg1));
 }
 .tl-chart-strike {
   stroke: var(--red);
@@ -3165,6 +3207,9 @@ textarea {
   font-weight: 600;
 }
 /* Overlays must not steal the pointer from the dots under them. */
+.tl-chart-tier,
+.tl-chart-tier-label,
+.tl-chart-connector,
 .tl-chart-link,
 .tl-chart-strike,
 .tl-chart-label,
