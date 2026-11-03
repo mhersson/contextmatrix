@@ -197,12 +197,12 @@ export function SelectionChart({
       : [];
   const sameBand = bands.length === 2 && bands[0].anchor === bands[1].anchor && bands[0].bar === bands[1].bar && bands[0].rung === bands[1].rung;
   const headroomText = appliedHeadroom === null ? '' : formatHeadroom(appliedHeadroom);
-  // Coinciding bands draw once in the neutral band colour; differing ones keep their role tint.
+  // Coinciding bands draw once in the full-strength yellow accent so the merged stripe matches a role band's visibility.
   const drawnBands = (sameBand ? [bands[0]] : bands).map((b) => ({
     ...b,
     id: sameBand ? 'shared' : b.role,
     color: sameBand ? 'var(--yellow)' : `var(--tl-${b.role})`,
-    fill: sameBand ? 'var(--bg-yellow)' : `var(--tl-${b.role})`,
+    fill: sameBand ? 'var(--yellow)' : `var(--tl-${b.role})`,
   }));
 
   const floorY = y(floor);
