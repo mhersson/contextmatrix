@@ -95,7 +95,8 @@ and the served-model list of the configured gateway.
 `x-api-key` header (`backends.agent.aa_api_key`), paginated at 200 models
 per page, capped at 10 pages and 60 seconds per refresh. Three fields are
 consumed per model: the AA slug, the creator name, and the intelligence
-index. AA also publishes each row's list price (`price_1m_input_tokens`,
+index; the refresh also reads the page-level `intelligence_index_version`.
+AA also publishes each row's list price (`price_1m_input_tokens`,
 `price_1m_output_tokens`), which the `openai` leg uses to price candidates
 (see [endpoint pricing](#endpoint-pricing)). The free tier's 100 requests per
 day is ample: a refresh spends one request per page (the catalog is about 4
@@ -345,6 +346,12 @@ next attempt; an AA response with zero models counts as a failure (schema
 drift lands in the last-good path instead of emptying the candidate set).
 There is no background refresh loop, and the TTL and cooldown are not
 configurable. A restart forces a fresh fetch.
+
+Each successful refresh records the index version, the AA rows with an
+intelligence index, the gateway models with tool use joined to a scored row
+(counted before the allowlist and the floor; `model_priors` entries are not
+counted), and the best AA score (prior 1.00). The admin page's data-source
+strip shows them.
 
 The Builder also serves three adjacent read paths from the same cache: token
 pricing for cost tracking (every served model, including below-floor ones),

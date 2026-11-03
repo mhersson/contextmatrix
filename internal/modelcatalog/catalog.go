@@ -28,6 +28,28 @@ const refreshFailureCooldown = 60 * time.Second
 type CandidateProvenance struct {
 	PriceSource string
 	ScoredFrom  string
+	// PriorSource is PriorSourceAA or PriorSourceModelPriors.
+	PriorSource string
+}
+
+// Where a candidate's priors came from.
+const (
+	PriorSourceAA          = "aa"
+	PriorSourceModelPriors = "model_priors"
+)
+
+// CatalogStats describes the AA snapshot behind the current candidates.
+type CatalogStats struct {
+	// IndexVersion is AA's page-level intelligence_index_version; "" when AA
+	// sent none.
+	IndexVersion string
+	// AAScored counts AA rows with an intelligence index.
+	AAScored int
+	// ServedScored counts distinct gateway models with tool use joined to a
+	// scored AA row, before the allowlist and the floor.
+	ServedScored int
+	// BestAAScore is the normalizer: the score that is prior 1.00.
+	BestAAScore float64
 }
 
 // Builder fetches AA + OR on a TTL and produces the candidate set. Safe for
@@ -77,6 +99,9 @@ type Builder struct {
 	// by slug, for the admin selector views. Guarded by mu; rebuilt with
 	// cached on every successful refresh.
 	provenance map[string]CandidateProvenance
+	// stats describes the AA snapshot behind cached. Guarded by mu; set
+	// wherever provenance is.
+	stats CatalogStats
 	// lastRefreshAttempt is when refresh() was last invoked, success or
 	// failure. Guarded by mu. Gates re-attempts on a stale cache so a failing
 	// provider is retried at most once per refreshFailureCooldown.
@@ -228,6 +253,22 @@ func (b *Builder) Provenance(ctx context.Context) map[string]CandidateProvenance
 	b.refreshIfStaleLocked(ctx)
 
 	return maps.Clone(b.provenance)
+}
+
+// Stats describes the AA snapshot behind the current candidates. It refreshes
+// if stale, like Provenance. Zero on a nil receiver or before the first
+// successful refresh.
+func (b *Builder) Stats(ctx context.Context) CatalogStats {
+	if b == nil {
+		return CatalogStats{}
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.refreshIfStaleLocked(ctx)
+
+	return b.stats
 }
 
 // ModelPrice is the per-token price set for one served model. CacheRead and
@@ -496,11 +537,12 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 
 			b.setCatalog(ep)
 			b.provenance = map[string]CandidateProvenance{}
+			b.stats = CatalogStats{}
 
 			return []protocol.CandidateModel{}, nil
 		}
 
-		aa, err := fetchAAModels(ctx, b.aaEndpoint, b.aaKey)
+		aaCat, err := fetchAAModels(ctx, b.aaEndpoint, b.aaKey)
 		if err != nil {
 			// The AA list price is part of the catalog's pricing now, so an
 			// AA outage keeps the last-good priced catalog rather than
@@ -512,6 +554,8 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 
 			return nil, err
 		}
+
+		aa := aaCat.Models
 
 		built, exclusions, listPrices := buildEndpointCandidates(aa, ep, b.priors, b.floor, b.allowlist, b.reasoningEffort)
 
@@ -578,15 +622,17 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		for _, s := range built {
 			cands = append(cands, s.Candidate)
 
-			p := CandidateProvenance{PriceSource: string(s.PriceSource)}
+			p := CandidateProvenance{PriceSource: string(s.PriceSource), PriorSource: PriorSourceModelPriors}
 			if s.Join == joinAutomatic {
 				p.ScoredFrom = s.Source
+				p.PriorSource = PriorSourceAA
 			}
 
 			prov[s.Candidate.Slug] = p
 		}
 
 		b.provenance = prov
+		b.stats = catalogStats(aaCat.IndexVersion, aa, endpointServedScored(built, exclusions))
 
 		return cands, nil
 	}
@@ -603,14 +649,17 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 
 	if b.aaKey == "" {
 		b.provenance = map[string]CandidateProvenance{}
+		b.stats = CatalogStats{}
 
 		return []protocol.CandidateModel{}, nil
 	}
 
-	aa, err := fetchAAModels(ctx, b.aaEndpoint, b.aaKey)
+	aaCat, err := fetchAAModels(ctx, b.aaEndpoint, b.aaKey)
 	if err != nil {
 		return nil, err
 	}
+
+	aa := aaCat.Models
 
 	cands := build(aa, or, b.floor, b.allowlist)
 
@@ -619,10 +668,11 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 	// slug from, so ScoredFrom stays empty here.
 	prov := make(map[string]CandidateProvenance, len(cands))
 	for _, c := range cands {
-		prov[c.Slug] = CandidateProvenance{PriceSource: string(priceSourceGateway)}
+		prov[c.Slug] = CandidateProvenance{PriceSource: string(priceSourceGateway), PriorSource: PriorSourceAA}
 	}
 
 	b.provenance = prov
+	b.stats = catalogStats(aaCat.IndexVersion, aa, orServedScored(aa, or))
 
 	return cands, nil
 }
@@ -686,6 +736,63 @@ func build(aa []aaModel, or map[string]orEntry, floor float64, allow []string) [
 	}
 
 	return out
+}
+
+// catalogStats assembles the snapshot stats from the AA rows.
+func catalogStats(version string, aa []aaModel, servedScored int) CatalogStats {
+	s := CatalogStats{IndexVersion: version, ServedScored: servedScored, BestAAScore: maxIntelligence(aa)}
+
+	for _, m := range aa {
+		if m.IntelIndex != nil {
+			s.AAScored++
+		}
+	}
+
+	return s
+}
+
+// orServedScored counts distinct tool-capable OR slugs that an AA row with an
+// intelligence index maps to, independent of the allowlist and the floor.
+func orServedScored(aa []aaModel, or map[string]orEntry) int {
+	seen := map[string]struct{}{}
+
+	for _, m := range aa {
+		if m.IntelIndex == nil {
+			continue
+		}
+
+		orSlug, ok := mapAASlug(m.Slug, m.Creator)
+		if !ok {
+			continue
+		}
+
+		if e, ok := or[orSlug]; ok && e.Tools {
+			seen[orSlug] = struct{}{}
+		}
+	}
+
+	return len(seen)
+}
+
+// endpointServedScored counts served models joined to a scored AA row: every
+// automatic candidate plus those the allowlist or the floor then excluded
+// (both carry the joined row as Source). model_priors entries are not joined.
+func endpointServedScored(scored []aaScored, exclusions []aaExclusion) int {
+	n := 0
+
+	for _, s := range scored {
+		if s.Join == joinAutomatic {
+			n++
+		}
+	}
+
+	for _, x := range exclusions {
+		if (x.Reason == exclNotAllowed || x.Reason == exclBelowFloor) && x.Source != "" {
+			n++
+		}
+	}
+
+	return n
 }
 
 func norm(idx *float64, maxVal float64) float64 {

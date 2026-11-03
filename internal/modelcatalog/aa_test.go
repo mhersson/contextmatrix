@@ -41,10 +41,11 @@ func TestFetchAAModelsFollowsPaginationAndMapsCreators(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	models, err := fetchAAModels(context.Background(), srv.URL+"?tier=free", "k")
+	cat, err := fetchAAModels(context.Background(), srv.URL+"?tier=free", "k")
 	if err != nil {
 		t.Fatal(err)
 	}
+	models := cat.Models
 
 	if len(models) != 3 {
 		t.Fatalf("want 3 models merged across pages, got %d", len(models))
@@ -94,10 +95,11 @@ func TestFetchAAModelsPageCapStopsRunaway(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	models, err := fetchAAModels(context.Background(), srv.URL, "k")
+	cat, err := fetchAAModels(context.Background(), srv.URL, "k")
 	if err != nil {
 		t.Fatal(err)
 	}
+	models := cat.Models
 
 	if got := requests.Load(); got != aaMaxPages {
 		t.Errorf("want exactly %d page requests, got %d", aaMaxPages, got)
@@ -152,8 +154,9 @@ func TestFetchAAModelsReadsPricing(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	models, err := fetchAAModels(context.Background(), srv.URL, "k")
+	cat, err := fetchAAModels(context.Background(), srv.URL, "k")
 	require.NoError(t, err)
+	models := cat.Models
 	require.Len(t, models, 5)
 
 	bySlug := map[string]aaModel{}
@@ -193,8 +196,9 @@ func TestFetchAAModelsReadsCacheRates(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	models, err := fetchAAModels(context.Background(), srv.URL, "k")
+	cat, err := fetchAAModels(context.Background(), srv.URL, "k")
 	require.NoError(t, err)
+	models := cat.Models
 	require.Len(t, models, 2)
 
 	bySlug := map[string]aaModel{}

@@ -472,7 +472,7 @@ func TestBuilderRateAdoptsAAListPriceWhenGatewayUnpriced(t *testing.T) {
 	assert.InDelta(t, 0.2e-6, price.CacheRead, 1e-15)
 	assert.InDelta(t, 2.5e-6, price.CacheWrite, 1e-15)
 
-	assert.Equal(t, map[string]CandidateProvenance{"vendor/model-a": {PriceSource: "aa", ScoredFrom: "model-a"}},
+	assert.Equal(t, map[string]CandidateProvenance{"vendor/model-a": {PriceSource: "aa", ScoredFrom: "model-a", PriorSource: PriorSourceAA}},
 		b.Provenance(context.Background()))
 }
 
@@ -497,7 +497,7 @@ func TestBuilderProvenanceOpenRouterLeg(t *testing.T) {
 	b.aaEndpoint = aaSrv.URL
 
 	require.Len(t, b.Candidates(context.Background()), 1)
-	assert.Equal(t, map[string]CandidateProvenance{"z-ai/glm-5.2": {PriceSource: "gateway"}}, b.Provenance(context.Background()))
+	assert.Equal(t, map[string]CandidateProvenance{"z-ai/glm-5.2": {PriceSource: "gateway", PriorSource: PriorSourceAA}}, b.Provenance(context.Background()))
 }
 
 func TestBuilderProvenanceNilReceiver(t *testing.T) {
@@ -823,7 +823,7 @@ func TestBuilderProvenanceModelPriorsNamesNoRow(t *testing.T) {
 	b.aaEndpoint = aaSrv.URL
 
 	require.Len(t, b.Candidates(context.Background()), 1)
-	assert.Equal(t, map[string]CandidateProvenance{"vendor/private-1": {PriceSource: "none"}}, b.Provenance(context.Background()))
+	assert.Equal(t, map[string]CandidateProvenance{"vendor/private-1": {PriceSource: "none", PriorSource: PriorSourceModelPriors}}, b.Provenance(context.Background()))
 }
 
 // TestBuilderAAFailureKeepsAAPricedCatalog: card prices must not depend on
