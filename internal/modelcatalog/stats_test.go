@@ -90,7 +90,7 @@ func TestBuilderStatsEndpointLeg(t *testing.T) {
 			{"id":"claude-opus-5.5","context_length":200000,"pricing":{"prompt":"0.000005","completion":"0.000025"},"capabilities":{"features":["tools"]}},
 			{"id":"gpt-6-astra","context_length":400000,"pricing":{"prompt":"0.00000125","completion":"0.00001"},"capabilities":{"features":["tools"]}},
 			{"id":"gpt-6-nano","context_length":400000,"pricing":{"prompt":"0.00000005","completion":"0.0000004"},"capabilities":{"features":["tools"]}},
-			{"id":"gpt-6-notools","context_length":400000,"pricing":{"prompt":"0.00000125","completion":"0.00001"},"capabilities":{"features":[]}},
+			{"id":"gpt-6-astra-high","context_length":400000,"pricing":{"prompt":"0.00000125","completion":"0.00001"},"capabilities":{"features":[]}},
 			{"id":"op/custom","context_length":100000,"pricing":{"prompt":"0.000001","completion":"0.000002"},"capabilities":{"features":["tools"]}}
 		]}`))
 	}))
