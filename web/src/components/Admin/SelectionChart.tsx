@@ -33,6 +33,8 @@ const FALLBACK_WIDTH = 760;
 /** Narrower panes scale this viewBox down instead of squeezing the plot. */
 const MIN_WIDTH = 420;
 const LABEL_GAP = 11;
+/** placeLabels' line height: label baselines sit at least this far apart. */
+const LABEL_LINE = 12;
 
 type Mark = 'coder-pick' | 'reviewer-pick' | 'seat' | 'blacklisted';
 
@@ -94,6 +96,17 @@ function dotStyle(marks: readonly Mark[]): DotStyle {
   return s;
 }
 
+/** Pushes baselines lifted above min back down, top first, keeping them a line apart. */
+function keepBelow(baselines: number[], min: number): number[] {
+  const out = [...baselines];
+  let prev = -Infinity;
+  for (const i of out.map((_, i) => i).sort((a, b) => out[a] - out[b])) {
+    out[i] = Math.max(out[i], min, prev + LABEL_LINE);
+    prev = out[i];
+  }
+  return out;
+}
+
 function tierList(tiers: SelectorTier[]): string {
   return tiers.length > 0 ? tiers.join(', ') : 'no tier';
 }
@@ -146,7 +159,7 @@ export function SelectionChart({
   const lineLabels = separate
     ? []
     : [...tierSets[0].slots].sort((a, b) => b.lineY - a.lineY).map((s) => ({ tier: s.tier, bar: ladders.coder[s.tier], lineY: s.lineY }));
-  const lineLabelYs = placeLabels(lineLabels.map((l) => ({ x: x0, y: l.lineY - 8 })));
+  const lineLabelYs = keepBelow(placeLabels(lineLabels.map((l) => ({ x: x0, y: l.lineY - 8 })), LABEL_LINE), top + LABEL_LINE);
 
   const picks = picksOf(tierPreview);
   const shown = candidates.filter(visible);

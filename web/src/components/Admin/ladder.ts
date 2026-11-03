@@ -144,7 +144,10 @@ export function usdPerMillion(perTok: number): string {
   return `$${m.toFixed(m < 1 ? 2 : 1)}/M`;
 }
 
-/** Dollars per million tokens to three significant figures: where usdPerMillion prints $0.00, a tiny price stays readable. */
+/**
+ * Dollars per million tokens to three significant figures: where usdPerMillion
+ * prints $0.00, a tiny price stays readable.
+ */
 export function money(perTok: number): string {
   return `$${Number((perTok * 1e6).toPrecision(3))}`;
 }

@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { SelectorCandidate, SelectorLadders, SelectorPickReport, SelectorPoolEntry, SelectorRole, SelectorSeat, SelectorTierPreview } from '../../types';
 import { CHART_LAYOUT, qualityScale } from './chart';
-import { snapBar } from './ladder';
+import { formatBar, snapBar } from './ladder';
 import { SelectionChart, type SelectionChartProps } from './SelectionChart';
 
 function cand(slug: string, coder: number, reviewer: number, perMillion: number, prior_source: SelectorCandidate['prior_source'] = 'aa'): SelectorCandidate {
@@ -358,15 +358,35 @@ describe('SelectionChart tier handles', () => {
   it('labels each shared line with its bar, and with AA points only when a best AA score is known', () => {
     const shared: SelectorLadders = { coder: { ...LADDERS.coder }, reviewer: { ...LADDERS.coder } };
     const { container, rerenderWith } = renderChart({ ladders: shared, separate: false });
-    const svgText = () => container.querySelector('svg')!.textContent;
+    const labels = () => Array.from(container.querySelectorAll('.tl-chart-tier-label')).map((t) => t.textContent ?? '');
+    const eachBarOnce = () => {
+      expect(labels()).toHaveLength(4);
+      for (const bar of Object.values(shared.coder)) expect(labels().filter((t) => t.includes(formatBar(bar)))).toHaveLength(1);
+    };
 
+    eachBarOnce();
     // complex 0.84 × 59.4 = 49.9 AA points.
-    expect(svgText()).toContain('49.9');
-    expect(svgText()).toContain('0.84');
+    expect(labels().find((t) => t.includes('0.84'))).toContain('49.9');
 
     rerenderWith({ bestAAScore: 0 });
-    expect(svgText()).not.toContain('49.9');
-    expect(svgText()).toContain('0.84');
+    eachBarOnce();
+    expect(labels().find((t) => t.includes('0.84'))).not.toContain('49.9');
+  });
+
+  it('keeps the labels of coinciding shared lines near 1.0 inside the plot', () => {
+    const top: SelectorLadders = { coder: { simple: 1, moderate: 1, complex: 1, critical: 1 }, reviewer: { simple: 1, moderate: 1, complex: 1, critical: 1 } };
+    const { container } = renderChart({ ladders: top, separate: false });
+
+    const ys = Array.from(container.querySelectorAll('.tl-chart-tier-label'))
+      .map((t) => num(t, 'y'))
+      .sort((a, b) => a - b);
+    expect(ys).toHaveLength(4);
+    // An 11px label needs its baseline 11px under the plot top to stay inside it.
+    for (const y of ys) {
+      expect(y).toBeGreaterThanOrEqual(CHART_LAYOUT.top + 11);
+      expect(y).toBeLessThanOrEqual(CHART_LAYOUT.height - CHART_LAYOUT.bottom);
+    }
+    for (let i = 1; i < ys.length; i++) expect(ys[i] - ys[i - 1]).toBeGreaterThanOrEqual(11);
   });
 
   it('dragging a coder handle moves only the coder ladder when separate', () => {
