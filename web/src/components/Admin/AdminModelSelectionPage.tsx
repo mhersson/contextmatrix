@@ -173,8 +173,8 @@ export function AdminModelSelectionPage() {
           <h1 className="apd-strip-title">Tier ladders</h1>
         </div>
         <p className="apd-strip-summary tl-summary">
-          Every candidate by price and quality, one line per tier bar. Drag a line; the picks, the panel and the price band re-sort as
-          you go. Nothing is sent until you save.
+          Every candidate by price and quality, one line per tier bar. Drag a handle; the picks, the panel and the price band follow.
+          Nothing is sent until you save.
         </p>
         <div className="apd-strip-actions">
           <span className={`tl-status${dirty ? ' dirty' : ''}`} data-testid="tl-status" aria-live="polite">

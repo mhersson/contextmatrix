@@ -711,9 +711,10 @@ The **Separate reviewer ladder** switch in the panel head always starts on,
 whatever the saved ladders are: coder lines are solid with handles on the left
 edge, reviewer lines dashed with handles on the right edge, each in its role
 colour. Turning it off copies the coder ladder onto the reviewer ladder
-(unsaved, so the page turns dirty when the two differed) and leaves one set of
-lines, each labelled with its tier and bar, whose handles move both ladders;
-turning it back on starts the reviewer handles where the coder handles are.
+(unsaved, so the page turns dirty when the result differs from the saved
+ladders) and leaves one set of lines, each labelled with its tier and bar,
+whose handles move both ladders; turning it back on starts the reviewer
+handles where the coder handles are.
 **Discard changes** and **Reset to defaults** turn it back on; **Save** keeps
 it as it is. The panel head also holds the **Price headroom** field (the
 best-value band multiplier, at least 1, built-in 1.5), saved with the ladders

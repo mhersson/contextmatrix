@@ -2651,9 +2651,28 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+@media (max-width: 768px) {
+  /* The strip wraps here; its actions must wrap too or Save runs off the screen. */
+  .tl-page .apd-strip-actions {
+    flex-shrink: 1;
+    flex-wrap: wrap;
+    min-width: 0;
+    row-gap: 6px;
+  }
+}
 .tl-error {
   font-size: 12.5px;
   color: var(--red);
+}
+/* The page scrolls as a whole: no inner height clip (the dashboard caps panel
+   bodies on narrow screens), and panel heads wrap rather than cut a control. */
+.tl-page .apd-panel-body {
+  max-height: none;
+}
+.tl-page .apd-panel-head,
+.tl-page .apd-panel-meta {
+  flex-wrap: wrap;
+  row-gap: 6px;
 }
 
 /* --- status pill and the separate reviewer ladder switch --- */
@@ -2981,7 +3000,7 @@ textarea {
   font-size: 11.5px;
 }
 .tl-pv-table th {
-  padding: 6px 14px;
+  padding: 6px 7px;
   text-align: left;
   font-family: var(--font-mono);
   font-size: 9.5px;
@@ -2992,9 +3011,21 @@ textarea {
   border-bottom: 1px solid var(--bg1);
 }
 .tl-pv-table td {
-  padding: 8px 14px;
+  padding: 8px 7px;
   vertical-align: top;
   border-top: 1px solid var(--bg1);
+}
+.tl-pv-table th:first-child,
+.tl-pv-table td:first-child {
+  padding-left: 14px;
+}
+.tl-pv-table th:last-child,
+.tl-pv-table td:last-child {
+  padding-right: 14px;
+}
+/* Horizontal scrolling only if the columns' narrowest widths still overflow. */
+.tl-page .tl-pv {
+  overflow-x: auto;
 }
 .tl-pv-tier {
   cursor: pointer;
@@ -3020,6 +3051,7 @@ textarea {
   font-size: 10.5px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+  white-space: nowrap;
   color: var(--tier-c);
 }
 .tl-pv-tier-bar,
@@ -3042,12 +3074,11 @@ textarea {
   min-width: 0;
 }
 .tl-pv-name {
+  min-width: 0;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--fg);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .tl-pv-none {
   font-family: var(--font-mono);
@@ -3093,36 +3124,31 @@ textarea {
 }
 .tl-seats {
   display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
+  flex-direction: column;
+  gap: 3px;
 }
+/* One flowing line per seat; names may break anywhere so the column can shrink to its prices. */
 .tl-seat {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  border-radius: 9999px;
   font-family: var(--font-mono);
   font-size: 10.5px;
-  background: var(--bg1);
-  border: 1px solid var(--bg2);
+  line-height: 1.35;
   color: var(--fg);
+  overflow-wrap: anywhere;
 }
 .tl-seat b {
   font-weight: 500;
   color: var(--grey0);
 }
-.tl-seat.walk {
-  border-color: color-mix(in srgb, var(--orange) 55%, transparent);
-}
-.tl-seat.dup {
-  border-style: dashed;
+.tl-seat.dup .tl-seat-name {
+  color: var(--grey1);
 }
 .tl-seat-px {
   color: var(--grey1);
+  white-space: nowrap;
 }
 .tl-walked {
   color: var(--orange);
+  white-space: nowrap;
 }
 .tl-hint,
 .tl-foot {

@@ -35,6 +35,11 @@ describe('priceScale', () => {
     expect(Number.isFinite(s.x(5))).toBe(true);
   });
 
+  it('falls back to 1-2-5 ticks when the 1-3 sequence leaves fewer than three in the domain', () => {
+    const s = priceScale([6, 60], 82, 800);
+    expect(s.ticks).toEqual([5, 10, 20, 50]);
+  });
+
   it('widens a single price to a decade', () => {
     const s = priceScale([2, 2], 82, 800);
     expect(s.domain[1] / s.domain[0]).toBeGreaterThanOrEqual(10 - 1e-9);

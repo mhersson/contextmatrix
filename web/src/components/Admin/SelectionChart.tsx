@@ -35,6 +35,8 @@ const MIN_WIDTH = 420;
 const LABEL_GAP = 11;
 /** placeLabels' line height: label baselines sit at least this far apart. */
 const LABEL_LINE = 12;
+/** Two band labels can share an x range, so the second gets a full line plus descender room. */
+const BAND_LABEL_LINE = 15;
 
 type Mark = 'coder-pick' | 'reviewer-pick' | 'seat' | 'blacklisted';
 
@@ -262,7 +264,7 @@ export function SelectionChart({
               key={b.role}
               className="tl-chart-band-label"
               x={flip ? b.x + b.width - 3 : b.x + 3}
-              y={top + 12 + i * 13}
+              y={top + 12 + i * BAND_LABEL_LINE}
               textAnchor={flip ? 'end' : 'start'}
               style={{ fill: b.color }}
             >

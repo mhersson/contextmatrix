@@ -465,6 +465,21 @@ describe('AdminModelSelectionPage - preview', () => {
     }
   });
 
+  it('draws the selected tier price band once the first preview lands', async () => {
+    let resolveFirst: (p: SelectorPreview) => void = () => {};
+    mocks.adminSelectorPreview.mockImplementationOnce(() => new Promise<SelectorPreview>((resolve) => { resolveFirst = resolve; }));
+    const p = previewFixture();
+    p.tiers.complex.coder.report.pool = [{ model: 'a/cheap', prior: 0.9, price_per_tok: 2e-6, outcome: 'selected' }];
+
+    render(<AdminModelSelectionPage />);
+    await waitFor(() => expect(mocks.adminSelectorPreview).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('tl-band-coder')).not.toBeInTheDocument();
+
+    resolveFirst(p);
+
+    await waitFor(() => expect(screen.getByTestId('tl-band-coder')).toBeInTheDocument());
+  });
+
   it('clicking a tier row moves the chart marks to that tier', async () => {
     const p = previewFixture();
     p.tiers.moderate.coder = pick('a/mid', 'coder', 'moderate', 'moderate', 4e-6);

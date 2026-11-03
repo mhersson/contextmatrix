@@ -260,6 +260,19 @@ describe('SelectionChart', () => {
     expect(screen.queryByTestId('tl-band-coder')).not.toBeInTheDocument();
   });
 
+  it('keeps two differing band labels more than a line apart', () => {
+    const preview = tierPreview({
+      coder: report('a/mid', 'coder', 0.84, pool(['a/cheap', 2], ['a/mid', 4])),
+      reviewer: report('a/cheap', 'reviewer', 0.9, pool(['b/pricey', 20])),
+    });
+    const { container } = renderChart({ tierPreview: preview, appliedHeadroom: 1.5 });
+
+    const ys = Array.from(container.querySelectorAll('.tl-chart-band-label')).map((t) => num(t, 'y'));
+    expect(ys).toHaveLength(2);
+    // An 11px label needs its own line plus room for descenders: 14px between baselines.
+    expect(Math.abs(ys[1] - ys[0])).toBeGreaterThanOrEqual(14);
+  });
+
   it('right-clicking a dot reports the slug and pointer', () => {
     const onModelMenu = vi.fn();
     renderChart({ onModelMenu });

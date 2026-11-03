@@ -75,13 +75,22 @@ function SeatsCell({ seats, tier, onModelMenu }: { seats: SelectorSeat[]; tier: 
           data-testid={`tl-seat-${tier}-${i}`}
           onContextMenu={s.pick.ok ? contextMenuFor(s.pick.model, onModelMenu) : undefined}
         >
-          <b>{i + 1}</b>
-          {shortSlug(s.pick.model)}
+          <b>{i + 1}</b> <span className="tl-seat-name">{shortSlug(s.pick.model)}</span>{' '}
           <span className="tl-seat-px">
             <Price perTok={s.pick.price_per_tok} list={s.pick.price_source === 'aa'} />
           </span>
-          {s.walked && <span className="tl-walked">walked</span>}
-          {s.pick.duplicate && <span className="tl-walked">duplicate</span>}
+          {s.walked && (
+            <>
+              {' '}
+              <span className="tl-walked">walked</span>
+            </>
+          )}
+          {s.pick.duplicate && (
+            <>
+              {' '}
+              <span className="tl-walked">duplicate</span>
+            </>
+          )}
         </span>
       ))}
       {seats.length > 0 && (

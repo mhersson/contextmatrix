@@ -57,13 +57,19 @@ export function priceScale(pricesPerMillion: number[], x0: number, x1: number): 
     return axisStart + ((Math.log10(p) - logLo) / span) * (x1 - axisStart);
   };
 
-  const ticks: number[] = [];
-  for (let k = Math.floor(logLo) - 1; k <= Math.ceil(logLo + span) + 1; k++) {
-    for (const m of [1, 3]) {
-      const t = Number((m * 10 ** k).toPrecision(12));
-      if (t >= domain[0] && t <= domain[1]) ticks.push(t);
+  const ticksFor = (mantissas: number[]): number[] => {
+    const out: number[] = [];
+    for (let k = Math.floor(logLo) - 1; k <= Math.ceil(logLo + span) + 1; k++) {
+      for (const m of mantissas) {
+        const t = Number((m * 10 ** k).toPrecision(12));
+        if (t >= domain[0] && t <= domain[1]) out.push(t);
+      }
     }
-  }
+    return out;
+  };
+  // A span near one decade can hold only two 1-3 ticks; 1-2-5 has three in any decade.
+  let ticks = ticksFor([1, 3]);
+  if (ticks.length < 3) ticks = ticksFor([1, 2, 5]);
 
   return { x, ticks, domain, gutter };
 }
