@@ -86,7 +86,7 @@ type selectorAdminHandlers struct {
 // writes.
 type selectorLaddersResponse struct {
 	Ladders         map[string]map[string]float64 `json:"ladders"`
-	Defaults        map[string]map[string]float64 `json:"defaults"`
+	Defaults        map[string]float64            `json:"defaults"`
 	Headroom        float64                       `json:"headroom"`
 	HeadroomDefault float64                       `json:"headroom_default"`
 	IsDefault       bool                          `json:"is_default"`
@@ -107,6 +107,18 @@ func (h *selectorAdminHandlers) gate(w http.ResponseWriter, r *http.Request) boo
 	}
 
 	return requireAdmin(w, r) != nil
+}
+
+// defaultTierBarsWire is selection.DefaultTierBars keyed by tier name.
+func defaultTierBarsWire() map[string]float64 {
+	defaults := selection.DefaultTierBars()
+	out := make(map[string]float64, len(defaults))
+
+	for tier, bar := range defaults {
+		out[string(tier)] = bar
+	}
+
+	return out
 }
 
 // laddersWire renders ladders as wire maps, both roles, all tiers; a nil
@@ -145,7 +157,7 @@ func (h *selectorAdminHandlers) storedLadders(ctx context.Context) (selectorLadd
 	}
 
 	resp := selectorLaddersResponse{
-		Defaults:        laddersWire(nil),
+		Defaults:        defaultTierBarsWire(),
 		Headroom:        selection.DefaultPriceHeadroom,
 		HeadroomDefault: selection.DefaultPriceHeadroom,
 		IsDefault:       len(raw) == 0 && headroom <= 0,

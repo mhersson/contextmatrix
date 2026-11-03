@@ -29,7 +29,7 @@ import { useSelectorPreview } from './useSelectorPreview';
 const BUILTIN_BARS: TierBars = { simple: 0.5, moderate: 0.76, complex: 0.82, critical: 0.9 };
 const EMPTY_LADDERS: SelectorLaddersResponse = {
   ladders: { coder: { ...BUILTIN_BARS }, reviewer: { ...BUILTIN_BARS } },
-  defaults: { coder: { ...BUILTIN_BARS }, reviewer: { ...BUILTIN_BARS } },
+  defaults: { ...BUILTIN_BARS },
   headroom: 1.5,
   headroom_default: 1.5,
   is_default: true,
@@ -162,7 +162,7 @@ export function AdminModelSelectionPage() {
   };
 
   const reset = () =>
-    setDraft({ ladders: { coder: { ...saved.items.defaults.coder }, reviewer: { ...saved.items.defaults.reviewer } }, headroom: saved.items.headroom_default });
+    setDraft({ ladders: { coder: { ...saved.items.defaults }, reviewer: { ...saved.items.defaults } }, headroom: saved.items.headroom_default });
 
   // Every blacklist change refetches the table and refreshes the catalog:
   // the catalog carries the blacklist the pills and the preview read. A

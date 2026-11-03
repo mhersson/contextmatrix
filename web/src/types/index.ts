@@ -806,8 +806,7 @@ export type SelectorLadders = Record<SelectorRole, TierBars>;
 
 export interface SelectorLaddersResponse {
   ladders: SelectorLadders;
-  /** The built-in ladder per role; the roles may differ. */
-  defaults: SelectorLadders;
+  defaults: TierBars;
   /** The stored price headroom, or the built-in one when nothing is stored. */
   headroom: number;
   headroom_default: number;

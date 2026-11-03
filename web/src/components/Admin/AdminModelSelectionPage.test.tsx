@@ -37,7 +37,7 @@ const DEFAULTS = { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.9 };
 function laddersRes(ladders: SelectorLadders, is_default = false, headroom = 1.5): SelectorLaddersResponse {
   return {
     ladders,
-    defaults: { coder: { ...DEFAULTS }, reviewer: { ...DEFAULTS } },
+    defaults: { ...DEFAULTS },
     headroom,
     headroom_default: 1.5,
     is_default,
@@ -239,10 +239,9 @@ describe('AdminModelSelectionPage - edit, save, discard, reset', () => {
     expect(mocks.adminSelectorPutLadders).not.toHaveBeenCalled();
   });
 
-  it('Reset gives each role its own default ladder, and Save sends them', async () => {
-    const coderDefaults = { simple: 0.65, moderate: 0.75, complex: 0.84, critical: 0.94 };
-    const reviewerDefaults = { simple: 0.9, moderate: 0.9, complex: 0.9, critical: 0.92 };
-    mocks.adminSelectorLadders.mockResolvedValue({ ...laddersRes(savedLadders()), defaults: { coder: coderDefaults, reviewer: reviewerDefaults } });
+  it('Reset puts the one default ladder in both roles, and Save sends it', async () => {
+    const defaults = { simple: 0.65, moderate: 0.75, complex: 0.84, critical: 0.94 };
+    mocks.adminSelectorLadders.mockResolvedValue({ ...laddersRes(savedLadders()), defaults });
     mocks.adminSelectorPutLadders.mockImplementation(async (ladders: SelectorLadders) => laddersRes(ladders));
     await renderLoaded();
 
@@ -250,7 +249,7 @@ describe('AdminModelSelectionPage - edit, save, discard, reset', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(mocks.adminSelectorPutLadders).toHaveBeenCalled());
-    expect(mocks.adminSelectorPutLadders.mock.calls[0][0]).toEqual({ coder: coderDefaults, reviewer: reviewerDefaults });
+    expect(mocks.adminSelectorPutLadders.mock.calls[0][0]).toEqual({ coder: defaults, reviewer: defaults });
   });
 
   it('turning linked on snaps nothing; the next linked drag equalises the tier', async () => {

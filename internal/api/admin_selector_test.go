@@ -154,10 +154,8 @@ func TestAdminSelectorLadders_EmptyStoreIsDefault(t *testing.T) {
 	assert.Len(t, got.Ladders["coder"], 4)
 	assert.InDelta(t, 0.82, got.Ladders["coder"]["complex"], 1e-9)
 	assert.InDelta(t, 0.90, got.Ladders["reviewer"]["critical"], 1e-9)
-	require.Len(t, got.Defaults["coder"], 4)
-	require.Len(t, got.Defaults["reviewer"], 4)
-	assert.InDelta(t, 0.82, got.Defaults["coder"]["complex"], 1e-9)
-	assert.InDelta(t, 0.90, got.Defaults["reviewer"]["critical"], 1e-9)
+	require.Len(t, got.Defaults, 4)
+	assert.InDelta(t, 0.76, got.Defaults["moderate"], 1e-9)
 }
 
 func TestAdminSelectorLadders_StoredLaddersAreReported(t *testing.T) {

@@ -858,9 +858,7 @@ URL-encoding. Returns **200 OK** with the deleted slug:
 Same registration and gating as the model-blacklist pair. Returns the per-role
 quality ladders the agent's selector applies, the price headroom, the built-in
 ladder and headroom for reference, and whether the stored values are the
-built-in ones. `ladders` and `defaults` each carry both roles with all four
-tiers; `defaults` is the built-in ladder per role (today both roles share one
-built-in ladder, so the two are equal);
+built-in ones. `ladders` always carries both roles with all four tiers;
 `updated_at` (RFC 3339) is present once the ladders or the headroom have been
 saved, and is the later of the two writes. Does not depend on the catalog.
 
@@ -870,10 +868,7 @@ saved, and is the later of the two writes. Does not depend on the catalog.
     "coder":    { "simple": 0.65, "moderate": 0.80, "complex": 0.90, "critical": 0.95 },
     "reviewer": { "simple": 0.65, "moderate": 0.76, "complex": 0.82, "critical": 0.93 }
   },
-  "defaults": {
-    "coder":    { "simple": 0.50, "moderate": 0.76, "complex": 0.82, "critical": 0.90 },
-    "reviewer": { "simple": 0.50, "moderate": 0.76, "complex": 0.82, "critical": 0.90 }
-  },
+  "defaults": { "simple": 0.50, "moderate": 0.76, "complex": 0.82, "critical": 0.90 },
   "headroom": 2.0,
   "headroom_default": 1.5,
   "is_default": false,
