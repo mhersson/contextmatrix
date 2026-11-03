@@ -18,7 +18,7 @@ const AADefaultEndpoint = "https://artificialanalysis.ai/api/v2/language/models/
 
 // aaMaxPages bounds the pagination loop: a runaway guard that also caps a
 // full refresh at a tenth of the daily free-tier request quota. The catalog
-// spans 3 pages today.
+// spans 4 pages today.
 const aaMaxPages = 10
 
 // aaFetchBudget bounds the whole pagination loop. Refreshes run under the
@@ -34,7 +34,6 @@ const aaFetchBudget = 60 * time.Second
 type aaModel struct {
 	Slug            string
 	Creator         string
-	CodingIndex     *float64
 	IntelIndex      *float64
 	PromptPrice     float64
 	CompletionPrice float64
@@ -66,8 +65,7 @@ type aaPage struct {
 			Name string `json:"name"`
 		} `json:"model_creator"`
 		Evaluations struct {
-			CodingIndex *float64 `json:"artificial_analysis_coding_index"`
-			IntelIndex  *float64 `json:"artificial_analysis_intelligence_index"`
+			IntelIndex *float64 `json:"artificial_analysis_intelligence_index"`
 		} `json:"evaluations"`
 		Pricing struct {
 			Input      *float64 `json:"price_1m_input_tokens"`
@@ -106,7 +104,6 @@ func fetchAAModels(ctx context.Context, endpoint, key string) ([]aaModel, error)
 			out = append(out, aaModel{
 				Slug:            d.Slug,
 				Creator:         creatorSlug(d.ModelCreator.Name),
-				CodingIndex:     d.Evaluations.CodingIndex,
 				IntelIndex:      d.Evaluations.IntelIndex,
 				PromptPrice:     perMillionToPerToken(d.Pricing.Input),
 				CompletionPrice: perMillionToPerToken(d.Pricing.Output),

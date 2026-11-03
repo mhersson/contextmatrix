@@ -81,7 +81,7 @@ func TestBuilderPricesEndpointCandidatesFromTokenCosts(t *testing.T) {
 
 	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[{"slug":"model-a","model_creator":{"name":"vendor"},
-			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80}}]}`))
+			"evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":80}}]}`))
 	}))
 	defer aaSrv.Close()
 

@@ -14,9 +14,9 @@ import (
 
 func TestBuildAppliesFloorAllowlistAndMapping(t *testing.T) {
 	aa := []aaModel{
-		{Slug: "glm-5-2", Creator: "z-ai", CodingIndex: new(76.5), IntelIndex: new(59.9)},  // max => norm 1.0
-		{Slug: "weak-1", Creator: "openai", CodingIndex: new(30.0), IntelIndex: new(20.0)}, // norm .39 < floor .65
-		{Slug: "untrusted-x", Creator: "longcat", CodingIndex: new(float64(70)), IntelIndex: new(float64(50))},
+		{Slug: "glm-5-2", Creator: "z-ai", IntelIndex: new(59.9)},  // max => norm 1.0
+		{Slug: "weak-1", Creator: "openai", IntelIndex: new(20.0)}, // norm .39 < floor .65
+		{Slug: "untrusted-x", Creator: "longcat", IntelIndex: new(float64(50))},
 	}
 	or := map[string]orEntry{
 		"z-ai/glm-5.2":  {PromptPrice: 1.2e-6, CompletionPrice: 4.1e-6, ContextWindow: 1048576, Tools: true},
@@ -24,11 +24,11 @@ func TestBuildAppliesFloorAllowlistAndMapping(t *testing.T) {
 	}
 
 	got := build(aa, or, 0.65, nil)
-	if len(got.candidates) != 1 {
-		t.Fatalf("want 1 candidate (glm only), got %d: %+v", len(got.candidates), got.candidates)
+	if len(got) != 1 {
+		t.Fatalf("want 1 candidate (glm only), got %d: %+v", len(got), got)
 	}
 
-	c := got.candidates[0]
+	c := got[0]
 	if c.Slug != "z-ai/glm-5.2" || c.CoderPrior != 1.0 || c.ReviewerPrior != 1.0 || c.ContextWindow != 1048576 {
 		t.Errorf("bad candidate: %+v", c)
 	}
@@ -43,24 +43,24 @@ func TestBuildCollapsesEffortVariants(t *testing.T) {
 	// higher-prior variant must win the collapse. Weaker is listed first
 	// so the replacement branch in build() is exercised.
 	aa := []aaModel{
-		{Slug: "glm-5.2", Creator: "z-ai", CodingIndex: new(50.0), IntelIndex: new(40.0)}, // weaker
-		{Slug: "glm-5-2", Creator: "z-ai", CodingIndex: new(76.5), IntelIndex: new(59.9)}, // stronger (index max)
+		{Slug: "glm-5.2", Creator: "z-ai", IntelIndex: new(40.0)}, // weaker
+		{Slug: "glm-5-2", Creator: "z-ai", IntelIndex: new(59.9)}, // stronger (index max)
 	}
 	or := map[string]orEntry{
 		"z-ai/glm-5.2": {PromptPrice: 1.2e-6, CompletionPrice: 4.1e-6, ContextWindow: 1048576, Tools: true},
 	}
 
 	got := build(aa, or, 0.65, nil)
-	if len(got.candidates) != 1 {
-		t.Fatalf("effort variants must collapse to 1 candidate, got %d: %+v", len(got.candidates), got.candidates)
+	if len(got) != 1 {
+		t.Fatalf("effort variants must collapse to 1 candidate, got %d: %+v", len(got), got)
 	}
 
-	if got.candidates[0].CoderPrior != 1.0 || got.candidates[0].ReviewerPrior != 1.0 {
-		t.Errorf("collapse must keep the highest-prior variant, got %+v", got.candidates[0])
+	if got[0].CoderPrior != 1.0 || got[0].ReviewerPrior != 1.0 {
+		t.Errorf("collapse must keep the highest-prior variant, got %+v", got[0])
 	}
 
-	if got.candidates[0].Creator != "z-ai" {
-		t.Errorf("creator must survive the collapse, got %q", got.candidates[0].Creator)
+	if got[0].Creator != "z-ai" {
+		t.Errorf("creator must survive the collapse, got %q", got[0].Creator)
 	}
 }
 
@@ -78,7 +78,7 @@ func TestBuilderExcludesUnmatchedServedModel(t *testing.T) {
 
 	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[{"slug":"vendor-x-1","model_creator":{"name":"vendor"},
-			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80}}]}`))
+			"evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":80}}]}`))
 	}))
 	defer aaSrv.Close()
 
@@ -102,7 +102,7 @@ func TestBuilderUsesEndpointLegWhenConfigured(t *testing.T) {
 
 	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[{"slug":"vendor-x-1","model_creator":{"name":"vendor"},
-			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80}}]}`))
+			"evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":80}}]}`))
 	}))
 	defer aaSrv.Close()
 
@@ -142,7 +142,7 @@ func TestBuilderRatePricesAnyServedModel(t *testing.T) {
 
 	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[{"slug":"vendor-x-1","model_creator":{"name":"vendor"},
-			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80}}]}`))
+			"evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":80}}]}`))
 	}))
 	defer aaSrv.Close()
 
@@ -415,7 +415,7 @@ func TestCandidatePricePrecedence(t *testing.T) {
 // the fill, and the model_priors path (no row) takes the fill.
 func TestBuildEndpointCandidatesPricesCandidates(t *testing.T) {
 	aa := []aaModel{
-		{Slug: "vendor-x-1", Creator: "vendor", CodingIndex: new(80.0), IntelIndex: new(80.0), PromptPrice: 2e-6, CompletionPrice: 8e-6},
+		{Slug: "vendor-x-1", Creator: "vendor", IntelIndex: new(80.0), PromptPrice: 2e-6, CompletionPrice: 8e-6},
 	}
 	endpoint := map[string]orEntry{
 		"vendor-x-1": {PromptPrice: 3e-6, CompletionPrice: 15e-6, ContextWindow: 200000, Tools: true, PriceSource: priceSourceTokenCosts},
@@ -453,7 +453,7 @@ func TestBuilderRateAdoptsAAListPriceWhenGatewayUnpriced(t *testing.T) {
 
 	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[{"slug":"model-a","model_creator":{"name":"vendor"},
-			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80},
+			"evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":80},
 			"pricing":{"price_1m_input_tokens":2,"price_1m_output_tokens":8,"price_1m_cache_hit_tokens":0.2,"price_1m_cache_write_tokens":2.5}}]}`))
 	}))
 	defer aaSrv.Close()
@@ -491,7 +491,7 @@ func TestBuilderProvenanceOpenRouterLeg(t *testing.T) {
 
 	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[{"slug":"glm-5-2","model_creator":{"name":"Z AI"},
-			"evaluations":{"artificial_analysis_coding_index":76.5,"artificial_analysis_intelligence_index":59.9}}]}`))
+			"evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":59.9}}]}`))
 	}))
 	defer aaSrv.Close()
 
@@ -516,19 +516,19 @@ func TestBuilderProvenanceNilReceiver(t *testing.T) {
 func TestBuildEndpointCandidatesAutomaticJoin(t *testing.T) {
 	aa := []aaModel{
 		// gpt-5-2 family: a scored, priced base row and a stronger effort variant.
-		{Slug: "gpt-5-2", Creator: "openai", CodingIndex: new(60.0), IntelIndex: new(60.0), PromptPrice: 1.75e-6, CompletionPrice: 14e-6},
-		{Slug: "gpt-5-2-medium", Creator: "openai", CodingIndex: new(80.0), IntelIndex: new(80.0)},
-		// deepseek-v4-flash family: dated rows only, the dated base scored on one axis.
-		{Slug: "deepseek-v4-flash-0420", Creator: "deepseek", CodingIndex: new(60.0), IntelIndex: nil},
-		{Slug: "deepseek-v4-flash-0420-high", Creator: "deepseek", CodingIndex: new(70.0), IntelIndex: new(70.0)},
+		{Slug: "gpt-5-2", Creator: "openai", IntelIndex: new(60.0), PromptPrice: 1.75e-6, CompletionPrice: 14e-6},
+		{Slug: "gpt-5-2-medium", Creator: "openai", IntelIndex: new(80.0)},
+		// deepseek-v4-flash family: dated rows only, the dated base the weaker.
+		{Slug: "deepseek-v4-flash-0420", Creator: "deepseek", IntelIndex: new(60.0)},
+		{Slug: "deepseek-v4-flash-0420-high", Creator: "deepseek", IntelIndex: new(70.0)},
 		// A family with no scored row.
 		{Slug: "ghost-1", Creator: "openai"},
 		// A scored family from a creator outside the built-in allowlist.
-		{Slug: "outsider-1", Creator: "longcat", CodingIndex: new(80.0), IntelIndex: new(80.0)},
-		// A family below the floor on both axes.
-		{Slug: "weak-1", Creator: "openai", CodingIndex: new(10.0), IntelIndex: new(10.0)},
+		{Slug: "outsider-1", Creator: "longcat", IntelIndex: new(80.0)},
+		// A family below the floor.
+		{Slug: "weak-1", Creator: "openai", IntelIndex: new(10.0)},
 		// The Anthropic ordering flip.
-		{Slug: "claude-4-5-sonnet", Creator: "anthropic", CodingIndex: new(65.0), IntelIndex: new(65.0)},
+		{Slug: "claude-4-5-sonnet", Creator: "anthropic", IntelIndex: new(65.0)},
 	}
 	endpoint := map[string]orEntry{
 		"openai/gpt-5.2":             {PromptPrice: 3e-6, CompletionPrice: 15e-6, ContextWindow: 400000, Tools: true, PriceSource: priceSourceTokenCosts},
@@ -572,13 +572,12 @@ func TestBuildEndpointCandidatesAutomaticJoin(t *testing.T) {
 	assert.InDelta(t, 14e-6, got.Candidate.CompletionPricePerTok, 1e-15)
 	assert.Equal(t, 400000, got.Candidate.ContextWindow)
 
-	// deepseek-v4-flash: no base row; the dated base beats the dated effort
-	// variant, its nil intelligence index yields no reviewer prior, and
-	// nothing prices it.
+	// deepseek-v4-flash: no base row; the dated base beats the stronger dated
+	// effort variant, and nothing prices it.
 	require.Contains(t, bySlug, "deepseek-v4-flash")
 	assert.Equal(t, "deepseek-v4-flash-0420", bySlug["deepseek-v4-flash"].Source)
 	assert.InDelta(t, 60.0/80, bySlug["deepseek-v4-flash"].Candidate.CoderPrior, 1e-9)
-	assert.Zero(t, bySlug["deepseek-v4-flash"].Candidate.ReviewerPrior)
+	assert.InDelta(t, 60.0/80, bySlug["deepseek-v4-flash"].Candidate.ReviewerPrior, 1e-9)
 	assert.Equal(t, priceSourceNone, bySlug["deepseek-v4-flash"].PriceSource)
 
 	// vendor-dated-alias: the id matches nothing, the dated alias reduces to gpt-5-2.
@@ -631,7 +630,7 @@ func TestBuildEndpointCandidatesAutomaticJoin(t *testing.T) {
 // model_priors entry wins over a family AA would have joined, verbatim, and
 // skips the allowlist screen.
 func TestBuildEndpointCandidatesPriorsBeatAutomatic(t *testing.T) {
-	aa := []aaModel{{Slug: "gpt-5-2", Creator: "openai", CodingIndex: new(80.0), IntelIndex: new(80.0)}}
+	aa := []aaModel{{Slug: "gpt-5-2", Creator: "openai", IntelIndex: new(80.0)}}
 	endpoint := map[string]orEntry{"gpt-5.2": {ContextWindow: 1000, Tools: true}}
 	priors := map[string]PriorOverride{"gpt-5.2": {Coder: 0.42, Reviewer: 0.37}}
 
@@ -649,8 +648,8 @@ func TestBuildEndpointCandidatesPriorsBeatAutomatic(t *testing.T) {
 // replaces the built-in one for automatic matches, as on the OpenRouter leg.
 func TestBuildEndpointCandidatesAllowlistOverride(t *testing.T) {
 	aa := []aaModel{
-		{Slug: "outsider-1", Creator: "longcat", CodingIndex: new(80.0), IntelIndex: new(80.0)},
-		{Slug: "gpt-5-2", Creator: "openai", CodingIndex: new(80.0), IntelIndex: new(80.0)},
+		{Slug: "outsider-1", Creator: "longcat", IntelIndex: new(80.0)},
+		{Slug: "gpt-5-2", Creator: "openai", IntelIndex: new(80.0)},
 	}
 	endpoint := map[string]orEntry{
 		"outsider-1": {ContextWindow: 1000, Tools: true},
@@ -671,9 +670,9 @@ func TestBuildEndpointCandidatesAllowlistOverride(t *testing.T) {
 // the family has no row for the wanted effort.
 func TestBuildEndpointCandidatesReasoningEffort(t *testing.T) {
 	aa := []aaModel{
-		{Slug: "gpt-5-2", Creator: "openai", CodingIndex: new(60.0), IntelIndex: new(60.0)},
-		{Slug: "gpt-5-2-medium", Creator: "openai", CodingIndex: new(80.0), IntelIndex: new(80.0)},
-		{Slug: "gpt-5-2-high", Creator: "openai", CodingIndex: new(90.0), IntelIndex: new(90.0)},
+		{Slug: "gpt-5-2", Creator: "openai", IntelIndex: new(60.0)},
+		{Slug: "gpt-5-2-medium", Creator: "openai", IntelIndex: new(80.0)},
+		{Slug: "gpt-5-2-high", Creator: "openai", IntelIndex: new(90.0)},
 	}
 	endpoint := map[string]orEntry{
 		"gpt-5.2":            {ContextWindow: 1000, Tools: true},
@@ -717,9 +716,9 @@ func TestBuildEndpointCandidatesReasoningEffort(t *testing.T) {
 // is the wanted effort, ahead of the gateway's configured one.
 func TestBuildEndpointCandidatesAliasEffort(t *testing.T) {
 	aa := []aaModel{
-		{Slug: "gpt-5-2", Creator: "openai", CodingIndex: new(60.0), IntelIndex: new(60.0)},
-		{Slug: "gpt-5-2-medium", Creator: "openai", CodingIndex: new(80.0), IntelIndex: new(80.0)},
-		{Slug: "gpt-5-2-high", Creator: "openai", CodingIndex: new(90.0), IntelIndex: new(90.0)},
+		{Slug: "gpt-5-2", Creator: "openai", IntelIndex: new(60.0)},
+		{Slug: "gpt-5-2-medium", Creator: "openai", IntelIndex: new(80.0)},
+		{Slug: "gpt-5-2-high", Creator: "openai", IntelIndex: new(90.0)},
 	}
 	endpoint := map[string]orEntry{
 		"vendor-alias-only": {ContextWindow: 1000, Tools: true, Aliases: []string{"gpt-5.2-high"}},
@@ -739,10 +738,10 @@ func TestBuildEndpointCandidatesAliasEffort(t *testing.T) {
 // picks that row.
 func TestBuildEndpointCandidatesReasoningEffortOpenAIOnly(t *testing.T) {
 	aa := []aaModel{
-		{Slug: "gpt-5-2", Creator: "openai", CodingIndex: new(60.0), IntelIndex: new(60.0)},
-		{Slug: "gpt-5-2-medium", Creator: "openai", CodingIndex: new(80.0), IntelIndex: new(80.0)},
-		{Slug: "claude-opus-5", Creator: "anthropic", CodingIndex: new(60.0), IntelIndex: new(60.0)},
-		{Slug: "claude-opus-5-medium", Creator: "anthropic", CodingIndex: new(80.0), IntelIndex: new(80.0)},
+		{Slug: "gpt-5-2", Creator: "openai", IntelIndex: new(60.0)},
+		{Slug: "gpt-5-2-medium", Creator: "openai", IntelIndex: new(80.0)},
+		{Slug: "claude-opus-5", Creator: "anthropic", IntelIndex: new(60.0)},
+		{Slug: "claude-opus-5-medium", Creator: "anthropic", IntelIndex: new(80.0)},
 	}
 	endpoint := map[string]orEntry{
 		"openai/gpt-5.2":                 {ContextWindow: 1000, Tools: true},
@@ -786,9 +785,9 @@ func TestBuilderReasoningEffortReachesTheJoin(t *testing.T) {
 	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[
 			{"slug":"model-a","model_creator":{"name":"OpenAI"},
-			 "evaluations":{"artificial_analysis_coding_index":60,"artificial_analysis_intelligence_index":60}},
+			 "evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":60}},
 			{"slug":"model-a-medium","model_creator":{"name":"OpenAI"},
-			 "evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80}}
+			 "evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":80}}
 		]}`))
 	}))
 	defer aaSrv.Close()
@@ -818,7 +817,7 @@ func TestBuilderProvenanceModelPriorsNamesNoRow(t *testing.T) {
 	// no part in the join.
 	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[{"slug":"unrelated-model","model_creator":{"name":"someone"},
-			"evaluations":{"artificial_analysis_coding_index":50,"artificial_analysis_intelligence_index":50}}]}`))
+			"evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":50}}]}`))
 	}))
 	defer aaSrv.Close()
 
@@ -851,7 +850,7 @@ func TestBuilderAAFailureKeepsAAPricedCatalog(t *testing.T) {
 		}
 
 		_, _ = w.Write([]byte(`{"data":[{"slug":"model-a","model_creator":{"name":"vendor"},
-			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80},
+			"evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":80},
 			"pricing":{"price_1m_input_tokens":2,"price_1m_output_tokens":8}}]}`))
 	}))
 	defer aaSrv.Close()
@@ -927,13 +926,13 @@ func TestBuilderRatePricesExcludedServedModelsFromAA(t *testing.T) {
 	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[
 			{"slug":"model-a","model_creator":{"name":"vendor"},
-			 "evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80},
+			 "evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":80},
 			 "pricing":{"price_1m_input_tokens":2,"price_1m_output_tokens":8}},
 			{"slug":"model-low","model_creator":{"name":"vendor"},
-			 "evaluations":{"artificial_analysis_coding_index":10,"artificial_analysis_intelligence_index":10},
+			 "evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":10},
 			 "pricing":{"price_1m_input_tokens":0.5,"price_1m_output_tokens":1.5}},
 			{"slug":"model-x","model_creator":{"name":"other"},
-			 "evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80},
+			 "evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":80},
 			 "pricing":{"price_1m_input_tokens":4,"price_1m_output_tokens":16}}]}`))
 	}))
 	defer aaSrv.Close()
@@ -966,11 +965,11 @@ func TestBuilderRatePricesExcludedServedModelsFromAA(t *testing.T) {
 // none.
 func TestBuildEndpointCandidatesCapturesAAListPrices(t *testing.T) {
 	aa := []aaModel{
-		{Slug: "model-a", Creator: "vendor", CodingIndex: new(80.0), IntelIndex: new(80.0), PromptPrice: 2e-6, CompletionPrice: 8e-6, CacheReadPrice: 0.2e-6, CacheWritePrice: 2.5e-6},
-		{Slug: "model-low", Creator: "vendor", CodingIndex: new(10.0), IntelIndex: new(10.0), PromptPrice: 0.5e-6, CompletionPrice: 1.5e-6},
-		{Slug: "model-x", Creator: "other", CodingIndex: new(80.0), IntelIndex: new(80.0), PromptPrice: 4e-6, CompletionPrice: 16e-6},
-		{Slug: "model-g", Creator: "vendor", CodingIndex: new(80.0), IntelIndex: new(80.0), PromptPrice: 9e-6, CompletionPrice: 9e-6},
-		{Slug: "model-free", Creator: "vendor", CodingIndex: new(80.0), IntelIndex: new(80.0)},
+		{Slug: "model-a", Creator: "vendor", IntelIndex: new(80.0), PromptPrice: 2e-6, CompletionPrice: 8e-6, CacheReadPrice: 0.2e-6, CacheWritePrice: 2.5e-6},
+		{Slug: "model-low", Creator: "vendor", IntelIndex: new(10.0), PromptPrice: 0.5e-6, CompletionPrice: 1.5e-6},
+		{Slug: "model-x", Creator: "other", IntelIndex: new(80.0), PromptPrice: 4e-6, CompletionPrice: 16e-6},
+		{Slug: "model-g", Creator: "vendor", IntelIndex: new(80.0), PromptPrice: 9e-6, CompletionPrice: 9e-6},
+		{Slug: "model-free", Creator: "vendor", IntelIndex: new(80.0)},
 	}
 	endpoint := map[string]orEntry{
 		"model-a":    {ContextWindow: 1000, Tools: true},
@@ -1016,7 +1015,7 @@ func TestBuilderRateResolvesGatewayEchoedName(t *testing.T) {
 
 	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[{"slug":"model-a","model_creator":{"name":"vendor"},
-			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80},
+			"evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":80},
 			"pricing":{"price_1m_input_tokens":2,"price_1m_output_tokens":8}}]}`))
 	}))
 	defer aaSrv.Close()

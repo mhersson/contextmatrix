@@ -25,14 +25,14 @@ func TestFetchAAModelsFollowsPaginationAndMapsCreators(t *testing.T) {
 		case "1":
 			_, _ = w.Write([]byte(`{"data":[
 				{"slug":"glm-5-2","model_creator":{"name":"Z AI"},
-				 "evaluations":{"artificial_analysis_coding_index":68.8,"artificial_analysis_intelligence_index":50.9}},
+				 "evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":50.9}},
 				{"slug":"img-only","model_creator":{"name":"Alibaba"},
 				 "evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":null}}
 			],"pagination":{"page":1,"page_size":200,"total_pages":2,"has_more":true},"tier":"free"}`))
 		case "2":
 			_, _ = w.Write([]byte(`{"data":[
 				{"slug":"novel-1","model_creator":{"name":"Frontier Labs Ltd."},
-				 "evaluations":{"artificial_analysis_coding_index":40,"artificial_analysis_intelligence_index":30}}
+				 "evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":30}}
 			],"pagination":{"page":2,"page_size":200,"total_pages":2,"has_more":false},"tier":"free"}`))
 		default:
 			t.Errorf("unexpected page %q", r.URL.Query().Get("page"))
@@ -54,12 +54,12 @@ func TestFetchAAModelsFollowsPaginationAndMapsCreators(t *testing.T) {
 		t.Errorf("bad parse: %+v", models[0])
 	}
 
-	if models[0].CodingIndex == nil || *models[0].CodingIndex != 68.8 {
-		t.Errorf("coding index not parsed: %+v", models[0].CodingIndex)
+	if models[0].IntelIndex == nil || *models[0].IntelIndex != 50.9 {
+		t.Errorf("intelligence index not parsed: %+v", models[0].IntelIndex)
 	}
 
-	if models[1].CodingIndex != nil {
-		t.Errorf("null coding index must stay nil, got %+v", models[1].CodingIndex)
+	if models[1].IntelIndex != nil {
+		t.Errorf("null intelligence index must stay nil, got %+v", models[1].IntelIndex)
 	}
 
 	if models[1].Creator != "qwen" {
@@ -89,7 +89,7 @@ func TestFetchAAModelsPageCapStopsRunaway(t *testing.T) {
 		requests.Add(1)
 
 		_, _ = w.Write([]byte(`{"data":[{"slug":"m-1","model_creator":{"name":"OpenAI"},
-			"evaluations":{"artificial_analysis_coding_index":50,"artificial_analysis_intelligence_index":50}}],
+			"evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":50}}],
 			"pagination":{"has_more":true}}`))
 	}))
 	defer srv.Close()
@@ -117,7 +117,7 @@ func TestFetchAAModelsPageFailureFailsFetch(t *testing.T) {
 		}
 
 		_, _ = w.Write([]byte(`{"data":[{"slug":"m-1","model_creator":{"name":"OpenAI"},
-			"evaluations":{"artificial_analysis_coding_index":50,"artificial_analysis_intelligence_index":50}}],
+			"evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":50}}],
 			"pagination":{"has_more":true}}`))
 	}))
 	defer srv.Close()
@@ -134,19 +134,19 @@ func TestFetchAAModelsReadsPricing(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[
 			{"slug":"priced","model_creator":{"name":"OpenAI"},
-			 "evaluations":{"artificial_analysis_coding_index":50,"artificial_analysis_intelligence_index":50},
+			 "evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":50},
 			 "pricing":{"price_1m_input_tokens":1.25,"price_1m_output_tokens":10,"price_1m_cache_hit_tokens":0.13,"price_1m_cache_write_tokens":null}},
 			{"slug":"null-block","model_creator":{"name":"OpenAI"},
-			 "evaluations":{"artificial_analysis_coding_index":50,"artificial_analysis_intelligence_index":50},
+			 "evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":50},
 			 "pricing":null},
 			{"slug":"null-fields","model_creator":{"name":"OpenAI"},
-			 "evaluations":{"artificial_analysis_coding_index":50,"artificial_analysis_intelligence_index":50},
+			 "evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":50},
 			 "pricing":{"price_1m_input_tokens":null,"price_1m_output_tokens":null}},
 			{"slug":"zero-pair","model_creator":{"name":"OpenAI"},
-			 "evaluations":{"artificial_analysis_coding_index":50,"artificial_analysis_intelligence_index":50},
+			 "evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":50},
 			 "pricing":{"price_1m_input_tokens":0,"price_1m_output_tokens":0}},
 			{"slug":"output-only","model_creator":{"name":"OpenAI"},
-			 "evaluations":{"artificial_analysis_coding_index":50,"artificial_analysis_intelligence_index":50},
+			 "evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":50},
 			 "pricing":{"price_1m_input_tokens":null,"price_1m_output_tokens":4}}
 		],"pagination":{"page":1,"page_size":200,"total_pages":1,"has_more":false}}`))
 	}))
@@ -184,10 +184,10 @@ func TestFetchAAModelsReadsCacheRates(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[
 			{"slug":"both","model_creator":{"name":"OpenAI"},
-			 "evaluations":{"artificial_analysis_coding_index":50,"artificial_analysis_intelligence_index":50},
+			 "evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":50},
 			 "pricing":{"price_1m_input_tokens":10,"price_1m_output_tokens":50,"price_1m_cache_hit_tokens":1,"price_1m_cache_write_tokens":12.5}},
 			{"slug":"read-only","model_creator":{"name":"OpenAI"},
-			 "evaluations":{"artificial_analysis_coding_index":50,"artificial_analysis_intelligence_index":50},
+			 "evaluations":{"artificial_analysis_coding_index":null,"artificial_analysis_intelligence_index":50},
 			 "pricing":{"price_1m_input_tokens":1.25,"price_1m_output_tokens":10,"price_1m_cache_hit_tokens":0.13,"price_1m_cache_write_tokens":null}}
 		],"pagination":{"page":1,"page_size":200,"total_pages":1,"has_more":false}}`))
 	}))

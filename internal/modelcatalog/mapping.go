@@ -367,23 +367,23 @@ func indexFamilies(aa []aaModel) familyIndex {
 // effort, a scored row carrying exactly that effort suffix beats every
 // other row. Otherwise, and among rows that tie on that, the first scored
 // row by fewest effort suffixes stripped, then fewest date tokens stripped,
-// then highest combined normalized prior. The base row (nothing stripped)
+// then highest intelligence index. The base row (nothing stripped)
 // therefore wins whenever it is scored and no wanted effort names a scored
 // sibling, and the strongest sibling is reached only when nothing closer
 // is. ok is false when no row in the family is scored, or the key has no
 // family.
-func (idx familyIndex) closest(key, effort string, maxCoding, maxIntel float64) (aaModel, bool) {
+func (idx familyIndex) closest(key, effort string) (aaModel, bool) {
 	var (
 		best  familyRow
 		found bool
 	)
 
 	for _, r := range idx[key] {
-		if r.model.CodingIndex == nil && r.model.IntelIndex == nil {
+		if r.model.IntelIndex == nil {
 			continue
 		}
 
-		if !found || closer(r, best, effort, maxCoding, maxIntel) {
+		if !found || closer(r, best, effort) {
 			best, found = r, true
 		}
 	}
@@ -391,7 +391,8 @@ func (idx familyIndex) closest(key, effort string, maxCoding, maxIntel float64) 
 	return best.model, found
 }
 
-func closer(a, b familyRow, effort string, maxCoding, maxIntel float64) bool {
+// closer compares two scored rows: both carry an intelligence index.
+func closer(a, b familyRow, effort string) bool {
 	if effort != "" && (a.effort == effort) != (b.effort == effort) {
 		return a.effort == effort
 	}
@@ -404,11 +405,7 @@ func closer(a, b familyRow, effort string, maxCoding, maxIntel float64) bool {
 		return a.dateStripped < b.dateStripped
 	}
 
-	return combinedPrior(a.model, maxCoding, maxIntel) > combinedPrior(b.model, maxCoding, maxIntel)
-}
-
-func combinedPrior(m aaModel, maxCoding, maxIntel float64) float64 {
-	return norm(m.CodingIndex, maxCoding) + norm(m.IntelIndex, maxIntel)
+	return *a.model.IntelIndex > *b.model.IntelIndex
 }
 
 // creator is the vendor prefix of the family under a key, read from its

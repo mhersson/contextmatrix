@@ -201,22 +201,22 @@ func TestRewriteKeys(t *testing.T) {
 // scored, and reachability through the rewrite rule and the override table.
 func TestIndexFamiliesClosest(t *testing.T) {
 	aa := []aaModel{
-		{Slug: "gpt-5-2", Creator: "openai", CodingIndex: new(60.0), IntelIndex: new(60.0)},
-		{Slug: "gpt-5-2-medium", Creator: "openai", CodingIndex: new(80.0), IntelIndex: new(80.0)},
-		{Slug: "deepseek-v4-flash-0420", Creator: "deepseek", CodingIndex: new(50.0), IntelIndex: new(50.0)},
-		{Slug: "deepseek-v4-flash-0420-high", Creator: "deepseek", CodingIndex: new(70.0), IntelIndex: new(70.0)},
+		{Slug: "gpt-5-2", Creator: "openai", IntelIndex: new(60.0)},
+		{Slug: "gpt-5-2-medium", Creator: "openai", IntelIndex: new(80.0)},
+		{Slug: "deepseek-v4-flash-0420", Creator: "deepseek", IntelIndex: new(50.0)},
+		{Slug: "deepseek-v4-flash-0420-high", Creator: "deepseek", IntelIndex: new(70.0)},
 		{Slug: "kimi-k3", Creator: "moonshotai"},
-		{Slug: "kimi-k3-low", Creator: "moonshotai", CodingIndex: new(40.0), IntelIndex: new(40.0)},
-		{Slug: "kimi-k3-high", Creator: "moonshotai", CodingIndex: new(75.0), IntelIndex: new(75.0)},
+		{Slug: "kimi-k3-low", Creator: "moonshotai", IntelIndex: new(40.0)},
+		{Slug: "kimi-k3-high", Creator: "moonshotai", IntelIndex: new(75.0)},
 		{Slug: "kimi-k3-xhigh", Creator: "moonshotai"},
 		{Slug: "ghost-1", Creator: "x"},
-		{Slug: "claude-4-5-sonnet", Creator: "anthropic", CodingIndex: new(65.0), IntelIndex: new(65.0)},
-		{Slug: "claude-35-sonnet", Creator: "anthropic", CodingIndex: new(30.0), IntelIndex: new(30.0)},
+		{Slug: "claude-4-5-sonnet", Creator: "anthropic", IntelIndex: new(65.0)},
+		{Slug: "claude-35-sonnet", Creator: "anthropic", IntelIndex: new(30.0)},
 	}
 	idx := indexFamilies(aa)
 
 	pick := func(key, effort string) string {
-		m, ok := idx.closest(key, effort, 80, 80)
+		m, ok := idx.closest(key, effort)
 		if !ok {
 			return ""
 		}

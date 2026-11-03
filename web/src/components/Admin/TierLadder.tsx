@@ -88,8 +88,8 @@ export function TierLadder({
   const railRef = useRef<HTMLDivElement>(null);
   const { dragging, handleProps } = useLadderDrag({ ladders, linked, floor, railRef, onChange });
 
-  // View-only filter: the pills it hides never touch the tier bands, the
-  // estimated count or anything upstream of the panel.
+  // View-only filter: the pills it hides never touch the tier bands or
+  // anything upstream of the panel.
   const { visible, isActive, toggle, selectAll, selectNone, hidden } = useProviderFilter(candidates);
   const shownCandidates = useMemo(() => candidates.filter(visible), [candidates, visible]);
 
@@ -102,8 +102,6 @@ export function TierLadder({
       })),
     [shownCandidates, candidates, ladders],
   );
-
-  const estimatedCount = candidates.filter((c) => c.coder_prior_estimated).length;
 
   const handleLabel = (role: SelectorRole, tier: SelectorTier): string => {
     const own = ladders[role][tier];
@@ -119,7 +117,6 @@ export function TierLadder({
         <div className="apd-panel-meta">
           <span>{meta}</span>
           {isActive && <span>{shownCandidates.length} of {candidates.length} candidates shown</span>}
-          {estimatedCount > 0 && <span>{estimatedCount} estimated</span>}
           <label className="tl-headroom">
             price headroom
             <input
@@ -150,7 +147,7 @@ export function TierLadder({
         <div className="tl-ladder-head">
           <div className="tl-rail-h">bars · drag</div>
           <div className="tl-role-h">
-            <span className="tl-role-tag coder">coder</span> coding index <small>· subtask coders, fix coders</small>
+            <span className="tl-role-tag coder">coder</span> intelligence index <small>· subtask coders, fix coders</small>
           </div>
           <div className="tl-role-h">
             <span className="tl-role-tag reviewer">reviewer</span> intelligence index <small>· panels, seats, judges</small>
@@ -192,18 +189,16 @@ export function TierLadder({
               })}
               {pills.map(({ c, prior, y, left }) => {
                 const tier = tierOf(ladders[role], prior);
-                const estimated = role === 'coder' && c.coder_prior_estimated;
                 const cls =
                   (picks[role].has(c.slug) ? ' picked' : '') +
                   (role === 'reviewer' && seats.has(c.slug) ? ' seat' : '') +
-                  (blacklist.has(c.slug) ? ' banned' : '') +
-                  (estimated ? ' est' : '');
+                  (blacklist.has(c.slug) ? ' banned' : '');
                 return (
                   <span
                     key={c.slug}
                     className={`tl-dot${cls}`}
                     style={{ top: `${y}%`, left: `${left}%`, '--tier-c': tier ? TIER_COLOR[tier] : BELOW_FLOOR_COLOR } as CSSProperties}
-                    title={`${c.slug} · ${role} prior ${prior.toFixed(3)} · ${usdPerMillion(blendedPrice(c))}${c.price_source === 'aa' ? ' (list price)' : ''} · ${tier ?? 'below floor'}${c.scored_from ? ` · scored from ${c.scored_from}` : ''}${estimated ? ' · coder prior estimated from intelligence index (AA has no coding index yet)' : ''}`}
+                    title={`${c.slug} · ${role} prior ${prior.toFixed(3)} · ${usdPerMillion(blendedPrice(c))}${c.price_source === 'aa' ? ' (list price)' : ''} · ${tier ?? 'below floor'}${c.scored_from ? ` · scored from ${c.scored_from}` : ''}`}
                     data-testid={`tl-dot-${role}-${c.slug}`}
                     onContextMenu={
                       onModelMenu &&
@@ -215,7 +210,7 @@ export function TierLadder({
                   >
                     <i aria-hidden="true" />
                     <span className="tl-dot-n">{shortSlug(c.slug)}</span>
-                    <span className="tl-dot-p">{estimated ? `~${prior.toFixed(3)}` : prior.toFixed(3)}</span>
+                    <span className="tl-dot-p">{prior.toFixed(3)}</span>
                   </span>
                 );
               })}
@@ -260,8 +255,7 @@ export function TierLadder({
           {/* .tl-provider-row's flex-basis: 100% puts the filter on its own line, ahead of the note. */}
           <ProviderFilter candidates={candidates} filter={{ hidden, toggle, selectAll, selectNone }} />
           <span className="tl-legend-note">
-            filled pill = the pick at its rung · dashed outline = a panel seat · struck = blacklisted · ~ italic dotted = coder
-            prior estimated from the intelligence index
+            filled pill = the pick at its rung · dashed outline = a panel seat · struck = blacklisted
             {onModelMenu && ' · right-click a pill to blacklist or delist'}
           </span>
         </div>
