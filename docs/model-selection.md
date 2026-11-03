@@ -731,7 +731,7 @@ Some seats do not use the card or subtask tier:
 | Subtask coder                                           | coder      | subtask tier        |
 | Review panel                                            | reviewer   | card tier           |
 | Review-fix coder                                        | coder      | verdict `fix_tier`, else card tier |
-| Authoritative review pass and its fix run               | reviewer / coder | forced `complex` |
+| Authoritative review pass and its fix run               | reviewer / coder | `complex`, or `critical` for a `complex` or `critical` card |
 | Best-of-N judge                                         | reviewer   | forced `complex`    |
 | Decision phases (plan decomposition, review synthesis, mob moderator) | reviewer | `complex` floor |
 | Mob discussion seats                                    | reviewer   | forced `complex`    |
@@ -754,8 +754,8 @@ repair prompt first; turns without tool calls are neutral), the agent:
 
 A single run allows **3 re-selections total** (shared across the execute and
 review paths); the fourth incapable model parks the card for a human. There is
-no automatic tier escalation on failure - escalation to `complex` is policy
-(the authoritative review pass), never a retry mechanism.
+no automatic tier escalation on failure - a stronger tier is policy (the
+authoritative review pass), never a retry mechanism.
 
 ## Blacklist and the outcome ledger
 
