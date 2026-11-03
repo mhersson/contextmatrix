@@ -197,7 +197,13 @@ export function SelectionChart({
       : [];
   const sameBand = bands.length === 2 && bands[0].anchor === bands[1].anchor && bands[0].bar === bands[1].bar && bands[0].rung === bands[1].rung;
   const headroomText = appliedHeadroom === null ? '' : formatHeadroom(appliedHeadroom);
-  const bandLabels = sameBand ? [{ ...bands[0], color: 'var(--tl-shared)' }] : bands.map((b) => ({ ...b, color: `var(--tl-${b.role})` }));
+  // Coinciding bands draw once in the neutral band colour; differing ones keep their role tint.
+  const drawnBands = (sameBand ? [bands[0]] : bands).map((b) => ({
+    ...b,
+    id: sameBand ? 'shared' : b.role,
+    color: sameBand ? 'var(--yellow)' : `var(--tl-${b.role})`,
+    fill: sameBand ? 'var(--bg-yellow)' : `var(--tl-${b.role})`,
+  }));
 
   const floorY = y(floor);
   const leftTitle = !hasAA ? 'prior (0-1)' : indexVersion ? `AA Intelligence Index v${indexVersion}` : 'AA Intelligence Index';
@@ -244,24 +250,24 @@ export function SelectionChart({
             </text>
           </g>
         )}
-        {bands.map((b) => (
+        {drawnBands.map((b) => (
           <rect
-            key={b.role}
+            key={b.id}
             className="tl-chart-band"
-            data-testid={`tl-band-${b.role}`}
+            data-testid={`tl-band-${b.id}`}
             x={b.x}
             y={top}
             width={b.width}
             height={b.height}
-            style={{ fill: `var(--tl-${b.role})` }}
+            style={{ fill: b.fill }}
           />
         ))}
-        {bandLabels.map((b, i) => {
+        {drawnBands.map((b, i) => {
           // Near the right edge the label ends at the band instead of starting there.
           const flip = b.x > x1 - 150;
           return (
             <text
-              key={b.role}
+              key={b.id}
               className="tl-chart-band-label"
               x={flip ? b.x + b.width - 3 : b.x + 3}
               y={top + 12 + i * BAND_LABEL_LINE}

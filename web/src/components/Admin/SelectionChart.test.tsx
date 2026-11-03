@@ -260,6 +260,27 @@ describe('SelectionChart', () => {
     expect(screen.queryByTestId('tl-band-coder')).not.toBeInTheDocument();
   });
 
+  it('draws one band when both roles coincide and two when they differ', () => {
+    const same = tierPreview({
+      coder: report('a/cheap', 'coder', 0.84, pool(['a/cheap', 2])),
+      reviewer: report('a/cheap', 'reviewer', 0.84, pool(['a/cheap', 2])),
+    });
+    const { container, rerenderWith } = renderChart({ tierPreview: same, appliedHeadroom: 1.5 });
+    expect(container.querySelectorAll('.tl-chart-band')).toHaveLength(1);
+    expect(container.querySelectorAll('.tl-chart-band-label')).toHaveLength(1);
+    expect(screen.getByTestId('tl-band-shared')).toBeInTheDocument();
+
+    rerenderWith({
+      tierPreview: tierPreview({
+        coder: report('a/cheap', 'coder', 0.84, pool(['a/cheap', 2])),
+        reviewer: report('a/cheap', 'reviewer', 0.9, pool(['a/cheap', 2])),
+      }),
+      appliedHeadroom: 1.5,
+    });
+    expect(container.querySelectorAll('.tl-chart-band')).toHaveLength(2);
+    expect(screen.queryByTestId('tl-band-shared')).not.toBeInTheDocument();
+  });
+
   it('keeps two differing band labels more than a line apart', () => {
     const preview = tierPreview({
       coder: report('a/mid', 'coder', 0.84, pool(['a/cheap', 2], ['a/mid', 4])),

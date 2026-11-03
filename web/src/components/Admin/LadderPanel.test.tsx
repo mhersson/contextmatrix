@@ -86,6 +86,18 @@ describe('LadderPanel', () => {
     expect(p.onSeparateChange).toHaveBeenLastCalledWith(false);
   });
 
+  it('keeps both role swatches in the legend with the switch off and adds the shared one', () => {
+    const { p, rerender } = renderPanel();
+    expect(screen.getByTestId('tl-legend-coder')).toBeInTheDocument();
+    expect(screen.getByTestId('tl-legend-reviewer')).toBeInTheDocument();
+    expect(screen.getByTestId('tl-legend-shared')).toBeInTheDocument();
+
+    rerender(<LadderPanel {...p} separate />);
+    expect(screen.getByTestId('tl-legend-coder')).toBeInTheDocument();
+    expect(screen.getByTestId('tl-legend-reviewer')).toBeInTheDocument();
+    expect(screen.queryByTestId('tl-legend-shared')).not.toBeInTheDocument();
+  });
+
   it('hiding a provider removes its dots and leaves the scales and callbacks alone', () => {
     const { p } = renderPanel();
     const lowX = dot('b/low')?.getAttribute('cx');

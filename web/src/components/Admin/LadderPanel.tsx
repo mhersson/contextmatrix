@@ -101,17 +101,19 @@ export function LadderPanel({
           onModelMenu={onModelMenu}
         />
         <div className="tl-legend">
-          {separate && (
-            <>
-              <span>
-                <span className="tl-sw" style={{ '--sw-c': 'var(--tl-coder)' } as CSSProperties} aria-hidden="true" />
-                coder
-              </span>
-              <span>
-                <span className="tl-sw" style={{ '--sw-c': 'var(--tl-reviewer)' } as CSSProperties} aria-hidden="true" />
-                reviewer
-              </span>
-            </>
+          <span data-testid="tl-legend-coder">
+            <span className="tl-sw" style={{ '--sw-c': 'var(--tl-coder)' } as CSSProperties} aria-hidden="true" />
+            coder
+          </span>
+          <span data-testid="tl-legend-reviewer">
+            <span className="tl-sw" style={{ '--sw-c': 'var(--tl-reviewer)' } as CSSProperties} aria-hidden="true" />
+            reviewer
+          </span>
+          {!separate && (
+            <span data-testid="tl-legend-shared">
+              <span className="tl-sw" style={{ '--sw-c': 'var(--tl-shared)' } as CSSProperties} aria-hidden="true" />
+              shared tier lines
+            </span>
           )}
           <span className="tl-legend-note">
             filled dot = the pick at the selected tier · dashed ring = a panel seat · struck = blacklisted

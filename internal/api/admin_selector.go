@@ -297,7 +297,8 @@ type selectorCandidatesResponse struct {
 	// gateway pins for its OpenAI models; empty when unset.
 	ReasoningEffort string `json:"reasoning_effort"`
 	// The stats describe the AA snapshot behind the priors; see
-	// modelcatalog.CatalogStats. Zero values mean AA data is absent.
+	// modelcatalog.CatalogStats. Zero counts and score mean no AA data; an
+	// empty version means AA sent none.
 	IntelligenceIndexVersion string  `json:"intelligence_index_version"`
 	AAScoredModels           int     `json:"aa_scored_models"`
 	ServedScoredModels       int     `json:"served_scored_models"`
