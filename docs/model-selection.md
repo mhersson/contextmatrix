@@ -508,7 +508,8 @@ differently at a tier where those apply.
 The same model serves every tier whose bar it clears. Cost never decides a
 tier - it only orders models within the eligible set. The bar is compared
 against the role's prior: `coder_prior` for coder picks, `reviewer_prior` for
-reviewer picks, so a model can qualify for `complex` review work while only
+reviewer picks. When the two ladders differ, or a `model_priors` entry carries
+different values, a model can qualify for `complex` review work while only
 clearing `moderate` for coding.
 
 ### How tiers are assigned

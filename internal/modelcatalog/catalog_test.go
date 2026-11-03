@@ -40,27 +40,24 @@ func TestBuildAppliesFloorAllowlistAndMapping(t *testing.T) {
 
 func TestBuildCollapsesEffortVariants(t *testing.T) {
 	// Two AA slugs that map to the SAME OR slug (z-ai/glm-5.2); the
-	// higher-prior variant must win the collapse. Weaker is listed first
-	// so the replacement branch in build() is exercised.
-	aa := []aaModel{
-		{Slug: "glm-5.2", Creator: "z-ai", IntelIndex: new(40.0)}, // weaker
-		{Slug: "glm-5-2", Creator: "z-ai", IntelIndex: new(59.9)}, // stronger (index max)
-	}
+	// higher-prior variant must win the collapse in either listing order.
+	weaker := aaModel{Slug: "glm-5.2", Creator: "z-ai", IntelIndex: new(40.0)}
+	stronger := aaModel{Slug: "glm-5-2", Creator: "z-ai", IntelIndex: new(59.9)} // index max
 	or := map[string]orEntry{
 		"z-ai/glm-5.2": {PromptPrice: 1.2e-6, CompletionPrice: 4.1e-6, ContextWindow: 1048576, Tools: true},
 	}
 
-	got := build(aa, or, 0.65, nil)
-	if len(got) != 1 {
-		t.Fatalf("effort variants must collapse to 1 candidate, got %d: %+v", len(got), got)
-	}
-
-	if got[0].CoderPrior != 1.0 || got[0].ReviewerPrior != 1.0 {
-		t.Errorf("collapse must keep the highest-prior variant, got %+v", got[0])
-	}
-
-	if got[0].Creator != "z-ai" {
-		t.Errorf("creator must survive the collapse, got %q", got[0].Creator)
+	for name, aa := range map[string][]aaModel{
+		"weaker first":   {weaker, stronger},
+		"stronger first": {stronger, weaker},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := build(aa, or, 0.65, nil)
+			require.Len(t, got, 1, "effort variants must collapse to 1 candidate")
+			assert.InDelta(t, 1.0, got[0].CoderPrior, 1e-12, "collapse must keep the highest-prior variant")
+			assert.InDelta(t, 1.0, got[0].ReviewerPrior, 1e-12)
+			assert.Equal(t, "z-ai", got[0].Creator)
+		})
 	}
 }
 
