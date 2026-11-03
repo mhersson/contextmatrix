@@ -41,6 +41,7 @@ type selectorAdminStore interface {
 type selectorCatalog interface {
 	Candidates(ctx context.Context) []protocol.CandidateModel
 	Provenance(ctx context.Context) map[string]modelcatalog.CandidateProvenance
+	Stats(ctx context.Context) modelcatalog.CatalogStats
 	Floor() float64
 	LastRefreshed(ctx context.Context) time.Time
 }
@@ -85,7 +86,7 @@ type selectorAdminHandlers struct {
 // writes.
 type selectorLaddersResponse struct {
 	Ladders         map[string]map[string]float64 `json:"ladders"`
-	Defaults        map[string]float64            `json:"defaults"`
+	Defaults        map[string]map[string]float64 `json:"defaults"`
 	Headroom        float64                       `json:"headroom"`
 	HeadroomDefault float64                       `json:"headroom_default"`
 	IsDefault       bool                          `json:"is_default"`
@@ -106,18 +107,6 @@ func (h *selectorAdminHandlers) gate(w http.ResponseWriter, r *http.Request) boo
 	}
 
 	return requireAdmin(w, r) != nil
-}
-
-// defaultTierBarsWire is selection.DefaultTierBars keyed by tier name.
-func defaultTierBarsWire() map[string]float64 {
-	defaults := selection.DefaultTierBars()
-	out := make(map[string]float64, len(defaults))
-
-	for tier, bar := range defaults {
-		out[string(tier)] = bar
-	}
-
-	return out
 }
 
 // laddersWire renders ladders as wire maps, both roles, all tiers; a nil
@@ -156,7 +145,7 @@ func (h *selectorAdminHandlers) storedLadders(ctx context.Context) (selectorLadd
 	}
 
 	resp := selectorLaddersResponse{
-		Defaults:        defaultTierBarsWire(),
+		Defaults:        laddersWire(nil),
 		Headroom:        selection.DefaultPriceHeadroom,
 		HeadroomDefault: selection.DefaultPriceHeadroom,
 		IsDefault:       len(raw) == 0 && headroom <= 0,
@@ -295,6 +284,12 @@ type selectorCandidatesResponse struct {
 	// ReasoningEffort is llm_endpoint.reasoning_effort, the effort the
 	// gateway pins for its OpenAI models; empty when unset.
 	ReasoningEffort string `json:"reasoning_effort"`
+	// The stats describe the AA snapshot behind the priors; see
+	// modelcatalog.CatalogStats. Zero values mean AA data is absent.
+	IntelligenceIndexVersion string  `json:"intelligence_index_version"`
+	AAScoredModels           int     `json:"aa_scored_models"`
+	ServedScoredModels       int     `json:"served_scored_models"`
+	BestAAScore              float64 `json:"best_aa_score"`
 }
 
 type selectorCandidateView struct {
@@ -309,6 +304,9 @@ type selectorCandidateView struct {
 	// ScoredFrom is the AA slug an automatic join scored the priors from;
 	// empty for a model_priors entry and on the OpenRouter leg.
 	ScoredFrom string `json:"scored_from"`
+	// PriorSource is "aa" or "model_priors": whether the priors are AA
+	// scores or an operator entry.
+	PriorSource string `json:"prior_source"`
 }
 
 // selectorPreviewRequest carries the ladders being edited; they are
@@ -469,6 +467,8 @@ func (h *selectorAdminHandlers) getCandidates(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	stats := h.catalog.Stats(r.Context())
+
 	resp := selectorCandidatesResponse{
 		Candidates:         make([]selectorCandidateView, 0, len(in.candidates)),
 		Favorites:          h.favoriteRules(),
@@ -476,6 +476,11 @@ func (h *selectorAdminHandlers) getCandidates(w http.ResponseWriter, r *http.Req
 		QualityFloor:       h.catalog.Floor(),
 		CatalogRefreshedAt: in.refreshedAt.UTC().Format(time.RFC3339),
 		ReasoningEffort:    h.reasoningEffort,
+
+		IntelligenceIndexVersion: stats.IndexVersion,
+		AAScoredModels:           stats.AAScored,
+		ServedScoredModels:       stats.ServedScored,
+		BestAAScore:              stats.BestAAScore,
 	}
 
 	for _, c := range in.candidates {
@@ -486,6 +491,7 @@ func (h *selectorAdminHandlers) getCandidates(w http.ResponseWriter, r *http.Req
 			ContextWindow: c.ContextWindow,
 			PriceSource:   in.provenance[c.Slug].PriceSource,
 			ScoredFrom:    in.provenance[c.Slug].ScoredFrom,
+			PriorSource:   in.provenance[c.Slug].PriorSource,
 		})
 	}
 

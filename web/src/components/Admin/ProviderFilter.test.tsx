@@ -5,7 +5,7 @@ import { OTHER_PROVIDER, PROVIDER_FILTER_KEY, providerCounts, providerOf, usePro
 import { ProviderFilter } from './ProviderFilter';
 
 function cand(slug: string, creator: string): SelectorCandidate {
-  return { slug, creator, coder_prior: 0.9, reviewer_prior: 0.9, prompt_price_per_tok: 1e-6, completion_price_per_tok: 1e-6, context_window: 200000, price_source: 'gateway', scored_from: '' };
+  return { slug, creator, coder_prior: 0.9, reviewer_prior: 0.9, prompt_price_per_tok: 1e-6, completion_price_per_tok: 1e-6, context_window: 200000, price_source: 'gateway', scored_from: '', prior_source: 'aa' };
 }
 
 // Real backing store + spy-able methods, matching the pattern in

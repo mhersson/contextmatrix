@@ -10,7 +10,7 @@ function ladders(): SelectorLadders {
 }
 
 function cand(slug: string, coder: number, reviewer: number, price = 1e-6, creator?: string): SelectorCandidate {
-  return { slug, creator: creator ?? slug.split('/')[0], coder_prior: coder, reviewer_prior: reviewer, prompt_price_per_tok: price, completion_price_per_tok: price, context_window: 200000, price_source: 'gateway', scored_from: '' };
+  return { slug, creator: creator ?? slug.split('/')[0], coder_prior: coder, reviewer_prior: reviewer, prompt_price_per_tok: price, completion_price_per_tok: price, context_window: 200000, price_source: 'gateway', scored_from: '', prior_source: 'aa' };
 }
 
 // Real backing store + spy-able methods, matching providerFilter.test.tsx, so

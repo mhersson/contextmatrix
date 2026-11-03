@@ -37,7 +37,7 @@ const DEFAULTS = { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.9 };
 function laddersRes(ladders: SelectorLadders, is_default = false, headroom = 1.5): SelectorLaddersResponse {
   return {
     ladders,
-    defaults: { ...DEFAULTS },
+    defaults: { coder: { ...DEFAULTS }, reviewer: { ...DEFAULTS } },
     headroom,
     headroom_default: 1.5,
     is_default,
@@ -57,6 +57,10 @@ function catalogRes(): SelectorCandidatesResponse {
     quality_floor: 0.65,
     catalog_refreshed_at: new Date(Date.now() - 6 * 3600 * 1000).toISOString(),
     reasoning_effort: '',
+    intelligence_index_version: '5',
+    aa_scored_models: 94,
+    served_scored_models: 27,
+    best_aa_score: 59.4,
   };
 }
 
@@ -233,6 +237,20 @@ describe('AdminModelSelectionPage - edit, save, discard, reset', () => {
     expect(screen.getByRole('slider', { name: 'coder critical bar' })).toHaveTextContent('0.90');
     expect(screen.getByTestId('tl-status')).toHaveTextContent('unsaved changes');
     expect(mocks.adminSelectorPutLadders).not.toHaveBeenCalled();
+  });
+
+  it('Reset gives each role its own default ladder, and Save sends them', async () => {
+    const coderDefaults = { simple: 0.65, moderate: 0.75, complex: 0.84, critical: 0.94 };
+    const reviewerDefaults = { simple: 0.9, moderate: 0.9, complex: 0.9, critical: 0.92 };
+    mocks.adminSelectorLadders.mockResolvedValue({ ...laddersRes(savedLadders()), defaults: { coder: coderDefaults, reviewer: reviewerDefaults } });
+    mocks.adminSelectorPutLadders.mockImplementation(async (ladders: SelectorLadders) => laddersRes(ladders));
+    await renderLoaded();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to defaults' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(mocks.adminSelectorPutLadders).toHaveBeenCalled());
+    expect(mocks.adminSelectorPutLadders.mock.calls[0][0]).toEqual({ coder: coderDefaults, reviewer: reviewerDefaults });
   });
 
   it('turning linked on snaps nothing; the next linked drag equalises the tier', async () => {
