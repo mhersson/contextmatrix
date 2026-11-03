@@ -45,6 +45,7 @@ func TestFetchAAModelsFollowsPaginationAndMapsCreators(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	models := cat.Models
 
 	if len(models) != 3 {
@@ -99,6 +100,7 @@ func TestFetchAAModelsPageCapStopsRunaway(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	models := cat.Models
 
 	if got := requests.Load(); got != aaMaxPages {
@@ -156,6 +158,7 @@ func TestFetchAAModelsReadsPricing(t *testing.T) {
 
 	cat, err := fetchAAModels(context.Background(), srv.URL, "k")
 	require.NoError(t, err)
+
 	models := cat.Models
 	require.Len(t, models, 5)
 
@@ -198,6 +201,7 @@ func TestFetchAAModelsReadsCacheRates(t *testing.T) {
 
 	cat, err := fetchAAModels(context.Background(), srv.URL, "k")
 	require.NoError(t, err)
+
 	models := cat.Models
 	require.Len(t, models, 2)
 

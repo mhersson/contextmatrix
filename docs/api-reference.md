@@ -921,7 +921,8 @@ not included - they are per `.board.yaml` and merged at trigger time.
 `token_costs`, `none`); `scored_from` is the AA slug an automatic join scored
 the priors from, empty for a `model_priors` entry and on the OpenRouter leg;
 `prior_source` is `aa` when the priors are AA scores and `model_priors` when
-an operator entry supplies them; `reasoning_effort` echoes `llm_endpoint.reasoning_effort`, empty when unset.
+an operator entry supplies them; `reasoning_effort` echoes
+`llm_endpoint.reasoning_effort`, empty when unset.
 An AA-scored candidate carries the same `coder_prior` and `reviewer_prior`
 (see [quality priors](model-selection.md#quality-priors)).
 
