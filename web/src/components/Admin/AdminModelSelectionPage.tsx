@@ -11,6 +11,7 @@ import type {
   SelectorLaddersResponse,
   SelectorPreview,
   SelectorRole,
+  SelectorTier,
   TierBars,
 } from '../../types';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
@@ -112,6 +113,7 @@ export function AdminModelSelectionPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [delistSlug, setDelistSlug] = useState<string | null>(null);
   const [menu, setMenu] = useState<ModelMenu | null>(null);
+  const [selectedTier, setSelectedTier] = useState<SelectorTier>('complex');
 
   const ladders = draft?.ladders ?? saved.items.ladders;
   const headroom = draft?.headroom ?? saved.items.headroom;
@@ -294,7 +296,11 @@ export function AdminModelSelectionPage() {
             disabled={!editable}
             error={preview.error}
             ladders={ladders}
+            separate={!linked}
             candidates={catalog.items.candidates}
+            blacklist={blacklisted}
+            selectedTier={selectedTier}
+            onSelectTier={setSelectedTier}
             headroom={headroomValid ? headroom : (preview.appliedHeadroom ?? NaN)}
             onModelMenu={openModelMenu}
           />
