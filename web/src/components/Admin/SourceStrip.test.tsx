@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import type { SelectorCandidatesResponse } from '../../types';
 import { SourceStrip } from './SourceStrip';
 
@@ -23,8 +23,10 @@ function catalog(over: Partial<SelectorCandidatesResponse> = {}): SelectorCandid
 describe('SourceStrip', () => {
   it('states the API numbers', () => {
     render(<SourceStrip catalog={catalog()} ready loading={false} />);
-    const strip = screen.getByTestId('tl-source');
-    for (const n of ['411', '273', '3', '0.65', '59.4', 'v5']) expect(strip).toHaveTextContent(n);
+    const strip = within(screen.getByTestId('tl-source'));
+    for (const n of ['411', '273', '3', '59.4']) expect(strip.getByText(n, { selector: 'b' })).toBeInTheDocument();
+    expect(strip.getByText(/ v5$/, { selector: 'b' })).toBeInTheDocument();
+    expect(strip.getByText(/\b0\.65$/)).toBeInTheDocument();
   });
 
   it('claims no version when AA sent none', () => {

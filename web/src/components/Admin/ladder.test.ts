@@ -1,40 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { SelectorCandidate, SelectorLadders, TierBars } from '../../types';
-import {
-  bandsFor,
-  barRange,
-  clampBar,
-  clearedTiers,
-  formatBar,
-  isMonotone,
-  ladderKey,
-  laddersEqual,
-  money,
-  panelHasListPrice,
-  railValue,
-  railY,
-  snapBar,
-  tierOf,
-  usdPerMillion,
-} from './ladder';
+import type { SelectorLadders, TierBars } from '../../types';
+import { barRange, clearedTiers, formatBar, isMonotone, ladderKey, laddersEqual, money, panelHasListPrice, snapBar, usdPerMillion } from './ladder';
 import { seat } from './selector.fixtures';
 
 const DEFAULTS: TierBars = { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.9 };
-
-function cand(slug: string, coder: number, reviewer: number): SelectorCandidate {
-  return { slug, creator: slug.split('/')[0], coder_prior: coder, reviewer_prior: reviewer, prompt_price_per_tok: 1e-6, completion_price_per_tok: 1e-6, context_window: 200000, price_source: 'gateway', scored_from: '', prior_source: 'aa' };
-}
-
-describe('tierOf', () => {
-  it('returns the strictest tier the prior clears, null below every bar', () => {
-    expect(tierOf(DEFAULTS, 0.95)).toBe('critical');
-    expect(tierOf(DEFAULTS, 0.9)).toBe('critical');
-    expect(tierOf(DEFAULTS, 0.85)).toBe('complex');
-    expect(tierOf(DEFAULTS, 0.76)).toBe('moderate');
-    expect(tierOf(DEFAULTS, 0.7)).toBe('simple');
-    expect(tierOf(DEFAULTS, 0.6)).toBeNull();
-  });
-});
 
 describe('clearedTiers', () => {
   it('lists every tier whose bar the prior reaches, lowest first', () => {
@@ -44,32 +13,23 @@ describe('clearedTiers', () => {
   });
 });
 
-describe('rail geometry', () => {
-  it('maps the axis ends to 0% and 100% and clamps outside priors to the edge', () => {
-    expect(railY(1)).toBe(0);
-    expect(railY(0.35)).toBe(100);
-    expect(railY(0.2)).toBe(100);
-    expect(railY(0.675)).toBeCloseTo(50, 9);
-  });
-
-  it('snaps a rail fraction to a 0.005 step', () => {
-    expect(railValue(0)).toBe(1);
-    expect(railValue(0.2)).toBeCloseTo(0.87, 9);
+describe('snapBar', () => {
+  it('snaps to a 0.005 step', () => {
     expect(snapBar(0.8574)).toBeCloseTo(0.855, 9);
     expect(snapBar(0.8576)).toBeCloseTo(0.86, 9);
   });
 });
 
-describe('clampBar and barRange', () => {
+describe('barRange', () => {
+  const one: SelectorLadders = { coder: DEFAULTS, reviewer: DEFAULTS };
+
   it('keeps a bar between its neighbours in the same ladder', () => {
-    expect(clampBar(DEFAULTS, 'complex', 0.95, 0.65)).toBe(0.9);
-    expect(clampBar(DEFAULTS, 'complex', 0.7, 0.65)).toBe(0.76);
-    expect(clampBar(DEFAULTS, 'complex', 0.855, 0.65)).toBe(0.855);
+    expect(barRange(one, ['coder'], 'complex', 0.65)).toEqual([0.76, 0.9]);
   });
 
   it('keeps the lowest bar above the floor and the highest at or below 1', () => {
-    expect(clampBar(DEFAULTS, 'simple', 0.5, 0.65)).toBe(0.65);
-    expect(clampBar(DEFAULTS, 'critical', 1.2, 0.65)).toBe(1);
+    expect(barRange(one, ['coder'], 'simple', 0.6)).toEqual([0.6, 0.76]);
+    expect(barRange(one, ['coder'], 'critical', 0.65)).toEqual([0.82, 1]);
   });
 
   it('intersects the ranges of every ladder a linked drag writes to', () => {
@@ -87,18 +47,6 @@ describe('clampBar and barRange', () => {
       reviewer: { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.83 },
     };
     expect(barRange(ladders, ['coder', 'reviewer'], 'complex', 0.65)).toBeNull();
-  });
-});
-
-describe('bandsFor', () => {
-  it('draws five bands strictest first and counts members by membership', () => {
-    const cands = [cand('a/top', 1, 0.5), cand('a/mid', 0.85, 0.85), cand('b/low', 0.7, 0.95), cand('c/floor', 0.5, 0.4)];
-    const bands = bandsFor(DEFAULTS, cands, 'coder');
-    expect(bands.map((b) => b.tier)).toEqual(['critical', 'complex', 'moderate', 'simple', null]);
-    expect(bands.map((b) => b.count)).toEqual([1, 1, 0, 1, 1]);
-    expect(bands[0].top).toBe(1);
-    expect(bands[0].bottom).toBe(0.9);
-    expect(bands[4].bottom).toBe(0.35);
   });
 });
 

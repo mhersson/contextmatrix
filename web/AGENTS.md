@@ -34,8 +34,8 @@ Auto-loaded when working in `web/`. Backend conventions live in the root
   NowRail-open, column-sort preferences, `contextmatrix-manual-order-<project>`,
   `contextmatrix-board-header-collapsed`,
   `contextmatrix-sidebar-repo-collapsed` (sidebar repo sections),
-  `contextmatrix-ladder-provider-filter` (model selection ladder provider
-  checkboxes; stores the set of hidden providers),
+  `contextmatrix-ladder-provider-filter` (model selection provider chips;
+  stores the set of hidden providers),
   `contextmatrix-round-drafts` (unsent question-round picks, decisions and typed
   own answers kept per session and round until sent; cleared when the round
   closes, pruned per session, capped at 50 entries),

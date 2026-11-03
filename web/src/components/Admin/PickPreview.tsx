@@ -154,7 +154,6 @@ export function PickPreview({
                     className={`tl-pv-tier${selected ? ' sel' : ''}`}
                     style={{ '--tier-c': TIER_COLOR[tier] } as CSSProperties}
                     data-testid={`tl-pv-${tier}`}
-                    aria-selected={selected}
                     onClick={() => onSelectTier(tier)}
                   >
                     <td className="tl-pv-tiercell">

@@ -684,35 +684,75 @@ See [playbooks](playbooks.md#follow-ups).
 
 ## Model selection
 
-`/admin/model-selection` is the tier ladders page: one quality ladder per role
-(coder, reviewer) over the live candidate catalog. Each column shows every
-candidate as a pill at its prior with the tier bands and their counts; the bars
-are draggable handles (coder handles on the left rail, reviewer handles at the
-reviewer column's edge). The **linked** switch in the panel head starts on when
-the two saved ladders are equal and off when they differ; when on, it moves the
-same tier in both ladders and keeps them equal. The panel head also holds a
-**Price headroom** number field (the best-value band multiplier, at least 1,
-built-in 1.5) that is saved with the ladders and applied by the pick preview. A
-row of provider checkboxes on its own line under the legend swatches (with
-per-provider counts and `all` / `none` buttons) hides pills on both columns while a provider is
-unchecked; the selection is remembered per browser and is display-only - it
-never changes picks, seats, KPIs, band counts, saved ladders or any request. A
-filled pill is the pick at its rung, a dashed outline a panel seat, a struck one a
-blacklisted model. The pick preview beside it shows, per tier, the coder pick,
-the reviewer pick and the three-seat review panel with prices, `↓ <rung>` when a
-pick descended and `walked` on a seat that re-anchored its price band. A price
-marked *list* is the Artificial Analysis list price for a model the gateway does
-not price. A pill's tooltip names the AA row the candidate was scored from; the
-panel meta line names the reasoning effort the gateway pins for its OpenAI
-models when one is configured. The KPI row summarises the `complex` tier (reviewers clearing it,
-the cheapest reviewer, the three-seat panel cost) plus the coder pick at
-`moderate`. Nothing is sent until **Save**; the status pill in the header says
-whether the next run uses the values on screen. The blacklist panel below lists
-the models the agent reported incapable, with a per-row **Delist**.
-Right-clicking a pill, a pick name in the preview, or a panel seat opens a
-menu with **Add to blacklist**, or **Remove from blacklist** when the model is
-already struck; either change refetches the catalog and re-runs the preview at
-once, independently of the unsaved ladders. Details in
+`/admin/model-selection` is the tier ladders page. A data-source strip under
+the header states the catalog snapshot the page shows: the Artificial Analysis
+Intelligence Index version, the AA models scored, the models scored and served
+by the gateway with tool use, the candidate count and quality floor, the best
+AA score (prior 1.00), the reasoning effort the gateway pins for its OpenAI
+models when one is configured, the refresh time, and a link to Artificial
+Analysis. While the catalog is loading or unavailable the strip shows no
+numbers.
+
+The **Tier ladder** panel plots every candidate as a point on a price ×
+quality chart. The x axis is the prompt + completion price per million tokens
+on a log scale, with unpriced candidates in a narrow "no price" gutter at the
+left edge; the right axis is the prior (0-1), and the left axis shows AA
+Intelligence Index points only when the catalog knows the best AA score. The
+quality floor is a dashed line marked "(config)" with the area below it
+shaded. Each tier bar is a horizontal line with a draggable handle labelled
+with the tier initial (`S`, `M`, `C`, `X`) and the bar; handles that would
+overlap fan out with a connector to their line, a drag clamps between the
+neighbouring bars and at or above the floor, and the arrow keys step a focused
+handle by 0.005 (Home and End jump to the ends of its range). A candidate
+whose coder and reviewer priors differ (a `model_priors` entry) is two points
+at one price joined by a thin segment.
+
+The **Separate reviewer ladder** switch in the panel head always starts on,
+whatever the saved ladders are: coder lines are solid with handles on the left
+edge, reviewer lines dashed with handles on the right edge, each in its role
+colour. Turning it off copies the coder ladder onto the reviewer ladder
+(unsaved, so the page turns dirty when the two differed) and leaves one set of
+lines, each labelled with its tier and bar, whose handles move both ladders;
+turning it back on starts the reviewer handles where the coder handles are.
+**Discard changes** and **Reset to defaults** turn it back on; **Save** keeps
+it as it is. The panel head also holds the **Price headroom** field (the
+best-value band multiplier, at least 1, built-in 1.5), saved with the ladders
+and applied by the pick preview.
+
+The selected tier (`complex` at first) drives the chart's marks: its coder
+pick is a filled point in the coder colour, its reviewer pick a filled point
+in the reviewer colour, its panel seats get a dashed ring, and only those
+points carry a name label. Each role's price band for that tier, from the
+cheapest price in the preview's pool to that price × the applied headroom, is
+a stripe tinted in the role colour above the bar of the rung the pick landed
+on; when both roles land on the same band it reads as one stripe. A
+blacklisted point is faded and struck. Hovering a point shows its slug, its
+prior and, when the best AA score is known, its AA score (or "operator prior"
+with both values for a `model_priors` entry, never an AA score), its prompt
+and completion prices, the tiers it clears (per role when they differ), and
+the AA row it was scored from when an automatic join scored it.
+
+Provider chips above the chart, each with its candidate count, plus `all` and
+`none`, hide that provider's points; the panel meta then shows
+`N of M candidates shown`. The selection is remembered per browser and is
+display-only: it never changes the scales, picks, seats, counts, saved ladders
+or any request.
+
+The pick preview sits right of the chart, and under it on narrow screens. Its
+rows run from `critical` to `simple`: the bar (both bars when the switch is on
+and they differ), how many candidates outside the blacklist clear it (per role
+when the counts differ), the coder pick, the reviewer pick and the three-seat
+review panel with prices and the panel total, `↓ <rung>` when a pick walked
+down and `walked` on a seat that re-anchored its price band. A price marked
+*list* is the Artificial Analysis list price for a model the gateway does not
+price. Clicking a row selects that tier on the chart. Nothing is sent until
+**Save**; the status pill in the header says whether the next run uses the
+values on screen. The blacklist panel below lists the models the agent
+reported incapable, with a per-row **Delist**. Right-clicking a point, a pick
+name in the preview, or a panel seat opens a menu with **Add to blacklist**, or
+**Remove from blacklist** when the model is already struck; either change
+refetches the catalog and re-runs the preview at once, independently of the
+unsaved ladders. Details in
 [model selection](model-selection.md#the-ladders-page).
 
 ## Keyboard shortcuts

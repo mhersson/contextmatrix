@@ -118,21 +118,21 @@ describe('PickPreview', () => {
     expect(within(screen.getByTestId('tl-pv-simple')).queryByText('list')).toBeNull();
   });
 
-  it('clicking a tier row selects it, and aria-selected follows selectedTier', () => {
+  it('clicking a tier row selects it, and aria-pressed follows selectedTier', () => {
     const onSelectTier = vi.fn();
+    const tierButton = (tier: string) => within(screen.getByTestId(`tl-pv-${tier}`)).getByRole('button', { name: tier });
     const { rerender } = render(<PickPreview preview={previewFixture()} pending={false} disabled={false} error={null} {...BASE} onSelectTier={onSelectTier} />);
 
-    expect(screen.getByTestId('tl-pv-complex')).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByTestId('tl-pv-moderate')).toHaveAttribute('aria-selected', 'false');
-    fireEvent.click(within(screen.getByTestId('tl-pv-moderate')).getByRole('button', { name: 'moderate' }));
+    expect(tierButton('complex')).toHaveAttribute('aria-pressed', 'true');
+    expect(tierButton('moderate')).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(tierButton('moderate'));
     expect(onSelectTier).toHaveBeenLastCalledWith('moderate');
     fireEvent.click(within(screen.getByTestId('tl-pv-simple')).getByText('4 clear'));
     expect(onSelectTier).toHaveBeenLastCalledWith('simple');
 
     rerender(<PickPreview preview={previewFixture()} pending={false} disabled={false} error={null} {...BASE} selectedTier="moderate" onSelectTier={onSelectTier} />);
-    expect(screen.getByTestId('tl-pv-moderate')).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByTestId('tl-pv-complex')).toHaveAttribute('aria-selected', 'false');
-    expect(within(screen.getByTestId('tl-pv-moderate')).getByRole('button', { name: 'moderate' })).toHaveAttribute('aria-pressed', 'true');
+    expect(tierButton('moderate')).toHaveAttribute('aria-pressed', 'true');
+    expect(tierButton('complex')).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('counts candidates per role, leaving out blacklisted ones', () => {

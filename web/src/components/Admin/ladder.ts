@@ -1,24 +1,22 @@
 import type { SelectorCandidate, SelectorLadders, SelectorRole, SelectorSeat, SelectorTier, TierBars } from '../../types';
 
-/** Tiers from the strictest bar down - the order the rail draws them. */
+/** Tiers from the strictest bar down - the order the preview lists them. */
 export const TIERS_DESC: SelectorTier[] = ['critical', 'complex', 'moderate', 'simple'];
 /** Tiers from the lowest bar up - the order a ladder must be non-decreasing in. */
-export const TIERS_ASC: SelectorTier[] = ['simple', 'moderate', 'complex', 'critical'];
+const TIERS_ASC: SelectorTier[] = ['simple', 'moderate', 'complex', 'critical'];
 export const ROLES: SelectorRole[] = ['coder', 'reviewer'];
 
-/** Palette token per tier; below-floor uses the neutral border token. */
+/** Palette token per tier. */
 export const TIER_COLOR: Record<SelectorTier, string> = {
   critical: 'var(--red)',
   complex: 'var(--yellow)',
   moderate: 'var(--aqua)',
   simple: 'var(--green)',
 };
-export const BELOW_FLOOR_COLOR = 'var(--bg3)';
 
 /** Drag resolution: bars move in steps of 0.005. */
 export const BAR_STEP = 0.005;
-/** The rail spans this prior range; a candidate below it sits at the bottom edge. */
-export const AXIS_MIN = 0.35;
+/** The highest a bar may go. */
 export const AXIS_MAX = 1;
 
 export function priorOf(c: SelectorCandidate, role: SelectorRole): number {
@@ -29,28 +27,9 @@ export function blendedPrice(c: SelectorCandidate): number {
   return c.prompt_price_per_tok + c.completion_price_per_tok;
 }
 
-/** Strictest tier whose bar the prior clears, null when it clears none. */
-export function tierOf(bars: TierBars, prior: number): SelectorTier | null {
-  for (const t of TIERS_DESC) {
-    if (prior >= bars[t]) return t;
-  }
-  return null;
-}
-
 /** Every tier whose bar the prior clears, lowest first. */
 export function clearedTiers(bars: TierBars, prior: number): SelectorTier[] {
   return TIERS_ASC.filter((t) => prior >= bars[t]);
-}
-
-/** Vertical position on the rail as a percentage from the top. */
-export function railY(prior: number): number {
-  const clamped = Math.min(AXIS_MAX, Math.max(AXIS_MIN, prior));
-  return (1 - (clamped - AXIS_MIN) / (AXIS_MAX - AXIS_MIN)) * 100;
-}
-
-/** Prior at a fraction of the rail height from the top, snapped to BAR_STEP. */
-export function railValue(fraction: number): number {
-  return snapBar(AXIS_MAX - fraction * (AXIS_MAX - AXIS_MIN));
 }
 
 export function snapBar(v: number): number {
@@ -82,32 +61,6 @@ export function barRange(
     if (idx < TIERS_ASC.length - 1) hi = Math.min(hi, ladders[r][TIERS_ASC[idx + 1]]);
   }
   return lo <= hi + 1e-9 ? [round3(lo), round3(hi)] : null;
-}
-
-/** Clamp a bar for `tier` between its neighbours in `bars` and above `floor`. */
-export function clampBar(bars: TierBars, tier: SelectorTier, value: number, floor: number): number {
-  const range = barRange({ coder: bars, reviewer: bars }, ['coder'], tier, floor);
-  if (!range) return round3(bars[tier]);
-  return round3(Math.max(range[0], Math.min(range[1], value)));
-}
-
-export interface Band {
-  tier: SelectorTier | null;
-  /** Prior at the band's upper edge. */
-  top: number;
-  /** Prior at the band's lower edge. */
-  bottom: number;
-  count: number;
-}
-
-/** The five bands a column draws under `bars`, strictest first; the last is below floor. */
-export function bandsFor(bars: TierBars, candidates: SelectorCandidate[], role: SelectorRole): Band[] {
-  const edges = [AXIS_MAX, ...TIERS_DESC.map((t) => bars[t]), AXIS_MIN];
-  return edges.slice(0, -1).map((top, i) => {
-    const tier = TIERS_DESC[i] ?? null;
-    const count = candidates.filter((c) => tierOf(bars, priorOf(c, role)) === tier).length;
-    return { tier, top, bottom: edges[i + 1], count };
-  });
 }
 
 export function laddersEqual(a: SelectorLadders, b: SelectorLadders): boolean {
