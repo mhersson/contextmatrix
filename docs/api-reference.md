@@ -868,7 +868,7 @@ saved, and is the later of the two writes. Does not depend on the catalog.
     "coder":    { "simple": 0.65, "moderate": 0.80, "complex": 0.90, "critical": 0.95 },
     "reviewer": { "simple": 0.65, "moderate": 0.76, "complex": 0.82, "critical": 0.93 }
   },
-  "defaults": { "simple": 0.65, "moderate": 0.76, "complex": 0.82, "critical": 0.90 },
+  "defaults": { "simple": 0.50, "moderate": 0.76, "complex": 0.82, "critical": 0.90 },
   "headroom": 2.0,
   "headroom_default": 1.5,
   "is_default": false,
@@ -936,7 +936,7 @@ An AA-scored candidate carries the same `coder_prior` and `reviewer_prior`
   ],
   "favorites": [{ "tier": "critical", "role": "reviewer", "models": ["anthropic/claude-opus-5"] }],
   "blacklist": ["moonshotai/kimi-k2.7-code"],
-  "quality_floor": 0.65,
+  "quality_floor": 0.50,
   "catalog_refreshed_at": "2026-09-10T06:00:00Z",
   "reasoning_effort": ""
 }

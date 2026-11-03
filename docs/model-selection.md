@@ -122,7 +122,7 @@ separate coder and reviewer values.
 
 The priors are **relative to the current best model**, not absolute scores.
 When a new frontier model tops the leaderboard, every other model's priors
-drop on the next refresh. The 0.65 floor therefore means "within 65% of the
+drop on the next refresh. The 0.50 floor therefore means "within 50% of the
 current best", and floor drift after leaderboard shake-ups is expected
 behavior, not a bug.
 
@@ -152,9 +152,9 @@ entries bypass it: they are explicit operator intent.
 
 A model is dropped when **both** priors fall below the floor; clearing the
 floor for either role keeps it as a candidate for that role's picks. The floor
-defaults to 0.65 and is configured via `backends.agent.catalog_quality_floor`
+defaults to 0.50 and is configured via `backends.agent.catalog_quality_floor`
 (env `CONTEXTMATRIX_BACKEND_AGENT_CATALOG_QUALITY_FLOOR`). 0 means unset, and
-the Builder's fallback keeps the effective floor at 0.65 ("within 65% of the
+the Builder's fallback keeps the effective floor at 0.50 ("within 50% of the
 current best"); values outside [0, 1) are rejected at config load.
 
 ### Slug mapping (OpenRouter leg)
@@ -436,7 +436,7 @@ defaults:
 
 | Tier       | Bar (prior must be >=) |
 | ---------- | ---------------------- |
-| `simple`   | 0.65                   |
+| `simple`   | 0.50                   |
 | `moderate` | 0.76                   |
 | `complex`  | 0.82                   |
 | `critical` | 0.90                   |
@@ -825,14 +825,14 @@ overrides; this table maps the knobs to their effect on selection.
 | `backends.agent.model_allowlist`     | built-in vendor list | Replaces the trusted-creator list; screens the OpenRouter catalog and the `openai` leg's automatic matches |
 | `backends.agent.model_priors`        | none                 | Verbatim 0..1 priors for slugs AA does not rate; bypasses the join and the allowlist (`openai` leg only) |
 | `backends.agent.favorites`           | none                 | Per-tier preferred models, optionally per role                          |
-| `backends.agent.catalog_quality_floor` | 0.65               | Minimum quality prior on at least one role to keep a model as a selection candidate; applies to both catalog legs. Env `CONTEXTMATRIX_BACKEND_AGENT_CATALOG_QUALITY_FLOOR` |
+| `backends.agent.catalog_quality_floor` | 0.50               | Minimum quality prior on at least one role to keep a model as a selection candidate; applies to both catalog legs. Env `CONTEXTMATRIX_BACKEND_AGENT_CATALOG_QUALITY_FLOOR` |
 | `favorites` in a project `.board.yaml` | none               | Per-project override; replaces the global entry per tier; hand-edited only (see the [data model](data-model.md#project-board-config-format)) |
 | `llm_endpoint.type`                  | `openrouter`         | Selects the catalog leg and the wire dialect                            |
 | `llm_endpoint.reasoning_effort`      | unset                | The reasoning effort the gateway pins for its OpenAI models (`openai` leg only); the join prefers the AA row carrying it for OpenAI families and ignores it for other creators. Env `CONTEXTMATRIX_LLM_ENDPOINT_REASONING_EFFORT` |
 | `best_of_n.max_candidates`           | 5                    | Hard cap on a card's race size                                          |
 | `best_of_n.default_candidates`       | 3                    | UI-suggested race size                                                  |
 | Price headroom (admin page, stored in `ops.db`) | 1.5        | Width of the price band; edited on the Model selection admin page with the ladders; travels as `selection.price_headroom` |
-| Tier ladders (admin page, stored in `ops.db`) | built-in ladder (0.65 / 0.76 / 0.82 / 0.90) for both roles | Per-role quality bars; edited on the Model selection admin page, never in a config file; travel as `selection.tier_bars` |
+| Tier ladders (admin page, stored in `ops.db`) | built-in ladder (0.50 / 0.76 / 0.82 / 0.90) for both roles | Per-role quality bars; edited on the Model selection admin page, never in a config file; travel as `selection.tier_bars` |
 
 **Not configurable** (compile-time constants): the 6-hour catalog TTL and
 60-second failure cooldown, the AA pagination cap and fetch budget, the API

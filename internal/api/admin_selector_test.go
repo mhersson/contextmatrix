@@ -348,8 +348,8 @@ func previewCatalog() *stubSelectorCatalog {
 
 func defaultLadderBody() map[string]any {
 	return map[string]any{"ladders": map[string]map[string]float64{
-		"coder":    {"simple": 0.65, "moderate": 0.76, "complex": 0.82, "critical": 0.90},
-		"reviewer": {"simple": 0.65, "moderate": 0.76, "complex": 0.82, "critical": 0.90},
+		"coder":    {"simple": 0.50, "moderate": 0.76, "complex": 0.82, "critical": 0.90},
+		"reviewer": {"simple": 0.50, "moderate": 0.76, "complex": 0.82, "critical": 0.90},
 	}}
 }
 

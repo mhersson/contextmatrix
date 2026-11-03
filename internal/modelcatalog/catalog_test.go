@@ -1120,3 +1120,25 @@ func TestBuilderContextWindowNilReceiver(t *testing.T) {
 
 	assert.Zero(t, b.ContextWindow(context.Background(), "any-model"))
 }
+
+func TestBuildWithUnsetFloorKeepsModelsAboveFiftyPercent(t *testing.T) {
+	aa := []aaModel{
+		{Slug: "top-1", Creator: "openai", IntelIndex: new(59.9)},  // max => norm 1.0
+		{Slug: "mid-1", Creator: "openai", IntelIndex: new(32.95)}, // norm ~.55
+		{Slug: "low-1", Creator: "openai", IntelIndex: new(29.35)}, // norm ~.49
+	}
+	or := map[string]orEntry{
+		"openai/top-1": {PromptPrice: 1e-6, CompletionPrice: 2e-6, ContextWindow: 8192, Tools: true},
+		"openai/mid-1": {PromptPrice: 1e-6, CompletionPrice: 2e-6, ContextWindow: 8192, Tools: true},
+		"openai/low-1": {PromptPrice: 1e-6, CompletionPrice: 2e-6, ContextWindow: 8192, Tools: true},
+	}
+
+	b := NewBuilder("", 0, nil, 0)
+
+	var slugs []string
+	for _, c := range build(aa, or, b.Floor(), nil) {
+		slugs = append(slugs, c.Slug)
+	}
+
+	assert.ElementsMatch(t, []string{"openai/top-1", "openai/mid-1"}, slugs)
+}

@@ -25,7 +25,7 @@ import { useSelectorPreview } from './useSelectorPreview';
 // Placeholders behind the loading state; never rendered as data. The
 // built-in ladder here matches selection.DefaultTierBars only so a
 // half-loaded page has a valid shape.
-const BUILTIN_BARS: TierBars = { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.9 };
+const BUILTIN_BARS: TierBars = { simple: 0.5, moderate: 0.76, complex: 0.82, critical: 0.9 };
 const EMPTY_LADDERS: SelectorLaddersResponse = {
   ladders: { coder: { ...BUILTIN_BARS }, reviewer: { ...BUILTIN_BARS } },
   defaults: { ...BUILTIN_BARS },
@@ -37,7 +37,7 @@ const EMPTY_CATALOG: SelectorCandidatesResponse = {
   candidates: [],
   favorites: [],
   blacklist: [],
-  quality_floor: 0.65,
+  quality_floor: 0.5,
   catalog_refreshed_at: '',
   reasoning_effort: '',
 };

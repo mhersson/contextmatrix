@@ -122,10 +122,10 @@ func WithTokenCosts(costs map[string]ModelPrice) BuilderOption {
 	return func(b *Builder) { b.tokenCosts = costs }
 }
 
-// NewBuilder constructs a Builder. floor<=0 defaults to 0.65; ttl<=0 to 6h.
+// NewBuilder constructs a Builder. floor<=0 defaults to 0.50; ttl<=0 to 6h.
 func NewBuilder(aaKey string, floor float64, allowlist []string, ttl time.Duration, opts ...BuilderOption) *Builder {
 	if floor <= 0 {
-		floor = 0.65
+		floor = 0.50
 	}
 
 	if ttl <= 0 {
