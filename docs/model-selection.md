@@ -93,12 +93,12 @@ and the served-model list of the configured gateway.
 **Artificial Analysis** supplies quality. The Builder fetches
 `https://artificialanalysis.ai/api/v2/language/models/free` with the
 `x-api-key` header (`backends.agent.aa_api_key`), paginated at 200 models
-per page, capped at 10 pages and 60 seconds per refresh. Four fields are
-consumed per model: the AA slug, the creator name, the coding index, and the
-intelligence index. AA also publishes each row's list price (`price_1m_input_tokens`,
+per page, capped at 10 pages and 60 seconds per refresh. Three fields are
+consumed per model: the AA slug, the creator name, and the intelligence
+index. AA also publishes each row's list price (`price_1m_input_tokens`,
 `price_1m_output_tokens`), which the `openai` leg uses to price candidates
 (see [endpoint pricing](#endpoint-pricing)). The free tier's 100 requests per
-day is ample: a refresh spends one request per page (the catalog is about 3
+day is ample: a refresh spends one request per page (the catalog is about 4
 pages), and the 6-hour cache holds normal operation to about 4 refreshes per
 day. Failed refreshes retry on a 60-second cooldown, so a broken AA response
 spends more.
@@ -112,52 +112,19 @@ Bearer token, and tool capability is read from `capabilities.features`.
 
 ### Quality priors
 
-Each candidate carries two priors in `[0, 1]`:
-
-- `coder_prior` = AA coding index / the highest coding index in the response
-- `reviewer_prior` = AA intelligence index / the highest intelligence index
+Each candidate carries two priors in `[0, 1]`, `coder_prior` and
+`reviewer_prior`. For an AA-scored candidate both are the same number: the AA
+intelligence index / the highest intelligence index in the response. AA
+publishes no coding index, and the intelligence index is the only AA score
+ContextMatrix reads. A row without an intelligence index is unscored and never
+becomes a candidate. Only a `model_priors` entry (the `openai` leg) carries
+separate coder and reviewer values.
 
 The priors are **relative to the current best model**, not absolute scores.
 When a new frontier model tops the leaderboard, every other model's priors
 drop on the next refresh. The 0.65 floor therefore means "within 65% of the
 current best", and floor drift after leaderboard shake-ups is expected
 behavior, not a bug.
-
-**The coder-prior fallback.** AA stopped publishing the coding index for
-models released after its Intelligence Index v4.3 switch (2026-09), so those
-rows carry `coding_index: null` and would get `coder_prior = 0`. At each
-catalog build ContextMatrix fits a linear regression of the normalized coder
-prior on the normalized intelligence prior, computed per build from the
-current AA response - never hard-coded - over rows that have both indices,
-pass the creator screen, and clear the floor on either prior. A row with no
-coding index but a non-nil intelligence index is then estimated at
-`fit(intel) - residual_sd`, so an unproven model does not rank as a coder on
-a guess. The quality floor screens the estimated coder prior, so a model
-whose intelligence prior is below the floor stays a candidate when its
-estimate clears it.
-
-The fallback is guarded: when fewer than 20 rows qualify for the fit or the
-correlation is below 0.8, it is disabled for that build and priors stay 0
-(the pre-fallback behavior). The residual-sd margin keeps the estimate
-conservative, and the estimate is capped at the highest **measured** coder
-prior in the fit set minus 0.01 - an estimated model never ties or outranks
-the best measured coder, which matters because on equal priors price decides.
-The estimate is clamped to `[0, 1]`.
-
-The fallback runs on both legs: `build` (the `openrouter` leg) and
-`buildEndpointCandidates` (the `openai` leg, on the AA row the `closest`
-join chose). Rows with a real coding index are never estimated, and
-`model_priors` entries are explicit operator intent, so they are never
-estimated either. On the OpenRouter leg the effort-variant collapse prefers
-a row with a measured coding index over an estimated one for the same served
-slug, regardless of priors; between rows of the same kind the largest
-combined priors still win.
-
-Estimated slugs carry `CoderPriorEstimated` in the candidate provenance
-(surfaced as `coder_prior_estimated` on the admin selector candidate JSON).
-Each refresh logs the list of estimated slugs at info level, and logs at
-info when a slug the previous snapshot had estimated now has a measured
-coding index again.
 
 ### Creator screen and the allowlist
 
@@ -203,7 +170,7 @@ The mapped slug is then joined against the served catalog: the model must be
 served **and tool-capable** (the agent drives everything through tool calls).
 The join attaches per-token prompt and completion prices and the context
 window. Finally, effort variants of the same served slug collapse to the
-single row with the best combined priors.
+single row with the highest intelligence index.
 
 ### The `openai` endpoint leg
 
@@ -214,7 +181,7 @@ instead:
 | ----------------- | --------------------------------------------- | ------------------------------------------------------------- |
 | Eligibility       | trusted-creator allowlist                     | automatic AA family join screened by the same allowlist, or a `model_priors` entry |
 | Quality source    | AA row joined by mapped slug                  | the closest scored row of the joined AA family, or verbatim `model_priors` |
-| Variant handling  | best combined-prior row per served slug       | the row for the wanted effort (served suffix, else `llm_endpoint.reasoning_effort` for OpenAI families) when scored; else closest row first: the family base row when scored, else the fewest-stripped scored variant |
+| Variant handling  | highest-intelligence row per served slug      | the row for the wanted effort (served suffix, else `llm_endpoint.reasoning_effort` for OpenAI families) when scored; else closest row first: the family base row when scored, else the fewest-stripped scored variant |
 | Pricing / window  | OpenRouter catalog                            | window from the endpoint catalog; candidate price from the gateway, else AA, else `token_costs` |
 
 **The automatic join.** Served ids and AA slugs are reduced to one canonical
@@ -236,7 +203,7 @@ of each `alias_names` entry the gateway lists. The first key with AA rows
 wins. Within that family the scored row closest to the served id supplies the
 priors: the row whose slug equals the key when it is scored, otherwise the
 scored row with the fewest effort suffixes stripped, then the fewest date
-tokens stripped, then the highest combined prior. A gateway serving `gpt-5.2`
+tokens stripped, then the highest intelligence index. A gateway serving `gpt-5.2`
 is scored from AA's `gpt-5-2` row, not from `gpt-5-2-medium`; one serving
 `deepseek-v4-flash` is scored from `deepseek-v4-flash-0420`. Closeness is
 measured against the family key, with one refinement: when the served id names
@@ -477,11 +444,10 @@ defaults:
 The ladder is set per role on the Model selection admin page
 (`/admin/model-selection`), stored in CM's `ops.db`, and sent with every run
 as `selection.tier_bars`; it is not a config-file setting on either side.
-There is one ladder for coder picks and one for reviewer picks because the
-two priors come from different indices with different shapes: the coding
-index bunches near the top while the intelligence index spreads, so one bar
-gates the two roles very differently. The page links the two whenever the
-saved ladders are equal, so a drag moves the same tier in both; unlinked,
+There is one ladder for coder picks and one for reviewer picks, so the two
+roles can demand different quality from the same prior (and a `model_priors`
+entry can carry separate values per role). The page links the two whenever
+the saved ladders are equal, so a drag moves the same tier in both; unlinked,
 each moves alone.
 
 The ladders reach a run only when the candidate catalog is configured: CM
@@ -522,16 +488,6 @@ buttons) hides the unchecked providers' pills on both columns. The selection
 is remembered per browser and is display-only: it never changes picks, seats,
 KPIs, band counts, saved ladders or any request.
 
-A coder pill whose prior was estimated from the intelligence index (see
-[the coder-prior fallback](#quality-priors)) is marked three ways: a `~`
-before the prior value, an italic dotted-border pill treatment, and a
-tooltip line (`coder prior estimated from intelligence index (AA has no
-coding index yet)`). The reviewer column is never marked - its prior is a
-real intelligence index. The legend carries the same marker, and the panel
-meta line shows `N estimated` next to the candidate count while any
-candidate is estimated, so it is obvious when AA catches up: the count drops
-and the markers disappear on the next refresh.
-
 Right-clicking a pill, a pick name in the preview, or a panel seat opens a
 one-item menu for that model: **Add to blacklist**, or **Remove from
 blacklist** when it is already struck (the same confirm as the table's
@@ -552,7 +508,8 @@ differently at a tier where those apply.
 The same model serves every tier whose bar it clears. Cost never decides a
 tier - it only orders models within the eligible set. The bar is compared
 against the role's prior: `coder_prior` for coder picks, `reviewer_prior` for
-reviewer picks, so a model can qualify for `complex` review work while only
+reviewer picks. When the two ladders differ, or a `model_priors` entry carries
+different values, a model can qualify for `complex` review work while only
 clearing `moderate` for coding.
 
 ### How tiers are assigned
@@ -895,7 +852,6 @@ endpoints, and the equal prompt+completion price weighting.
 | A model keeps disappearing from selection      | It was reported incapable and blacklisted                             | Check the admin model-selection page; delist it there, or pin it for one card      |
 | A saved ladder has no effect on picks          | The agent predates protocol v0.19 and ignores `tier_bars`             | Upgrade the agent; until then it runs its built-in ladder                         |
 | `503 catalog not available yet` on the ladders page | No `aa_api_key`, or the first catalog refresh has not completed  | The ladders still load and save; candidates and preview appear after the first refresh |
-| A new model shows `~` on the coder ladder      | AA has no coding index for it yet (models released after Intelligence Index v4.3), so the coder prior is estimated from the intelligence index | Expected until AA publishes a coding index; the estimate is conservative (fit minus residual sd, capped below the best measured coder) and the marker disappears on the refresh after AA publishes one |
 | Recorded outcomes visibly not affecting picks  | Selection is priors-only                                              | By design - the outcome ledger is observability, never a selection input           |
 | Priors dropped across the board overnight      | A new frontier model topped the AA leaderboard                        | Priors are normalized to the current best; expected drift                          |
 | A newly served model is missing                | Catalog is cached                                                     | Up to 6h staleness; restart CM to force a refresh                                  |
