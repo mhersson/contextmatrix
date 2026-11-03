@@ -498,14 +498,16 @@ role's prior.
 
 Clicking a tier in the pick preview (`complex` at first) selects it on the
 chart: its coder pick is filled in the coder colour, its reviewer pick in the
-reviewer colour, its panel seats get a dashed ring, and only those points
-carry a label. Each role's price band for that tier is shaded above the bar of
-the rung the pick landed on, from the cheapest price in the preview's pool for
-that tier and role to that price × the applied headroom. Bands that coincide draw as one stripe in a neutral colour. The legend always names both roles and, with the separate-ladder switch off, the shared tier lines. A point's tooltip
-shows the prior and, when the best AA score is known, the AA score (prior ×
-best AA score), or "operator prior" with both values for a `model_priors`
-entry; then the prices, the tiers it clears (per role when they differ), and
-the AA row it was scored from when an automatic join scored it.
+reviewer colour, its panel seats get a dashed ring, and only those points carry
+a label. Each role's price band for that tier is shaded above the bar of the
+rung the pick landed on, from the cheapest price in the preview's pool for that
+tier and role to that price × the applied headroom. Bands that coincide draw as
+one yellow stripe. The legend always names both roles and, with the
+separate-ladder switch off, the shared tier lines. A point's tooltip shows the
+prior and, when the best AA score is known, the AA score (prior × best AA
+score), or "operator prior" with both values for a `model_priors` entry; then
+the prices, the tiers it clears (per role when they differ), and the AA row it
+was scored from when an automatic join scored it.
 
 The preview table lists, per tier from `critical` to `simple`, the bar or
 bars, how many candidates clear it, the coder and reviewer picks and the
