@@ -834,15 +834,16 @@ overridden by the card's `model_orchestrator` pin); the harness's selector
 picks the other seats per tier from the candidates in the trigger. Cards can
 also pin `model_coder` and `model_reviewer`.
 
-| Seat                                                                  | Role     | Tier or source                     |
-| --------------------------------------------------------------------- | -------- | ---------------------------------- |
-| Orchestrator phases (planning, review synthesis, docs)                | -        | `default_model` or card pin        |
-| Subtask coder                                                         | coder    | Subtask tier                       |
-| Review panel                                                          | reviewer | Card tier                          |
-| Review-fix coder                                                      | coder    | Verdict `fix_tier`, else card tier |
-| Decision phases (plan decomposition, review synthesis, mob moderator) | reviewer | `complex` floor                    |
-| Best-of-N judge, mob seats, authoritative review pass                 | reviewer | Forced `complex`                   |
-| Verify-command proposer                                               | reviewer | `simple`                           |
+| Seat                                                                  | Role             | Tier or source                                              |
+| --------------------------------------------------------------------- | ---------------- | ----------------------------------------------------------- |
+| Orchestrator phases (planning, review synthesis, docs)                | -                | `default_model` or card pin                                 |
+| Subtask coder                                                         | coder            | Subtask tier                                                |
+| Review panel                                                          | reviewer         | Card tier                                                   |
+| Review-fix coder                                                      | coder            | Verdict `fix_tier`, else card tier                          |
+| Authoritative review pass and its fix run                             | reviewer / coder | `complex`, or `critical` for a `complex` or `critical` card |
+| Decision phases (plan decomposition, review synthesis, mob moderator) | reviewer         | `complex` floor                                             |
+| Best-of-N judge, mob seats                                            | reviewer         | Forced `complex`                                            |
+| Verify-command proposer                                               | reviewer         | `simple`                                                    |
 
 The algorithm, tier bars, favorites and pins are in
 [model selection](model-selection.md).
