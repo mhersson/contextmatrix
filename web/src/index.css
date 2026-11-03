@@ -2620,6 +2620,9 @@ textarea {
    (--tier-c, --bar-c, --band-c, --sw-c) are set inline.
    ============================================================ */
 .tl-page {
+  --tl-coder: var(--blue);
+  --tl-reviewer: var(--purple);
+  --tl-shared: var(--green);
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -3106,6 +3109,89 @@ textarea {
 }
 .tl-provider-row .tl-provider-btn:hover {
   color: var(--provider-accent);
+}
+
+/* --- selection chart (SVG); per-dot colours are set inline from the role tokens --- */
+.tl-chart {
+  position: relative;
+  min-width: 0;
+  user-select: none;
+}
+.tl-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.tl-chart text {
+  fill: var(--grey1);
+  font-family: var(--font-sans);
+  font-size: 11px;
+}
+.tl-chart-grid line {
+  stroke: var(--bg2);
+}
+.tl-chart-gutter {
+  fill: var(--bg1);
+  opacity: 0.6;
+}
+.tl-chart-band {
+  opacity: 0.16;
+}
+.tl-chart-floor-area {
+  fill: var(--bg-red);
+  opacity: 0.35;
+}
+.tl-chart-floor {
+  stroke: var(--red);
+  stroke-dasharray: 3 3;
+}
+.tl-chart text.tl-chart-floor-label {
+  fill: var(--red);
+}
+.tl-chart-link {
+  stroke: var(--grey1);
+  stroke-width: 1;
+}
+.tl-chart-pt {
+  stroke-width: 2;
+  cursor: pointer;
+}
+.tl-chart-strike {
+  stroke: var(--red);
+  stroke-width: 2;
+}
+.tl-chart text.tl-chart-label {
+  fill: var(--fg);
+  font-weight: 600;
+}
+/* Overlays must not steal the pointer from the dots under them. */
+.tl-chart-link,
+.tl-chart-strike,
+.tl-chart-label,
+.tl-chart-band,
+.tl-chart-band-label {
+  pointer-events: none;
+}
+.tl-chart-tip {
+  position: fixed;
+  z-index: 40;
+  pointer-events: none;
+  max-width: 280px;
+  padding: 6px 8px;
+  background: var(--bg0);
+  border: 1px solid var(--bg5);
+  border-radius: 6px;
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.tl-chart-tip b {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.tl-chart-tip-bl {
+  color: var(--red);
 }
 
 /* --- pick preview --- */
