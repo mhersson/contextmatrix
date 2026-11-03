@@ -4,11 +4,11 @@ import type { SelectorCandidate } from '../../types';
 
 export interface ProviderFilterProps {
   candidates: SelectorCandidate[];
-  /** Filter state owned by the parent, which also hides pills with it. */
+  /** Filter state owned by the parent, which also hides dots with it. */
   filter: Pick<ProviderFilterState, 'hidden' | 'toggle' | 'selectAll' | 'selectNone'>;
 }
 
-/** Compact row of per-provider checkboxes that hides a provider's pills on the ladder. */
+/** Row of per-provider chips; an unpressed chip hides that provider's dots. */
 export function ProviderFilter({ candidates, filter }: ProviderFilterProps) {
   const { hidden, toggle, selectAll, selectNone } = filter;
   const counts = providerCounts(candidates);
@@ -21,17 +21,20 @@ export function ProviderFilter({ candidates, filter }: ProviderFilterProps) {
       <button type="button" className="tl-provider-btn" onClick={selectNone}>
         none
       </button>
-      {counts.map(({ provider, count }) => (
-        <label key={provider} className="tl-provider">
-          <input
-            type="checkbox"
-            className="tl-provider-box"
-            checked={!hidden.has(provider)}
-            onChange={() => toggle(provider)}
-          />
-          {provider} {count}
-        </label>
-      ))}
+      {counts.map(({ provider, count }) => {
+        const shown = !hidden.has(provider);
+        return (
+          <button
+            key={provider}
+            type="button"
+            className={`tl-chip${shown ? '' : ' off'}`}
+            aria-pressed={shown}
+            onClick={() => toggle(provider)}
+          >
+            {provider} <small>{count}</small>
+          </button>
+        );
+      })}
     </div>
   );
 }

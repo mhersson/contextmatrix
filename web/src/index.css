@@ -3079,24 +3079,32 @@ textarea {
   /* flex child of .tl-legend: full basis keeps it on its own line under the swatches. */
   flex-basis: 100%;
   display: flex;
-  gap: 14px;
+  gap: 6px;
   flex-wrap: wrap;
+  align-items: center;
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--grey1);
 }
-.tl-provider-row .tl-provider {
+.tl-provider-row .tl-chip {
+  font: inherit;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
+  border: 1px solid var(--bg4);
+  border-radius: 9999px;
+  padding: 1px 8px;
+  color: var(--fg);
+  background: var(--bg1);
   cursor: pointer;
 }
-.tl-provider-row .tl-provider-box {
-  width: 10px;
-  height: 10px;
-  margin: 0;
-  accent-color: var(--provider-accent);
-  cursor: pointer;
+.tl-provider-row .tl-chip small {
+  color: var(--grey1);
+  font-size: inherit;
+}
+.tl-provider-row .tl-chip.off {
+  opacity: 0.4;
+  text-decoration: line-through;
 }
 .tl-provider-row .tl-provider-btn {
   background: transparent;
@@ -9976,4 +9984,30 @@ button.bp-rv-head {
 
 .pb-followups-row + .pb-followups-row {
   border-top: 1px solid color-mix(in srgb, var(--yellow) 25%, transparent);
+}
+
+/* --- data-source strip and ladder panel body --- */
+.tl-source {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 12px;
+  color: var(--grey1);
+  background: var(--bg0);
+  border: 1px solid var(--bg3);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.tl-source b {
+  color: var(--fg);
+  font-weight: 600;
+}
+.tl-source a {
+  color: var(--blue);
+}
+.tl-panel-body {
+  padding: 0 14px 12px;
+}
+.tl-panel-body .tl-provider-row {
+  margin: 4px 0 8px;
 }

@@ -141,35 +141,34 @@ describe('ProviderFilter component', () => {
     return <ProviderFilter candidates={CANDIDATES} filter={filter} />;
   }
 
-  it('renders one checkbox per provider with its count and accessible group name', () => {
+  it('renders one pressed chip per provider with its count and accessible group name', () => {
     render(<Host />);
 
-    const group = screen.getByLabelText('Provider filter');
-    expect(group).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: 'Anthropic 2' })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name: 'openai 1' })).toBeChecked();
+    expect(screen.getByLabelText('Provider filter')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Anthropic 2' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'openai 1' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'all' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'none' })).toBeInTheDocument();
   });
 
-  it('toggling a checkbox unchecks it and drives the shared filter state', () => {
+  it('clicking a chip unpresses it and drives the shared filter state', () => {
     render(<Host />);
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Anthropic 2' }));
-    expect(screen.getByRole('checkbox', { name: 'Anthropic 2' })).not.toBeChecked();
-    expect(screen.getByRole('checkbox', { name: 'openai 1' })).toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: 'Anthropic 2' }));
+    expect(screen.getByRole('button', { name: 'Anthropic 2' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'openai 1' })).toHaveAttribute('aria-pressed', 'true');
     expect(localStorageMock.getItem(PROVIDER_FILTER_KEY)).toBe(JSON.stringify(['Anthropic']));
   });
 
-  it('none unchecks every provider; all restores them', () => {
+  it('none unpresses every provider; all restores them', () => {
     render(<Host />);
 
     fireEvent.click(screen.getByRole('button', { name: 'none' }));
-    expect(screen.getByRole('checkbox', { name: 'Anthropic 2' })).not.toBeChecked();
-    expect(screen.getByRole('checkbox', { name: 'openai 1' })).not.toBeChecked();
+    expect(screen.getByRole('button', { name: 'Anthropic 2' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'openai 1' })).toHaveAttribute('aria-pressed', 'false');
 
     fireEvent.click(screen.getByRole('button', { name: 'all' }));
-    expect(screen.getByRole('checkbox', { name: 'Anthropic 2' })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name: 'openai 1' })).toBeChecked();
+    expect(screen.getByRole('button', { name: 'Anthropic 2' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'openai 1' })).toHaveAttribute('aria-pressed', 'true');
   });
 });
