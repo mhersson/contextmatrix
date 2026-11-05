@@ -256,7 +256,6 @@ describe('ChatPage - a blueprint shows alone', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'More chat actions' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete chat' }));
-    vi.mocked(api.listChats).mockResolvedValue(SESSIONS.filter((s) => s.id !== 'P'));
     fireEvent.click(await screen.findByTestId('confirm-delete'));
 
     await showsThreads('A');

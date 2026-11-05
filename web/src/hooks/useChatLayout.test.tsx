@@ -614,7 +614,7 @@ describe('useChatLayout - a blueprint shows alone', () => {
     expect(visibleIds(result)).toEqual(['A', null]);
   });
 
-  it('chats drag and split as before while no blueprint shows', () => {
+  it('a chat dropped on a chat pane still replaces that pane', () => {
     const { result } = renderSessions();
     openAll(result, 'A', 'B');
     act(() => { result.current.swapPaneChat('TR', 'C'); });
