@@ -41,8 +41,13 @@ Every view updates live from one Server-Sent Events stream per tab
   whose language is `mockup`: it shows as a Show mockup button that runs the
   HTML in the sealed frame the blueprint's mockups use, sealed off from CM and
   from ordinary network access (see
-  [architecture](architecture.md#model-written-mockups) for what remains); chat
-  and the editor's preview show its source. Other tags and comments show as
+  [architecture](architecture.md#model-written-mockups) for what remains). A
+  mockup that declares a viewport wider than its frame
+  (`<meta name="viewport" content="width=N">`, N in CSS px, clamped to 320 to
+  2560) is drawn at that width and scaled down to fit the frame, never up. One
+  that declares none, or a width the frame already holds (390 in a frame 740 px
+  wide), shows at the frame's width, unscaled. Chat and the editor's preview
+  show its source. Other tags and comments show as
   literal text, except CM's own line-start `<!-- cm:meta ... -->` machine
   markers (and the legacy `<!-- cm:tier=... -->`), which the agent strips before
   a model reads the body. Attribute values the allowlist drops are not shown.
@@ -444,8 +449,13 @@ board. Promote-to-autonomous lives in that tab.
     switch or a choice of two to four values with a line on why. Flipping one
     redraws the mockup at once with no model run; flips are kept per revision
     while the page is open, and each revision opens with the settings the
-    architect carried over. While the designer or the responder works, the sheet
-    stays on the newest revision and shows it as in progress. Once a design is
+    architect carried over. A mockup that declares a viewport wider than the
+    frame (`<meta name="viewport" content="width=N">`, N in CSS px, clamped to
+    320 to 2560) is drawn at that width and scaled down to fit the frame, never
+    up. One that declares none, or a width the frame already holds (390 in a
+    frame 740 px wide), shows at the frame's width, unscaled. While the
+    designer or the responder works, the sheet stays on the newest revision
+    and shows it as in progress. Once a design is
     chosen or the mockups are skipped, every revision's controls are fixed and
     the chosen revision shows the chosen settings. The scale bar and the sheet
     say when the mockup waits for you.

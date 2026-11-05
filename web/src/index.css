@@ -9251,12 +9251,21 @@ button.bp-rv-head {
 
 /* Mockup blocks: a card's fenced mockup behind a button, in the sealed frame. */
 .mk-frame {
-  display: block;
-  width: 100%;
+  /* The scaled iframe's N px width must never count toward the pane's own width. */
+  contain: inline-size;
+  overflow: hidden;
   height: 560px;
   border: 1px solid var(--bg3);
   border-radius: 6px;
   background: var(--bg0);
+}
+
+/* Fills the pane; a declared desktop width sets an inline size and scale on it. */
+.mk-frame-doc {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
 }
 
 .mk-block {
