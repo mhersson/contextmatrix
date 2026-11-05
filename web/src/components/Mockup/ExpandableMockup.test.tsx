@@ -110,6 +110,41 @@ describe('ExpandableMockup', () => {
   });
 
   it.each([
+    ['the overlay', () => dialog()],
+    ['the X', () => closeX()],
+  ])('leaves the overlay and a parent that closes on an un-prevented Escape open, with focus on %s', (_name, target) => {
+    function ClosesOnEscape() {
+      const [open, setOpen] = useState(true);
+      if (!open) return null;
+      return (
+        <div
+          data-testid="parent"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && !e.defaultPrevented) setOpen(false);
+          }}
+        >
+          <ExpandableMockup source={SRC} title="t" />
+        </div>
+      );
+    }
+    render(<ClosesOnEscape />);
+    fireEvent.click(expand());
+    fireEvent.keyDown(target(), { key: 'Escape' });
+    expect(screen.getByTestId('parent')).toBeInTheDocument();
+    expect(dialog()).toBeInTheDocument();
+  });
+
+  it.each([
+    ['Tab on the overlay', () => dialog(), 'Tab'],
+    ['Enter on the X', () => closeX(), 'Enter'],
+  ])('leaves %s to the browser', (_name, target, key) => {
+    render(<ExpandableMockup source={SRC} title="t" />);
+    fireEvent.click(expand());
+    const notPrevented = fireEvent.keyDown(target(), { key });
+    expect(notPrevented).toBe(true);
+  });
+
+  it.each([
     ['390', '390px'],
     ['1280', '1280px'],
     ['99999', '2560px'],

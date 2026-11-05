@@ -68,6 +68,10 @@ function MockupOverlay({ source, settings, title, onClose }: ExpandableMockupPro
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
+      // Escape bubbles through the portal; marking it handled keeps the enclosing sheet from closing beneath the overlay.
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') e.preventDefault();
+      }}
     >
       <button type="button" className="mk-icon-btn mk-overlay-close" aria-label={MOCKUP_LABELS.closeFullSize} onClick={onClose}>
         <svg {...iconProps}>
