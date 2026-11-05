@@ -13,7 +13,7 @@ Auto-loaded when working in `web/`. Backend conventions live in the root
   `black` and `white` are palette-independent lightness anchors, allowed in
   `index.css` only inside the `--blueprint-ink-*` definitions and never as a
   text or surface colour in a component (modal backdrops keep their
-  `bg-black/50` scrim).
+  `bg-black/50` scrim; the full-size mockup overlay uses `bg-black/90`).
 - Files: `PascalCase.tsx` components, `useX.ts` hooks, `types/index.ts` shared
   types. One job per component; split when a component does two jobs.
 - **One EventSource per distinct URL.** `SSEProvider`
