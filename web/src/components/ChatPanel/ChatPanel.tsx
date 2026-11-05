@@ -226,6 +226,8 @@ export function ChatPanel({
         </div>
       ) : docked ? null : (
         <ChatComposer
+          key={sessionID}
+          draftScope={sessionID}
           onSend={onSend}
           sendDisabled={sendDisabled}
           maxBytes={maxMessageBytes}

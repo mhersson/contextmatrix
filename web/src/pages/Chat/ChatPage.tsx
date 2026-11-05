@@ -42,7 +42,7 @@ export function ChatPage() {
   const [dialogKind, setDialogKind] = useState<SessionKind>(wantsNew ?? 'chat');
   const [handoff, setHandoff] = useState<HandoffPrefill | null>(null);
 
-  const { sessions } = useChatSessions();
+  const { sessions, loaded } = useChatSessions();
   const isDesktop = useMediaQuery('(min-width: 768px)');
   const isMobile = !isDesktop;
 
@@ -112,8 +112,8 @@ export function ChatPage() {
     };
   }, [layout]);
 
-  // /chat/:id deep links: open the chat as a new pane on top of the hydrated
-  // layout, then bounce back to /chat so refresh doesn't re-fire. The open is
+  // /chat/:id deep links: open the session on top of the hydrated layout, then
+  // bounce back to /chat so refresh doesn't re-fire. The open is
   // an in-render marker (CardPanel idiom); the bounce is an effect because
   // navigate() during render is a no-op. The marker starts undefined so it
   // fires on a fresh mount at /chat/:id (a mobile drawer click).
@@ -261,8 +261,8 @@ export function ChatPage() {
   }, [pendingDelete, layout]);
 
   const focusedChatId = useMemo(
-    () => (layout.state.focused ? layout.state.panes[layout.state.focused]?.chatId ?? null : null),
-    [layout.state.focused, layout.state.panes],
+    () => (layout.view.focused ? layout.view.panes[layout.view.focused]?.chatId ?? null : null),
+    [layout.view],
   );
   const mobileTitle = useMemo(
     () => (focusedChatId
@@ -270,6 +270,10 @@ export function ChatPage() {
       : 'Chats'),
     [focusedChatId, availableChats],
   );
+
+  // Until sessions load a lone id may still prove to be a chat bound for the
+  // grid; mounting its thread now would only tear it down and reconnect it.
+  const kindUnresolved = layout.state.alone != null && !loaded;
 
   return (
     <>
@@ -282,9 +286,10 @@ export function ChatPage() {
         )}
         <div className="flex-1 min-h-0">
           <HandoffContext.Provider value={handoffValue}>
-            <ChatLayout
-              panes={layout.state.panes}
-              focused={layout.state.focused}
+            {!kindUnresolved && <ChatLayout
+              panes={layout.view.panes}
+              focused={layout.view.focused}
+              alone={layout.state.alone != null}
               sizes={layout.state.sizes}
               availableChats={availableChats}
               draggingChatId={layout.draggingChatId}
@@ -303,7 +308,7 @@ export function ChatPage() {
               onReopenChat={handleReopenChat}
               onDeleteChat={requestDeleteChat}
               renderPaneBody={renderPaneBody}
-            />
+            />}
           </HandoffContext.Provider>
         </div>
       </div>

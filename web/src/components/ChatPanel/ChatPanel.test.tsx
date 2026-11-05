@@ -1051,3 +1051,18 @@ describe('ChatPanel hand-off', () => {
     expect(screen.getAllByRole('button', { name: /Review and start blueprint/ })).toHaveLength(1);
   });
 });
+
+describe('ChatPanel composer per session', () => {
+  it('never carries unsent text into another session in the same panel', () => {
+    const panel = (sessionID: string) => <ChatPanel logs={[]} onSend={vi.fn()} sendDisabled={false} sessionID={sessionID} />;
+    const box = () => screen.getByLabelText('Message') as HTMLTextAreaElement;
+    const { rerender } = render(panel('session-one'));
+    fireEvent.change(box(), { target: { value: 'for session one' } });
+
+    rerender(panel('session-two'));
+    expect(box().value).toBe('');
+
+    rerender(panel('session-one'));
+    expect(box().value).toBe('for session one');
+  });
+});

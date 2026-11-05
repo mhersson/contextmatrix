@@ -16,10 +16,16 @@ export interface ChatComposerProps {
   focusKey?: string | number;
   /** Bumped after a prompt reply sent from the transcript; focuses the textarea. */
   refocus?: number;
+  /** The session whose unsent text this box keeps when it unmounts. Unset keeps none. */
+  draftScope?: string;
 }
 
-export function ChatComposer({ onSend, sendDisabled, maxBytes, footer, focusKey, refocus }: ChatComposerProps) {
-  const [message, setMessage] = useState('');
+// In memory, not storage: a blueprint and the chats replace each other on
+// screen, unmounting their composers, and a reload may lose unsent text as ever.
+const drafts = new Map<string, string>();
+
+export function ChatComposer({ onSend, sendDisabled, maxBytes, footer, focusKey, refocus, draftScope }: ChatComposerProps) {
+  const [message, setMessage] = useState(() => (draftScope ? drafts.get(draftScope) ?? '' : ''));
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messageId = useId();
@@ -38,6 +44,13 @@ export function ChatComposer({ onSend, sendDisabled, maxBytes, footer, focusKey,
     textareaRef.current?.focus();
   }, [refocus]);
 
+  const changeMessage = (text: string) => {
+    setMessage(text);
+    if (!draftScope) return;
+    if (text) drafts.set(draftScope, text);
+    else drafts.delete(draftScope);
+  };
+
   const bytes = utf8Length(message);
   const isOverLimit = bytes > maxBytes;
   const canSend = message.trim().length > 0 && !sending && !isOverLimit && !sendDisabled;
@@ -55,7 +68,7 @@ export function ChatComposer({ onSend, sendDisabled, maxBytes, footer, focusKey,
     setSending(true);
     try {
       await onSend(content);
-      setMessage('');
+      changeMessage('');
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message');
@@ -78,7 +91,7 @@ export function ChatComposer({ onSend, sendDisabled, maxBytes, footer, focusKey,
           className="bf-input"
           placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
           value={message}
-          onChange={(e) => { setMessage(e.target.value); if (error) setError(null); }}
+          onChange={(e) => { changeMessage(e.target.value); if (error) setError(null); }}
           onKeyDown={handleKeyDown}
           disabled={sending || sendDisabled}
           rows={2}

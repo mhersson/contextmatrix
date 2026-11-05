@@ -7,6 +7,8 @@ import { EmptyPanePicker } from './EmptyPanePicker';
 interface Props {
   panes: PaneSlots;
   focused: Slot | null;
+  /** The one pane shown is a session filling the whole chat area. */
+  alone?: boolean;
   sizes: PaneSizes;
   availableChats: AvailableChat[];
   draggingChatId: string | null;
@@ -29,7 +31,7 @@ interface Props {
 
 export function ChatLayout(props: Props) {
   const {
-    panes, focused, sizes, availableChats, draggingChatId, isMobile,
+    panes, focused, alone, sizes, availableChats, draggingChatId, isMobile,
     onFocus, onClose, onSplit, onResize, onDropChatOnPane, onMovePane,
     onPickEmptyPane, onCancelEmpty, onNewChat,
     onEndSession, onClearContext, onReopenChat, onDeleteChat, renderPaneBody,
@@ -134,8 +136,9 @@ export function ChatLayout(props: Props) {
     const chat = chatId ? availableChats.find((c) => c.id === chatId) : undefined;
     const isFocused = focused === slot;
     const count = ctx.occupied.length;
-    const showSplit = !ctx.isMobile && count < 4 && chatId != null;
+    const showSplit = !ctx.isMobile && count < 4 && chatId != null && !alone;
     const showClose = !ctx.isMobile;
+    const canSwap = !alone && availableChats.find((c) => c.id === draggingChatId)?.kind !== 'architect';
 
     const body = chatId
       ? renderPaneBody(chatId, slot, isFocused)
@@ -160,6 +163,7 @@ export function ChatLayout(props: Props) {
         connected={chat?.status === 'active' || chat?.status === 'warm-idle'}
         showSplit={showSplit}
         showClose={showClose}
+        canSwap={canSwap}
         draggingChatId={draggingChatId}
         onFocus={() => onFocus(slot)}
         onClose={() => onClose(slot)}

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useChatLayout, type ChatLayoutState, type LRUEvictionEvent } from './useChatLayout';
-import type { AvailableChat } from '../components/ChatLayout/types';
+import { SLOTS, type AvailableChat } from '../components/ChatLayout/types';
 
 // localStorage isn't auto-provided in this test environment - mirror the
 // pattern used in useAgentId.test.ts so the hook's persistence code runs.
@@ -269,6 +269,7 @@ describe('useChatLayout - persistence', () => {
       focused: 'TR',
       sizes: { col: 30, leftRow: 50, rightRow: 50 },
       lastFocusedAt: { TL: 1000, TR: 2000 },
+      alone: null,
     };
     window.localStorage.setItem('chat_layout', JSON.stringify(persisted));
     const { result } = renderLayout();
@@ -459,5 +460,322 @@ describe('useChatLayout - reconciliation against availableChats', () => {
     expect(result.current.state.panes.TL?.chatId).toBe('A');
     expect(result.current.state.panes.TR?.chatId).toBe('B');
     expect(result.current.state.focused).toBe('TR');
+  });
+});
+
+const SESSIONS: AvailableChat[] = [
+  { id: 'A', title: 'a', kind: 'chat' },
+  { id: 'B', title: 'b', kind: 'chat' },
+  { id: 'C', title: 'c', kind: 'chat' },
+  { id: 'D', title: 'd', kind: 'chat' },
+  { id: 'E', title: 'e', kind: 'chat' },
+  { id: 'P', title: 'plan p', kind: 'architect' },
+  { id: 'Q', title: 'plan q', kind: 'architect' },
+];
+
+function renderSessions(
+  initial: AvailableChat[] = SESSIONS,
+  onLRUEvict?: (e: LRUEvictionEvent) => void,
+) {
+  return renderHook(
+    ({ chats }: { chats: AvailableChat[] }) => useChatLayout({ availableChats: chats, onLRUEvict }),
+    { initialProps: { chats: initial } },
+  );
+}
+
+type Rendered = ReturnType<typeof renderSessions>['result'];
+
+function visibleIds(result: Rendered): (string | null)[] {
+  return SLOTS.map((slot) => result.current.view.panes[slot]).filter((p) => p != null).map((p) => p.chatId);
+}
+
+function openAll(result: Rendered, ...ids: string[]) {
+  for (const id of ids) act(() => { result.current.openInNewPane(id); });
+}
+
+const flushMicrotasks = () => act(async () => { await Promise.resolve(); });
+
+describe('useChatLayout - a blueprint shows alone', () => {
+  it('fills the view with the blueprint and leaves the grid untouched', () => {
+    const { result } = renderSessions();
+    openAll(result, 'A', 'B');
+    const grid = result.current.state;
+
+    openAll(result, 'P');
+
+    expect(visibleIds(result)).toEqual(['P']);
+    expect(result.current.view.focused).toBe('TL');
+    expect(result.current.state.panes).toEqual(grid.panes);
+    expect(result.current.state.focused).toBe(grid.focused);
+    expect(result.current.state.lastFocusedAt).toEqual(grid.lastFocusedAt);
+  });
+
+  it('opening over a full grid evicts nothing', async () => {
+    const evictions: LRUEvictionEvent[] = [];
+    const { result } = renderSessions(SESSIONS, (e) => evictions.push(e));
+    openAll(result, 'A', 'B', 'C', 'D', 'P');
+    await flushMicrotasks();
+    expect(evictions).toHaveLength(0);
+    expect(result.current.paneCount).toBe(4);
+  });
+
+  it('closing brings the chats back exactly as they were', () => {
+    const { result } = renderSessions();
+    openAll(result, 'A', 'B');
+    act(() => { result.current.focus('TL'); });
+    const before = result.current.view;
+
+    openAll(result, 'P');
+    act(() => { result.current.focus('TL'); });
+    act(() => { result.current.closePane('TL'); });
+
+    expect(result.current.view).toEqual(before);
+  });
+
+  it('clicking inside the blueprint does not refocus the saved grid', () => {
+    const { result } = renderSessions();
+    openAll(result, 'A', 'B');
+    const stamps = result.current.state.lastFocusedAt;
+
+    openAll(result, 'P');
+    act(() => { result.current.focus('TL'); });
+
+    expect(result.current.state.focused).toBe('TR');
+    expect(result.current.state.lastFocusedAt).toEqual(stamps);
+  });
+
+  it('opening a chat brings the grid back with that chat placed by the normal rules', () => {
+    const { result } = renderSessions();
+    openAll(result, 'A', 'B', 'P', 'C');
+    expect(result.current.view.panes.TL?.chatId).toBe('A');
+    expect(result.current.view.panes.TR?.chatId).toBe('B');
+    // The saved focus is TR, so the right column splits.
+    expect(result.current.view.panes.BR?.chatId).toBe('C');
+    expect(result.current.view.focused).toBe('BR');
+  });
+
+  it('opening a chat already in the grid focuses it without adding a pane', () => {
+    const { result } = renderSessions();
+    openAll(result, 'A', 'B', 'P', 'A');
+    expect(visibleIds(result)).toEqual(['A', 'B']);
+    expect(result.current.view.focused).toBe('TL');
+  });
+
+  it('opening a chat onto a full grid replaces the oldest pane and Undo returns to the blueprint', async () => {
+    const evictions: LRUEvictionEvent[] = [];
+    const { result } = renderSessions(SESSIONS, (e) => evictions.push(e));
+    openAll(result, 'A', 'B', 'C', 'D', 'P', 'E');
+    await flushMicrotasks();
+
+    expect(evictions).toHaveLength(1);
+    expect(evictions[0].victimChatId).toBe('A');
+    expect(visibleIds(result)).toHaveLength(4);
+    expect(visibleIds(result)).toContain('E');
+    expect(visibleIds(result)).not.toContain('A');
+
+    act(() => { result.current.restoreSnapshot(evictions[0].snapshot); });
+    expect(visibleIds(result)).toEqual(['P']);
+    act(() => { result.current.closePane('TL'); });
+    expect(visibleIds(result).sort()).toEqual(['A', 'B', 'C', 'D']);
+  });
+
+  it('another blueprint replaces the one showing, and closing it skips back to the chats', () => {
+    const { result } = renderSessions();
+    openAll(result, 'A', 'P', 'Q');
+    expect(visibleIds(result)).toEqual(['Q']);
+    act(() => { result.current.closePane('TL'); });
+    expect(visibleIds(result)).toEqual(['A']);
+  });
+
+  it('dropping a blueprint on a chat pane shows it alone and keeps that pane', () => {
+    const { result } = renderSessions();
+    openAll(result, 'A', 'B');
+    act(() => { result.current.swapPaneChat('TR', 'P'); });
+    expect(visibleIds(result)).toEqual(['P']);
+    expect(result.current.state.panes.TR?.chatId).toBe('B');
+  });
+
+  it('dropping a chat on the blueprint adds it to the grid instead of replacing a pane', () => {
+    const { result } = renderSessions();
+    openAll(result, 'A', 'B', 'P');
+    act(() => { result.current.swapPaneChat('TL', 'C'); });
+    expect(result.current.view.panes.TL?.chatId).toBe('A');
+    expect(result.current.view.panes.TR?.chatId).toBe('B');
+    expect(result.current.view.panes.BR?.chatId).toBe('C');
+  });
+
+  it('picking a blueprint in an empty pane shows it alone and the empty pane waits behind it', () => {
+    const { result } = renderSessions();
+    openAll(result, 'A');
+    act(() => { result.current.splitFromPane('TL'); });
+    act(() => { result.current.swapPaneChat('TR', 'P'); });
+    expect(visibleIds(result)).toEqual(['P']);
+    act(() => { result.current.closePane('TL'); });
+    expect(visibleIds(result)).toEqual(['A', null]);
+  });
+
+  it('a chat dropped on a chat pane still replaces that pane', () => {
+    const { result } = renderSessions();
+    openAll(result, 'A', 'B');
+    act(() => { result.current.swapPaneChat('TR', 'C'); });
+    expect(visibleIds(result)).toEqual(['A', 'C']);
+    expect(result.current.state.alone).toBeNull();
+  });
+
+  it('last_chat_id follows the blueprint and returns to the focused chat on close', () => {
+    const { result } = renderSessions();
+    openAll(result, 'A', 'P');
+    expect(window.localStorage.getItem('last_chat_id')).toBe('P');
+    act(() => { result.current.closePane('TL'); });
+    expect(window.localStorage.getItem('last_chat_id')).toBe('A');
+  });
+
+  it('a deleted session brings the chats back', () => {
+    const { result, rerender } = renderSessions();
+    openAll(result, 'A', 'B', 'P');
+    rerender({ chats: SESSIONS.filter((c) => c.id !== 'P') });
+    expect(visibleIds(result)).toEqual(['A', 'B']);
+    expect(result.current.state.alone).toBeNull();
+  });
+});
+
+describe('useChatLayout - blueprint persistence', () => {
+  it('a reload restores the blueprint with the grid behind it', () => {
+    vi.useFakeTimers();
+    try {
+      const first = renderSessions();
+      openAll(first.result, 'A', 'B', 'P');
+      act(() => { vi.advanceTimersByTime(400); });
+      first.unmount();
+
+      const { result } = renderSessions([]);
+      expect(visibleIds(result)).toEqual(['P']);
+      expect(result.current.state.panes.TL?.chatId).toBe('A');
+      expect(result.current.state.panes.TR?.chatId).toBe('B');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a saved layout from before this behaviour keeps its chats and shows the most recently focused blueprint', () => {
+    window.localStorage.setItem('chat_layout', JSON.stringify({
+      panes: { TL: { chatId: 'A' }, TR: { chatId: 'P' }, BL: { chatId: 'Q' }, BR: { chatId: 'B' } },
+      focused: 'BR',
+      sizes: { col: 30, leftRow: 50, rightRow: 50 },
+      lastFocusedAt: { TL: 1000, TR: 3000, BL: 2000, BR: 4000 },
+    }));
+    const { result } = renderSessions();
+
+    expect(visibleIds(result)).toEqual(['P']);
+    act(() => { result.current.closePane('TL'); });
+    expect(visibleIds(result).sort()).toEqual(['A', 'B']);
+    expect(result.current.view.focused).not.toBeNull();
+    expect(result.current.state.sizes.col).toBe(30);
+  });
+
+  it('a focused blueprint in a saved layout outranks a higher stamp', () => {
+    window.localStorage.setItem('chat_layout', JSON.stringify({
+      panes: { TL: { chatId: 'P' }, TR: { chatId: 'Q' }, BL: null, BR: null },
+      focused: 'TL',
+      sizes: { col: 50, leftRow: 50, rightRow: 50 },
+      lastFocusedAt: { TL: 1000, TR: 2000 },
+    }));
+    const { result } = renderSessions();
+    expect(visibleIds(result)).toEqual(['P']);
+  });
+
+  it('a saved grid survives the window before sessions load, including its debounced save', () => {
+    vi.useFakeTimers();
+    try {
+      window.localStorage.setItem('chat_layout', JSON.stringify({
+        panes: { TL: { chatId: 'A' }, TR: { chatId: 'P' }, BL: null, BR: null },
+        focused: 'TR',
+        sizes: { col: 50, leftRow: 50, rightRow: 50 },
+        lastFocusedAt: { TL: 1000, TR: 2000 },
+      }));
+      const { result, rerender } = renderSessions([]);
+      act(() => { vi.advanceTimersByTime(400); });
+
+      const saved = JSON.parse(window.localStorage.getItem('chat_layout')!);
+      expect(saved.panes.TL.chatId).toBe('A');
+      expect(saved.panes.TR.chatId).toBe('P');
+
+      rerender({ chats: SESSIONS });
+      expect(visibleIds(result)).toEqual(['P']);
+      act(() => { result.current.closePane('TL'); });
+      expect(visibleIds(result)).toEqual(['A']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('useChatLayout - opening before the session list knows the kind', () => {
+  it('a cold link to a blueprint never disturbs the grid or fires an eviction', async () => {
+    window.localStorage.setItem('chat_layout', JSON.stringify({
+      panes: { TL: { chatId: 'A' }, TR: { chatId: 'B' }, BL: { chatId: 'C' }, BR: { chatId: 'D' } },
+      focused: 'TL',
+      sizes: { col: 50, leftRow: 50, rightRow: 50 },
+      lastFocusedAt: { TL: 4000, TR: 3000, BL: 2000, BR: 1000 },
+    }));
+    const evictions: LRUEvictionEvent[] = [];
+    const { result, rerender } = renderSessions([], (e) => evictions.push(e));
+    openAll(result, 'P');
+    rerender({ chats: SESSIONS });
+    await flushMicrotasks();
+
+    expect(evictions).toHaveLength(0);
+    expect(visibleIds(result)).toEqual(['P']);
+    act(() => { result.current.closePane('TL'); });
+    expect(visibleIds(result).sort()).toEqual(['A', 'B', 'C', 'D']);
+    expect(result.current.view.focused).toBe('TL');
+  });
+
+  it('a cold link to a chat lands in the grid once sessions resolve', () => {
+    const { result, rerender } = renderSessions([]);
+    openAll(result, 'A');
+    rerender({ chats: SESSIONS });
+    expect(result.current.state.alone).toBeNull();
+    expect(result.current.state.panes.TL?.chatId).toBe('A');
+  });
+
+  it('a cold link to a chat over a full grid evicts with an Undo that leaves the plain grid', async () => {
+    window.localStorage.setItem('chat_layout', JSON.stringify({
+      panes: { TL: { chatId: 'A' }, TR: { chatId: 'B' }, BL: { chatId: 'C' }, BR: { chatId: 'D' } },
+      focused: 'TL',
+      sizes: { col: 50, leftRow: 50, rightRow: 50 },
+      lastFocusedAt: { TL: 4000, TR: 3000, BL: 2000, BR: 1000 },
+    }));
+    const evictions: LRUEvictionEvent[] = [];
+    const { result, rerender } = renderSessions([], (e) => evictions.push(e));
+    openAll(result, 'E');
+    rerender({ chats: SESSIONS });
+    await flushMicrotasks();
+
+    expect(evictions).toHaveLength(1);
+    expect(evictions[0].victimChatId).toBe('D');
+    expect(result.current.state.panes.BR?.chatId).toBe('E');
+
+    act(() => { result.current.restoreSnapshot(evictions[0].snapshot); });
+    expect(result.current.state.alone).toBeNull();
+    expect(visibleIds(result).sort()).toEqual(['A', 'B', 'C', 'D']);
+  });
+
+  it('a just-created blueprint not yet listed stays alone when the list catches up', () => {
+    const listed = SESSIONS.filter((c) => c.id !== 'P');
+    const { result, rerender } = renderSessions(listed);
+    openAll(result, 'A', 'B', 'P');
+    expect(visibleIds(result)).toEqual(['P']);
+    rerender({ chats: SESSIONS });
+    expect(visibleIds(result)).toEqual(['P']);
+    expect(result.current.state.panes.TR?.chatId).toBe('B');
+  });
+
+  it('a link to a session that does not exist falls back to the chats', () => {
+    const { result, rerender } = renderSessions([]);
+    openAll(result, 'GONE');
+    rerender({ chats: SESSIONS });
+    expect(result.current.state.alone).toBeNull();
+    expect(visibleIds(result)).toEqual([]);
   });
 });

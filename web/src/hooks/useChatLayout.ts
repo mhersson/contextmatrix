@@ -17,6 +17,17 @@ export interface ChatLayoutState {
   focused: Slot | null;
   sizes: PaneSizes;
   lastFocusedAt: Partial<Record<Slot, number>>;
+  /**
+   * The session filling the whole chat area with the grid saved behind it: a
+   * blueprint, or an id whose kind the session list has not confirmed yet.
+   */
+  alone: string | null;
+}
+
+/** What the chat area shows: the lone session in TL, otherwise the grid. */
+export interface ChatLayoutView {
+  panes: PaneSlots;
+  focused: Slot | null;
 }
 
 export interface LRUEvictionEvent {
@@ -33,6 +44,7 @@ export interface UseChatLayoutOptions {
 
 export interface UseChatLayoutResult {
   state: ChatLayoutState;
+  view: ChatLayoutView;
   occupied: Slot[];
   paneCount: number;
   draggingChatId: string | null;
@@ -56,6 +68,7 @@ function emptyState(): ChatLayoutState {
     focused: null,
     sizes: { ...DEFAULT_SIZES },
     lastFocusedAt: {},
+    alone: null,
   };
 }
 
@@ -103,8 +116,8 @@ function loadPersisted(): ChatLayoutState | null {
   // useChatSessions which loads async, so it's empty on the first render
   // after ChatPage remounts (returning to /chat from another route).
   // Filtering here would drop every persisted pane and the debounced save
-  // effect would then overwrite localStorage with empty state. The
-  // reconciliation effect below removes stale ids once sessions resolve.
+  // effect would then overwrite localStorage with empty state. Reconciliation
+  // in useChatLayout removes stale ids once sessions resolve.
   try {
     const raw = window.localStorage.getItem(PERSIST_KEY);
     if (!raw) return null;
@@ -133,7 +146,8 @@ function loadPersisted(): ChatLayoutState | null {
         if (typeof v === 'number') lastFocusedAt[slot] = v;
       }
     }
-    return normalize({ panes, focused, sizes, lastFocusedAt });
+    const alone = typeof parsed.alone === 'string' ? parsed.alone : null;
+    return normalize({ panes, focused, sizes, lastFocusedAt, alone });
   } catch {
     return null;
   }
@@ -146,6 +160,7 @@ function savePersisted(state: ChatLayoutState): void {
       focused: state.focused,
       sizes: state.sizes,
       lastFocusedAt: state.lastFocusedAt,
+      alone: state.alone,
     };
     window.localStorage.setItem(PERSIST_KEY, JSON.stringify(payload));
   } catch {
@@ -190,11 +205,102 @@ function lruSlot(s: ChatLayoutState): Slot {
   return best;
 }
 
+type EvictHandler = ((event: LRUEvictionEvent) => void) | undefined;
+
+function placeChat(s: ChatLayoutState, chatId: string, onLRUEvict: EvictHandler): ChatLayoutState {
+  const existing = SLOTS.find((slot) => s.panes[slot]?.chatId === chatId);
+  if (existing) {
+    return { ...s, alone: null, focused: existing, lastFocusedAt: { ...s.lastFocusedAt, [existing]: Date.now() } };
+  }
+  const occupied = SLOTS.filter((slot) => s.panes[slot]);
+  if (occupied.length >= 4) {
+    const victim = lruSlot(s);
+    const victimChatId = s.panes[victim]?.chatId ?? null;
+    const snapshot = s;
+    const next: ChatLayoutState = {
+      ...s,
+      alone: null,
+      panes: { ...s.panes, [victim]: { chatId } },
+      focused: victim,
+      lastFocusedAt: { ...s.lastFocusedAt, [victim]: Date.now() },
+    };
+    if (victimChatId && onLRUEvict) {
+      // Defer to next tick so the state commit lands before the toast appears.
+      queueMicrotask(() => onLRUEvict({
+        victimSlot: victim,
+        victimChatId,
+        incomingChatId: chatId,
+        snapshot,
+      }));
+    }
+    return next;
+  }
+  const target = nextPlacementSlot(s);
+  if (!target) return s;
+  return {
+    ...s,
+    alone: null,
+    panes: { ...s.panes, [target]: { chatId } },
+    focused: target,
+    lastFocusedAt: { ...s.lastFocusedAt, [target]: Date.now() },
+  };
+}
+
+// An id missing from the list is held alone, so a blueprint whose kind is not
+// known yet can neither shift the grid nor evict a pane; reconcile sorts it out.
+function openSession(
+  s: ChatLayoutState,
+  chatId: string,
+  kinds: Map<string, AvailableChat['kind']>,
+  onLRUEvict: EvictHandler,
+): ChatLayoutState {
+  if (kinds.has(chatId) && kinds.get(chatId) !== 'architect') return placeChat(s, chatId, onLRUEvict);
+  return s.alone === chatId ? s : { ...s, alone: chatId };
+}
+
+// Applies what the session list now says: gone sessions leave, blueprints in
+// panes leave for the lone view, and a lone id that proved to be a chat is placed.
+function reconcile(
+  s: ChatLayoutState,
+  kinds: Map<string, AvailableChat['kind']>,
+  onLRUEvict: EvictHandler,
+): ChatLayoutState {
+  const panes: PaneSlots = { ...s.panes };
+  let dirty = false;
+  let newestBlueprint: string | null = null;
+  let newestStamp = -1;
+  for (const slot of SLOTS) {
+    const chatId = s.panes[slot]?.chatId;
+    if (!chatId) continue;
+    const isBlueprint = kinds.get(chatId) === 'architect';
+    if (!kinds.has(chatId) || isBlueprint) {
+      panes[slot] = null;
+      dirty = true;
+    }
+    if (isBlueprint) {
+      const stamp = slot === s.focused ? Infinity : s.lastFocusedAt[slot] ?? 0;
+      if (stamp > newestStamp) {
+        newestStamp = stamp;
+        newestBlueprint = chatId;
+      }
+    }
+  }
+  const alone = s.alone && kinds.has(s.alone) ? s.alone : newestBlueprint;
+  const aloneIsChat = alone != null && kinds.get(alone) !== 'architect';
+  if (!dirty && !aloneIsChat && alone === s.alone) return s;
+  const next = normalize({ ...s, panes, alone: null });
+  return aloneIsChat ? placeChat(next, alone, onLRUEvict) : { ...next, alone };
+}
+
+function sameIds(a: Map<string, unknown>, b: Map<string, unknown>): boolean {
+  return a.size === b.size && [...a.keys()].every((id) => b.has(id));
+}
+
 export function useChatLayout(options: UseChatLayoutOptions): UseChatLayoutResult {
   const { availableChats, onLRUEvict } = options;
 
-  const availableIds = useMemo(
-    () => new Set(availableChats.map((c) => c.id)),
+  const kinds = useMemo(
+    () => new Map(availableChats.map((c) => [c.id, c.kind])),
     [availableChats],
   );
 
@@ -204,33 +310,18 @@ export function useChatLayout(options: UseChatLayoutOptions): UseChatLayoutResul
   });
   const [draggingChatId, setDraggingChatId] = useState<string | null>(null);
 
-  // Reconcile against availableChats: if a chat is deleted server-side, drop it.
-  // Tracks previous id set so we only run the reconciliation when it changes.
-  // Initialised to an empty set (not the mount-time availableIds) so the
-  // first non-empty observation reconciles stale persisted ids. Sessions
-  // load async via useChatSessions, so availableIds is empty on mount when
-  // ChatPage remounts; we skip reconciliation in that window (empty-equals-
-  // empty early-return below) so persisted panes survive until sessions
-  // confirm what's actually available.
-  const prevIdsRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    const prev = prevIdsRef.current;
-    if (prev.size === availableIds.size && [...availableIds].every((id) => prev.has(id))) return;
-    prevIdsRef.current = availableIds;
-    setState((s) => {
-      let dirty = false;
-      const panes: PaneSlots = { ...s.panes };
-      for (const slot of SLOTS) {
-        const p = s.panes[slot];
-        if (p?.chatId && !availableIds.has(p.chatId)) {
-          panes[slot] = null;
-          dirty = true;
-        }
-      }
-      if (!dirty) return s;
-      return normalize({ ...s, panes });
-    });
-  }, [availableIds]);
+  // Reconcile against availableChats whenever its id set changes: a session's
+  // kind arrives with its id, so that covers a kind learned after opening too.
+  // Starts empty (not the mount-time ids) so the first non-empty observation
+  // reconciles the persisted layout. Sessions load async via useChatSessions, so
+  // the list is empty on mount when ChatPage remounts; empty-equals-empty skips
+  // that window and persisted panes survive until sessions confirm what exists.
+  // Runs during render so no pane mounts for a layout about to change.
+  const [prevKinds, setPrevKinds] = useState<Map<string, AvailableChat['kind']>>(() => new Map());
+  if (prevKinds !== kinds) {
+    setPrevKinds(kinds);
+    if (!sameIds(prevKinds, kinds)) setState((s) => reconcile(s, kinds, onLRUEvict));
+  }
 
   // Persist (debounced). Keep the latest state in a ref so the unmount flush
   // below can write it without re-running on every state change.
@@ -251,16 +342,22 @@ export function useChatLayout(options: UseChatLayoutOptions): UseChatLayoutResul
 
   // Persist focused-pane chat id to last_chat_id. Tab title stays at the
   // index.html default ("ContextMatrix") - match the board view.
+  const view = useMemo<ChatLayoutView>(
+    () => (state.alone
+      ? { panes: { ...EMPTY_PANES, TL: { chatId: state.alone } }, focused: 'TL' }
+      : { panes: state.panes, focused: state.focused }),
+    [state.alone, state.focused, state.panes],
+  );
   useEffect(() => {
-    const focusedChat = state.focused ? state.panes[state.focused]?.chatId : null;
+    const focusedChat = view.focused ? view.panes[view.focused]?.chatId : null;
     if (focusedChat) {
       try { window.localStorage.setItem(LAST_CHAT_ID_KEY, focusedChat); } catch { /* storage disabled */ }
     }
-  }, [state.focused, state.panes]);
+  }, [view]);
 
   const focus = useCallback((slot: Slot) => {
     setState((s) => {
-      if (!s.panes[slot]) return s;
+      if (s.alone || !s.panes[slot]) return s;
       return { ...s, focused: slot, lastFocusedAt: { ...s.lastFocusedAt, [slot]: Date.now() } };
     });
   }, []);
@@ -274,43 +371,8 @@ export function useChatLayout(options: UseChatLayoutOptions): UseChatLayoutResul
   }, []);
 
   const openInNewPane = useCallback((chatId: string) => {
-    setState((s) => {
-      const existing = SLOTS.find((slot) => s.panes[slot]?.chatId === chatId);
-      if (existing) {
-        return { ...s, focused: existing, lastFocusedAt: { ...s.lastFocusedAt, [existing]: Date.now() } };
-      }
-      const occupied = SLOTS.filter((slot) => s.panes[slot]);
-      if (occupied.length >= 4) {
-        const victim = lruSlot(s);
-        const victimChatId = s.panes[victim]?.chatId ?? null;
-        const snapshot = s;
-        const next: ChatLayoutState = {
-          ...s,
-          panes: { ...s.panes, [victim]: { chatId } },
-          focused: victim,
-          lastFocusedAt: { ...s.lastFocusedAt, [victim]: Date.now() },
-        };
-        if (victimChatId && onLRUEvict) {
-          // Defer to next tick so the state commit lands before the toast appears.
-          queueMicrotask(() => onLRUEvict({
-            victimSlot: victim,
-            victimChatId,
-            incomingChatId: chatId,
-            snapshot,
-          }));
-        }
-        return next;
-      }
-      const target = nextPlacementSlot(s);
-      if (!target) return s;
-      return {
-        ...s,
-        panes: { ...s.panes, [target]: { chatId } },
-        focused: target,
-        lastFocusedAt: { ...s.lastFocusedAt, [target]: Date.now() },
-      };
-    });
-  }, [onLRUEvict]);
+    setState((s) => openSession(s, chatId, kinds, onLRUEvict));
+  }, [kinds, onLRUEvict]);
 
   // openInFocused is the same as openInNewPane: a single click → new pane,
   // auto-tile. Both names exist so the call sites stay readable; both route
@@ -319,6 +381,7 @@ export function useChatLayout(options: UseChatLayoutOptions): UseChatLayoutResul
 
   const closePane = useCallback((slot: Slot) => {
     setState((s) => {
+      if (s.alone) return { ...s, alone: null };
       if (!s.panes[slot]) return s;
       const panes: PaneSlots = { ...s.panes, [slot]: null };
       const lastFocusedAt = { ...s.lastFocusedAt };
@@ -330,6 +393,10 @@ export function useChatLayout(options: UseChatLayoutOptions): UseChatLayoutResul
 
   const swapPaneChat = useCallback((slot: Slot, chatId: string) => {
     setState((s) => {
+      // On the lone pane a drop is an open, and a blueprint never takes a slot.
+      if (s.alone || !kinds.has(chatId) || kinds.get(chatId) === 'architect') {
+        return openSession(s, chatId, kinds, onLRUEvict);
+      }
       if (!s.panes[slot]) {
         // dropped on an empty pane → just place
         return normalize({
@@ -367,7 +434,7 @@ export function useChatLayout(options: UseChatLayoutOptions): UseChatLayoutResul
         lastFocusedAt: { ...s.lastFocusedAt, [slot]: Date.now() },
       };
     });
-  }, []);
+  }, [kinds, onLRUEvict]);
 
   const movePane = useCallback((fromSlot: Slot, toSlot: Slot) => {
     if (fromSlot === toSlot) return;
@@ -433,6 +500,7 @@ export function useChatLayout(options: UseChatLayoutOptions): UseChatLayoutResul
 
   return {
     state,
+    view,
     occupied,
     paneCount: occupied.length,
     draggingChatId,

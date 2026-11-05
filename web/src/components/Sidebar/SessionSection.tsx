@@ -52,7 +52,7 @@ export function SessionSection({ kind, sessions, onNew, loaded = true }: Session
   };
 
   const handleOpen = (id: string) => {
-    // ChatPage opens /chat/<id> as a pane on top of the persisted layout.
+    // ChatPage opens /chat/<id> on top of the persisted layout.
     navigate(`/chat/${id}`);
     mobileSidebar.close();
   };

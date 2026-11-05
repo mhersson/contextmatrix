@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ChatComposer } from './ChatComposer';
 import { BLUEPRINT_MESSAGE_MAX_BYTES, CHAT_MESSAGE_MAX_BYTES } from './chatEntryUtils';
 
@@ -33,5 +33,61 @@ describe('ChatComposer byte limit', () => {
   it('counts multibyte text in bytes', () => {
     const { send } = setup(8192, '€'.repeat(2731));
     expect(send.disabled).toBe(true);
+  });
+});
+
+describe('ChatComposer unsent text', () => {
+  const box = () => screen.getByLabelText('Message') as HTMLTextAreaElement;
+  const composer = (draftScope?: string, onSend = vi.fn()) => (
+    <ChatComposer onSend={onSend} sendDisabled={false} maxBytes={8192} draftScope={draftScope} />
+  );
+
+  it('comes back for the same session after the composer unmounts', () => {
+    const { unmount } = render(composer('kept'));
+    fireEvent.change(box(), { target: { value: 'half a thought' } });
+    unmount();
+
+    render(composer('kept'));
+    expect(box().value).toBe('half a thought');
+  });
+
+  it('stays with its session and does not show in another', () => {
+    const { unmount } = render(composer('mine'));
+    fireEvent.change(box(), { target: { value: 'for mine' } });
+    unmount();
+
+    render(composer('other'));
+    expect(box().value).toBe('');
+  });
+
+  it('is gone once sent', async () => {
+    const { unmount } = render(composer('sent', vi.fn(() => Promise.resolve())));
+    fireEvent.change(box(), { target: { value: 'done with this' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(box().value).toBe(''));
+    unmount();
+
+    render(composer('sent'));
+    expect(box().value).toBe('');
+  });
+
+  it('survives a failed send', async () => {
+    const { unmount } = render(composer('failed', vi.fn(() => Promise.reject(new Error('no')))));
+    fireEvent.change(box(), { target: { value: 'try again' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await screen.findByText('no');
+    unmount();
+
+    render(composer('failed'));
+    expect(box().value).toBe('try again');
+  });
+
+  it('is not kept without a session', () => {
+    const { unmount } = render(composer());
+    fireEvent.change(box(), { target: { value: 'card chat text' } });
+    unmount();
+
+    render(composer());
+    expect(box().value).toBe('');
   });
 });
