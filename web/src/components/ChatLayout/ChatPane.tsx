@@ -15,6 +15,8 @@ interface Props {
   connected?: boolean;
   showSplit: boolean;
   showClose: boolean;
+  /** False when a drop here opens the chat instead of swapping it with this pane. */
+  canSwap?: boolean;
   draggingChatId: string | null;
   onFocus: () => void;
   onClose: () => void;
@@ -36,6 +38,7 @@ export function ChatPane({
   connected,
   showSplit,
   showClose,
+  canSwap = true,
   draggingChatId,
   onFocus,
   onClose,
@@ -82,7 +85,7 @@ export function ChatPane({
     if (dropped) onDropChat(dropped);
   };
 
-  const isSwap = isDropTarget && draggingChatId && chatId && chatId !== draggingChatId;
+  const isSwap = canSwap && isDropTarget && draggingChatId && chatId && chatId !== draggingChatId;
   const overlayChatLabel = draggingChatId ?? '';
   const headerDraggable = !TOUCH && chatId != null;
 

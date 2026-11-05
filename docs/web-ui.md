@@ -157,19 +157,29 @@ board. Promote-to-autonomous lives in that tab.
   while blueprint sessions exist, and then without **+ new**. Each section
   collapses on its own, remembered per browser under
   `sidebar.chat_section_collapsed` and `sidebar.blueprint_section_collapsed`.
-  Clicking a row opens the session in a pane (`/chat/:id`) and closes the
-  mobile drawer.
+  Clicking a row opens the session (`/chat/:id`) and closes the mobile drawer.
 - A sidebar row's pin button shows on hover or keyboard focus, and always on
   touch screens; a pinned row shows a filled orange pin. Pins are stored with
   the session, so they follow you to another browser, and pinning leaves the
   session's last activity unchanged.
-- Up to 4 panes in a 2x2 layout. Opening a fifth chat replaces the pane focused
-  least recently and shows a toast, "Closed X to make room for Y", with Undo
-  for 6 seconds.
+- Up to 4 chat panes in a 2x2 layout. Opening a fifth chat replaces the pane
+  focused least recently and shows a toast, "Closed X to make room for Y", with
+  Undo for 6 seconds.
+- A blueprint never shares the grid. However it is opened, including a drop on
+  a pane or a pick in an empty pane, it fills the whole chat area with no split
+  button, and opening another blueprint replaces it. The chat panes stay saved
+  behind it unchanged, with no toast. Closing it brings them back, as does
+  deleting its session. Opening a chat, or dropping one on the blueprint's pane,
+  also brings them back with that chat added by the rule above; Undo on that
+  toast returns to the blueprint. A blueprint off screen keeps running and stays
+  in the sidebar. Phones show one pane at a time either way.
 - Drag a chat from the sidebar onto a pane to place or swap it; a pane can also
   split to open an empty slot.
-- Panes, focus and divider sizes persist under the `chat_layout` key; the
-  focused chat id under `last_chat_id`. `/chat/:id` opens that chat in a pane.
+- Panes, focus, divider sizes and the blueprint showing persist under the
+  `chat_layout` key; the focused chat id, or the blueprint showing, under
+  `last_chat_id`. `/chat/:id` opens that session. A saved layout with blueprints
+  in its panes keeps its chats and shows the most recently focused blueprint;
+  the others leave the panes and stay in the sidebar.
 - The message box takes up to 64 KiB on a blueprint and 8 KiB on a chat (and on
   the card Chat tab), counted in bytes. From 90 percent of the limit it shows
   the size against the limit; over it Send is disabled. Nothing is cut.
