@@ -9281,6 +9281,67 @@ button.bp-rv-head {
   align-self: flex-start;
 }
 
+/* Full size mockup: the expand button on the sheet's frame and the overlay it opens. */
+.mk-expandable {
+  position: relative;
+}
+.mk-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--bg3);
+  border-radius: 6px;
+  background: var(--bg1);
+  color: var(--fg);
+  cursor: pointer;
+}
+.mk-icon-btn:hover {
+  background: var(--bg3);
+}
+.mk-icon-btn:focus-visible {
+  outline: 2px solid var(--aqua);
+  outline-offset: 1px;
+}
+.mk-expand {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+}
+/* Above every other layer in the app, the highest of which is 100. The top padding keeps the X's row clear of the mockup. */
+.mk-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  justify-content: center;
+  padding: 48px;
+  outline: none;
+}
+@media (max-width: 767px) {
+  .mk-overlay {
+    padding: 48px 12px 12px;
+  }
+}
+.mk-overlay-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+}
+.mk-overlay-pane {
+  width: 100%;
+  height: 100%;
+}
+/* No border: it would shrink the content box below a declared width and scale the mockup. */
+.mk-overlay-pane .mk-frame {
+  height: 100%;
+  border: 0;
+}
+
 /* Mockup sheet: the running mockup beside its suggestions. */
 .mk-sheet {
   display: grid;

@@ -80,6 +80,12 @@ describe('MockupBlock', () => {
     expect(postedSource(container.querySelector('iframe')!).trimEnd()).toBe('<p>b</p>');
   });
 
+  it('offers no full size view', async () => {
+    await show(fence(SRC));
+    fireEvent.click(screen.getByRole('button', { name: MOCKUP_LABELS.show }));
+    expect(screen.queryByRole('button', { name: MOCKUP_LABELS.expand })).toBeNull();
+  });
+
   it('shows the block as code without the mockups prop', async () => {
     const { container } = await show(fence(SRC), false);
     expect(screen.queryByRole('button', { name: MOCKUP_LABELS.show })).toBeNull();

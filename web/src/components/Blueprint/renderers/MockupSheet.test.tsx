@@ -104,7 +104,8 @@ describe('MockupSheet', () => {
     view.artifacts = [ref('intake', 1, 'current'), ref('mockup', 1, 'superseded'), ref('mockup', 2, 'approved', { decided_by: 'you' })];
     show({ ...MOCKUP_V2, data: { ...data, chosen } }, view);
     expect(posts[0]).toMatchObject({ type: RENDER_MESSAGE, settings: chosen });
-    const controls = [...screen.getAllByRole('switch'), ...screen.getAllByRole('button')];
+    const suggestions = within(screen.getByRole('region', { name: MOCKUP_LABELS.suggestions }));
+    const controls = [...suggestions.getAllByRole('switch'), ...suggestions.getAllByRole('button')];
     expect(controls.length).toBeGreaterThan(3);
     for (const c of controls) expect(c).toBeDisabled();
     fireEvent.click(screen.getByRole('switch', { name: byId('group').title }));
@@ -128,6 +129,44 @@ describe('MockupSheet', () => {
     rerender(again);
     rerender(again);
     expect(posts).toHaveLength(1);
+  });
+});
+
+describe('MockupSheet full size', () => {
+  const expand = () => screen.getByRole('button', { name: MOCKUP_LABELS.expand });
+  const SEND: MockupPane = { chatId: 'S1', live: true, promptId: 'mockup:1', send: async () => {} };
+
+  it('shows the mockup alone and leaves the suggestions and the choice in the pane', () => {
+    show(MOCKUP_V2, viewAtMockup(), SEND);
+    fireEvent.click(expand());
+    const overlay = within(screen.getByRole('dialog'));
+    expect(screen.getByRole('dialog').querySelectorAll('iframe')).toHaveLength(1);
+    expect(overlay.queryByRole('region', { name: MOCKUP_LABELS.suggestions })).toBeNull();
+    expect(overlay.queryByRole('switch')).toBeNull();
+    expect(overlay.queryByRole('button', { name: MOCKUP_LABELS.use })).toBeNull();
+    expect(screen.getByRole('region', { name: MOCKUP_LABELS.suggestions })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: MOCKUP_LABELS.use })).toBeInTheDocument();
+  });
+
+  it('runs the same source with the settings you flipped', () => {
+    show(MOCKUP_V2);
+    fireEvent.click(screen.getByRole('switch', { name: byId('group').title }));
+    fireEvent.click(expand());
+    const frame = screen.getByRole('dialog').querySelector('iframe')!;
+    const post = vi.spyOn(frame.contentWindow!, 'postMessage');
+    fireEvent.load(frame);
+    expect(post.mock.calls).toEqual([
+      [{ type: RENDER_MESSAGE, source: data.source, settings: { ...opening, group: 'on' } }, '*'],
+    ]);
+  });
+
+  it('still opens once a design is chosen', () => {
+    const view = viewAtMockup();
+    view.open = undefined;
+    view.artifacts = [ref('intake', 1, 'current'), ref('mockup', 1, 'superseded'), ref('mockup', 2, 'approved')];
+    show({ ...MOCKUP_V2, data: { ...data, chosen: opening } }, view);
+    fireEvent.click(expand());
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 });
 
