@@ -9251,7 +9251,8 @@ button.bp-rv-head {
 
 /* Mockup blocks: a card's fenced mockup behind a button, in the sealed frame. */
 .mk-frame {
-  position: relative;
+  /* The scaled iframe's N px width must never count toward the pane's own width. */
+  contain: inline-size;
   overflow: hidden;
   height: 560px;
   border: 1px solid var(--bg3);
