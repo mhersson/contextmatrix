@@ -453,7 +453,15 @@ board. Promote-to-autonomous lives in that tab.
     frame (`<meta name="viewport" content="width=N">`, N in CSS px, clamped to
     320 to 2560) is drawn at that width and scaled down to fit the frame, never
     up. One that declares none, or a width the frame already holds (390 in a
-    frame 740 px wide), shows at the frame's width, unscaled. While the
+    frame 740 px wide), shows at the frame's width, unscaled. A button in the
+    frame's top right corner opens the mockup over the whole window, on a dark
+    layer with nothing else: a fresh render of the same source with the current
+    settings, while the frame, the suggestions and Use this design stay in the
+    sheet. A declared width is drawn at that width and centered, scaled down
+    when the window is narrower and never up; a mockup that declares none fills
+    the window. A margin always remains. A click outside the mockup or the X in
+    the window's top right corner closes it. A card's mockup block has no full
+    size view. While the
     designer or the responder works, the sheet stays on the newest revision
     and shows it as in progress. Once a design is
     chosen or the mockups are skipped, every revision's controls are fixed and

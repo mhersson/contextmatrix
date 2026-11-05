@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef } from 'react';
+import { ExpandableMockup } from '../../Mockup/ExpandableMockup';
 import { MockupChoice } from '../../Mockup/MockupChoice';
-import { MockupFrame } from '../../Mockup/MockupFrame';
 import { MOCKUP_LABELS } from '../../Mockup/labels';
 import { mockupDecided, parseMockup, type MockupSuggestion } from '../../Mockup/mockupData';
 import { useMockupPane } from '../../Mockup/mockupPane';
@@ -43,7 +43,7 @@ export function MockupSheet({ artifact, previous, mode, view }: RendererProps) {
       <BodyMarkdown body={artifact.body} previous={previous?.body} mode={mode} version={artifact.version} />
       {mockup && (
         <div className="mk-sheet">
-          <MockupFrame
+          <ExpandableMockup
             source={mockup.source}
             settings={settings}
             title={`${stageText('mockup').tab} rev ${artifact.version}`}
