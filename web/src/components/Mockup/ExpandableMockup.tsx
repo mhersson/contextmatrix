@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { MockupFrame } from './MockupFrame';
@@ -27,18 +27,22 @@ const iconProps = {
 /** The sheet's mockup frame with a button that opens the same mockup over the whole window. */
 export function ExpandableMockup({ source, settings, title }: ExpandableMockupProps) {
   const [full, setFull] = useState(false);
+  const expandRef = useRef<HTMLButtonElement>(null);
+  // Runs after the focus trap's restore, whose saved element can be a control that took the focus as the overlay opened.
+  useEffect(() => {
+    if (!full) return;
+    const button = expandRef.current;
+    return () => button?.focus();
+  }, [full]);
   return (
     <div className="mk-expandable">
       <MockupFrame source={source} settings={settings} title={title} />
       <button
+        ref={expandRef}
         type="button"
         className="mk-icon-btn mk-expand"
         aria-label={MOCKUP_LABELS.expand}
-        onClick={(e) => {
-          // The focus trap returns focus to what held it, and Safari does not focus a clicked button.
-          e.currentTarget.focus();
-          setFull(true);
-        }}
+        onClick={() => setFull(true)}
       >
         <svg {...iconProps}>
           <path d="M15 3h6v6M21 3l-7 7M9 21H3v-6M3 21l7-7" />

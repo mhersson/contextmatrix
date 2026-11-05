@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { ExpandableMockup } from './ExpandableMockup';
@@ -80,6 +81,31 @@ describe('ExpandableMockup', () => {
     fireEvent.click(expand());
     expect(dialog().contains(document.activeElement)).toBe(true);
     close();
+    expect(document.activeElement).toBe(expand());
+  });
+
+  it('returns focus to the expand button even when opening let another control take the focus first', () => {
+    // A chat pane focuses its composer on the first click inside it, and the composer is drawn before the sheet.
+    function Composer({ paneFocused }: { paneFocused: boolean }) {
+      const input = useRef<HTMLTextAreaElement>(null);
+      useEffect(() => {
+        if (paneFocused) input.current?.focus();
+      }, [paneFocused]);
+      return <textarea ref={input} />;
+    }
+    function Pane() {
+      const [paneFocused, setPaneFocused] = useState(false);
+      return (
+        <div onClick={() => setPaneFocused(true)}>
+          <Composer paneFocused={paneFocused} />
+          <ExpandableMockup source={SRC} title="t" />
+        </div>
+      );
+    }
+    render(<Pane />);
+    fireEvent.click(expand());
+    expect(dialog().contains(document.activeElement)).toBe(true);
+    fireEvent.click(closeX());
     expect(document.activeElement).toBe(expand());
   });
 
