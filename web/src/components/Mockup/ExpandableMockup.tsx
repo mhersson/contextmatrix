@@ -64,7 +64,7 @@ function MockupOverlay({ source, settings, title, onClose }: ExpandableMockupPro
       aria-modal="true"
       aria-label={MOCKUP_LABELS.fullSize}
       tabIndex={-1}
-      className="mk-overlay bg-black/90"
+      className="mk-overlay bg-black/80"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
