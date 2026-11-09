@@ -271,4 +271,30 @@ describe('ThemeProvider localStorage palette persistence', () => {
     // localStorage should NOT have been written by server-driven palette
     expect(localStorageMock.getItem('palette')).toBeNull();
   });
+
+  it('(e) a chosen copper palette is stored and wins over the server default on the next load', async () => {
+    mockFetchAppConfig('everforest');
+
+    const first = renderWithProvider();
+    await waitFor(() => {
+      expect(latest!.palette).toBe('everforest');
+    });
+
+    act(() => {
+      latest!.setPalette('copper');
+    });
+
+    expect(document.documentElement.getAttribute('data-palette')).toBe('copper');
+    expect(localStorageMock.getItem('palette')).toBe('copper');
+
+    first.unmount();
+    document.documentElement.removeAttribute('data-palette');
+
+    await act(async () => {
+      renderWithProvider();
+    });
+
+    expect(latest!.palette).toBe('copper');
+    expect(document.documentElement.getAttribute('data-palette')).toBe('copper');
+  });
 });

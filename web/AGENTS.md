@@ -47,13 +47,15 @@ Auto-loaded when working in `web/`. Backend conventions live in the root
 
 ## Color palettes
 
-Four palettes - Everforest (default), Catppuccin, GitHub, Ayu - defined
-entirely in `web/src/index.css`. All set the _same_ CSS custom properties, so
-components reference variables only and need no changes when the palette
-switches. Catppuccin, GitHub, and Ayu map their scales onto these variables
-(Catppuccin: Mocha dark / Latte light; GitHub: Primer dark default / light;
-Ayu: Mirage dark / Light). Hex is hardcoded in `index.css` - do not add a
-palette dependency. The palette registry is `src/lib/palettes.ts`; a new
+Five palettes - Everforest (default), Catppuccin, GitHub, Ayu, Copper -
+defined entirely in `web/src/index.css`. All set the _same_ CSS custom
+properties, so components reference variables only and need no changes when
+the palette switches. Catppuccin, GitHub, and Ayu map their scales onto these
+variables (Catppuccin: Mocha dark / Latte light; GitHub: Primer dark default /
+light; Ayu: Mirage dark / Light). Copper is an original palette (cool neutral
+greys, copper accent); its reading text is pinned to WCAG AA by
+`src/lib/palettes.contrast.test.ts`. Hex is hardcoded in `index.css` - do not
+add a palette dependency. The palette registry is `src/lib/palettes.ts`; a new
 palette needs an entry there, a dark and a light block in `index.css`, and
 the matching id in the server allow list in `internal/config/config.go`.
 

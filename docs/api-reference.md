@@ -1383,7 +1383,7 @@ payload.
 
 | Field                                              | Presence        | Meaning                                                                                            |
 | -------------------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------- |
-| `theme`                                            | always          | `everforest` (default), `catppuccin`, `github`, or `ayu`; the SPA sets `data-palette` on `<html>` to match |
+| `theme`                                            | always          | `everforest` (default), `catppuccin`, `github`, `ayu`, or `copper`; the SPA sets `data-palette` on `<html>` to match |
 | `version`                                          | always          | Build version; `""` when built without the version ldflag                                          |
 | `auth_mode`                                        | always          | `multi` or `none`                                                                                  |
 | `task_backend`                                     | full only       | `"agent"` when a task backend is configured, else `""`                                             |
