@@ -1489,8 +1489,15 @@ textarea {
   color: var(--aqua) !important;
 }
 
+/* Blocks share --bg0 with the card panel and paper, so a --bg3 frame marks them. */
 .wmde-markdown pre {
   background-color: var(--bg0) !important;
+  border: 1px solid var(--bg3);
+}
+
+/* The --bg3 fill above is for inline code only; block tokens need the pre's --bg0. */
+.wmde-markdown pre code {
+  background-color: transparent !important;
 }
 
 /* The library derives these from prefers-color-scheme or data-color-mode, not
@@ -1684,7 +1691,6 @@ textarea {
 .bf-chat-markdown .wmde-markdown pre {
   margin: 0.25rem 0 !important;
   padding: 0.5rem !important;
-  border: 1px solid var(--bg3) !important;
 }
 
 /* Card flash animation for newly created cards */
