@@ -122,7 +122,9 @@ keeps the hamburger and a way back to the board.
 
 Two faces, the same in every palette: Geist (`--font-sans`) for the UI,
 titles, metric numbers and card-body prose, and JetBrains Mono
-(`--font-mono`) for ids, code and metadata. Self-hosted, no runtime CDN.
+(`--font-mono`) for ids, code and metadata. Other markdown (chat, blueprint
+sheets, playbook descriptions, the editor preview) keeps the markdown
+library's system stack. Self-hosted, no runtime CDN.
 `@font-face` in `src/fonts.css` (imported at the top of `index.css`); woff2
 under `public/fonts/<family>/`, emitted to `dist/fonts/` and embedded via
 `web/embed.go`. Regenerate with `scripts/fontfetch.py`. System font stacks

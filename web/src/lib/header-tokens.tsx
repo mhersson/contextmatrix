@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from 'react';
 
 /**
  * Shared styling tokens for the card-panel and create-card-panel headers.
- * Centralised here so the "display" title style and the dropdown caret icon
+ * Centralised here so the title style and the dropdown caret icon
  * stay identical across the two panels.
  */
 
