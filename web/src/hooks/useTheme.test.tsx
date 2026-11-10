@@ -55,6 +55,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn());
   document.documentElement.removeAttribute('data-palette');
   document.documentElement.removeAttribute('data-theme');
+  document.documentElement.removeAttribute('data-color-mode');
 });
 
 afterEach(() => {
@@ -62,6 +63,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   document.documentElement.removeAttribute('data-palette');
   document.documentElement.removeAttribute('data-theme');
+  document.documentElement.removeAttribute('data-color-mode');
 });
 
 function mockFetchAppConfig(theme: Palette) {
@@ -163,6 +165,29 @@ describe('ThemeProvider dark/light selection', () => {
 
     expect(document.documentElement.getAttribute('data-palette')).toBe('github');
     expect(latest!.palette).toBe('github');
+  });
+
+  it('keeps data-color-mode on <html> in step with the theme, so the markdown library ignores the OS scheme', async () => {
+    localStorageMock.setItem('theme', 'dark');
+    mockFetchAppConfig('everforest');
+    await act(async () => {
+      renderWithProvider();
+    });
+    expect(document.documentElement.getAttribute('data-color-mode')).toBe('dark');
+
+    act(() => {
+      latest!.setTheme('light');
+    });
+    await waitFor(() => {
+      expect(document.documentElement.getAttribute('data-color-mode')).toBe('light');
+    });
+
+    act(() => {
+      latest!.setTheme('dark');
+    });
+    await waitFor(() => {
+      expect(document.documentElement.getAttribute('data-color-mode')).toBe('dark');
+    });
   });
 
   it('setTheme with the current mode is a no-op', async () => {

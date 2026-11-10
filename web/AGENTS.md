@@ -66,7 +66,9 @@ to `localStorage.palette`. `ThemeProvider` applies
 block). A stored value wins over the server default; invalid values fall back.
 
 **Dark/light** is orthogonal and user-selectable from the same menu: dark = no
-`data-theme`; light = `data-theme="light"`.
+`data-theme`; light = `data-theme="light"`. `ThemeProvider` also sets
+`data-color-mode="dark|light"` on `<html>` so the @uiw markdown preview and
+editor follow the app theme, not the OS colour scheme.
 
 **Project header:** the board band (`Board/BoardBand.tsx`, collapsed:
 `BoardMicroBand.tsx`) is the only header on project routes - there is no bar

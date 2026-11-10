@@ -1,5 +1,4 @@
 import { Suspense, lazy, memo, useCallback, useEffect, useId, useRef } from 'react';
-import { useTheme } from '../../hooks/useTheme';
 import { useEditorHeight } from '../../hooks/useEditorHeight';
 import { useCursorFollowScroll } from '../../hooks/useCursorFollowScroll';
 import { useImageUpload } from '../../hooks/useImageUpload';
@@ -63,7 +62,6 @@ interface CardPanelEditorProps {
  * its internal textarea.
  */
 export function CardPanelEditor({ body, project, onChange, editable, editing, onToggleEditing }: CardPanelEditorProps) {
-  const { theme } = useTheme();
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const labelId = useId();
@@ -119,7 +117,7 @@ export function CardPanelEditor({ body, project, onChange, editable, editing, on
   const upload = useImageUpload(insertImageRef, project);
 
   return (
-    <section ref={editorContainerRef} data-color-mode={theme}>
+    <section ref={editorContainerRef}>
       <div className="flex items-center justify-between mb-2">
         <div id={labelId} className="section-eyebrow">
           Description

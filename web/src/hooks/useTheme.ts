@@ -29,6 +29,8 @@ function getStoredPalette(): Palette | null {
 }
 
 function applyTheme(theme: Theme) {
+  // @uiw's markdown and editor key their dark/light variables on this; unset, they follow the OS.
+  document.documentElement.setAttribute('data-color-mode', theme);
   if (theme === 'light') {
     document.documentElement.setAttribute('data-theme', 'light');
   } else {

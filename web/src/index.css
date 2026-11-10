@@ -1503,6 +1503,18 @@ textarea {
   --color-fg-default: var(--fg) !important;
   /* Quote text: 4.5:1 on --bg0 to --bg2 and --bg-dim in every palette. */
   --color-fg-muted: var(--blueprint-quiet-strong) !important;
+  /* Links and alert titles: tone text at 4.5:1 on --bg0 to --bg2 and --bg-dim. */
+  --color-accent-fg: var(--blueprint-ink-blue) !important;
+  --color-success-fg: var(--blueprint-ink-green) !important;
+  --color-attention-fg: var(--blueprint-ink-orange) !important;
+  --color-done-fg: var(--blueprint-ink-accent) !important;
+  --color-danger-fg: var(--blueprint-ink-red) !important;
+  /* Alert edges; the library sets most of these from the OS even under data-color-mode. */
+  --color-accent-emphasis: var(--blue) !important;
+  --color-success-emphasis: var(--green) !important;
+  --color-attention-emphasis: var(--yellow) !important;
+  --color-done-emphasis: var(--purple) !important;
+  --color-danger-emphasis: var(--red) !important;
 }
 
 /* The library's hover fill is a syntax colour that still follows the OS. */
