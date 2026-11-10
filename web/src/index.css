@@ -1493,17 +1493,22 @@ textarea {
   background-color: var(--bg0) !important;
 }
 
-/* The library sets these from the OS colour scheme, or GitHub's palette under
-   data-color-mode, so tables and quotes ignored the app theme. Its stylesheet
-   loads after this one, hence !important. */
+/* The library derives these from prefers-color-scheme or data-color-mode, not
+   the palette; !important beats its later-loaded and more specific rules. */
 .wmde-markdown {
   --color-canvas-default: var(--bg0) !important;
   --color-canvas-subtle: var(--bg1) !important;
   --color-border-default: var(--bg3) !important;
   --color-border-muted: var(--bg3) !important;
   --color-fg-default: var(--fg) !important;
-  /* Quote text: 4.5:1 on --bg0 in every palette, which bare --grey1 misses. */
-  --color-fg-muted: var(--blueprint-quiet) !important;
+  /* Quote text: 4.5:1 on --bg0 to --bg2 and --bg-dim in every palette. */
+  --color-fg-muted: var(--blueprint-quiet-strong) !important;
+}
+
+/* The library's hover fill is a syntax colour that still follows the OS. */
+.wmde-markdown pre:hover .copied:hover {
+  background: var(--bg-green) !important;
+  color: var(--fg) !important;
 }
 
 /* Author svg must stay inside its own box; the renderer's icons fit their viewBox.
