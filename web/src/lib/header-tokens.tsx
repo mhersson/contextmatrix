@@ -2,17 +2,16 @@ import type { CSSProperties, ReactNode } from 'react';
 
 /**
  * Shared styling tokens for the card-panel and create-card-panel headers.
- * Centralised here so the "display" title style and the dropdown caret icon
+ * Centralised here so the title style and the dropdown caret icon
  * stay identical across the two panels.
  */
 
 export const headerTitleStyle: CSSProperties = {
-  fontFamily: 'var(--font-display)',
+  fontFamily: 'var(--font-sans)',
   fontWeight: 500,
   fontSize: '23px',
   lineHeight: 1.25,
   letterSpacing: '-0.015em',
-  fontVariationSettings: '"opsz" 72',
 };
 
 export const HeaderCaret: ReactNode = (

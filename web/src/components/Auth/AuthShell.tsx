@@ -109,7 +109,7 @@ function Wordmark({ glyphSize, nameClass }: { glyphSize: number; nameClass: stri
   return (
     <div className="flex items-center gap-3">
       <MatrixGlyph size={glyphSize} />
-      <span className={`${nameClass} font-medium`} style={{ fontFamily: 'var(--font-display)', color: 'var(--fg)' }}>
+      <span className={`${nameClass} font-medium`} style={{ fontFamily: 'var(--font-sans)', color: 'var(--fg)' }}>
         ContextMatrix
       </span>
     </div>

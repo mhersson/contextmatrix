@@ -150,21 +150,11 @@ export function Sidebar({ onNewProject, onNewSession, mobileOpen = false, onMobi
             className="truncate"
             style={{
               color: 'var(--fg)',
-              fontFamily: 'var(--font-display)',
+              fontFamily: 'var(--font-sans)',
               fontWeight: 500,
               fontSize: '28px',
               letterSpacing: '-0.02em',
               lineHeight: 1.15,
-              // Tune Fraunces' optical-size axis to roughly the rendered
-              // size - opsz: 96 is for huge display use and ships
-              // delicate strokes that wash out at sidebar size; matching
-              // opsz here gives the italic M's left leg solid weight.
-              fontVariationSettings: '"opsz" 28',
-              // Italic Fraunces leans left; the leftmost stroke gets
-              // clipped by the h1's truncate overflow:hidden without a
-              // small inset.
-              paddingLeft: '5px',
-              marginLeft: '-5px',
             }}
           >
             Context<em style={{ fontStyle: 'italic', color: 'var(--aqua)', fontWeight: 400 }}>Matrix</em>

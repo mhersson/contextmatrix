@@ -17,7 +17,7 @@ interface DangerZoneTabProps {
  * Danger Zone rail tab - mirrors the design mock's `.bf-danger-wrap`
  * (`/tmp/card-panel-explorer.html:2232-2257`). Red-tinted intro followed by
  * a list of action cards. Each card uses the `.bf-danger-card` shell:
- * title (Fraunces 15px) → description (grey2 12.5px) → reason text (mono
+ * title (15px) → description (grey2 12.5px) → reason text (mono
  * 11px yellow, conditional) on the left, action button on the right.
  *
  * Currently lists:

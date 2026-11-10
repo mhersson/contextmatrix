@@ -22,7 +22,7 @@ interface BoardBandProps {
 
 /**
  * Header band for the project board. Editorial-engineering style: mono
- * crumb, Fraunces hero title, sub-line with rolling stats, +New Card
+ * crumb, hero title, sub-line with rolling stats, +New Card
  * primary action. Hairline aqua tick fades under the title.
  *
  * Two rows: the crumb row carries the collapse toggle at its right edge,

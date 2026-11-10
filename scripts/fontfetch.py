@@ -37,8 +37,7 @@ MANIFEST_OUT = FONTS_DIR / "manifest.json"
 
 GOOGLE_FONTS_URL = (
     "https://fonts.googleapis.com/css2"
-    "?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400"
-    "&family=Geist:wght@300..700"
+    "?family=Geist:wght@300..700"
     "&family=JetBrains+Mono:wght@400;500;600"
     "&display=swap"
 )
@@ -56,7 +55,6 @@ SUBSETS_KEEP = {"latin", "latin-ext"}
 # Branch names vary across upstreams - these URLs were probed directly;
 # re-verify before bumping.
 LICENSE_SOURCES = {
-    "fraunces": "https://raw.githubusercontent.com/undercasetype/Fraunces/master/OFL.txt",
     "geist": "https://raw.githubusercontent.com/vercel/geist-font/main/OFL.txt",
     "jetbrains-mono": "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/master/OFL.txt",
 }
@@ -64,7 +62,7 @@ LICENSE_SOURCES = {
 UA = "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0"
 
 HEADER = f"""/*
- * Self-hosted @font-face declarations for Fraunces, Geist, and JetBrains Mono.
+ * Self-hosted @font-face declarations for Geist and JetBrains Mono.
  * Generated from the Google Fonts CSS response so unicode-range subsetting
  * and font-display settings match what Google serves. woff2 files live under
  * web/public/fonts/<family>/ and are emitted to dist/fonts/... by Vite, then

@@ -1,17 +1,16 @@
 # Third-party font notices
 
-ContextMatrix's web UI self-hosts three open-source font families. The
+ContextMatrix's web UI self-hosts two open-source font families. The
 `.woff2` binaries are served from the Go binary via `//go:embed all:dist`,
 so every deployment ships the fonts directly - no external CDN or CSS
 imports at runtime.
 
-All three fonts are licensed under the **SIL Open Font License 1.1**. The
+Both are licensed under the **SIL Open Font License 1.1**. The
 full license text is downloaded from each project's upstream repository
 by `scripts/fontfetch.py` and written next to the font files:
 
 | Family         | Upstream                                         | License file                     |
 | -------------- | ------------------------------------------------ | -------------------------------- |
-| Fraunces       | https://github.com/undercasetype/Fraunces        | `fraunces/OFL.txt`               |
 | Geist          | https://github.com/vercel/geist-font             | `geist/OFL.txt`                  |
 | JetBrains Mono | https://github.com/JetBrains/JetBrainsMono       | `jetbrains-mono/OFL.txt`         |
 
