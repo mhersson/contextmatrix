@@ -1493,6 +1493,19 @@ textarea {
   background-color: var(--bg0) !important;
 }
 
+/* The library sets these from the OS colour scheme, or GitHub's palette under
+   data-color-mode, so tables and quotes ignored the app theme. Its stylesheet
+   loads after this one, hence !important. */
+.wmde-markdown {
+  --color-canvas-default: var(--bg0) !important;
+  --color-canvas-subtle: var(--bg1) !important;
+  --color-border-default: var(--bg3) !important;
+  --color-border-muted: var(--bg3) !important;
+  --color-fg-default: var(--fg) !important;
+  /* Quote text: 4.5:1 on --bg0 in every palette, which bare --grey1 misses. */
+  --color-fg-muted: var(--blueprint-quiet) !important;
+}
+
 /* Author svg must stay inside its own box; the renderer's icons fit their viewBox.
    svg.octicon out-ranks @uiw's `.wmde-markdown .octicon { overflow: visible }`. */
 .wmde-markdown svg,
