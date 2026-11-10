@@ -40,7 +40,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@tailwindcss/vite": "^4.3.4",
     "@uiw/react-markdown-preview": "^5.2.1",
-    "@uiw/react-md-editor": "^4.2.3",
+    "@uiw/react-md-editor": "^4.1.6",
     "diff": "^9.0.0",
     "property-information": "7.2.0",
     "react": "^19.3.1",
