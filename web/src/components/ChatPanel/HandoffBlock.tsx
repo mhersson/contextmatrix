@@ -27,7 +27,7 @@ export function HandoffBlock({ handoff, status, blueprintId, blueprintTitle, onR
 
   return (
     <div
-      className="rounded-lg px-3 py-2 text-sm max-w-[85%] min-w-0 wrap-anywhere"
+      className="rounded-lg px-3 py-2 text-[14px] leading-[1.55] max-w-[85%] min-w-0 wrap-anywhere"
       style={{
         backgroundColor: 'var(--chat-assistant-bg)',
         boxShadow: 'inset 0 0 0 1px var(--chat-assistant-ring)',

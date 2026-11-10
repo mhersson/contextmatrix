@@ -20,7 +20,7 @@ export function ProjectCard({ name, displayName, summary, isActive, poc }: Proje
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5 min-w-0">
           <span
-            className="text-[13px] font-medium truncate"
+            className="text-[13.5px] font-medium truncate"
             style={{ color: isActive ? 'var(--fg)' : 'var(--grey2)' }}
           >
             {displayName ?? name}

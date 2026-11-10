@@ -47,7 +47,7 @@ function CollapsiblePayloadImpl({ content, accent, textColor }: CollapsiblePaylo
 
   return (
     <div
-      className="pl-3 border-l-2 text-sm font-mono leading-relaxed whitespace-pre-wrap break-words"
+      className="pl-3 border-l-2 text-[14px] font-mono leading-relaxed whitespace-pre-wrap break-words"
       style={{ borderLeftColor: accent, color: textColor }}
     >
       {collapsible && !expanded ? preview : content}

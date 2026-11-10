@@ -100,7 +100,7 @@ function ChatEntryImpl({
   if (marker) {
     const fallback = (
       <div
-        className="pl-3 border-l-2 text-sm leading-relaxed break-words whitespace-pre-line"
+        className="pl-3 border-l-2 text-[14px] leading-relaxed break-words whitespace-pre-line"
         style={{ borderLeftColor: accentFor('system'), color: textFor('system') }}
       >
         {marker.text}
@@ -153,7 +153,7 @@ function ChatEntryImpl({
         <div className="flex flex-col items-end max-w-[85%] min-w-0">
           {stamp && <TimestampLabel hhmm={stamp.hhmm} title={stamp.title} dateTime={entry.ts} />}
           <div
-            className="rounded-lg px-3 py-2 text-sm whitespace-pre-wrap wrap-anywhere max-w-full"
+            className="rounded-lg px-3 py-2 text-[14px] leading-[1.55] whitespace-pre-wrap wrap-anywhere max-w-full"
             style={{
               backgroundColor: 'var(--bg-blue)',
               boxShadow: 'inset 0 0 0 1px var(--chat-user-ring)',
@@ -231,7 +231,7 @@ function ChatEntryImpl({
             // spec excludes from min-content sizing) keeps a long identifier
             // from dictating that width; `max-w-full` is the hard clamp.
             <div
-              className="rounded-lg px-3 py-2 text-sm wrap-anywhere max-w-full"
+              className="rounded-lg px-3 py-2 text-[14px] leading-[1.55] wrap-anywhere max-w-full"
               style={{
                 backgroundColor:
                   prompt?.prompt.kind === 'question' ? 'var(--prompt-question-bg)' : 'var(--chat-assistant-bg)',
@@ -263,7 +263,7 @@ function ChatEntryImpl({
   if (entry.type === 'system') {
     return (
       <div
-        className="pl-3 border-l-2 text-sm leading-relaxed break-words"
+        className="pl-3 border-l-2 text-[14px] leading-relaxed break-words"
         style={{ borderLeftColor: accentFor(entry.type), color: textFor(entry.type) }}
       >
         <ChatMarkdown source={entry.content} />
@@ -277,7 +277,7 @@ function ChatEntryImpl({
   if (entry.type === 'gap') {
     return (
       <div
-        className="pl-3 border-l-2 text-sm font-mono leading-relaxed whitespace-pre-wrap break-words"
+        className="pl-3 border-l-2 text-[14px] font-mono leading-relaxed whitespace-pre-wrap break-words"
         style={{ borderLeftColor: accentFor(entry.type), color: textFor(entry.type) }}
       >
         {entry.content}
