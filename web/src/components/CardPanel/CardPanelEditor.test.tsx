@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { CardPanelEditor } from './CardPanelEditor';
 import {
@@ -10,10 +10,6 @@ import {
   expectRichHtmlRendered,
 } from '../../test-utils/markdownSafety';
 import { MOCKUP_LABELS } from '../Mockup/labels';
-
-vi.mock('../../hooks/useTheme', () => ({
-  useTheme: () => ({ theme: 'dark' }),
-}));
 
 // Both surfaces render the real markdown library. Suspense fallbacks show the
 // raw body as plain text, so each helper waits for the rendered markdown root.

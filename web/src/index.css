@@ -1489,8 +1489,45 @@ textarea {
   color: var(--aqua) !important;
 }
 
+/* Blocks share --bg0 with the card panel and paper, so a --bg3 frame marks them. */
 .wmde-markdown pre {
   background-color: var(--bg0) !important;
+  border: 1px solid var(--bg3);
+}
+
+/* The --bg3 fill above is for inline code only; block tokens need the pre's --bg0. */
+.wmde-markdown pre code {
+  background-color: transparent !important;
+}
+
+/* The library derives these from prefers-color-scheme or data-color-mode, not
+   the palette; !important beats its later-loaded and more specific rules. */
+.wmde-markdown {
+  --color-canvas-default: var(--bg0) !important;
+  --color-canvas-subtle: var(--bg1) !important;
+  --color-border-default: var(--bg3) !important;
+  --color-border-muted: var(--bg3) !important;
+  --color-fg-default: var(--fg) !important;
+  /* Quote text: 4.5:1 on --bg0 to --bg2 and --bg-dim in every palette. */
+  --color-fg-muted: var(--blueprint-quiet-strong) !important;
+  /* Links and alert titles: tone text at 4.5:1 on --bg0 to --bg2 and --bg-dim. */
+  --color-accent-fg: var(--blueprint-ink-blue) !important;
+  --color-success-fg: var(--blueprint-ink-green) !important;
+  --color-attention-fg: var(--blueprint-ink-orange) !important;
+  --color-done-fg: var(--blueprint-ink-accent) !important;
+  --color-danger-fg: var(--blueprint-ink-red) !important;
+  /* Alert edges; the library sets most of these from the OS even under data-color-mode. */
+  --color-accent-emphasis: var(--blue) !important;
+  --color-success-emphasis: var(--green) !important;
+  --color-attention-emphasis: var(--yellow) !important;
+  --color-done-emphasis: var(--purple) !important;
+  --color-danger-emphasis: var(--red) !important;
+}
+
+/* The library's hover fill is a syntax colour that still follows the OS. */
+.wmde-markdown pre:hover .copied:hover {
+  background: var(--bg-green) !important;
+  color: var(--fg) !important;
 }
 
 /* Author svg must stay inside its own box; the renderer's icons fit their viewBox.
@@ -1654,7 +1691,6 @@ textarea {
 .bf-chat-markdown .wmde-markdown pre {
   margin: 0.25rem 0 !important;
   padding: 0.5rem !important;
-  border: 1px solid var(--bg3) !important;
 }
 
 /* Card flash animation for newly created cards */

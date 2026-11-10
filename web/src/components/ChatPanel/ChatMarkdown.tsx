@@ -2,9 +2,9 @@ import { Suspense, lazy, memo } from 'react';
 import { ErrorBoundary } from '../ErrorBoundary';
 
 // Lazy-load the markdown previewer so the chat panel doesn't pay the
-// bundle cost until first use. The chat markdown styling is fully driven by
-// CSS custom properties, so dark/light switches automatically without
-// data-color-mode. The per-message Suspense fallback shows the raw source,
+// bundle cost until first use. Dark/light follows the data-color-mode that
+// ThemeProvider sets on <html>, with palette colours mapped over the library's
+// in index.css. The per-message Suspense fallback shows the raw source,
 // so the transcript reads as plain text during the (lazy, one-off)
 // chunk fetch instead of blanking behind a single transcript-level boundary.
 const MarkdownPreview = lazy(() => import('../Markdown/SafeMarkdownPreview'));

@@ -66,7 +66,9 @@ to `localStorage.palette`. `ThemeProvider` applies
 block). A stored value wins over the server default; invalid values fall back.
 
 **Dark/light** is orthogonal and user-selectable from the same menu: dark = no
-`data-theme`; light = `data-theme="light"`.
+`data-theme`; light = `data-theme="light"`. `ThemeProvider` also sets
+`data-color-mode="dark|light"` on `<html>` so the @uiw markdown preview and
+editor follow the app theme, not the OS colour scheme.
 
 **Project header:** the board band (`Board/BoardBand.tsx`, collapsed:
 `BoardMicroBand.tsx`) is the only header on project routes - there is no bar
@@ -87,7 +89,7 @@ keeps the hamburger and a way back to the board.
 | Accents      | `--red --orange --yellow --green --aqua --blue --purple` | Priority / state / type accents (mapping below)                  |
 | Chat         | `--chat-assistant-bg/-ring`, `--chat-user-ring`        | Chat bubble fill and rings, shared by every palette                |
 | Prompt       | `--prompt-question-accent`, `--prompt-question-bg`, `--prompt-question-hover-bg`, `--prompt-question-ring`, `--chat-option-hover-bg` | Architect question accent (pink dark, rose to maroon light) and the light wash of the red/purple hue over the bubble for the bubble and option hover; neutral option hover mixes `--fg` into the bubble |
-| Blueprint    | `--blueprint-done`, `--blueprint-cloud`, `--blueprint-quiet`, `--blueprint-quiet-strong`, `--blueprint-ink-red/-orange/-green/-aqua/-blue/-accent` | Blueprint pane and architect prompt colours; derived from palette tokens; muted/tone text meets 4.5:1 |
+| Blueprint    | `--blueprint-done`, `--blueprint-cloud`, `--blueprint-quiet`, `--blueprint-quiet-strong`, `--blueprint-ink-red/-orange/-green/-aqua/-blue/-accent` | Blueprint pane and architect prompt colours, plus link, alert-title and quote text on every markdown surface; derived from palette tokens; muted/tone text meets 4.5:1 |
 
 **UI semantic mapping:**
 
