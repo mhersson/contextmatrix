@@ -31,7 +31,7 @@ export function SessionRow({ session: s, onOpen, onTogglePin }: SessionRowProps)
         onDragEnd={() => {
           window.dispatchEvent(new Event(CHAT_DRAG_END_EVENT));
         }}
-        className="flex-1 min-w-0 text-left pl-3 pr-1 py-1.5 rounded text-[12.5px] flex items-center gap-2"
+        className="flex-1 min-w-0 text-left pl-3 pr-1 py-1.5 rounded text-[13.5px] flex items-center gap-2"
         style={{ cursor: touch ? 'pointer' : 'grab' }}
       >
         {s.kind === 'architect' && (

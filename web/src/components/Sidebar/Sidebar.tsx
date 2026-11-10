@@ -76,7 +76,7 @@ function WorkspaceNavLink({ to, activeBase, label, icon, onNavigate }: Workspace
   return (
     <NavLink to={to} className="block" onClick={onNavigate}>
       <div
-        className={`sb-navrow${isActive ? ' active' : ''} flex items-center gap-2 px-3 py-1 rounded text-[12.5px] transition-colors`}
+        className={`sb-navrow${isActive ? ' active' : ''} flex items-center gap-2 px-3 py-1 rounded text-[13.5px] transition-colors`}
         style={{ color: isActive ? 'var(--fg)' : 'var(--grey2)' }}
         aria-current={isActive ? 'page' : undefined}
       >

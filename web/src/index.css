@@ -1058,7 +1058,7 @@ textarea {
 .bf-tk-compose textarea {
   resize: none;
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: 14px;
   min-height: 56px;
 }
 
@@ -1155,7 +1155,7 @@ textarea {
   border-radius: 2px;
   background: var(--bg0);
   color: var(--fg);
-  font-size: 0.875rem;
+  font-size: 14px;
   overflow-wrap: anywhere;
 }
 .chat-offer-reg {
@@ -1224,7 +1224,7 @@ textarea {
   width: 100%;
   padding: 8px 12px;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.4;
   text-align: left;
   white-space: normal;
@@ -1659,7 +1659,8 @@ textarea {
 }
 
 .bf-chat-markdown .wmde-markdown {
-  font-size: 0.875rem !important;
+  font-size: 14px !important;
+  line-height: 1.55;
 }
 
 .bf-chat-markdown .wmde-markdown > *:first-child {
@@ -1681,7 +1682,7 @@ textarea {
 .bf-chat-markdown .wmde-markdown h2,
 .bf-chat-markdown .wmde-markdown h3,
 .bf-chat-markdown .wmde-markdown h4 {
-  font-size: 0.95rem !important;
+  font-size: 15px !important;
   margin-top: 0.5rem !important;
   margin-bottom: 0.25rem !important;
   padding-bottom: 0 !important;
@@ -3418,8 +3419,11 @@ textarea {
   min-width: 0;
 }
 
+/* Compact like the edit box (text-sm), so the 8rem preview and editing keep one size. */
 .pb-description .wmde-markdown {
   color: var(--grey2) !important;
+  font-size: 0.875rem !important;
+  line-height: 1.5;
 }
 
 .pb-side {
@@ -7661,8 +7665,11 @@ button.bp-seg-hit {
   font-family: var(--font-mono);
   font-size: 0.86em;
 }
+/* Paper prose sizes itself; this size sets the 70ch measure and the size of markdown tables and code. */
 .bp-paper .bp-markdown .wmde-markdown {
   max-width: 70ch;
+  font-size: 0.875rem !important;
+  line-height: 1.5;
 }
 .bp-paper .bp-markdown h1,
 .bp-paper .bp-markdown h2,
@@ -8826,7 +8833,7 @@ button.bp-rv-head {
 .qb-why {
   margin: 0 0 12px;
   color: var(--grey2);
-  font-size: 12.5px;
+  font-size: 14px;
 }
 .qb-opt {
   margin: 6px 0;
@@ -8896,7 +8903,7 @@ button.bp-rv-head {
 .qb-sum {
   flex: 1;
   color: var(--grey2);
-  font-size: 12.5px;
+  font-size: 14px;
 }
 .qb-more {
   padding: 9px 12px 9px 0;
@@ -8913,7 +8920,7 @@ button.bp-rv-head {
 }
 .qb-detail {
   padding: 0 12px 10px 36px;
-  font-size: 12.5px;
+  font-size: 14px;
 }
 .qb-pc {
   display: grid;
@@ -9082,7 +9089,7 @@ button.bp-rv-head {
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--bg0);
-  font-size: 12.5px;
+  font-size: 14px;
 }
 /*
  * The docked chat: only its thread shrinks, scrolling on its own, so the chat box and the foot stay in view. The chat
@@ -9138,7 +9145,7 @@ button.bp-rv-head {
 }
 .qb-chat-compose textarea {
   resize: none;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 /*
@@ -9331,6 +9338,7 @@ button.bp-rv-head {
 }
 .qb-card-chat .qb-chat {
   background: var(--bg1);
+  font-size: 12.5px;
 }
 
 /* Mockup blocks: a card's fenced mockup behind a button, in the sealed frame. */

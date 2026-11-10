@@ -10,7 +10,7 @@ import { ErrorBoundary } from '../ErrorBoundary';
 const MarkdownPreview = lazy(() => import('../Markdown/SafeMarkdownPreview'));
 
 function ChatMarkdownImpl({ source, className, mockups }: { source: string; className?: string; mockups?: boolean }) {
-  const plainText = <div className="whitespace-pre-wrap break-words text-sm">{source}</div>;
+  const plainText = <div className="whitespace-pre-wrap break-words text-[14px] leading-[1.55]">{source}</div>;
   // The ErrorBoundary keeps a rejected markdown-chunk import (or a
   // pathological message) contained to this one bubble as plain text instead
   // of throwing to the panel-wide boundary and replacing the whole drawer.
