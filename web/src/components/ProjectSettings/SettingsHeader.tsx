@@ -18,7 +18,7 @@ const buttonBox = 'px-3 py-1.5 rounded text-sm font-medium transition-colors';
 
 /**
  * Board-band style header for the settings page: display name as the
- * Fraunces title, the read-only identity (prefix, slug when it differs,
+ * title, the read-only identity (prefix, slug when it differs,
  * card count, boards repo) in the sub-line, and the Save / Discard cluster
  * on the right - the same spot the card panel keeps Save. Read-only viewers
  * see the lock note instead of buttons.

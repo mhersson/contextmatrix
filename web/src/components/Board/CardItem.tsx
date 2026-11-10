@@ -237,7 +237,7 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
           {priorityDot(6)}
           <span className="flex-shrink-0" style={cardIdStyle}>{card.id}</span>
           <CardChipRow card={card} compact />
-          <span className="text-xs text-[var(--fg)] truncate min-w-0 flex-1">{card.title}</span>
+          <span className="text-[13px] leading-[1.33] text-[var(--fg)] truncate min-w-0 flex-1">{card.title}</span>
           {collapseButton}
         </div>
         {peekList}
@@ -309,9 +309,9 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
         className={`mb-2 line-clamp-2 ${isNotPlanned ? 'text-[var(--grey1)]' : 'text-[var(--fg)]'}`}
         style={{
           fontFamily: 'var(--font-sans)',
-          fontSize: '13.5px',
-          fontWeight: 500,
-          lineHeight: 1.32,
+          fontSize: '14.5px',
+          fontWeight: 600,
+          lineHeight: 1.45,
           letterSpacing: '-0.005em',
         }}
       >

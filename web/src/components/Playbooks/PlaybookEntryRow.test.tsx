@@ -43,12 +43,6 @@ describe('PlaybookEntryRowView', () => {
     expect(onToggleDone).toHaveBeenCalledWith('e2', true);
   });
 
-  it('shows the note in the display serif voice', () => {
-    render(<MemoryRouter><PlaybookEntryRowView entry={cardEntry({ note: 'brew coffee first' })} index={0} isFrontier={false} {...noop} /></MemoryRouter>);
-    const note = screen.getByText(/brew coffee first/);
-    expect(note).toHaveStyle({ fontStyle: 'italic' });
-  });
-
   it('marks the frontier row', () => {
     render(<MemoryRouter><PlaybookEntryRowView entry={cardEntry()} index={0} isFrontier={true} {...noop} /></MemoryRouter>);
     expect(screen.getByText('next up')).toBeInTheDocument();

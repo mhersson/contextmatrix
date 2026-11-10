@@ -7,12 +7,11 @@ import type { CSSProperties, ReactNode } from 'react';
  */
 
 export const headerTitleStyle: CSSProperties = {
-  fontFamily: 'var(--font-display)',
+  fontFamily: 'var(--font-sans)',
   fontWeight: 500,
   fontSize: '23px',
   lineHeight: 1.25,
   letterSpacing: '-0.015em',
-  fontVariationSettings: '"opsz" 72',
 };
 
 export const HeaderCaret: ReactNode = (

@@ -170,7 +170,7 @@ export function currentStep(view: BlueprintView): BlueprintPipelineStep | null {
 export type Tone = 'running' | 'waiting' | 'failed' | 'idle' | 'done';
 
 export interface CurrentText {
-  /** The stage name, shown in the display face. */
+  /** The stage name. */
   name: string;
   /** Who is doing what. */
   line: string;

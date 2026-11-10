@@ -45,12 +45,12 @@ export function PlaybookDetailHeader({
             onBlur={(e) => onSaveTitle(e.target.value)}
             onKeyDown={blurOnEnter}
             className="text-2xl font-medium flex-1 min-w-0 bg-transparent rounded px-1"
-            style={{ ...editableInputStyle, fontFamily: 'var(--font-display)' }}
+            style={{ ...editableInputStyle, fontFamily: 'var(--font-sans)' }}
           />
         ) : (
           <h1
             className="flex-1 min-w-0"
-            style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: '24px', color: 'var(--fg)' }}
+            style={{ fontFamily: 'var(--font-sans)', fontWeight: 500, fontSize: '24px', color: 'var(--fg)' }}
           >
             <button
               type="button"

@@ -5,9 +5,8 @@ interface PlaybookEntryNoteProps {
   onSave: (value: string) => void;
 }
 
-// Inline-editable note in the display serif voice - italic, muted, prefixed
-// with "›". Click swaps to a textarea; Enter (without shift) or blur saves,
-// Escape cancels without writing.
+// Inline-editable note - italic, muted, prefixed with "›". Click swaps to a
+// textarea; Enter (without shift) or blur saves, Escape cancels without writing.
 export function PlaybookEntryNote({ note, onSave }: PlaybookEntryNoteProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(note ?? '');
@@ -44,7 +43,7 @@ export function PlaybookEntryNote({ note, onSave }: PlaybookEntryNoteProps) {
       onClick={() => setEditing(true)}
       className={`block mt-1 text-left transition-opacity${note ? '' : ' pb-note-add'}`}
       style={{
-        fontFamily: 'var(--font-display)',
+        fontFamily: 'var(--font-sans)',
         fontStyle: 'italic',
         color: 'var(--grey2)',
         background: 'none',
