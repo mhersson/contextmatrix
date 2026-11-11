@@ -238,6 +238,11 @@ var (
 		Help: "Chat session spend in USD, by project and model: each frame adds the gateway-reported cost when present, else the rate-table price.",
 	}, []string{"project", "model"})
 
+	ChatSubscriptionCostUSDTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "contextmatrix_chat_subscription_cost_usd_total",
+		Help: "Chat subscription usage priced at the list rate in USD, by project and model; not billed spend and never added to the chat cost counter.",
+	}, []string{"project", "model"})
+
 	ChatTokensTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "contextmatrix_chat_tokens_total",
 		Help: "Chat session tokens from worker usage frames, by project, model, and token kind.",
@@ -323,6 +328,7 @@ func Register(reg prometheus.Registerer) {
 		ModelOutcomesTotal,
 		ModelBlacklistsTotal,
 		ChatCostUSDTotal,
+		ChatSubscriptionCostUSDTotal,
 		ChatTokensTotal,
 	}
 

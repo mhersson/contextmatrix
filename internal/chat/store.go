@@ -46,10 +46,13 @@ type Store interface {
 	// race-free even under concurrent increments because the DB performs the
 	// arithmetic, not the caller. Returns the new running totals. Returns
 	// ErrSessionNotFound when no row matches (errors.Is(err, sql.ErrNoRows)).
+	// dSubscriptionCost is the subscription-priced share of the frame: it is
+	// added to the all-usage cost and to the subscription total, so pass 0 in
+	// dCost for a frame that is all subscription.
 	IncrementSessionCost(ctx context.Context, sessionID string,
 		dPrompt, dCompletion, dCacheRead, dCacheCreation int64,
-		dCost float64, model string,
-	) (newPrompt, newCompletion, newCacheRead, newCacheCreation int64, newCost float64, err error)
+		dCost, dSubscriptionCost float64, model string,
+	) (newPrompt, newCompletion, newCacheRead, newCacheCreation int64, newCost, newSubscriptionCost float64, err error)
 
 	// UpdateSessionTitle writes only the title column without touching the
 	// rest of the session row. Used by the AppendMessage auto-title path so

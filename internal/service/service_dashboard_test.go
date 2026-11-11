@@ -1252,7 +1252,7 @@ func TestGetChatCostSummary_DeletePreservesCost(t *testing.T) {
 	}))
 
 	// Increment cost so estimated_cost_usd is non-zero.
-	_, _, _, _, _, err = realStore.IncrementSessionCost(ctx, sessID, 100, 50, 0, 0, 1.50, "claude-sonnet-4-6")
+	_, _, _, _, _, _, err = realStore.IncrementSessionCost(ctx, sessID, 100, 50, 0, 0, 1.50, 0, "claude-sonnet-4-6")
 	require.NoError(t, err)
 
 	// Capture baseline: the cost must appear before deletion.

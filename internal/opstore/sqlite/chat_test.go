@@ -336,7 +336,7 @@ func TestIncrementSessionCost_HappyPath(t *testing.T) {
 	sessionID := newTestSession(t, store)
 
 	// First frame: 100 prompt, 50 completion, 200 cache_read, 10 cache_creation, $0.01
-	p, c, cr, cc, cost, err := store.IncrementSessionCost(ctx, sessionID, 100, 50, 200, 10, 0.01, "claude-sonnet-4-6")
+	p, c, cr, cc, cost, _, err := store.IncrementSessionCost(ctx, sessionID, 100, 50, 200, 10, 0.01, 0, "claude-sonnet-4-6")
 	require.NoError(t, err)
 	assert.Equal(t, int64(100), p)
 	assert.Equal(t, int64(50), c)
@@ -345,7 +345,7 @@ func TestIncrementSessionCost_HappyPath(t *testing.T) {
 	assert.InDelta(t, 0.01, cost, 1e-9)
 
 	// Second frame: another 100 prompt, 50 completion - totals double.
-	p2, c2, cr2, cc2, cost2, err := store.IncrementSessionCost(ctx, sessionID, 100, 50, 0, 0, 0.01, "claude-sonnet-4-6")
+	p2, c2, cr2, cc2, cost2, _, err := store.IncrementSessionCost(ctx, sessionID, 100, 50, 0, 0, 0.01, 0, "claude-sonnet-4-6")
 	require.NoError(t, err)
 	assert.Equal(t, int64(200), p2)
 	assert.Equal(t, int64(100), c2)
@@ -368,7 +368,7 @@ func TestIncrementSessionCost_NotFound(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 
 	ctx := context.Background()
-	_, _, _, _, _, err = store.IncrementSessionCost(ctx, "nonexistent-session", 100, 50, 0, 0, 0.01, "claude-sonnet-4-6")
+	_, _, _, _, _, _, err = store.IncrementSessionCost(ctx, "nonexistent-session", 100, 50, 0, 0, 0.01, 0, "claude-sonnet-4-6")
 	require.ErrorIs(t, err, chat.ErrSessionNotFound)
 }
 
@@ -388,7 +388,7 @@ func TestIncrementSessionCost_ConcurrentIncrementsAreRaceFree(t *testing.T) {
 	var wg sync.WaitGroup
 	for range N {
 		wg.Go(func() {
-			_, _, _, _, _, err := store.IncrementSessionCost(ctx, sessionID, 1, 0, 0, 0, 0.001, "claude-sonnet-4-6")
+			_, _, _, _, _, _, err := store.IncrementSessionCost(ctx, sessionID, 1, 0, 0, 0, 0.001, 0, "claude-sonnet-4-6")
 			assert.NoError(t, err)
 		})
 	}
@@ -422,7 +422,7 @@ func TestIncrementSessionCost_EmptyModelPreservesExisting(t *testing.T) {
 	}))
 
 	// Call with empty model - existing column value must be preserved.
-	_, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, 0.001, "")
+	_, _, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, 0.001, 0, "")
 	require.NoError(t, err)
 
 	sess, err := store.GetSession(ctx, sessionID)
@@ -430,7 +430,7 @@ func TestIncrementSessionCost_EmptyModelPreservesExisting(t *testing.T) {
 	assert.Equal(t, "claude-sonnet-4-6", sess.Model, "empty model must not overwrite existing value")
 
 	// Call with a real model - column must be updated.
-	_, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, 0.001, "claude-opus-4-7")
+	_, _, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, 0.001, 0, "claude-opus-4-7")
 	require.NoError(t, err)
 
 	sess, err = store.GetSession(ctx, sessionID)
@@ -455,7 +455,7 @@ func newTestSessionAtTime(t *testing.T, store *Store, lastActive time.Time, cost
 	}))
 
 	if cost > 0 {
-		_, _, _, _, _, err := store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, cost, "claude-sonnet-4-6")
+		_, _, _, _, _, _, err := store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, cost, 0, "claude-sonnet-4-6")
 		require.NoError(t, err)
 	}
 
@@ -587,7 +587,7 @@ func TestDeleteSession_ArchivesBehavior(t *testing.T) {
 		Model:      "claude-sonnet-4-6",
 	}))
 	// Add cost so we can assert it's preserved in the archive.
-	_, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 100, 50, 20, 10, 0.042, "claude-sonnet-4-6")
+	_, _, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 100, 50, 20, 10, 0.042, 0, "claude-sonnet-4-6")
 	require.NoError(t, err)
 
 	// Append a message so we can verify CASCADE.
@@ -683,7 +683,7 @@ func TestDeleteSession_IdempotentDoubleDelete(t *testing.T) {
 		ID: sessionID, Title: "dbl", Status: chat.StatusCold,
 		CreatedAt: now, LastActive: now, CreatedBy: "human:test",
 	}))
-	_, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, 0.01, "claude-sonnet-4-6")
+	_, _, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, 0.01, 0, "claude-sonnet-4-6")
 	require.NoError(t, err)
 
 	require.NoError(t, store.DeleteSession(ctx, sessionID))
@@ -739,7 +739,7 @@ func TestDeleteSession_ReinsertedIDPreservesArchive(t *testing.T) {
 		ID: id, Title: "reinsertion-test", Status: chat.StatusCold,
 		CreatedAt: now, LastActive: now, CreatedBy: "human:test",
 	}))
-	_, _, _, _, _, err = store.IncrementSessionCost(ctx, id, 200, 100, 0, 0, 99.99, "claude-sonnet-4-6")
+	_, _, _, _, _, _, err = store.IncrementSessionCost(ctx, id, 200, 100, 0, 0, 99.99, 0, "claude-sonnet-4-6")
 	require.NoError(t, err)
 
 	// Step 3: DeleteSession - INSERT … SELECT finds the source row AND the id
@@ -1107,7 +1107,7 @@ func TestUpdateSessionSpend_RecordsAndOverwrites(t *testing.T) {
 	sess.Kind = chat.KindArchitect
 	require.NoError(t, s.CreateSession(ctx, sess))
 
-	_, _, _, _, _, err := s.IncrementSessionCost(ctx, "S1", 1, 1, 0, 0, 0.5, "m")
+	_, _, _, _, _, _, err := s.IncrementSessionCost(ctx, "S1", 1, 1, 0, 0, 0.5, 0, "m")
 	require.NoError(t, err)
 
 	got, err := s.GetSession(ctx, "S1")
@@ -1363,4 +1363,28 @@ func TestCountLiveSessionsByMode(t *testing.T) {
 	empty, err := openTestStore(t).CountLiveSessionsByMode(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, empty)
+}
+
+func TestIncrementSessionCost_SubscriptionCostAddsToBothColumns(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	sessionID := newTestSession(t, store)
+
+	_, _, _, _, total, sub, err := store.IncrementSessionCost(ctx, sessionID, 1, 1, 0, 0, 0.5, 0, "m")
+	require.NoError(t, err)
+	assert.InDelta(t, 0.5, total, 1e-9)
+	assert.Zero(t, sub)
+
+	_, _, _, _, total, sub, err = store.IncrementSessionCost(ctx, sessionID, 1, 1, 0, 0, 0, 0.25, "m")
+	require.NoError(t, err)
+	assert.InDelta(t, 0.75, total, 1e-9)
+	assert.InDelta(t, 0.25, sub, 1e-9)
+
+	sess, err := store.GetSession(ctx, sessionID)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.75, sess.EstimatedCostUSD, 1e-9)
+	assert.InDelta(t, 0.25, sess.SubscriptionCostUSD, 1e-9)
 }

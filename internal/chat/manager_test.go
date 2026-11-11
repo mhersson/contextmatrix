@@ -3247,12 +3247,12 @@ type incrementFailingStore struct {
 
 func (s *incrementFailingStore) FailNextIncrement() { s.failNext.Store(true) }
 
-func (s *incrementFailingStore) IncrementSessionCost(ctx context.Context, sessionID string, dPrompt, dCompletion, dCacheRead, dCacheCreation int64, dCost float64, model string) (int64, int64, int64, int64, float64, error) {
+func (s *incrementFailingStore) IncrementSessionCost(ctx context.Context, sessionID string, dPrompt, dCompletion, dCacheRead, dCacheCreation int64, dCost, dSub float64, model string) (int64, int64, int64, int64, float64, float64, error) {
 	if s.failNext.CompareAndSwap(true, false) {
-		return 0, 0, 0, 0, 0, errors.New("injected: IncrementSessionCost failure")
+		return 0, 0, 0, 0, 0, 0, errors.New("injected: IncrementSessionCost failure")
 	}
 
-	return s.Store.IncrementSessionCost(ctx, sessionID, dPrompt, dCompletion, dCacheRead, dCacheCreation, dCost, model)
+	return s.Store.IncrementSessionCost(ctx, sessionID, dPrompt, dCompletion, dCacheRead, dCacheCreation, dCost, dSub, model)
 }
 
 // openAndWaitForUsageEvent opens the session and waits for a session_updated
@@ -3877,7 +3877,7 @@ func TestGetChatCostSummary_UTCAlignment(t *testing.T) {
 	}))
 
 	// Add cost via IncrementSessionCost.
-	_, _, _, _, _, err = realStore.IncrementSessionCost(ctx, sessID, 100, 50, 0, 0, 1.50, "claude-sonnet-4-6")
+	_, _, _, _, _, _, err = realStore.IncrementSessionCost(ctx, sessID, 100, 50, 0, 0, 1.50, 0, "claude-sonnet-4-6")
 	require.NoError(t, err)
 
 	last30d, _, series30d, err := mgr.GetChatCostSummary(ctx)
@@ -4003,7 +4003,7 @@ func TestGetChatCostSummary_SeriesDefensiveCopy(t *testing.T) {
 		LastActive: now.Add(-1 * time.Hour),
 		CreatedBy:  "human:test",
 	}))
-	_, _, _, _, _, err = realStore.IncrementSessionCost(ctx, sessID, 100, 50, 0, 0, 2.00, "claude-sonnet-4-6")
+	_, _, _, _, _, _, err = realStore.IncrementSessionCost(ctx, sessID, 100, 50, 0, 0, 2.00, 0, "claude-sonnet-4-6")
 	require.NoError(t, err)
 
 	// First call - populates cache and returns a copy.
@@ -7726,6 +7726,186 @@ func TestColdPrep_ArchitectModelInClaudeCode(t *testing.T) {
 			require.NotNil(t, opts.Architect)
 			assert.Nil(t, opts.Architect.Price)
 			assert.InDelta(t, capUSD, opts.Architect.CostCapUSD, 1e-9)
+		})
+	}
+}
+
+type recordedUsage struct {
+	mu      sync.Mutex
+	windows [][]protocol.SubscriptionUsage
+}
+
+func (r *recordedUsage) RecordUsage(_ context.Context, u []protocol.SubscriptionUsage) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.windows = append(r.windows, u)
+}
+
+func (r *recordedUsage) calls() [][]protocol.SubscriptionUsage {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return append([][]protocol.SubscriptionUsage(nil), r.windows...)
+}
+
+func TestHandleUsage_SubscriptionPricedAtList(t *testing.T) {
+	hub := chat.NewSSEHub(64)
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	const (
+		model   = "sub-priced"
+		project = "sub-project"
+	)
+
+	windows := []protocol.SubscriptionUsage{
+		{Window: "five_hour", Utilization: 0.4, Status: "allowed", ResetsAt: time.Date(2026, 1, 2, 8, 0, 0, 0, time.UTC)},
+	}
+	rec := &recordedUsage{}
+	backend := &usageStreamingBackend{
+		entries: []chat.LogEntry{{
+			Type: "usage", Model: model,
+			Usage: &chat.TokenUsage{
+				InputTokens: 100, OutputTokens: 50, CostUSD: 9.99,
+				CostBasis: protocol.CostBasisSubscription, Subscription: windows,
+			},
+		}},
+	}
+	mgr := newManager(t, chat.Config{
+		Store: store, Backend: backend, Clock: clock.Real(), IdleTTL: time.Hour, Hub: hub,
+		DefaultModel: model, Pricer: newStubPricer(map[string]float64{model: 0.02}), UsageRecorder: rec,
+	})
+
+	chatBase := testutil.ToFloat64(metrics.ChatCostUSDTotal.WithLabelValues(project, model))
+	subBase := testutil.ToFloat64(metrics.ChatSubscriptionCostUSDTotal.WithLabelValues(project, model))
+
+	sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{Title: "t", Project: project, CreatedBy: "x"})
+	require.NoError(t, err)
+
+	ev := openAndWaitForUsageEvent(t, mgr, hub, sess.ID)
+
+	assert.InDelta(t, 0.02, ev.SessionUpdate.EstimatedCostUSD, 1e-9)
+	assert.InDelta(t, 0.02, ev.SessionUpdate.SubscriptionCostUSD, 1e-9)
+
+	got, err := store.GetSession(context.Background(), sess.ID)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.02, got.EstimatedCostUSD, 1e-9)
+	assert.InDelta(t, 0.02, got.SubscriptionCostUSD, 1e-9)
+
+	assert.InDelta(t, chatBase, testutil.ToFloat64(metrics.ChatCostUSDTotal.WithLabelValues(project, model)), 1e-9)
+	assert.InDelta(t, subBase+0.02, testutil.ToFloat64(metrics.ChatSubscriptionCostUSDTotal.WithLabelValues(project, model)), 1e-9)
+	assert.Equal(t, [][]protocol.SubscriptionUsage{windows}, rec.calls())
+}
+
+func TestHandleUsage_MeteredUnchanged(t *testing.T) {
+	hub := chat.NewSSEHub(64)
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	const (
+		model   = "metered-unchanged"
+		project = "metered-project"
+	)
+
+	rec := &recordedUsage{}
+	backend := &usageStreamingBackend{
+		entries: []chat.LogEntry{{
+			Type: "usage", Model: model,
+			Usage: &chat.TokenUsage{InputTokens: 100, OutputTokens: 50, CostUSD: 0.5},
+		}},
+	}
+	mgr := newManager(t, chat.Config{
+		Store: store, Backend: backend, Clock: clock.Real(), IdleTTL: time.Hour, Hub: hub,
+		DefaultModel: model, Pricer: newStubPricer(map[string]float64{model: 0.02}), UsageRecorder: rec,
+	})
+
+	chatBase := testutil.ToFloat64(metrics.ChatCostUSDTotal.WithLabelValues(project, model))
+	subBase := testutil.ToFloat64(metrics.ChatSubscriptionCostUSDTotal.WithLabelValues(project, model))
+
+	sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{Title: "t", Project: project, CreatedBy: "x"})
+	require.NoError(t, err)
+
+	ev := openAndWaitForUsageEvent(t, mgr, hub, sess.ID)
+	assert.InDelta(t, 0.5, ev.SessionUpdate.EstimatedCostUSD, 1e-9)
+	assert.Zero(t, ev.SessionUpdate.SubscriptionCostUSD)
+
+	got, err := store.GetSession(context.Background(), sess.ID)
+	require.NoError(t, err)
+	assert.Zero(t, got.SubscriptionCostUSD)
+
+	assert.InDelta(t, chatBase+0.5, testutil.ToFloat64(metrics.ChatCostUSDTotal.WithLabelValues(project, model)), 1e-9)
+	assert.InDelta(t, subBase, testutil.ToFloat64(metrics.ChatSubscriptionCostUSDTotal.WithLabelValues(project, model)), 1e-9)
+	assert.Empty(t, rec.calls())
+}
+
+func TestUsageLimitFrame_PublishesState(t *testing.T) {
+	reset := time.Date(2026, 1, 2, 8, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name  string
+		limit protocol.UsageLimit
+		want  string
+	}{
+		{"with reset", protocol.UsageLimit{Window: "five_hour", ResetsAt: reset}, `{"window":"five_hour","resets_at":"2026-01-02T08:00:00Z"}`},
+		{"without reset", protocol.UsageLimit{Window: "seven_day"}, `{"window":"seven_day"}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hub := chat.NewSSEHub(64)
+
+			store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = store.Close() })
+
+			backend := &usageStreamingBackend{
+				entries: []chat.LogEntry{{Type: "system", Content: "Usage limit reached", UsageLimit: &tt.limit}},
+			}
+			mgr := newManager(t, chat.Config{
+				Store: store, Backend: backend, Clock: clock.Real(), IdleTTL: time.Hour, Hub: hub, DefaultModel: "m",
+			})
+
+			sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{Title: "t", CreatedBy: "x"})
+			require.NoError(t, err)
+
+			events, _, err := hub.Subscribe(sess.ID, 0)
+			require.NoError(t, err)
+
+			_, err = mgr.OpenSession(context.Background(), sess.ID)
+			require.NoError(t, err)
+
+			var (
+				sawRow bool
+				update *chat.SessionUpdate
+			)
+
+			deadline := time.After(2 * time.Second)
+
+			for update == nil {
+				select {
+				case e := <-events:
+					if e.Role == chat.RoleSystem && e.Content == "Usage limit reached" {
+						sawRow = true
+					}
+
+					if e.Kind == chat.SSEKindSessionUpdate && e.SessionUpdate != nil && e.SessionUpdate.UsageLimit != nil {
+						update = e.SessionUpdate
+					}
+				case <-deadline:
+					t.Fatal("timed out waiting for the usage-limit session update")
+				}
+			}
+
+			assert.True(t, sawRow, "the plain system row is still appended")
+
+			raw, err := json.Marshal(update.UsageLimit)
+			require.NoError(t, err)
+			assert.JSONEq(t, tt.want, string(raw))
 		})
 	}
 }

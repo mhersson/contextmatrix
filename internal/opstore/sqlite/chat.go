@@ -22,7 +22,7 @@ const sessionColumns = `id, title, project, status, created_at, last_active, cre
     container_id, workspace, model, context_tokens, context_tokens_updated_at, rehydration_active,
     rehydration_started_at, prompt_tokens, completion_tokens, cache_read_tokens,
     cache_creation_tokens, estimated_cost_usd, kind, mode, cost_cap_usd, plain_language, unattended,
-    origin_chat, origin_seq, pinned, spent_usd, llm_channel`
+    origin_chat, origin_seq, pinned, spent_usd, llm_channel, subscription_cost_usd`
 
 func (s *Store) CreateSession(ctx context.Context, sess chat.Session) error {
 	workspaceJSON, err := json.Marshal(sess.Workspace)
@@ -661,6 +661,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 		unattended                  int
 		pinned                      int
 		spentUSD                    sql.NullFloat64
+		subscriptionCostUSD         float64
 	)
 
 	if err := sc.Scan(
@@ -670,7 +671,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 		&rehydrationStartedAt,
 		&promptTokens, &completionTokens, &cacheReadTokens, &cacheCreationTokens,
 		&estimatedCostUSD, &kind, &mode, &costCapUSD, &plainLanguage, &unattended,
-		&s.OriginChat, &s.OriginSeq, &pinned, &spentUSD, &llmChannel,
+		&s.OriginChat, &s.OriginSeq, &pinned, &spentUSD, &llmChannel, &subscriptionCostUSD,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return chat.Session{}, chat.ErrSessionNotFound
@@ -716,6 +717,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 	s.CacheReadTokens = cacheReadTokens
 	s.CacheCreationTokens = cacheCreationTokens
 	s.EstimatedCostUSD = estimatedCostUSD
+	s.SubscriptionCostUSD = subscriptionCostUSD
 
 	if workspaceJSON.Valid && workspaceJSON.String != "" && workspaceJSON.String != "null" {
 		if err := json.Unmarshal([]byte(workspaceJSON.String), &s.Workspace); err != nil {
@@ -816,36 +818,38 @@ func (s *Store) AggregateCost(ctx context.Context, since, until time.Time) (last
 
 // IncrementSessionCost atomically adds token deltas and cost to the session row
 // using a single UPDATE … RETURNING statement. Race-free: the DB performs the
-// arithmetic so concurrent increments cannot interleave. Returns ErrSessionNotFound
-// when no matching row exists.
+// arithmetic so concurrent increments cannot interleave. dSubscriptionCost
+// lands in both estimated_cost_usd and subscription_cost_usd. Returns
+// ErrSessionNotFound when no matching row exists.
 func (s *Store) IncrementSessionCost(
 	ctx context.Context,
 	sessionID string,
 	dPrompt, dCompletion, dCacheRead, dCacheCreation int64,
-	dCost float64,
+	dCost, dSubscriptionCost float64,
 	model string,
-) (newPrompt, newCompletion, newCacheRead, newCacheCreation int64, newCost float64, err error) {
+) (newPrompt, newCompletion, newCacheRead, newCacheCreation int64, newCost, newSubscriptionCost float64, err error) {
 	row := s.db.QueryRowContext(ctx, `
 		UPDATE chat_sessions SET
 			prompt_tokens       = prompt_tokens       + ?,
 			completion_tokens   = completion_tokens   + ?,
 			cache_read_tokens   = cache_read_tokens   + ?,
 			cache_creation_tokens = cache_creation_tokens + ?,
-			estimated_cost_usd  = estimated_cost_usd  + ?,
+			estimated_cost_usd  = estimated_cost_usd  + ? + ?,
+			subscription_cost_usd = subscription_cost_usd + ?,
 			model               = COALESCE(NULLIF(?, ''), model)
 		WHERE id = ?
 		RETURNING prompt_tokens, completion_tokens, cache_read_tokens,
-		          cache_creation_tokens, estimated_cost_usd`,
-		dPrompt, dCompletion, dCacheRead, dCacheCreation, dCost, model, sessionID,
+		          cache_creation_tokens, estimated_cost_usd, subscription_cost_usd`,
+		dPrompt, dCompletion, dCacheRead, dCacheCreation, dCost, dSubscriptionCost, dSubscriptionCost, model, sessionID,
 	)
 
-	if err := row.Scan(&newPrompt, &newCompletion, &newCacheRead, &newCacheCreation, &newCost); err != nil {
+	if err := row.Scan(&newPrompt, &newCompletion, &newCacheRead, &newCacheCreation, &newCost, &newSubscriptionCost); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return 0, 0, 0, 0, 0, chat.ErrSessionNotFound
+			return 0, 0, 0, 0, 0, 0, chat.ErrSessionNotFound
 		}
 
-		return 0, 0, 0, 0, 0, fmt.Errorf("chat: increment session cost: %w", err)
+		return 0, 0, 0, 0, 0, 0, fmt.Errorf("chat: increment session cost: %w", err)
 	}
 
-	return newPrompt, newCompletion, newCacheRead, newCacheCreation, newCost, nil
+	return newPrompt, newCompletion, newCacheRead, newCacheCreation, newCost, newSubscriptionCost, nil
 }

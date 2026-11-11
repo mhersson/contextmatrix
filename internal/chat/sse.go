@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	protocol "github.com/mhersson/contextmatrix-protocol"
 )
 
 // SSEEventKind is the discriminator on SSEEvent. The wire format uses
@@ -59,6 +61,7 @@ type SessionUpdate struct {
 	// Cost and token counters - new running totals after the most recent
 	// IncrementSessionCost call. Zero means "no cost update in this event".
 	EstimatedCostUSD    float64 `json:"estimated_cost_usd,omitempty"`
+	SubscriptionCostUSD float64 `json:"subscription_cost_usd,omitempty"`
 	PromptTokens        int64   `json:"prompt_tokens,omitempty"`
 	CompletionTokens    int64   `json:"completion_tokens,omitempty"`
 	CacheReadTokens     int64   `json:"cache_read_tokens,omitempty"`
@@ -72,6 +75,9 @@ type SessionUpdate struct {
 	// AssistantWorkingSince accompanies AssistantWorking=true with the UTC
 	// start of the in-flight turn. Nil on working=false.
 	AssistantWorkingSince *time.Time `json:"assistant_working_since,omitempty"`
+
+	// UsageLimit reports that a subscription usage limit stopped the session.
+	UsageLimit *protocol.UsageLimit `json:"usage_limit,omitempty"`
 }
 
 // EventKindBlueprint is the DataKind of an architect live frame relayed on

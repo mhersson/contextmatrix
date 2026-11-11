@@ -134,6 +134,12 @@ type ProjectExecInfo struct {
 	WorkerImage string
 }
 
+// UsageRecorder is the slice of the LLM channel holder that stores
+// subscription window state reported on usage frames.
+type UsageRecorder interface {
+	RecordUsage(ctx context.Context, windows []protocol.SubscriptionUsage)
+}
+
 // LLMChannelResolver is the slice of the LLM channel holder that session
 // starts use. Implemented by *llmchannel.Holder.
 type LLMChannelResolver interface {
@@ -183,6 +189,9 @@ type Config struct {
 	// Pricer is used to compute token costs for chat sessions. Optional:
 	// nil means cost computation is skipped.
 	Pricer Pricer
+	// UsageRecorder receives the subscription windows of subscription usage
+	// frames. Optional: nil skips them.
+	UsageRecorder UsageRecorder
 
 	// LLMChannel picks each start's endpoint and model by the global LLM
 	// channel mode. nil sends no endpoint, so the backend fails closed, and
@@ -247,6 +256,7 @@ type Manager struct {
 	rehydrationTimeout time.Duration
 	defaultModel       string
 	pricer             Pricer
+	usageRecorder      UsageRecorder
 	// llmChannel resolves every start's endpoint, a secret carrier: never
 	// log what it returns.
 	llmChannel LLMChannelResolver
@@ -366,6 +376,7 @@ func NewManager(cfg Config) *Manager {
 		rehydrationTimeout:     cfg.RehydrationTimeout,
 		defaultModel:           cfg.DefaultModel,
 		pricer:                 cfg.Pricer,
+		usageRecorder:          cfg.UsageRecorder,
 		llmChannel:             cfg.LLMChannel,
 		workerCredentialsToken: cfg.WorkerCredentialsToken,
 
@@ -652,7 +663,14 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fall
 
 	// The gateway's reported cost wins; the rate table prices only frames
 	// without one, so the unknown-model signal counts table-priced frames.
+	// A subscription frame has no billed cost: any producer figure is dropped
+	// so it can only take the list-price estimate.
+	subscription := e.Usage.CostBasis == protocol.CostBasisSubscription
+
 	cost := e.Usage.CostUSD
+	if subscription {
+		cost = 0
+	}
 	// The protocol says cost is never negative; a bad frame must not lower the total.
 	if cost < 0 {
 		cost = 0
@@ -679,7 +697,14 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fall
 		rowModel = ""
 	}
 
-	newPrompt, newCompletion, newCacheRead, newCacheCreation, newCost, err := m.store.IncrementSessionCost(ctx, sessionID, prompt, completion, cacheRead, cacheCreate, cost, rowModel)
+	// Subscription usage is kept out of billed spend: its estimate is the
+	// subscription share and the billed delta is zero.
+	var subscriptionCost float64
+	if subscription {
+		subscriptionCost, cost = cost, 0
+	}
+
+	newPrompt, newCompletion, newCacheRead, newCacheCreation, newCost, newSubscriptionCost, err := m.store.IncrementSessionCost(ctx, sessionID, prompt, completion, cacheRead, cacheCreate, cost, subscriptionCost, rowModel)
 	if err != nil {
 		m.logger.Debug("chat: handleUsageEntry: increment session cost failed",
 			"session_id", sessionID, "error", err)
@@ -689,7 +714,15 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fall
 
 	// Cost may be $0 (unknown model) - added anyway, matching the persisted
 	// value; tokens skip zero kinds so no empty series appear.
-	metrics.ChatCostUSDTotal.WithLabelValues(project, model).Add(cost)
+	if subscription {
+		metrics.ChatSubscriptionCostUSDTotal.WithLabelValues(project, model).Add(subscriptionCost)
+
+		if m.usageRecorder != nil {
+			m.usageRecorder.RecordUsage(ctx, e.Usage.Subscription)
+		}
+	} else {
+		metrics.ChatCostUSDTotal.WithLabelValues(project, model).Add(cost)
+	}
 
 	kinds := []struct {
 		kind   string
@@ -712,12 +745,22 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fall
 			ContextTokensUpdatedAt: updatedAt,
 			Model:                  model,
 			EstimatedCostUSD:       newCost,
+			SubscriptionCostUSD:    newSubscriptionCost,
 			PromptTokens:           newPrompt,
 			CompletionTokens:       newCompletion,
 			CacheReadTokens:        newCacheRead,
 			CacheCreationTokens:    newCacheCreation,
 		})
 	}
+}
+
+// publishUsageLimit tells open UIs that a subscription usage limit stopped the session.
+func (m *Manager) publishUsageLimit(sessionID string, limit *protocol.UsageLimit) {
+	if m.hub == nil {
+		return
+	}
+
+	m.hub.PublishSessionUpdate(sessionID, SessionUpdate{UsageLimit: limit})
 }
 
 // startConsumer ensures a goroutine is bridging backend /logs for sessionID
@@ -800,6 +843,11 @@ func (m *Manager) startConsumer(sessionID string, restart bool) {
 			role := roleFromLogType(e.Type)
 			if role == "" {
 				return
+			}
+
+			if e.UsageLimit != nil {
+				// Publish after the system row below, so an open UI sees the row first.
+				defer m.publishUsageLimit(sessionID, e.UsageLimit)
 			}
 
 			// Waits out an architect send in flight: what the architect

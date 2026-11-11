@@ -31,6 +31,7 @@ func wireChat(
 	chatStore chat.Store,
 	architectContextWindow func(ctx context.Context, model string) int,
 	llmChannel chat.LLMChannelResolver,
+	usageRecorder chat.UsageRecorder,
 ) (*chat.Manager, *chat.SSEHub, func(), string) {
 	var chatBackend chat.Backend
 
@@ -117,6 +118,7 @@ func wireChat(
 		DefaultModel:                    chatDefaultModel,
 		Pricer:                          svc,
 		LLMChannel:                      llmChannel,
+		UsageRecorder:                   usageRecorder,
 		WorkerCredentialsToken:          workerCredentialsToken,
 		ArchitectBackend:                architectBackend,
 		ArchitectDefaultModel:           architectDefaultModel,

@@ -179,6 +179,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		{"pinned", "INTEGER NOT NULL DEFAULT 0"},
 		{"spent_usd", "REAL"},
 		{"llm_channel", "TEXT NOT NULL DEFAULT 'endpoint'"},
+		{"subscription_cost_usd", "REAL NOT NULL DEFAULT 0"},
 	} {
 		if err := addColumnIfMissing(ctx, db, "chat_sessions", col.name, col.decl); err != nil {
 			return err
