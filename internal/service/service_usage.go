@@ -644,10 +644,9 @@ func usageModel(bucketModel, cardModel, defaultModel string) string {
 	return defaultModel
 }
 
-// upsertUsageBucket merges one report into the card's (agent, model, role)
-// bucket (the cost basis is part of the identity, so subscription usage never
-// merges into a metered bucket). The role comes from the report's phase, else
-// the card's phase.
+// upsertUsageBucket merges one report into the card's (agent, model, role,
+// cost_basis) bucket, so subscription usage never merges into a metered one.
+// The role comes from the report's phase, else the card's phase.
 // The bucket identity is in.OnBehalfOf when non-empty, else in.AgentID -
 // authorization was already checked against AgentID by the caller, so this
 // only affects attribution, never the ownership gate. A bucket that has ever
