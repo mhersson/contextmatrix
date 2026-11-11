@@ -173,6 +173,11 @@ var (
 		Help: "LLM spend in USD reported via report_usage, by project, model, phase, run mode, and cost source.",
 	}, []string{"project", "model", "phase", "run_mode", "source"})
 
+	LLMSubscriptionCostUSDTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "contextmatrix_llm_subscription_cost_usd_total",
+		Help: "Notional list-price cost in USD of subscription-served LLM usage reported via report_usage; not billed spend.",
+	}, []string{"project", "model", "phase", "run_mode"})
+
 	LLMTokensTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "contextmatrix_llm_tokens_total",
 		Help: "LLM tokens reported via report_usage, by project, model, phase, and token kind.",
@@ -307,6 +312,7 @@ func Register(reg prometheus.Registerer) {
 		ChatUsageUnknownModelTotal,
 		ChatCostSummaryErrorsTotal,
 		LLMCostUSDTotal,
+		LLMSubscriptionCostUSDTotal,
 		LLMTokensTotal,
 		LLMCallsTotal,
 		LLMStepDuration,

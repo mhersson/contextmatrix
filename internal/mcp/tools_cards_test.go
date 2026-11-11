@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -799,5 +800,97 @@ func TestForeignRepoRefs(t *testing.T) {
 
 		refs := foreignRepoRefs(cancelledCtx, env.svc, "test-project")
 		assert.Nil(t, refs)
+	})
+}
+
+type recordedUsage struct {
+	got [][]protocol.SubscriptionUsage
+}
+
+func (r *recordedUsage) RecordUsage(_ context.Context, u []protocol.SubscriptionUsage) {
+	r.got = append(r.got, u)
+}
+
+func TestReportUsageTool_Validation(t *testing.T) {
+	validWindow := map[string]any{"window": "seven_day", "utilization": 0.13, "status": "allowed", "resets_at": "2026-11-18T10:00:00Z"}
+
+	with := func(w map[string]any, k string, v any) map[string]any {
+		out := map[string]any{}
+		for kk, vv := range w {
+			out[kk] = vv
+		}
+
+		if v == nil {
+			delete(out, k)
+		} else {
+			out[k] = v
+		}
+
+		return out
+	}
+
+	for _, tc := range []struct {
+		name    string
+		extra   map[string]any
+		wantErr string
+	}{
+		{name: "bad basis", extra: map[string]any{"cost_basis": "bogus"}, wantErr: "cost_basis"},
+		{name: "basis with actual cost", extra: map[string]any{"cost_basis": "subscription", "actual_cost_usd": 1.0}, wantErr: "actual_cost_usd"},
+		{name: "windows without basis", extra: map[string]any{"subscription_usage": []any{validWindow}}, wantErr: "subscription_usage"},
+		{name: "empty window", extra: map[string]any{"cost_basis": "subscription", "subscription_usage": []any{with(validWindow, "window", "")}}, wantErr: "window"},
+		{name: "negative utilization", extra: map[string]any{"cost_basis": "subscription", "subscription_usage": []any{with(validWindow, "utilization", -0.1)}}, wantErr: "utilization"},
+		{name: "bad resets_at", extra: map[string]any{"cost_basis": "subscription", "subscription_usage": []any{with(validWindow, "resets_at", "tomorrow")}}, wantErr: "resets_at"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := &recordedUsage{}
+			env := setupMCP(t, func(c *ServerConfig) { c.SubscriptionUsage = rec })
+			card := createTestCard(t, env, "validation "+tc.name, "task", "medium")
+
+			args := map[string]any{
+				"project": "test-project", "card_id": card.ID, "agent_id": "agent-1",
+				"prompt_tokens": int64(100), "completion_tokens": int64(50),
+			}
+			for k, v := range tc.extra {
+				args[k] = v
+			}
+
+			result := callTool(t, env, "report_usage", args)
+			require.True(t, result.IsError)
+			assert.Contains(t, result.Content[0].(*mcp.TextContent).Text, tc.wantErr)
+			assert.Empty(t, rec.got)
+		})
+	}
+
+	t.Run("valid call records windows", func(t *testing.T) {
+		rec := &recordedUsage{}
+		env := setupMCP(t, func(c *ServerConfig) { c.SubscriptionUsage = rec })
+		card := createTestCard(t, env, "valid", "task", "medium")
+
+		result := callTool(t, env, "report_usage", map[string]any{
+			"project": "test-project", "card_id": card.ID, "agent_id": "agent-1",
+			"prompt_tokens": int64(100), "completion_tokens": int64(50),
+			"cost_basis":         "subscription",
+			"subscription_usage": []any{validWindow},
+		})
+		require.False(t, result.IsError)
+		require.Len(t, rec.got, 1)
+		require.Len(t, rec.got[0], 1)
+		assert.Equal(t, "seven_day", rec.got[0][0].Window)
+		assert.InDelta(t, 0.13, rec.got[0][0].Utilization, 1e-9)
+		assert.Equal(t, "allowed", rec.got[0][0].Status)
+		assert.True(t, rec.got[0][0].ResetsAt.Equal(time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC)))
+	})
+
+	t.Run("nil recorder is skipped", func(t *testing.T) {
+		env := setupMCP(t)
+		card := createTestCard(t, env, "nil recorder", "task", "medium")
+
+		result := callTool(t, env, "report_usage", map[string]any{
+			"project": "test-project", "card_id": card.ID, "agent_id": "agent-1",
+			"prompt_tokens": int64(100), "completion_tokens": int64(50),
+			"cost_basis":         "subscription",
+			"subscription_usage": []any{validWindow},
+		})
+		require.False(t, result.IsError)
 	})
 }

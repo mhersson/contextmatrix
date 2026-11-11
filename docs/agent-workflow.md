@@ -758,7 +758,10 @@ Rules for `report_usage`:
   and a wrong name prices the tokens against the wrong row.
 - `prompt_tokens`, `completion_tokens`, `cache_read_tokens` and
   `cache_creation_tokens` are deltas since the last report; negative values
-  are rejected. `actual_cost_usd` records provider-reported cost.
+  are rejected. `actual_cost_usd` records provider-reported cost. A
+  subscription run sends `cost_basis: "subscription"` (without
+  `actual_cost_usd`) and its last-seen windows in `subscription_usage`
+  (`window`, `utilization`, `status`, RFC 3339 `resets_at`).
 - `source` (`"self"` default, `"collector"`) is stored as the bucket's sticky
   `counts_source`; `cost_source` marks cost that came from the provider
   rather than the rate table.

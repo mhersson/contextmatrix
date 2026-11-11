@@ -1691,3 +1691,124 @@ func TestGetCard_SubtaskUsage(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, sub.SubtaskUsage)
 }
+
+const subscriptionModel = "claude-opus-5-5"
+
+func withSubscriptionRate(svc *CardService) ModelRate {
+	rate := ModelRate{Prompt: 0.00001, Completion: 0.00005}
+
+	svc.SetCatalogRateLookup(func(model string) (ModelRate, bool) {
+		if model == subscriptionModel {
+			return rate, true
+		}
+
+		return ModelRate{}, false
+	})
+
+	return rate
+}
+
+func TestReportUsage_SubscriptionBasis(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	rate := withSubscriptionRate(svc)
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "sub", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	// A stray actual cost must not make the bucket billed spend.
+	stray := 9.99
+	got, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID: "agent-sub", Model: subscriptionModel,
+		PromptTokens: 1000, CompletionTokens: 500,
+		CostBasis: "subscription", ActualCostUSD: &stray,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, got.UsageBreakdown, 1)
+
+	b := got.UsageBreakdown[0]
+	want := PriceTokens(rate, 1000, 0, 0, 500)
+
+	assert.Equal(t, "subscription", b.CostBasis)
+	assert.Equal(t, "estimated", b.CostSource)
+	assert.InDelta(t, want, b.CostUSD, 1e-9)
+
+	// A metered report for the same agent/model/role is a separate bucket.
+	got, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID: "agent-sub", Model: subscriptionModel,
+		PromptTokens: 10, CompletionTokens: 10,
+	})
+	require.NoError(t, err)
+	require.Len(t, got.UsageBreakdown, 2)
+	assert.Equal(t, "subscription", got.UsageBreakdown[0].CostBasis)
+	assert.Empty(t, got.UsageBreakdown[1].CostBasis)
+	assert.Equal(t, int64(1000), got.UsageBreakdown[0].PromptTokens)
+}
+
+func TestReportUsage_SubscriptionMetrics(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	rate := withSubscriptionRate(svc)
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "sub metrics", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	subBase := testutil.ToFloat64(metrics.LLMSubscriptionCostUSDTotal.WithLabelValues("test-project", subscriptionModel, "execute", "normal"))
+	estBase := testutil.ToFloat64(metrics.LLMCostUSDTotal.WithLabelValues("test-project", subscriptionModel, "execute", "normal", "estimated"))
+	actBase := testutil.ToFloat64(metrics.LLMCostUSDTotal.WithLabelValues("test-project", subscriptionModel, "execute", "normal", "actual"))
+
+	_, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID: "agent-sub", Model: subscriptionModel, Phase: "execute",
+		PromptTokens: 1000, CompletionTokens: 500, CostBasis: "subscription",
+	})
+	require.NoError(t, err)
+
+	assert.InDelta(t, subBase+PriceTokens(rate, 1000, 0, 0, 500),
+		testutil.ToFloat64(metrics.LLMSubscriptionCostUSDTotal.WithLabelValues("test-project", subscriptionModel, "execute", "normal")), 1e-9)
+	assert.InDelta(t, estBase,
+		testutil.ToFloat64(metrics.LLMCostUSDTotal.WithLabelValues("test-project", subscriptionModel, "execute", "normal", "estimated")), 1e-9)
+	assert.InDelta(t, actBase,
+		testutil.ToFloat64(metrics.LLMCostUSDTotal.WithLabelValues("test-project", subscriptionModel, "execute", "normal", "actual")), 1e-9)
+}
+
+func TestRecalculateCosts_KeepsBasis(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	rate := withSubscriptionRate(svc)
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "recalc basis", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	cur, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+
+	cur.TokenUsage = &board.TokenUsage{Model: subscriptionModel, PromptTokens: 2000, CompletionTokens: 1000}
+	cur.UsageBreakdown = []board.UsageBucket{
+		{Agent: "a", Model: subscriptionModel, PromptTokens: 1000, CompletionTokens: 500, CostSource: "estimated", CostBasis: "subscription"},
+		{Agent: "a", Model: subscriptionModel, PromptTokens: 1000, CompletionTokens: 500, CostSource: "estimated"},
+	}
+	require.NoError(t, svc.store.UpdateCard(ctx, "test-project", cur))
+
+	_, err = svc.RecalculateCosts(ctx, "test-project", subscriptionModel)
+	require.NoError(t, err)
+
+	after, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	require.Len(t, after.UsageBreakdown, 2)
+
+	want := PriceTokens(rate, 1000, 0, 0, 500)
+	for _, b := range after.UsageBreakdown {
+		assert.InDelta(t, want, b.CostUSD, 1e-9)
+		assert.Equal(t, "estimated", b.CostSource)
+	}
+
+	assert.Equal(t, "subscription", after.UsageBreakdown[0].CostBasis)
+	assert.Empty(t, after.UsageBreakdown[1].CostBasis)
+}

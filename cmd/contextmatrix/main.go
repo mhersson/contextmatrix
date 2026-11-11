@@ -668,6 +668,7 @@ func main() {
 		PlaybookPlayer:      playbookPlayer,
 		ArchitectConfigured: architectConfigured,
 		Knowledge:           knowledgeReader,
+		SubscriptionUsage:   llmChannel,
 	})
 
 	mcpHandler := mcpserver.NewHandler(mcpSrv, cfg.MCPAPIKey)

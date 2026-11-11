@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
+
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
@@ -143,6 +145,10 @@ type ReportUsageInput struct {
 	Phase      string
 	Step       string
 	DurationMS int64
+	// CostBasis is "" (metered) or protocol.CostBasisSubscription. A
+	// subscription report never carries an actual cost: it is always the
+	// list-price estimate and lands in its own bucket.
+	CostBasis string
 }
 
 // ProjectUsage contains aggregated token usage across all cards in a project.
@@ -181,6 +187,10 @@ type RecalculateCostsResult struct {
 // for the typical single-primary-model-per-card agent pattern.
 func (s *CardService) ReportUsage(ctx context.Context, project, id string, input ReportUsageInput) (*board.Card, error) {
 	id = strings.ToUpper(id)
+
+	if input.CostBasis == protocol.CostBasisSubscription {
+		input.ActualCostUSD = nil
+	}
 
 	// Resolve the model rate BEFORE taking writeMu: the catalog fallback can
 	// block on network I/O (stale-cache refresh), and holding the global card
@@ -630,7 +640,9 @@ func usageModel(bucketModel, cardModel, defaultModel string) string {
 }
 
 // upsertUsageBucket merges one report into the card's (agent, model, role)
-// bucket. The role comes from the report's phase, else the card's phase.
+// bucket (the cost basis is part of the identity, so subscription usage never
+// merges into a metered bucket). The role comes from the report's phase, else
+// the card's phase.
 // The bucket identity is in.OnBehalfOf when non-empty, else in.AgentID -
 // authorization was already checked against AgentID by the caller, so this
 // only affects attribution, never the ownership gate. A bucket that has ever
@@ -659,7 +671,7 @@ func upsertUsageBucket(card *board.Card, in ReportUsageInput, cost float64, sour
 
 	for i := range card.UsageBreakdown {
 		b := &card.UsageBreakdown[i]
-		if b.Agent == bucketAgent && b.Model == in.Model && b.Role == role {
+		if b.Agent == bucketAgent && b.Model == in.Model && b.Role == role && b.CostBasis == in.CostBasis {
 			b.PromptTokens += in.PromptTokens
 			b.CompletionTokens += in.CompletionTokens
 			b.CacheReadTokens += in.CacheReadTokens
@@ -691,6 +703,7 @@ func upsertUsageBucket(card *board.Card, in ReportUsageInput, cost float64, sour
 		CostUSD:             cost,
 		CostSource:          source,
 		CountsSource:        countsSource,
+		CostBasis:           in.CostBasis,
 	})
 }
 
@@ -740,7 +753,12 @@ func (s *CardService) emitUsageMetrics(ctx context.Context, project string, card
 	phase = metrics.NormalizePhase(phase)
 	mode := s.runModeLabel(ctx, project, card)
 
-	metrics.LLMCostUSDTotal.WithLabelValues(project, input.Model, phase, mode, costSource).Add(deltaCost)
+	if input.CostBasis == protocol.CostBasisSubscription {
+		metrics.LLMSubscriptionCostUSDTotal.WithLabelValues(project, input.Model, phase, mode).Add(deltaCost)
+	} else {
+		metrics.LLMCostUSDTotal.WithLabelValues(project, input.Model, phase, mode, costSource).Add(deltaCost)
+	}
+
 	metrics.LLMCallsTotal.WithLabelValues(project, input.Model, phase, mode).Inc()
 
 	kinds := []struct {

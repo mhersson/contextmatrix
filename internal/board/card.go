@@ -206,6 +206,9 @@ type UsageBucket struct {
 	// collector reading real usage frames ("collector") or from the agent's own
 	// estimate (empty = self-reported). Sticky once "collector".
 	CountsSource string `yaml:"counts_source,omitempty" json:"counts_source,omitempty"`
+	// CostBasis separates flat-rate subscription usage ("subscription") from
+	// metered usage (empty). It is part of the bucket identity.
+	CostBasis string `yaml:"cost_basis,omitempty" json:"cost_basis,omitempty"`
 }
 
 // SubtaskUsage is one direct subtask's usage breakdown, attached to the

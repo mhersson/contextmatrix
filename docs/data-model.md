@@ -412,6 +412,7 @@ type UsageBucket struct {
     CostUSD             float64  `yaml:"cost_usd"                        json:"cost_usd"`
     CostSource          string   `yaml:"cost_source"                     json:"cost_source"`
     CountsSource        string   `yaml:"counts_source,omitempty"         json:"counts_source,omitempty"`
+    CostBasis           string   `yaml:"cost_basis,omitempty"            json:"cost_basis,omitempty"`
 }
 
 type SubtaskUsage struct {
@@ -446,8 +447,8 @@ pass the gateway's cache-write count as is.
 
 ### Usage breakdown
 
-`UsageBreakdown` holds one `UsageBucket` per `(agent, model, role)` triple,
-merging every `report_usage` call for that triple. It attributes cost after release
+`UsageBreakdown` holds one `UsageBucket` per `(agent, model, role, cost_basis)` tuple,
+merging every `report_usage` call for that tuple. It attributes cost after release
 (when `assigned_agent` is cleared) and across several agents or models on
 one card. Empty-agent buckets roll up to the dashboard's `unassigned` label.
 
@@ -456,6 +457,12 @@ one card. Empty-agent buckets roll up to the dashboard's `unassigned` label.
   rate table. Actual is authoritative: `RecalculateCosts` re-prices only
   `estimated` buckets, and a bucket that ever received an actual cost stays
   `actual`.
+- `cost_basis` is `subscription` for usage served by a flat-rate Claude Code
+  subscription and empty for metered usage. A subscription bucket is always
+  `estimated` at the list price (an `actual_cost_usd` is rejected by MCP and
+  ignored by the service), is not billed spend, and counts on
+  `contextmatrix_llm_subscription_cost_usd_total`, never on
+  `contextmatrix_llm_cost_usd_total`.
 - Token counts are caller-reported in every mode; CM never measures tokens.
   `counts_source` is `collector` when the counts came from a backend reading
   the gateway's measured usage (`source: "collector"`, which

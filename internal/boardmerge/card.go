@@ -456,16 +456,16 @@ func mergeTokenUsage(b, o, t *board.TokenUsage) *board.TokenUsage {
 	return &out
 }
 
-// mergeBuckets adds both sides' deltas per (agent, model) bucket. A bucket
+// mergeBuckets adds both sides' deltas per (agent, model, role, cost basis) bucket. A bucket
 // absent from the ancestor and identical on both sides is one seed written
 // twice, so it counts once.
 func mergeBuckets(b, o, t []board.UsageBucket) []board.UsageBucket {
-	type key struct{ agent, model, role string }
+	type key struct{ agent, model, role, basis string }
 
 	index := func(xs []board.UsageBucket) map[key]board.UsageBucket {
 		m := make(map[key]board.UsageBucket, len(xs))
 		for _, x := range xs {
-			m[key{x.Agent, x.Model, x.Role}] = x
+			m[key{x.Agent, x.Model, x.Role, x.CostBasis}] = x
 		}
 
 		return m
@@ -479,7 +479,7 @@ func mergeBuckets(b, o, t []board.UsageBucket) []board.UsageBucket {
 
 	for _, xs := range [][]board.UsageBucket{t, o} {
 		for _, x := range xs {
-			k := key{x.Agent, x.Model, x.Role}
+			k := key{x.Agent, x.Model, x.Role, x.CostBasis}
 			if !seen[k] {
 				seen[k] = true
 				order = append(order, k)
@@ -504,7 +504,7 @@ func mergeBuckets(b, o, t []board.UsageBucket) []board.UsageBucket {
 		}
 
 		merged := board.UsageBucket{
-			Agent: k.agent, Model: k.model, Role: k.role,
+			Agent: k.agent, Model: k.model, Role: k.role, CostBasis: k.basis,
 			Steps:               unionSteps(ov.Steps, tv.Steps),
 			PromptTokens:        add3(bv.PromptTokens, ov.PromptTokens, tv.PromptTokens),
 			CompletionTokens:    add3(bv.CompletionTokens, ov.CompletionTokens, tv.CompletionTokens),

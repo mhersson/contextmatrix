@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -159,6 +160,59 @@ type reportUsageInput struct {
 	Phase               string   `json:"phase,omitempty" jsonschema:"FSM phase this usage belongs to (plan|execute|judge|document|review|integrate|pr_gates|done); omit to use the card's current phase; persisted on the usage bucket as its role"`
 	Step                string   `json:"step,omitempty" jsonschema:"model-call kind within the phase (main|gate|brainstorm|verify_propose|mob_seat|mob_moderator|checkpoint|judge); omit for the primary phase call"`
 	DurationMS          int64    `json:"duration_ms,omitempty" jsonschema:"wall time of the model step in milliseconds; used for latency metrics only"`
+	CostBasis           string   `json:"cost_basis,omitempty" jsonschema:"subscription when a flat-rate subscription served the calls; omit for metered usage"`
+
+	SubscriptionUsage []subscriptionUsageInput `json:"subscription_usage,omitempty" jsonschema:"last-seen subscription windows; only with cost_basis subscription"`
+}
+
+type subscriptionUsageInput struct {
+	Window      string  `json:"window" jsonschema:"required,window name, e.g. seven_day"`
+	Utilization float64 `json:"utilization" jsonschema:"required,fraction of the window used, 0.13 = 13%"`
+	Status      string  `json:"status,omitempty" jsonschema:"vendor status: allowed, allowed_warning or rejected"`
+	ResetsAt    string  `json:"resets_at" jsonschema:"required,RFC 3339 reset time"`
+}
+
+// parseSubscriptionUsage validates the report_usage subscription arguments
+// and converts the windows to protocol values.
+func parseSubscriptionUsage(cardID string, input reportUsageInput) ([]protocol.SubscriptionUsage, error) {
+	if input.CostBasis != "" && input.CostBasis != protocol.CostBasisSubscription {
+		return nil, fmt.Errorf("report usage for %s: cost_basis must be %q or empty (got %q)",
+			cardID, protocol.CostBasisSubscription, input.CostBasis)
+	}
+
+	if input.CostBasis == protocol.CostBasisSubscription && input.ActualCostUSD != nil {
+		return nil, fmt.Errorf("report usage for %s: actual_cost_usd is not allowed with cost_basis %q",
+			cardID, protocol.CostBasisSubscription)
+	}
+
+	if len(input.SubscriptionUsage) > 0 && input.CostBasis != protocol.CostBasisSubscription {
+		return nil, fmt.Errorf("report usage for %s: subscription_usage requires cost_basis %q",
+			cardID, protocol.CostBasisSubscription)
+	}
+
+	windows := make([]protocol.SubscriptionUsage, 0, len(input.SubscriptionUsage))
+
+	for i, w := range input.SubscriptionUsage {
+		if w.Window == "" {
+			return nil, fmt.Errorf("report usage for %s: subscription_usage[%d].window must not be empty", cardID, i)
+		}
+
+		if w.Utilization < 0 {
+			return nil, fmt.Errorf("report usage for %s: subscription_usage[%d].utilization must be non-negative (got %v)",
+				cardID, i, w.Utilization)
+		}
+
+		resetsAt, err := time.Parse(time.RFC3339, w.ResetsAt)
+		if err != nil {
+			return nil, fmt.Errorf("report usage for %s: subscription_usage[%d].resets_at must be RFC 3339: %w", cardID, i, err)
+		}
+
+		windows = append(windows, protocol.SubscriptionUsage{
+			Window: w.Window, Utilization: w.Utilization, Status: w.Status, ResetsAt: resetsAt,
+		})
+	}
+
+	return windows, nil
 }
 
 type recalculateCostsInput struct {
@@ -717,7 +771,7 @@ func registerGetReadyTasks(server *mcp.Server, svc *service.CardService) {
 	})
 }
 
-func registerReportUsage(server *mcp.Server, svc *service.CardService) {
+func registerReportUsage(server *mcp.Server, svc *service.CardService, recorder UsageRecorder) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "report_usage",
 		Description: "Report token usage for a card. Increments running totals of prompt and completion tokens, " +
@@ -728,6 +782,7 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 			"while agent_id still satisfies the claim check, and source to mark whether the counts are " +
 			"estimated (default) or harness-measured. phase and step are persisted on the card's usage bucket " +
 			"as its role (pr_gates and integrate count as gates) and step list, besides labelling metrics. " +
+			"Subscription runs send cost_basis \"subscription\" (never actual_cost_usd) and the last-seen windows in subscription_usage. " +
 			"Call this on heartbeat and when completing a task.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input reportUsageInput) (*mcp.CallToolResult, *CardSummary, error) {
 		// Reject negative token counts at the handler boundary. The service
@@ -758,6 +813,11 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 				input.CardID, input.Source)
 		}
 
+		windows, err := parseSubscriptionUsage(input.CardID, input)
+		if err != nil {
+			return nil, nil, err
+		}
+
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
 			return nil, nil, err
@@ -776,9 +836,14 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 			Phase:               input.Phase,
 			Step:                input.Step,
 			DurationMS:          input.DurationMS,
+			CostBasis:           input.CostBasis,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("report usage for %s: %w", input.CardID, err)
+		}
+
+		if recorder != nil && len(windows) > 0 {
+			recorder.RecordUsage(ctx, windows)
 		}
 
 		return nil, summarizeCardForAgent(card, input.AgentID), nil
