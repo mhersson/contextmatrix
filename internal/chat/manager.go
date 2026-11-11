@@ -19,6 +19,8 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/chat/transcript"
 	"github.com/mhersson/contextmatrix/internal/clock"
+	"github.com/mhersson/contextmatrix/internal/config"
+	"github.com/mhersson/contextmatrix/internal/llmchannel"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
@@ -107,11 +109,10 @@ type StartChatOpts struct {
 	WorkerImage string
 	Model       string
 	Resume      *ResumeContext
-	// LLMEndpoint is the CM-provisioned inference endpoint configuration
-	// forwarded to the chat backend verbatim. Nil means "the backend falls
-	// back to its own local llm_endpoint config" (pre-multi-user behavior).
-	// Treat as a secret carrier: never log this value or the opts struct
-	// as a whole - LLMEndpoint.APIKey rides along.
+	// LLMEndpoint is the endpoint the LLM channel resolved for this start,
+	// forwarded verbatim; nil omits the wire field. Treat as a secret
+	// carrier: never log this value or the opts struct as a whole - its
+	// APIKey or OAuthToken rides along.
 	LLMEndpoint *protocol.LLMEndpoint
 	// GitCredentialsToken is the per-session bearer the worker presents to
 	// CM's GET /api/worker/git-credentials endpoint to fetch per-repo git
@@ -131,6 +132,14 @@ type StartChatOpts struct {
 type ProjectExecInfo struct {
 	RepoURL     string
 	WorkerImage string
+}
+
+// LLMChannelResolver is the slice of the LLM channel holder that session
+// starts use. Implemented by *llmchannel.Holder.
+type LLMChannelResolver interface {
+	Effective(kind llmchannel.Kind) llmchannel.Mode
+	EndpointFor(kind llmchannel.Kind, recorded llmchannel.Mode) (*protocol.LLMEndpoint, llmchannel.Mode)
+	ResolveModel(mode llmchannel.Mode, model, endpointDefault string) string
 }
 
 // Config carries Manager dependencies.
@@ -174,12 +183,10 @@ type Config struct {
 	// nil means cost computation is skipped.
 	Pricer Pricer
 
-	// LLMEndpoint is the CM-provisioned inference endpoint configuration
-	// attached to every chat-start payload. Nil when llm_endpoint is
-	// unconfigured; the wire field is then omitted and the chat backend fails
-	// closed rather than using a local key. Production wires this from
-	// config.LLMEndpoint in cmd/contextmatrix/main.go's wireChat.
-	LLMEndpoint *protocol.LLMEndpoint
+	// LLMChannel picks each start's endpoint and model by the global LLM
+	// channel mode. nil sends no endpoint, so the backend fails closed, and
+	// keeps the stored or default model.
+	LLMChannel LLMChannelResolver
 
 	// WorkerCredentialsToken mints the per-session bearer attached to every
 	// chat-start payload as StartChatOpts.GitCredentialsToken. nil means "do
@@ -238,10 +245,9 @@ type Manager struct {
 	rehydrationTimeout time.Duration
 	defaultModel       string
 	pricer             Pricer
-	// llmEndpoint is the CM-provisioned inference endpoint configuration
-	// forwarded to every chat-start payload. Treat as a secret carrier:
-	// never log this value - llmEndpoint.APIKey rides along.
-	llmEndpoint *protocol.LLMEndpoint
+	// llmChannel resolves every start's endpoint, a secret carrier: never
+	// log what it returns.
+	llmChannel LLMChannelResolver
 	// workerCredentialsToken mints the per-session bearer attached to every
 	// chat-start payload as StartChatOpts.GitCredentialsToken. nil means "no
 	// token" (no chat-backend api_key configured, or tests that don't
@@ -358,7 +364,7 @@ func NewManager(cfg Config) *Manager {
 		rehydrationTimeout:     cfg.RehydrationTimeout,
 		defaultModel:           cfg.DefaultModel,
 		pricer:                 cfg.Pricer,
-		llmEndpoint:            cfg.LLMEndpoint,
+		llmChannel:             cfg.LLMChannel,
 		workerCredentialsToken: cfg.WorkerCredentialsToken,
 
 		architectBackend:                cfg.ArchitectBackend,
@@ -1127,6 +1133,7 @@ func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, e
 		Model:         in.Model,
 		OriginChat:    in.OriginChat,
 		OriginSeq:     in.OriginSeq,
+		LLMChannel:    string(m.effectiveMode(kind)),
 	}
 	if err := m.store.CreateSession(ctx, sess); err != nil {
 		return Session{}, fmt.Errorf("chat: CreateSession: %w", err)
@@ -1582,7 +1589,10 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 		m.openLimitMu.Unlock()
 	}
 
-	opts, err := m.coldPrep(ctx, sess)
+	// A cold open adopts the current mode; the row keeps it while live.
+	mode := m.effectiveMode(sess.Kind)
+
+	opts, err := m.coldPrep(ctx, sess, mode)
 	if err != nil {
 		return Session{}, err
 	}
@@ -1623,6 +1633,7 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 		fresh.Status = StatusActive
 		fresh.ContainerID = containerID
 		fresh.Model = opts.Model
+		fresh.LLMChannel = string(mode)
 		fresh.LastActive = m.clk.Now().UTC().Truncate(time.Second)
 
 		if fresh.Project != "" && !slices.Contains(fresh.Workspace, fresh.Project) {
@@ -1730,11 +1741,11 @@ func (m *Manager) waitPastSecond(ctx context.Context, t time.Time) error {
 }
 
 // restartArchitect re-sends /chat/start for an active or warm-idle architect
-// session the architect lost. It sends the plain cold-open inputs, never a
-// resume, and does not write the row; the architect no-ops a start for a
-// session it holds. A row that is not a live architect session returns
-// errArchitectNotLive. The status lock keeps the start from landing after
-// EndSession's EndChat.
+// session the architect lost. It sends the plain cold-open inputs on the
+// session's recorded LLM channel mode, never a resume, and does not write the
+// row; the architect no-ops a start for a session it holds. A row that is not
+// a live architect session returns errArchitectNotLive. The status lock keeps
+// the start from landing after EndSession's EndChat.
 func (m *Manager) restartArchitect(ctx context.Context, sessionID string) error {
 	_, err, _ := m.restartGroup.Do(sessionID, func() (any, error) {
 		if err := m.withStatusLock(sessionID, func() error {
@@ -1747,7 +1758,7 @@ func (m *Manager) restartArchitect(ctx context.Context, sessionID string) error 
 				return errArchitectNotLive
 			}
 
-			opts, err := m.coldPrep(ctx, sess)
+			opts, err := m.coldPrep(ctx, sess, llmchannel.Mode(sess.LLMChannel))
 			if err != nil {
 				return fmt.Errorf("chat: restart architect: %w", err)
 			}
@@ -1800,14 +1811,14 @@ func (m *Manager) wakeConsumer(sessionID string) {
 	}
 }
 
-// coldPrep gathers the inputs needed by Backend.StartChat for a cold open.
-// Returns the options struct and an error if any preparatory step failed.
-func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, error) {
+// coldPrep gathers the inputs needed by Backend.StartChat for a cold open on
+// mode, which falls back to the kind's effective mode when no longer usable.
+// The stored model maps onto the resolved mode's catalog.
+func (m *Manager) coldPrep(ctx context.Context, sess Session, mode llmchannel.Mode) (StartChatOpts, error) {
+	endpoint, mode := m.endpointFor(sess.Kind, mode)
+
 	if sess.Kind == KindArchitect {
-		model := sess.Model
-		if model == "" {
-			model = m.architectDefaultModel
-		}
+		model := m.startModel(mode, sess.Model, m.architectDefaultModel)
 
 		var token string
 		if m.architectWorkerCredentialsToken != nil {
@@ -1816,12 +1827,12 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 
 		m.logger.Info("chat: opening cold blueprint session",
 			"session_id", sess.ID, "projects", sess.Workspace, "mode", sess.Mode, "plain_language", sess.PlainLanguage, "unattended", sess.Unattended, "model", model,
-			"research", m.architectResearch != nil)
+			"llm_channel", string(mode), "research", m.architectResearch != nil)
 
 		start := StartChatOpts{
 			SessionID:           sess.ID,
 			Model:               model,
-			LLMEndpoint:         m.llmEndpoint,
+			LLMEndpoint:         endpoint,
 			GitCredentialsToken: token,
 			Architect: &protocol.ArchitectStart{
 				Projects:      sess.Workspace,
@@ -1865,10 +1876,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 	// never block the user from opening the chat.
 	resume := m.buildResume(ctx, sess.ID)
 
-	model := sess.Model
-	if model == "" {
-		model = m.defaultModel
-	}
+	model := m.startModel(mode, sess.Model, m.defaultModel)
 
 	// Mint the worker git-credentials bearer for this cold open. nil
 	// workerCredentialsToken (no chat-backend api_key configured) leaves the
@@ -1881,7 +1889,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 	m.logger.Info("chat: opening cold session",
 		"session_id", sess.ID, "project", sess.Project, "repo_url", execInfo.RepoURL,
 		"worker_image", execInfo.WorkerImage,
-		"model", model, "has_resume", resume != nil,
+		"model", model, "llm_channel", string(mode), "has_resume", resume != nil,
 		"resume_turn_count", resumeTurnCount(resume))
 
 	return StartChatOpts{
@@ -1891,9 +1899,52 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 		WorkerImage:         execInfo.WorkerImage,
 		Model:               model,
 		Resume:              resume,
-		LLMEndpoint:         m.llmEndpoint,
+		LLMEndpoint:         endpoint,
 		GitCredentialsToken: gitCredentialsToken,
 	}, nil
+}
+
+// channelKind is the backend kind the LLM channel knows a session kind by.
+func channelKind(kind SessionKind) llmchannel.Kind {
+	if kind == KindArchitect {
+		return config.BackendNameArchitect
+	}
+
+	return config.BackendNameChat
+}
+
+// effectiveMode is the mode a fresh start of the kind runs in.
+func (m *Manager) effectiveMode(kind SessionKind) llmchannel.Mode {
+	if m.llmChannel == nil {
+		return llmchannel.ModeEndpoint
+	}
+
+	return m.llmChannel.Effective(channelKind(kind))
+}
+
+// endpointFor returns the start payload's endpoint for a session started on
+// recorded, and the mode it belongs to.
+func (m *Manager) endpointFor(kind SessionKind, recorded llmchannel.Mode) (*protocol.LLMEndpoint, llmchannel.Mode) {
+	if m.llmChannel == nil {
+		return nil, llmchannel.ModeEndpoint
+	}
+
+	return m.llmChannel.EndpointFor(channelKind(kind), recorded)
+}
+
+// startModel maps a stored model onto the mode's catalog. An empty model takes
+// the backend's default on the endpoint and claude_code.default_model in
+// claude_code mode.
+func (m *Manager) startModel(mode llmchannel.Mode, model, endpointDefault string) string {
+	if model == "" && mode != llmchannel.ModeClaudeCode {
+		model = endpointDefault
+	}
+
+	if m.llmChannel == nil {
+		return model
+	}
+
+	return m.llmChannel.ResolveModel(mode, model, endpointDefault)
 }
 
 // rollbackContainer ends the worker container started during a cold open and

@@ -28,6 +28,9 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/clock"
+	"github.com/mhersson/contextmatrix/internal/config"
+	"github.com/mhersson/contextmatrix/internal/events"
+	"github.com/mhersson/contextmatrix/internal/llmchannel"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -2292,21 +2295,24 @@ func TestManager_OpenCold_PassesLLMEndpointToBackend(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
+	ctx := context.Background()
 	backend := &stubBackend{}
 	endpoint := &protocol.LLMEndpoint{
 		Type:    "openrouter",
 		BaseURL: "https://openrouter.ai/api/v1",
 		APIKey:  "sk-test-key",
 	}
+	ch, err := llmchannel.New(ctx, llmchannel.Config{Endpoint: endpoint}, memChannelStore{}, events.NewBus())
+	require.NoError(t, err)
+
 	mgr := newManager(t, chat.Config{
-		Store:       store,
-		Backend:     backend,
-		Clock:       clock.Real(),
-		IdleTTL:     time.Hour,
-		LLMEndpoint: endpoint,
+		Store:      store,
+		Backend:    backend,
+		Clock:      clock.Real(),
+		IdleTTL:    time.Hour,
+		LLMChannel: ch,
 	})
 
-	ctx := context.Background()
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
 	require.NoError(t, err)
 
@@ -2316,7 +2322,7 @@ func TestManager_OpenCold_PassesLLMEndpointToBackend(t *testing.T) {
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 
-	require.NotNil(t, backend.lastOpts.LLMEndpoint, "configured Manager.LLMEndpoint must reach StartChatOpts")
+	require.NotNil(t, backend.lastOpts.LLMEndpoint, "the configured endpoint must reach StartChatOpts")
 	assert.Equal(t, *endpoint, *backend.lastOpts.LLMEndpoint)
 }
 
@@ -2343,7 +2349,7 @@ func TestManager_OpenCold_OmitsLLMEndpointWhenUnconfigured(t *testing.T) {
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 
-	assert.Nil(t, backend.lastOpts.LLMEndpoint, "unconfigured Manager.LLMEndpoint must leave StartChatOpts nil")
+	assert.Nil(t, backend.lastOpts.LLMEndpoint, "a manager without an LLM channel must leave StartChatOpts nil")
 }
 
 // --- per-project backend image tests ---
@@ -7470,4 +7476,242 @@ func TestManager_EveryArchitectStartCarriesUnattended(t *testing.T) {
 
 	openArchitect(t, mgr)
 	assert.False(t, startUnattended(), "a blueprint created without it")
+}
+
+type memChannelStore struct{}
+
+func (memChannelStore) LLMChannel(context.Context) (string, time.Time, string, error) {
+	return "", time.Time{}, "", nil
+}
+
+func (memChannelStore) PutLLMChannel(context.Context, string, string) error { return nil }
+
+func channelEndpoint() *protocol.LLMEndpoint {
+	return &protocol.LLMEndpoint{Type: "openai", BaseURL: "https://gw.example/v1", APIKey: "k"}
+}
+
+func claudeCodeEndpoint() *protocol.LLMEndpoint {
+	return &protocol.LLMEndpoint{Type: protocol.LLMEndpointTypeClaudeCode, OAuthToken: "tok"}
+}
+
+// newChannel builds an LLM channel with both sides configured, switched to
+// mode, that runs claude_code for the supported backend kinds.
+func newChannel(t *testing.T, mode llmchannel.Mode, supported ...string) *llmchannel.Holder {
+	t.Helper()
+
+	h, err := llmchannel.New(context.Background(), llmchannel.Config{
+		Endpoint:     channelEndpoint(),
+		OAuthToken:   "tok",
+		Supported:    supported,
+		DefaultModel: "claude-sonnet-5-5",
+	}, memChannelStore{}, events.NewBus())
+	require.NoError(t, err)
+	require.NoError(t, h.Set(context.Background(), mode, "human:test"))
+
+	return h
+}
+
+func (s *stubBackend) startOpts() chat.StartChatOpts {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.lastOpts
+}
+
+func TestOpenCold_AdoptsCurrentMode(t *testing.T) {
+	tests := []struct {
+		name              string
+		createdIn, openIn llmchannel.Mode
+		model             string
+		wantEndpoint      *protocol.LLMEndpoint
+		wantModel         string
+	}{
+		{
+			name: "endpoint row opens on claude_code", createdIn: llmchannel.ModeEndpoint, openIn: llmchannel.ModeClaudeCode,
+			model: "deepseek/deepseek-v4-flash", wantEndpoint: claudeCodeEndpoint(), wantModel: "claude-sonnet-5-5",
+		},
+		{
+			name: "claude_code row opens on the endpoint", createdIn: llmchannel.ModeClaudeCode, openIn: llmchannel.ModeEndpoint,
+			model: "claude-opus-5-5", wantEndpoint: channelEndpoint(), wantModel: "chat/default",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			ch := newChannel(t, tt.createdIn, config.BackendNameChat)
+			mgr, backend, _ := newManagerWithStubsAndConfig(t, chat.Config{
+				IdleTTL: time.Hour, DefaultModel: "chat/default", LLMChannel: ch,
+			})
+
+			sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web", Model: tt.model})
+			require.NoError(t, err)
+
+			created, err := mgr.GetSession(ctx, sess.ID)
+			require.NoError(t, err)
+			require.Equal(t, string(tt.createdIn), created.LLMChannel)
+
+			require.NoError(t, ch.Set(ctx, tt.openIn, "human:test"))
+
+			_, err = mgr.OpenSession(ctx, sess.ID)
+			require.NoError(t, err)
+
+			opts := backend.startOpts()
+			assert.Equal(t, tt.wantEndpoint, opts.LLMEndpoint)
+			assert.Equal(t, tt.wantModel, opts.Model)
+
+			row, err := mgr.GetSession(ctx, sess.ID)
+			require.NoError(t, err)
+			assert.Equal(t, string(tt.openIn), row.LLMChannel)
+			assert.Equal(t, tt.wantModel, row.Model)
+		})
+	}
+}
+
+func TestOpenCold_ArchitectUnsupported(t *testing.T) {
+	ch := newChannel(t, llmchannel.ModeClaudeCode, config.BackendNameChat)
+	mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) { c.LLMChannel = ch })
+
+	bp := openArchitect(t, mgr)
+
+	opts := arch.startOpts()
+	assert.Equal(t, channelEndpoint(), opts.LLMEndpoint)
+	assert.Equal(t, "arch/default", opts.Model)
+
+	row, err := mgr.GetSession(context.Background(), bp.ID)
+	require.NoError(t, err)
+	assert.Equal(t, string(llmchannel.ModeEndpoint), row.LLMChannel)
+}
+
+// A live blueprint the architect lost is restarted on the mode it started in,
+// whatever the switch says now.
+func TestRestartArchitect_KeepsRecordedMode(t *testing.T) {
+	tests := []struct {
+		name          string
+		startIn, now  llmchannel.Mode
+		wantEndpoint  *protocol.LLMEndpoint
+		wantStartedOn string
+	}{
+		{"endpoint run", llmchannel.ModeEndpoint, llmchannel.ModeClaudeCode, channelEndpoint(), "arch/default"},
+		{"claude_code run", llmchannel.ModeClaudeCode, llmchannel.ModeEndpoint, claudeCodeEndpoint(), "claude-sonnet-5-5"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			ch := newChannel(t, tt.startIn, config.BackendNameChat, config.BackendNameArchitect)
+			mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) { c.LLMChannel = ch })
+
+			bp := openArchitect(t, mgr)
+			require.Equal(t, tt.wantEndpoint, arch.startOpts().LLMEndpoint)
+
+			require.NoError(t, ch.Set(ctx, tt.now, "human:test"))
+
+			arch.mu.Lock()
+			arch.sendErrSeq = []error{errSessionUnknown(), nil}
+			arch.mu.Unlock()
+
+			_, err := mgr.SendUserMessage(ctx, bp.ID, "approve")
+			require.NoError(t, err)
+			require.Equal(t, int64(2), arch.startCalls.Load(), "one re-sent start")
+
+			opts := arch.startOpts()
+			assert.Equal(t, tt.wantEndpoint, opts.LLMEndpoint)
+			assert.Equal(t, tt.wantStartedOn, opts.Model)
+
+			row, err := mgr.GetSession(ctx, bp.ID)
+			require.NoError(t, err)
+			assert.Equal(t, string(tt.startIn), row.LLMChannel, "the restart keeps the row's mode")
+			assert.Equal(t, tt.wantStartedOn, row.Model)
+		})
+	}
+}
+
+// A chat backend that lost a live session reopens it cold, and a cold open
+// adopts the current mode.
+func TestReopenCold_AdoptsCurrentMode(t *testing.T) {
+	ctx := context.Background()
+	ch := newChannel(t, llmchannel.ModeEndpoint, config.BackendNameChat)
+	mgr, backend, _ := newManagerWithStubsAndConfig(t, chat.Config{
+		IdleTTL: time.Hour, DefaultModel: "chat/default", LLMChannel: ch,
+	})
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web", Model: "deepseek/deepseek-v4-flash"})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+	require.Equal(t, channelEndpoint(), backend.startOpts().LLMEndpoint)
+
+	require.NoError(t, ch.Set(ctx, llmchannel.ModeClaudeCode, "human:test"))
+
+	backend.mu.Lock()
+	backend.sendErrSeq = []error{errSessionUnknown(), nil}
+	backend.mu.Unlock()
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "hello")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), backend.startCalls.Load())
+
+	opts := backend.startOpts()
+	assert.Equal(t, claudeCodeEndpoint(), opts.LLMEndpoint)
+	assert.Equal(t, "claude-sonnet-5-5", opts.Model)
+
+	row, err := mgr.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, string(llmchannel.ModeClaudeCode), row.LLMChannel)
+}
+
+func TestColdPrep_ArchitectModelInClaudeCode(t *testing.T) {
+	ctx := context.Background()
+	want := protocol.ModelPrice{PromptUSDPerMTok: 3, CompletionUSDPerMTok: 15, CacheReadUSDPerMTok: 0.3, CacheWriteUSDPerMTok: 3.75}
+	ch := newChannel(t, llmchannel.ModeClaudeCode, config.BackendNameChat, config.BackendNameArchitect)
+
+	mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) {
+		c.LLMChannel = ch
+		c.ArchitectPrice = func(model string) (protocol.ModelPrice, bool) {
+			if model == "claude-sonnet-5-5" {
+				return want, true
+			}
+
+			return protocol.ModelPrice{}, false
+		}
+	})
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha"}, Model: "anthropic/claude-sonnet-5.5", CreatedBy: "human:web",
+	})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err)
+
+	opts := arch.startOpts()
+	assert.Equal(t, "claude-sonnet-5-5", opts.Model)
+	assert.Equal(t, claudeCodeEndpoint(), opts.LLMEndpoint)
+	require.NotNil(t, opts.Architect)
+	require.NotNil(t, opts.Architect.Price)
+	assert.Equal(t, want, *opts.Architect.Price)
+
+	// Without a price the start carries the cap alone: an uncapped blueprint
+	// runs with no cap, and the architect refuses the capped one's runs.
+	for _, capUSD := range []float64{0, 4} {
+		t.Run(fmt.Sprintf("unpriced cap %v", capUSD), func(t *testing.T) {
+			unpriced, _, unpricedArch := newManagerWithArchitectStub(t, func(c *chat.Config) {
+				c.LLMChannel = ch
+				c.ArchitectPrice = func(string) (protocol.ModelPrice, bool) { return protocol.ModelPrice{}, false }
+			})
+
+			bp, err := unpriced.CreateSession(ctx, chat.CreateInput{
+				Kind: chat.KindArchitect, Projects: []string{"alpha"}, Model: "anthropic/claude-sonnet-5.5",
+				CostCapUSD: capUSD, CreatedBy: "human:web",
+			})
+			require.NoError(t, err)
+			_, err = unpriced.OpenSession(ctx, bp.ID)
+			require.NoError(t, err)
+
+			opts := unpricedArch.startOpts()
+			require.NotNil(t, opts.Architect)
+			assert.Nil(t, opts.Architect.Price)
+			assert.InDelta(t, capUSD, opts.Architect.CostCapUSD, 1e-9)
+		})
+	}
 }

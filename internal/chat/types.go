@@ -93,7 +93,10 @@ type Session struct {
 	Model                  string    `json:"model,omitempty"`
 	ContextTokens          int64     `json:"context_tokens,omitempty"`
 	ContextTokensUpdatedAt time.Time `json:"context_tokens_updated_at"`
-	RehydrationActive      bool      `json:"rehydration_active,omitempty"`
+	// LLMChannel is the session's LLM channel mode (llmchannel.Mode): the
+	// current mode at creation and at every cold open, kept while live.
+	LLMChannel        string `json:"llm_channel"`
+	RehydrationActive bool   `json:"rehydration_active,omitempty"`
 	// RehydrationStartedAt is set when SetRehydrationActive(true) is called and
 	// cleared (nil) when called with false. The reaper compares this - not
 	// LastActive - against the rehydration timeout so an actively-typing user

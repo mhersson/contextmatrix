@@ -18,6 +18,8 @@ import (
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
+	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 )
 
 const (
@@ -122,6 +124,9 @@ type chatHandlers struct {
 	// live multiplexes the architect's live blueprint stream onto the chat
 	// SSE of architect sessions; nil when no architect is configured.
 	live *blueprintLive
+	// llmChannel switches the picker and the create-time check to the Claude
+	// Code catalog while new chats start in claude_code mode; nil never does.
+	llmChannel LLMChannelResolver
 }
 
 func newChatHandlers(mgr *chat.Manager, hub *chat.SSEHub, chatBackendCfg *config.ChatBackendConfig) *chatHandlers {
@@ -252,6 +257,15 @@ func (h *chatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sessions)
 }
 
+// chatMode is the LLM channel mode a new chat starts in.
+func (h *chatHandlers) chatMode() llmchannel.Mode {
+	if h.llmChannel == nil {
+		return llmchannel.ModeEndpoint
+	}
+
+	return h.llmChannel.Effective(config.BackendNameChat)
+}
+
 // isArchitectDefault reports whether model is the architect backend's own
 // default, which the picker seeds and the backend already accepts, so it skips
 // catalog validation exactly as an omitted model does.
@@ -292,6 +306,20 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 	applyDefault := kind != chat.KindArchitect
 
 	switch {
+	case h.chatMode() == llmchannel.ModeClaudeCode:
+		if model == "" && applyDefault {
+			model = h.llmChannel.ResolveModel(llmchannel.ModeClaudeCode, "", "")
+		}
+
+		if model != "" && !h.isArchitectDefault(kind, model) {
+			if _, ok := modelcatalog.ClaudeCodeID(model); !ok {
+				writeError(w, http.StatusBadRequest, ErrCodeInvalidModel, "model not in catalog", model)
+
+				return
+			}
+
+			model = h.llmChannel.ResolveModel(llmchannel.ModeClaudeCode, model, "")
+		}
 	case h.endpointModels != nil:
 		if model == "" && applyDefault {
 			model = h.orDefault
@@ -383,6 +411,8 @@ func containsModelID(models []chatModelEntry, id string) bool {
 //     backends.chat.default_model. Also returned (with an empty list) when
 //     no chat backend is configured - the picker renders nothing and new
 //     chats fall back to the server default.
+//   - "claude_code": new chats start in claude_code mode; Models is the
+//     Claude Code catalog and Default is claude_code.default_model.
 func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 	type response struct {
 		Source           string           `json:"source"`
@@ -390,6 +420,33 @@ func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 		Default          string           `json:"default"`
 		ArchitectDefault string           `json:"architect_default"`
 		FetchError       string           `json:"fetch_error,omitempty"`
+	}
+
+	if h.chatMode() == llmchannel.ModeClaudeCode {
+		cc := modelcatalog.ClaudeCodeModels()
+		models := make([]chatModelEntry, len(cc))
+
+		for i, m := range cc {
+			models[i] = chatModelEntry{ID: m.ID, Label: m.ID, MaxTokens: int64(m.ContextWindow)}
+		}
+
+		def := h.llmChannel.ResolveModel(llmchannel.ModeClaudeCode, "", "")
+
+		// A blueprint with no model of its own starts on the default of the
+		// mode its architect runs in.
+		archDefault := h.architectDefault
+		if archDefault != "" && h.llmChannel.Effective(config.BackendNameArchitect) == llmchannel.ModeClaudeCode {
+			archDefault = def
+		}
+
+		writeJSON(w, http.StatusOK, response{
+			Source:           string(llmchannel.ModeClaudeCode),
+			Models:           h.annotateModels(r.Context(), models),
+			Default:          def,
+			ArchitectDefault: archDefault,
+		})
+
+		return
 	}
 
 	if h.endpointModels != nil {

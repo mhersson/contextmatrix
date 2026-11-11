@@ -22,7 +22,7 @@ const sessionColumns = `id, title, project, status, created_at, last_active, cre
     container_id, workspace, model, context_tokens, context_tokens_updated_at, rehydration_active,
     rehydration_started_at, prompt_tokens, completion_tokens, cache_read_tokens,
     cache_creation_tokens, estimated_cost_usd, kind, mode, cost_cap_usd, plain_language, unattended,
-    origin_chat, origin_seq, pinned, spent_usd`
+    origin_chat, origin_seq, pinned, spent_usd, llm_channel`
 
 func (s *Store) CreateSession(ctx context.Context, sess chat.Session) error {
 	workspaceJSON, err := json.Marshal(sess.Workspace)
@@ -45,15 +45,16 @@ func (s *Store) CreateSession(ctx context.Context, sess chat.Session) error {
 		unattended = 1
 	}
 
+	// An empty mode is stored as the column default.
 	_, err = s.db.ExecContext(ctx, `INSERT INTO chat_sessions
         (id, title, project, status, created_at, last_active, created_by, container_id, workspace, model,
-         kind, mode, cost_cap_usd, plain_language, unattended, origin_chat, origin_seq)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         kind, mode, cost_cap_usd, plain_language, unattended, origin_chat, origin_seq, llm_channel)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(NULLIF(?, ''), 'endpoint'))`,
 		sess.ID, sess.Title, nullIf(sess.Project), string(sess.Status),
 		sess.CreatedAt.Unix(), sess.LastActive.Unix(), sess.CreatedBy,
 		nullIf(sess.ContainerID), string(workspaceJSON), sess.Model,
 		string(kind), sess.Mode, sess.CostCapUSD, plainLanguage, unattended,
-		sess.OriginChat, sess.OriginSeq,
+		sess.OriginChat, sess.OriginSeq, sess.LLMChannel,
 	)
 	if err != nil {
 		if sess.OriginChat != "" && isUniqueViolation(err) {
@@ -188,6 +189,45 @@ func (s *Store) CountSessionsByStatus(ctx context.Context, statuses ...chat.Stat
 	return n, nil
 }
 
+// CountLiveSessionsByMode returns the active and warm-idle sessions counted by
+// LLM channel mode, then by kind. Modes and kinds with no live session are
+// absent.
+func (s *Store) CountLiveSessionsByMode(ctx context.Context) (map[string]map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT llm_channel, kind, COUNT(*) FROM chat_sessions WHERE status IN (?, ?) GROUP BY llm_channel, kind`,
+		string(chat.StatusActive), string(chat.StatusWarmIdle))
+	if err != nil {
+		return nil, fmt.Errorf("chat: count live sessions by mode: %w", err)
+	}
+
+	defer rows.Close()
+
+	out := map[string]map[string]int{}
+
+	for rows.Next() {
+		var (
+			mode, kind string
+			n          int
+		)
+
+		if err := rows.Scan(&mode, &kind, &n); err != nil {
+			return nil, fmt.Errorf("chat: scan live session count: %w", err)
+		}
+
+		if out[mode] == nil {
+			out[mode] = map[string]int{}
+		}
+
+		out[mode][kind] = n
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("chat: count live sessions by mode: %w", err)
+	}
+
+	return out, nil
+}
+
 func (s *Store) UpdateSession(ctx context.Context, sess chat.Session) error {
 	workspaceJSON, err := json.Marshal(sess.Workspace)
 	if err != nil {
@@ -200,13 +240,14 @@ func (s *Store) UpdateSession(ctx context.Context, sess chat.Session) error {
 		startedAt = sess.RehydrationStartedAt.Unix()
 	}
 
+	// An empty mode keeps the row's, so a writer that never set it cannot clear it.
 	res, err := s.db.ExecContext(ctx, `UPDATE chat_sessions SET
         title=?, project=?, status=?, last_active=?, container_id=?, workspace=?, model=?,
-        rehydration_started_at=?
+        rehydration_started_at=?, llm_channel=COALESCE(NULLIF(?, ''), llm_channel)
         WHERE id=?`,
 		sess.Title, nullIf(sess.Project), string(sess.Status),
 		sess.LastActive.Unix(), nullIf(sess.ContainerID), string(workspaceJSON),
-		sess.Model, startedAt, sess.ID)
+		sess.Model, startedAt, sess.LLMChannel, sess.ID)
 	if err != nil {
 		return fmt.Errorf("chat: update session: %w", err)
 	}
@@ -614,7 +655,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 		cacheReadTokens             int64
 		cacheCreationTokens         int64
 		estimatedCostUSD            float64
-		kind, mode                  string
+		kind, mode, llmChannel      string
 		costCapUSD                  float64
 		plainLanguage               int
 		unattended                  int
@@ -629,7 +670,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 		&rehydrationStartedAt,
 		&promptTokens, &completionTokens, &cacheReadTokens, &cacheCreationTokens,
 		&estimatedCostUSD, &kind, &mode, &costCapUSD, &plainLanguage, &unattended,
-		&s.OriginChat, &s.OriginSeq, &pinned, &spentUSD,
+		&s.OriginChat, &s.OriginSeq, &pinned, &spentUSD, &llmChannel,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return chat.Session{}, chat.ErrSessionNotFound
@@ -643,6 +684,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 	s.Status = chat.Status(status)
 	s.Kind = chat.SessionKind(kind)
 	s.Mode = mode
+	s.LLMChannel = llmChannel
 	s.CostCapUSD = costCapUSD
 	s.PlainLanguage = plainLanguage != 0
 	s.Unattended = unattended != 0

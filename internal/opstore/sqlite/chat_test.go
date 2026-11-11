@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mhersson/contextmatrix/internal/chat"
+	"github.com/mhersson/contextmatrix/internal/sqliteutil"
 )
 
 func TestOpen_CreatesSchema(t *testing.T) {
@@ -1250,4 +1252,115 @@ func TestSession_UnattendedRoundTrip(t *testing.T) {
 	chatRow, err := s.GetSession(ctx, "C1")
 	require.NoError(t, err)
 	assert.False(t, chatRow.Unattended)
+}
+
+// An older image inserts without naming llm_channel; on a database that grew
+// the column, its row reads back as an endpoint session.
+func TestChatSessions_OlderInsertStillWorks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ops.db")
+
+	s, err := Open(path)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	db, err := sql.Open("sqlite", sqliteutil.DSN(path, sqliteutil.WithForeignKeys()))
+	require.NoError(t, err)
+	_, err = db.Exec("ALTER TABLE chat_sessions DROP COLUMN llm_channel")
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	s2, err := Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s2.Close() })
+
+	assert.True(t, columnExists(t, s2.db, "chat_sessions", "llm_channel"))
+
+	var v int
+
+	require.NoError(t, s2.db.QueryRow("PRAGMA user_version").Scan(&v))
+	assert.Equal(t, schemaVersion, v)
+
+	_, err = s2.db.Exec(`INSERT INTO chat_sessions
+        (id, title, project, status, created_at, last_active, created_by, container_id, workspace, model,
+         kind, mode, cost_cap_usd, plain_language, unattended, origin_chat, origin_seq)
+        VALUES ('OLD', 'old', NULL, 'cold', 1, 1, 'human:web', NULL, '[]', 'deepseek/deepseek-v4-flash',
+         'chat', '', 0, 0, 0, '', 0)`)
+	require.NoError(t, err)
+
+	old, err := s2.GetSession(context.Background(), "OLD")
+	require.NoError(t, err)
+	assert.Equal(t, "endpoint", old.LLMChannel)
+}
+
+func TestSession_LLMChannelRoundTrip(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	cc := sessionRow("CC")
+	cc.LLMChannel = "claude_code"
+	require.NoError(t, s.CreateSession(ctx, cc))
+	require.NoError(t, s.CreateSession(ctx, sessionRow("UNSET")))
+
+	got, err := s.GetSession(ctx, "CC")
+	require.NoError(t, err)
+	assert.Equal(t, "claude_code", got.LLMChannel)
+
+	unset, err := s.GetSession(ctx, "UNSET")
+	require.NoError(t, err)
+	assert.Equal(t, "endpoint", unset.LLMChannel, "a row created without a mode is an endpoint session")
+
+	// A writer that never set the field keeps the row's mode.
+	blank := got
+	blank.LLMChannel = ""
+	blank.Status = chat.StatusActive
+	require.NoError(t, s.UpdateSession(ctx, blank))
+
+	kept, err := s.GetSession(ctx, "CC")
+	require.NoError(t, err)
+	assert.Equal(t, "claude_code", kept.LLMChannel)
+
+	kept.LLMChannel = "endpoint"
+	require.NoError(t, s.UpdateSession(ctx, kept))
+
+	switched, err := s.GetSession(ctx, "CC")
+	require.NoError(t, err)
+	assert.Equal(t, "endpoint", switched.LLMChannel)
+}
+
+func TestCountLiveSessionsByMode(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	rows := []struct {
+		id     string
+		kind   chat.SessionKind
+		status chat.Status
+		mode   string
+	}{
+		{"C1", chat.KindChat, chat.StatusActive, "claude_code"},
+		{"C2", chat.KindChat, chat.StatusWarmIdle, "claude_code"},
+		{"C3", chat.KindChat, chat.StatusCold, "claude_code"},
+		{"C4", chat.KindChat, chat.StatusActive, "endpoint"},
+		{"B1", chat.KindArchitect, chat.StatusActive, "endpoint"},
+		{"B2", chat.KindArchitect, chat.StatusWarmIdle, "endpoint"},
+		{"B3", chat.KindArchitect, chat.StatusEnding, "claude_code"},
+		{"B4", chat.KindArchitect, chat.StatusActive, "claude_code"},
+	}
+
+	for _, r := range rows {
+		sess := sessionRow(r.id)
+		sess.Kind, sess.Status, sess.LLMChannel = r.kind, r.status, r.mode
+		require.NoError(t, s.CreateSession(ctx, sess))
+	}
+
+	got, err := s.CountLiveSessionsByMode(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]map[string]int{
+		"claude_code": {"chat": 2, "architect": 1},
+		"endpoint":    {"chat": 1, "architect": 2},
+	}, got)
+
+	empty, err := openTestStore(t).CountLiveSessionsByMode(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, empty)
 }
