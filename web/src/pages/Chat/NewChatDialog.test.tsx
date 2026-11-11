@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { NewChatDialog } from './NewChatDialog';
+import type { BoardEvent } from '../../types';
 import { PLAIN_LANGUAGE, UNATTENDED, needReason } from './blueprintForm';
 import { HANDOFF_REFUSALS, NEED_NOT_POSTED } from './useCreateSession';
 import { BLUEPRINT_MESSAGE_MAX_BYTES, formatBytes, utf8Length } from '../../components/ChatPanel/chatEntryUtils';
@@ -42,6 +43,25 @@ vi.mock('../../hooks/useProjects', () => ({
 }));
 vi.mock('../../hooks/useChatSessions', () => ({ notifyChatSessionsChanged: vi.fn() }));
 
+const bus = vi.hoisted(() => ({ handlers: new Map<string, (e: BoardEvent) => void>() }));
+vi.mock('../../hooks/useSSEBus', () => ({
+  useSSEBus: () => ({
+    subscribe: (pattern: string, fn: (e: BoardEvent) => void) => {
+      bus.handlers.set(pattern, fn);
+      return () => {
+        if (bus.handlers.get(pattern) === fn) bus.handlers.delete(pattern);
+      };
+    },
+    connected: true,
+    reconnectEpoch: 0,
+  }),
+}));
+
+function emit(type: string) {
+  const prefix = type.slice(0, type.indexOf('.'));
+  act(() => bus.handlers.get(`${prefix}.*`)?.({ type, project: '', card_id: '', timestamp: '' } as BoardEvent));
+}
+
 let architectEnabled = true;
 let modelSource: 'endpoint' | 'openrouter' | 'claude_code' = 'endpoint';
 const baseModels = [
@@ -51,6 +71,7 @@ const baseModels = [
   { id: 'free/unpriced', label: 'Free unpriced', max_tokens: 1000, unpriced: true },
 ];
 let modelList = baseModels;
+let chatDefault = 'chat/default';
 /** The architect's own list when it differs from the chat list; null serves the chat list for both. */
 let architectList: { source: 'endpoint' | 'openrouter' | 'claude_code'; models: typeof baseModels; default: string } | null = null;
 vi.mock('../../hooks/useTheme', () => ({ useTheme: () => ({ architectEnabled, favorites: null }) }));
@@ -79,12 +100,14 @@ describe('NewChatDialog', () => {
     projectsError = null;
     modelSource = 'endpoint';
     modelList = baseModels;
+    chatDefault = 'chat/default';
     architectList = null;
+    bus.handlers.clear();
     listChatModels.mockReset().mockImplementation((kind?: string) =>
       Promise.resolve(
         kind === 'architect' && architectList
           ? { ...architectList, architect_default: architectList.default }
-          : { source: modelSource, models: modelList, default: 'chat/default', architect_default: 'arch/default' },
+          : { source: modelSource, models: modelList, default: chatDefault, architect_default: 'arch/default' },
       ),
     );
     createChat.mockResolvedValue({ id: 'S1', title: '', status: 'cold' });
@@ -206,6 +229,52 @@ describe('NewChatDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create chat' }));
     await waitFor(() => expect(createChat).toHaveBeenCalled());
     expect(createChat.mock.calls[0][0].model).toBe('free/unpriced');
+  });
+
+  describe('after an LLM channel switch', () => {
+    const claudeModels = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'].map((id) => ({ id, label: id, max_tokens: 1000 }));
+
+    function switchToClaudeCode() {
+      modelSource = 'claude_code';
+      modelList = claudeModels;
+      chatDefault = 'claude-sonnet-5-5';
+      architectList = { source: 'claude_code', models: claudeModels, default: 'claude-opus-5-5' };
+      emit('llm_channel.changed');
+    }
+
+    it('offers the new lists for chats and blueprints', async () => {
+      startBlueprint();
+      await waitFor(() => expect(screen.getByLabelText('Model')).toHaveValue('arch/default'));
+      switchToClaudeCode();
+      await waitFor(() => expect(screen.getByLabelText('Model')).toHaveValue('claude-opus-5-5'));
+      expect(screen.queryByRole('option', { name: /Other priced/ })).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('radio', { name: 'Chat' }));
+      expect(screen.getByLabelText('Model')).toHaveValue('claude-sonnet-5-5');
+      expect(screen.getByRole('option', { name: /claude-haiku-5-5/ })).toBeInTheDocument();
+    });
+
+    it('moves a pick the new list lacks to its default and creates with it', async () => {
+      renderDialog();
+      fireEvent.change(await screen.findByLabelText('Model'), { target: { value: 'other/priced' } });
+      switchToClaudeCode();
+      await waitFor(() => expect(screen.getByLabelText('Model')).toHaveValue('claude-sonnet-5-5'));
+      fireEvent.click(screen.getByRole('button', { name: 'Create chat' }));
+      await waitFor(() => expect(createChat).toHaveBeenCalled());
+      expect(createChat.mock.calls[0][0].model).toBe('claude-sonnet-5-5');
+    });
+
+    it('keeps a pick the new list still has', async () => {
+      renderDialog();
+      fireEvent.change(await screen.findByLabelText('Model'), { target: { value: 'other/priced' } });
+      modelList = baseModels.filter((m) => m.id !== 'free/unpriced');
+      emit('llm_channel.changed');
+      await waitFor(() => expect(screen.queryByRole('option', { name: /Free unpriced/ })).not.toBeInTheDocument());
+      expect(screen.getByLabelText('Model')).toHaveValue('other/priced');
+      fireEvent.click(screen.getByRole('button', { name: 'Create chat' }));
+      await waitFor(() => expect(createChat).toHaveBeenCalled());
+      expect(createChat.mock.calls[0][0].model).toBe('other/priced');
+    });
   });
 
   describe('cost cap on an unpriced model', () => {
