@@ -127,6 +127,9 @@ PUT    /api/admin/selector/ladders                          # replace both ladde
 GET    /api/admin/selector/candidates                       # selector inputs: candidates, favorites, blacklist, floor (both auth modes; admin-gated only in multi)
 POST   /api/admin/selector/preview                          # picks and panel seats under a ladder, not stored (both auth modes; admin-gated only in multi)
 
+GET    /api/llm-channel                                     # LLM channel mode, work in flight per mode, last-seen subscription usage (any session in multi mode)
+PUT    /api/admin/llm-channel                               # switch the LLM channel mode (both auth modes; admin-gated only in multi)
+
 GET    /api/events                                     ?project=             # SSE stream of board events
 GET    /healthz                                        # liveness probe (shallow)
 GET    /readyz                                         # readiness probe (dependency-checked)
@@ -1016,6 +1019,76 @@ cheaper model at the rung was already seated or belonged to a seated vendor;
 
 **Errors:** `422 VALIDATION_ERROR`, `503 CATALOG_UNAVAILABLE`.
 
+## LLM Channel Endpoints
+
+The global LLM channel: `endpoint` sends new work through `llm_endpoint`,
+`claude_code` runs it on the Claude Code subscription. See
+[Claude Code subscription mode](remote-execution.md#claude-code-subscription-mode).
+
+### GET /api/llm-channel
+
+The mode, what is configured, the work in flight per mode and the last-seen
+subscription usage. Any session in `multi` mode; open in `none` mode.
+
+```json
+{
+  "mode": "claude_code",
+  "switchable": true,
+  "endpoint": { "type": "openrouter", "label": "OpenRouter" },
+  "claude_code": true,
+  "in_flight": {
+    "endpoint":    { "cards": 1, "chats": 0, "blueprints": 1 },
+    "claude_code": { "cards": 2, "chats": 1, "blueprints": 0 }
+  },
+  "exceptions": [{ "backend": "architect", "runs_on": "endpoint" }],
+  "usage": [
+    { "window": "five_hour", "utilization": 0.41, "status": "allowed", "resets_at": "2026-11-11T18:00:00Z", "seen_at": "2026-11-11T14:02:10Z", "stale": false },
+    { "window": "seven_day", "utilization": 0.62, "status": "allowed_warning", "resets_at": "2026-11-13T14:00:00Z", "seen_at": "2026-11-11T14:02:10Z", "stale": false }
+  ],
+  "updated_at": "2026-11-11T09:30:00Z",
+  "updated_by": "human:alice"
+}
+```
+
+- `mode` is `endpoint` or `claude_code`. `switchable` is `true` when both
+  `llm_endpoint` and `claude_code.oauth_token` are configured.
+- `endpoint` is the configured `llm_endpoint` type with a display label
+  (`OpenRouter` for `openrouter`, else `Endpoint`); `null` when `llm_endpoint`
+  is unset.
+- `claude_code` says whether a Claude Code token is configured. The token
+  itself is never returned.
+- `in_flight` always has both modes. It counts card runs whose worker is
+  `queued` or `running` by the mode they were triggered in, and `active` or
+  `warm-idle` chats and blueprints by their `llm_channel`. A recorded card
+  run whose worker has ended is closed by this read.
+- `exceptions` lists each enabled backend that is not in
+  `claude_code.backends`: it stays on the endpoint while the mode is
+  `claude_code`. Empty without a token.
+- `usage` is the last reading of each subscription window, ordered by
+  window. `status` is the vendor's (`allowed`, `allowed_warning`, `rejected`)
+  and may be empty; `stale` is `true` once `resets_at` has passed, since the
+  reading predates the reset.
+- `updated_at` and `updated_by` describe the last switch; both are omitted
+  until the first one.
+
+### PUT /api/admin/llm-channel
+
+Switches the mode for new work; running work keeps the mode it started in.
+Admin-only in `multi` mode, open in `none` mode.
+
+```json
+{ "mode": "claude_code" }
+```
+
+Saves the mode in ops.db, publishes `llm_channel.changed` and returns
+**200 OK** with the `GET` body. `updated_by` is the caller's identity, or
+`human:web` without one. Switching to the current mode is accepted and
+rewrites `updated_at` and `updated_by`.
+
+**Errors:** `400 BAD_REQUEST` (malformed JSON), `403 FORBIDDEN` (non-admin in
+`multi` mode), `409 BAD_REQUEST` (the mode's side is not configured),
+`422 VALIDATION_ERROR` (a mode other than `endpoint` or `claude_code`).
+
 ## Health Endpoints
 
 ### GET /healthz
@@ -1115,6 +1188,7 @@ omitted when zero or empty; the rest are always present.
 | `usage_breakdown?`                                              | object[]                | Per `(agent, model, role, cost_basis)` buckets: `{agent, model, role?, steps?, prompt_tokens, completion_tokens, cache_read_tokens?, cache_creation_tokens?, cost_usd, cost_source, counts_source?, cost_basis?}` |
 | `subtask_cost_usd?`, `subtask_cost_has_estimates?`              | float, bool             | Computed on `GET .../cards/{id}` only                                                                                                                               |
 | `subtask_usage?`                                                | object[]                | Computed on `GET .../cards/{id}` only: `{card_id, buckets}` per costed direct subtask, in id order                                                                  |
+| `park_resets_at?`                                               | RFC 3339                | Computed on read while `worker_status` is `parked`: when the subscription usage limit that parked the run resets                                                    |
 | `in_playbooks?`                                                 | string[]                | Computed on read                                                                                                                                                    |
 | `created`, `updated`                                            | RFC 3339                |                                                                                                                                                                     |
 | `activity_log?`                                                 | object[]                | `{agent, ts, action, message, skill?}`                                                                                                                              |
@@ -1744,6 +1818,7 @@ Prometheus counters related to chat cost (admin `/metrics` listener):
 | ---------------------------------------------- | ------- | ----------------------------------------------------------------------------------------- |
 | `contextmatrix_chat_usage_unknown_model_total` | `model` | A chat usage frame without a gateway cost named a model not in `token_costs`; tokens accumulate, cost stays `$0` |
 | `contextmatrix_chat_cost_summary_errors_total` | -       | The chat-cost summary failed inside the dashboard; chat-cost fields render as zero        |
+| `contextmatrix_chat_subscription_cost_usd_total` | `project`, `model` | Chat subscription usage priced at the list rate; not billed spend, never added to `contextmatrix_chat_cost_usd_total` |
 
 ### GET /api/projects/{project}/activity
 
@@ -1844,7 +1919,7 @@ syncer is wired).
 
 Server-Sent Events stream of every board mutation. `?project=<slug>` limits
 the stream to that project; events with an empty `project` (sync, playbook,
-Jira import) pass every filter.
+Jira import, LLM channel) pass every filter.
 
 - The handler sends `: connected\n\n` on subscribe, then `: keepalive\n\n`
   every 30 seconds. `X-Accel-Buffering: no` is set to bypass nginx proxy
@@ -1901,6 +1976,7 @@ originate from a shared-board pull carry `data.source: "sync"`.
 | `sync.error`          | `{trigger, repo, error}`                                                                                                                                                            | Cycle failed                                                                           |
 | `jira_import.progress` | `{import_id, key, status, project, card_id, reason}`                                                                                                                                | One selected issue of a Jira import finished; the event's own `project` is empty       |
 | `jira_import.done`    | `{import_id, status, playbook_id, results, error}`                                                                                                                                  | A Jira import finished or stopped; the event's own `project` is empty                  |
+| `llm_channel.changed` | `{mode}` (`project` empty)                                                                                                                                                          | The LLM channel mode was switched, or CM stored a new subscription usage reading       |
 
 A shared-board pull publishes per-card `card.created` / `card.updated` /
 `card.state_changed` / `card.deleted` diffs (with `source: "sync"`) only when
@@ -2588,7 +2664,8 @@ management lives under `/api/admin/chats`.
 | `context_tokens_updated_at`                                                        | always    | Zero time (`0001-01-01T00:00:00Z`) until the first usage entry                             |
 | `rehydration_active`, `rehydration_started_at`                                     | omitempty | `true` between a cold reopen and the agent's `chat_rehydration_complete` call              |
 | `prompt_tokens`, `completion_tokens`, `cache_read_tokens`, `cache_creation_tokens` | omitempty | Cumulative totals across usage frames                                                      |
-| `estimated_cost_usd`                                                               | omitempty | Running cost: per usage frame the gateway's `cost_usd` when reported, else the `report_usage` cache-tier formula |
+| `estimated_cost_usd`                                                               | omitempty | Running cost: per usage frame the gateway's `cost_usd` when reported, else the `report_usage` cache-tier formula. A subscription frame always takes the formula at list price |
+| `subscription_cost_usd`                                                            | omitempty | The part of `estimated_cost_usd` that is an API-equivalent estimate of Claude Code subscription usage, not billed spend |
 | `pinned`                                                                           | omitempty | `true` once pinned; set through `PATCH /api/chats/{id}`                                    |
 | `spent_usd`                                                                        | omitempty | Architect sessions only: the architect's `cost.spent_usd` as CM last read it; absent until the first read. CM reads it on each blueprint view read, after each architect run, and once at startup for a blueprint without one |
 | `assistant_working`, `assistant_working_since`                                     | omitempty | In-memory presence derived from `status` log frames                                        |
@@ -3016,8 +3093,9 @@ Three event kinds share the wire:
   | `model`                                                                                                  | Set on the first usage event                                  |
   | `rehydration_active`                                                                                     | `false` once `chat_rehydration_complete` is called            |
   | `status`                                                                                                 | Present only when the lifecycle state changed; never `ending` |
-  | `prompt_tokens`, `completion_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `estimated_cost_usd` | New cumulative totals; omitted when zero                      |
+  | `prompt_tokens`, `completion_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `estimated_cost_usd`, `subscription_cost_usd` | New cumulative totals; omitted when zero |
   | `assistant_working`, `assistant_working_since`                                                           | Presence derived from `status` log frames                     |
+  | `usage_limit`                                                                                            | `{window?, resets_at?}`: a Claude Code subscription usage limit stopped the turn; `resets_at` is absent when the vendor reported none |
 
   Status transitions that emit `status`: `cold → active` on `/open` or the
   first message; `warm-idle → active` when a browser subscriber attaches or

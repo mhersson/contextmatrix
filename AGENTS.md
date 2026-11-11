@@ -60,8 +60,9 @@ before any auth review - the security properties fork on it.
   only as SHA-256. The session-derived `human:<username>` **always wins** over
   any `X-Agent-ID` header, upgrading the card-ownership check into real
   enforcement. `requireAdmin` gates user, credential, project, admin-chat,
-  model-outcome/blacklist, and selector (ladders, candidates, preview) management
-  plus `GET /api/backends/{backend}/images`; card work needs just a session.
+  model-outcome/blacklist, and selector (ladders, candidates, preview) management,
+  the LLM channel switch, plus `GET /api/backends/{backend}/images`; card work
+  needs just a session.
 
 **Both modes:** MCP is Bearer-token auth (`mcp_api_key`); backend webhooks are
 HMAC-signed; `/healthz` + `/readyz` are open; the admin listener (pprof +
@@ -97,7 +98,8 @@ internal/api/              → REST handlers (stdlib http.ServeMux) + SSE endpoi
 internal/mcp/              → MCP server: tools + prompts
 internal/backend/          → task-backend webhook client + reconcile sweep + end-session subscriber + session-log bridge (sessionlog subpkg)
 internal/chat/             → chat session manager (dispatches by session kind: chat, architect), SSE hub, chat-backend log bridge (persists via opstore)
-internal/opstore/          → ops.db (SQLite): chat sessions/messages, model outcomes, blacklist, cost archive, selector ladders and headroom, Jira writeback outbox
+internal/opstore/          → ops.db (SQLite): chat sessions/messages, model outcomes, blacklist, cost archive, selector ladders and headroom, Jira writeback outbox, LLM channel mode and subscription usage
+internal/llmchannel/       → global LLM channel mode (endpoint or claude_code): per-start endpoint and model, subscription usage readings
 internal/modelcatalog/     → cached model catalog + candidate rating (Artificial Analysis + OpenRouter or OpenAI-compatible endpoint)
 internal/auth/             → sessions, users, one-time tokens, credential-pool crypto, master key
 internal/authstore/        → auth.db (SQLite): users, sessions, tokens, credentials

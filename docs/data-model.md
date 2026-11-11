@@ -369,6 +369,7 @@ type Card struct {
     SubtaskCostUSD          float64           `yaml:"-"                               json:"subtask_cost_usd,omitempty"`
     SubtaskCostHasEstimates bool              `yaml:"-"                               json:"subtask_cost_has_estimates,omitempty"`
     SubtaskUsage            []SubtaskUsage    `yaml:"-"                               json:"subtask_usage,omitempty"`
+    ParkResetsAt            *time.Time        `yaml:"-"                               json:"park_resets_at,omitempty"`
     InPlaybooks             []string          `yaml:"-"                             json:"in_playbooks,omitempty"`
     PlaybookLock            *CardPlaybookLock `yaml:"-"                             json:"playbook_lock,omitempty"`
     Created                 time.Time         `yaml:"created"                       json:"created"`
@@ -607,10 +608,11 @@ reports whether any of those costs include rate-table-estimated buckets.
 `in_playbooks` lists the playbooks holding a card entry for the card (GET and
 list); omitted when empty and best-effort, so a playbook-store failure leaves
 it empty rather than failing the read.
-`park_resets_at` - computed on read from ops.db, never persisted or merged;
-the RFC 3339 time the usage limit that parked the run resets, set only while
+`park_resets_at` - read from this instance's ops.db, never written to
+frontmatter or merged across a shared board; the RFC 3339 time the
+subscription usage limit that parked the run resets, set only while
 `worker_status` is `parked` (GET and list) and cleared when the card is queued
-again.
+again or parks without one.
 `playbook_lock` - computed on read, never persisted; `{id, title,
 run_status}` of the runnable playbook that owns the card's `autonomous`,
 `create_pr`, `await_ci`, `merge_pr`, `base_branch`; `run_status` set only
@@ -1181,7 +1183,7 @@ Valid values (`validWorkerStatuses` in `internal/board/validation.go`):
 | `failed`     | backend status callback | The worker exited with an error, the trigger webhook failed, or the reconcile sweep found no container for it. |
 | `killed`     | stop / stop-all         | The worker was stopped by a server-initiated stop.                        |
 | `completed`  | backend status callback | The worker finished.                                                      |
-| `parked`     | MCP `report_parked`     | The run parked the card for a human (review or PR gates); reason in the activity log. |
+| `parked`     | MCP `report_parked`     | The run parked the card for a human (review or PR gates, or a subscription usage limit); reason in the activity log. |
 
 The backend reports through `POST /api/agent/status`, whose accepted subset
 (`validWorkerCallbackStatuses`) is `running`, `failed`, `completed`; it
@@ -1296,7 +1298,8 @@ and a unique index on `(session_id, seq)`.
 | `completion_tokens`         | INTEGER | `0`     | Cumulative output tokens.                                      |
 | `cache_read_tokens`         | INTEGER | `0`     | Cumulative cache-read tokens.                                  |
 | `cache_creation_tokens`     | INTEGER | `0`     | Cumulative cache-creation tokens.                              |
-| `estimated_cost_usd`        | REAL    | `0`     | Running USD total, accumulated via `IncrementSessionCost`.     |
+| `estimated_cost_usd`        | REAL    | `0`     | Running USD total, accumulated via `IncrementSessionCost`; includes `subscription_cost_usd`. |
+| `subscription_cost_usd`     | REAL    | `0`     | The part of `estimated_cost_usd` that is an API-equivalent estimate of Claude Code subscription usage at list price; not billed spend. |
 | `kind`                      | TEXT    | `chat`  | `chat` or `architect` (blueprint); selects the backend.        |
 | `mode`                      | TEXT    | `''`    | Architect session mode; empty for chat sessions.               |
 | `cost_cap_usd`              | REAL    | `0`     | Architect session cost cap in USD; `0` for chat sessions.      |
@@ -1306,6 +1309,7 @@ and a unique index on `(session_id, seq)`.
 | `origin_seq`                | INTEGER | `0`     | The `handoff` row in `origin_chat` the blueprint was started from; `0` otherwise. |
 | `pinned`                    | INTEGER | `0`     | `1` keeps the session in its sidebar section. |
 | `spent_usd`                 | REAL    | `NULL`  | The architect's recorded spend for a blueprint; `NULL` until CM first reads the blueprint view. |
+| `llm_channel`               | TEXT    | `endpoint` | The LLM channel mode the session starts in, `endpoint` or `claude_code`: the current mode at creation and at every cold open, kept while the session is live. |
 
 A partial unique index on `(origin_chat, origin_seq) WHERE origin_chat != ''`
 allows one blueprint per hand-off; deleting the blueprint frees the hand-off.

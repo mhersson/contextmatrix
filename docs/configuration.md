@@ -105,6 +105,9 @@ with `.` replaced by `_`:
 | `jira.email`                            | `CONTEXTMATRIX_JIRA_EMAIL`                          |
 | `jira.token`                            | `CONTEXTMATRIX_JIRA_TOKEN`                          |
 | `jira.writeback.enabled`                | `CONTEXTMATRIX_JIRA_WRITEBACK_ENABLED`              |
+| `claude_code.oauth_token`               | `CONTEXTMATRIX_CLAUDE_CODE_OAUTH_TOKEN`             |
+| `claude_code.backends`                  | `CONTEXTMATRIX_CLAUDE_CODE_BACKENDS`                |
+| `claude_code.default_model`             | `CONTEXTMATRIX_CLAUDE_CODE_DEFAULT_MODEL`           |
 | `instance.id`                           | `CONTEXTMATRIX_INSTANCE_ID`                         |
 | `knowledge.log_path`                    | `CONTEXTMATRIX_KNOWLEDGE_LOG_PATH`                  |
 
@@ -117,6 +120,8 @@ Exceptions to the rule:
 | `github.app.installation_id`     | `CONTEXTMATRIX_GITHUB_INSTALLATION_ID`     | No `APP_` segment                         |
 | `github.app.private_key_path`    | `CONTEXTMATRIX_GITHUB_PRIVATE_KEY_PATH`    | No `APP_` segment                         |
 | `backends.agent.model_allowlist` | `CONTEXTMATRIX_BACKEND_AGENT_MODEL_ALLOWLIST` | Comma-separated list                   |
+
+`CONTEXTMATRIX_CLAUDE_CODE_BACKENDS` takes a comma-separated list.
 
 Booleans accept `true`, `false`, `1`, `0`. A malformed boolean, integer, or
 chat duration is logged and ignored, keeping the file value; other malformed
@@ -157,7 +162,7 @@ expansion applies to every path field.
 | Auth store              | `auth.db_path` / `CONTEXTMATRIX_AUTH_DB_PATH`                   | `<state>/auth.db`                | Users, sessions, one-time tokens, credential pool (`multi` mode only)      |
 | Master key              | `auth.master_key_file` / `CONTEXTMATRIX_AUTH_MASTER_KEY_FILE`   | `<state>/master.key`             | Hex 32-byte key encrypting pool secrets; auto-generated 0600 with a warning |
 | Image store             | `images.db_path` / `CONTEXTMATRIX_IMAGES_DB_PATH`               | `<state>/images.db`              | Pasted images for private boards repos and project-less uploads            |
-| Operational store       | `op_store.db_path` / `CONTEXTMATRIX_OP_STORE_DB_PATH`           | `<state>/ops.db`                 | Tables: `chat_sessions`, `chat_messages`, `chat_cost_archive`, `model_blacklist`, `model_outcomes`, `selector_ladder`, `selector_headroom`, `jira_writeback` (Jira writeback outbox). Schema v6; an older binary refuses a newer database |
+| Operational store       | `op_store.db_path` / `CONTEXTMATRIX_OP_STORE_DB_PATH`           | `<state>/ops.db`                 | Tables: `chat_sessions`, `chat_messages`, `chat_cost_archive`, `model_blacklist`, `model_outcomes`, `selector_ladder`, `selector_headroom`, `jira_writeback` (Jira writeback outbox), `llm_channel` (the LLM channel mode), `card_run_modes` (each card run's mode), `subscription_usage` (last-seen subscription windows), `card_park_resets` (usage-limit reset times of parked cards). Schema v6; an older binary refuses a newer database |
 | Instance id             | `instance.id` / `CONTEXTMATRIX_INSTANCE_ID`                     | `<state>/instance_id`            | Generated `<hostname>-<6 hex>`; identifies this server on a shared boards repo |
 | Knowledge audit log     | `knowledge.log_path` / `CONTEXTMATRIX_KNOWLEDGE_LOG_PATH`       | `<state>/knowledge.log`          | One JSON line per knowledge-provider call; written only when `knowledge.providers` is set; 0600, rotated at 10 MiB keeping 3 |
 
@@ -225,6 +230,8 @@ unset, so a free cache rate cannot be expressed. Config file only.
 - [Jira import](jira-import.md) - `jira.*`
 - [Knowledge providers](knowledge.md) - `knowledge.*` and the audit log
 - [Shared boards](shared-boards.md) - the `boards` list form and `shared: true`
-- [Remote execution](remote-execution.md) - the `backends` block
+- [Remote execution](remote-execution.md) - the `backends` block, and the
+  `claude_code` block in
+  [Claude Code subscription mode](remote-execution.md#claude-code-subscription-mode)
 - [Deployment example](deployment-example.md) - env-only container config
 - [Architecture](architecture.md#file-layout) - on-disk layout of a boards repo

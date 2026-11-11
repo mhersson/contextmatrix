@@ -148,6 +148,50 @@ The Chat tab is the run's live transcript: interactive for a HITL run, read-only
 for an autonomous run and for a card another instance claimed on a shared
 board. Promote-to-autonomous lives in that tab.
 
+## LLM channel
+
+When `claude_code.oauth_token` is set, a strip under the ContextMatrix
+wordmark in the sidebar names the active LLM channel: Claude Code, or the
+endpoint (OpenRouter for an `openrouter` endpoint, Endpoint otherwise).
+Without the token there is no strip. The collapsed sidebar shows a dot in the
+mode's colour instead. See
+[Claude Code subscription mode](remote-execution.md#claude-code-subscription-mode)
+for what the channel does.
+
+- On Claude Code the strip also shows the most-used subscription window with
+  a current reading, as "62% wk" or "40% 5h": yellow from 80 percent, and a
+  red "limit" once the vendor rejects that window. A window whose reset time
+  has passed has no current reading.
+- A line under the strip says only what needs saying, in this order: "Limit
+  reached · resets Thu 14:00" while a window is rejected on Claude Code, how
+  much live work is still on the other mode ("2 still on OpenRouter"), and on
+  Claude Code each backend that stays on the endpoint ("Blueprints stay on
+  OpenRouter").
+- Clicking the strip opens a popover. Escape, a click outside it or moving
+  focus out of it closes it.
+  - Viewers who may switch, an admin in `multi` mode or anyone in `none`
+    mode, get a switch between the endpoint and Claude Code when both are
+    configured. Others see the active mode, with a lock (tooltip "Set by an
+    admin") when only an admin could switch it. A failed switch shows its
+    error.
+  - "N still on X" breaks the other mode's live work down into card runs
+    (worker queued or running), chats and blueprints (active or warm-idle).
+  - One meter per subscription window: "Weekly limit" or "5-hour limit" on
+    Claude Code ("Claude Code weekly" or "Claude Code 5-hour" on the
+    endpoint), the percentage, the reset time in local time and how long ago
+    the reading was seen. A window past its reset reads "reset Thu 14:00 · no
+    reading since" over an empty bar. Readings are the last a worker
+    reported, never live.
+  - While a window is rejected on Claude Code: "Runs park until the reset;
+    nothing falls back to" the endpoint.
+  - Each backend that stays on the endpoint, with the reason ("the architect
+    has no Claude Code support yet").
+- A switch governs new work only (see
+  [sticky runs](remote-execution.md#sticky-runs)).
+- The strip loads with the page and on every event-stream reconnect. While
+  the token is set it also refreshes on LLM channel and worker events and
+  every minute.
+
 ## Global chat
 
 `/chat` hosts board-aware chat sessions that outlive any card.
@@ -213,7 +257,8 @@ board. Promote-to-autonomous lives in that tab.
 - The New chat dialog shows two tiles, **Chat** and **Blueprint**, when an
   architect backend is configured (`architect_enabled` in app config); without
   one it creates chats only. Both kinds take an optional title. A chat picks one
-  project from a list (or Across projects, with no checkout) and a model. A
+  project from a list (or Across projects, with no checkout) and a model (the
+  Claude Code catalog while new chats start on Claude Code). A
   blueprint picks one or more target projects, one of four described modes
   (default, auto, auto + emit, yolo), a Plain language switch, an Unattended switch, a model
   (from the list for the mode new blueprints start in, which can differ from
