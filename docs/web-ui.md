@@ -181,7 +181,7 @@ for what the channel does.
     Claude Code ("Claude Code weekly" or "Claude Code 5-hour" on the
     endpoint), the percentage, the reset time in local time and how long ago
     the reading was seen. A window past its reset reads "reset Thu 14:00 · no
-    reading since" over an empty bar. Readings are the last a worker
+    reading since" over an empty bar. Readings are the newest a worker
     reported, never live.
   - While a window is rejected on Claude Code: "Runs park until the reset;
     nothing falls back to" the endpoint.

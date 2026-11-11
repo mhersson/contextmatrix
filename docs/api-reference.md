@@ -127,7 +127,7 @@ PUT    /api/admin/selector/ladders                          # replace both ladde
 GET    /api/admin/selector/candidates                       # selector inputs: candidates, favorites, blacklist, floor (both auth modes; admin-gated only in multi)
 POST   /api/admin/selector/preview                          # picks and panel seats under a ladder, not stored (both auth modes; admin-gated only in multi)
 
-GET    /api/llm-channel                                     # LLM channel mode, work in flight per mode, last-seen subscription usage (any session in multi mode)
+GET    /api/llm-channel                                     # LLM channel mode, work in flight per mode, newest subscription usage readings (any session in multi mode)
 PUT    /api/admin/llm-channel                               # switch the LLM channel mode (both auth modes; admin-gated only in multi)
 
 GET    /api/events                                     ?project=             # SSE stream of board events
@@ -1027,8 +1027,8 @@ The global LLM channel: `endpoint` sends new work through `llm_endpoint`,
 
 ### GET /api/llm-channel
 
-The mode, what is configured, the work in flight per mode and the last-seen
-subscription usage. Any session in `multi` mode; open in `none` mode.
+The mode, what is configured, the work in flight per mode and the newest
+subscription usage readings. Any session in `multi` mode; open in `none` mode.
 
 ```json
 {
@@ -1066,8 +1066,9 @@ subscription usage. Any session in `multi` mode; open in `none` mode.
   `claude_code.backends`. Its `runs_on` is `endpoint`: it stays on the
   endpoint while the mode is `claude_code`; or `none` when `llm_endpoint` is
   unset: it gets no endpoint and fails closed. Empty without a token.
-- `usage` is the last reading of each subscription window, ordered by
-  window. `status` is the vendor's (`allowed`, `allowed_warning`, `rejected`)
+- `usage` is the newest reading of each subscription window, ordered by
+  window: a reading with a later `resets_at` replaces the stored one, and
+  within the same period only one with a utilization at least as high. `status` is the vendor's (`allowed`, `allowed_warning`, `rejected`)
   and may be empty; `stale` is `true` once `resets_at` has passed, since the
   reading predates the reset.
 - `updated_at` and `updated_by` describe the last switch; both are omitted

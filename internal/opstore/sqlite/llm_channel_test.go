@@ -149,6 +149,52 @@ func TestSubscriptionUsage_UpsertPerWindow(t *testing.T) {
 	assert.True(t, seen1.Equal(fh.SeenAt))
 }
 
+// A reading replaces the stored one only when it is not older: a later reset
+// always wins, and within one period utilization only rises.
+func TestSubscriptionUsage_KeepsNewerReading(t *testing.T) {
+	reset := time.Unix(2_000_000_000, 0).UTC()
+	seen1 := time.Unix(1_900_000_000, 0).UTC()
+	seen2 := time.Unix(1_900_000_500, 0).UTC()
+	stored := protocol.SubscriptionUsage{Window: "five_hour", Utilization: 0.5, Status: "rejected", ResetsAt: reset}
+
+	tests := []struct {
+		name     string
+		incoming protocol.SubscriptionUsage
+		replaces bool
+	}{
+		{"older period", protocol.SubscriptionUsage{Window: "five_hour", Utilization: 0.9, Status: "allowed", ResetsAt: reset.Add(-5 * time.Hour)}, false},
+		{"same period lower", protocol.SubscriptionUsage{Window: "five_hour", Utilization: 0.4, Status: "allowed", ResetsAt: reset}, false},
+		{"same period equal", protocol.SubscriptionUsage{Window: "five_hour", Utilization: 0.5, Status: "allowed_warning", ResetsAt: reset}, true},
+		{"same period higher", protocol.SubscriptionUsage{Window: "five_hour", Utilization: 0.7, Status: "allowed_warning", ResetsAt: reset}, true},
+		{"later period", protocol.SubscriptionUsage{Window: "five_hour", Utilization: 0.1, Status: "allowed", ResetsAt: reset.Add(5 * time.Hour)}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := openLadderStore(t)
+			ctx := context.Background()
+
+			require.NoError(t, st.RecordSubscriptionUsage(ctx, []protocol.SubscriptionUsage{stored}, seen1))
+			require.NoError(t, st.RecordSubscriptionUsage(ctx, []protocol.SubscriptionUsage{tt.incoming}, seen2))
+
+			rows, err := st.SubscriptionUsage(ctx)
+			require.NoError(t, err)
+			require.Len(t, rows, 1)
+
+			want, wantSeen := stored, seen1
+			if tt.replaces {
+				want, wantSeen = tt.incoming, seen2
+			}
+
+			got := rows[0]
+			assert.InDelta(t, want.Utilization, got.Utilization, 1e-9)
+			assert.Equal(t, want.Status, got.Status)
+			assert.True(t, want.ResetsAt.Equal(got.ResetsAt), "resets_at %v, want %v", got.ResetsAt, want.ResetsAt)
+			assert.True(t, wantSeen.Equal(got.SeenAt), "seen_at %v, want %v", got.SeenAt, wantSeen)
+		})
+	}
+}
+
 func TestCardRun_CloseIsBoundedByStart(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()

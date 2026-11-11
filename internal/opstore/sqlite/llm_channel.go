@@ -112,13 +112,16 @@ func (s *Store) OpenCardRuns(ctx context.Context) ([]CardRun, error) {
 	return runs, nil
 }
 
-// SubscriptionUsageRow is the last-seen state of one subscription window.
+// SubscriptionUsageRow is the newest stored reading of one subscription window.
 type SubscriptionUsageRow struct {
 	protocol.SubscriptionUsage
 	SeenAt time.Time
 }
 
-// RecordSubscriptionUsage upserts each window that has a reset time with the time it was seen.
+// RecordSubscriptionUsage upserts each window that has a reset time with the
+// time it was seen. An older reading, such as a card run's last one landing
+// after a chat's, is ignored: a later reset wins, and within one period
+// utilization only rises.
 func (s *Store) RecordSubscriptionUsage(ctx context.Context, u []protocol.SubscriptionUsage, seen time.Time) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -135,7 +138,10 @@ func (s *Store) RecordSubscriptionUsage(ctx context.Context, u []protocol.Subscr
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO subscription_usage (window, utilization, status, resets_at, seen_at) VALUES (?, ?, ?, ?, ?)
 			 ON CONFLICT(window) DO UPDATE SET utilization = excluded.utilization,
-			   status = excluded.status, resets_at = excluded.resets_at, seen_at = excluded.seen_at`,
+			   status = excluded.status, resets_at = excluded.resets_at, seen_at = excluded.seen_at
+			 WHERE excluded.resets_at > subscription_usage.resets_at
+			   OR (excluded.resets_at = subscription_usage.resets_at
+			       AND excluded.utilization >= subscription_usage.utilization)`,
 			w.Window, w.Utilization, w.Status, w.ResetsAt.Unix(), seen.Unix()); err != nil {
 			return fmt.Errorf("record subscription usage: %w", err)
 		}
@@ -148,7 +154,7 @@ func (s *Store) RecordSubscriptionUsage(ctx context.Context, u []protocol.Subscr
 	return nil
 }
 
-// SubscriptionUsage returns every window's last-seen state, ordered by window.
+// SubscriptionUsage returns every window's newest reading, ordered by window.
 func (s *Store) SubscriptionUsage(ctx context.Context) ([]SubscriptionUsageRow, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT window, utilization, status, resets_at, seen_at FROM subscription_usage ORDER BY window`)

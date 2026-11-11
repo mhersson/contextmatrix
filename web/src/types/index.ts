@@ -836,7 +836,7 @@ export interface LLMChannelCounts {
   blueprints: number;
 }
 
-/** One subscription limit window as last reported by a Claude Code run. */
+/** One subscription limit window: the newest reading a Claude Code run reported. */
 export interface LLMChannelUsage {
   /** Vendor window name, e.g. "seven_day" or "five_hour". */
   window: string;
