@@ -108,6 +108,34 @@ func TestLaunch_ClaudeCodeMode(t *testing.T) {
 	assert.Equal(t, card.ID, runs[0].CardID)
 }
 
+func TestLaunch_BlacklistFollowsMode(t *testing.T) {
+	blacklisted := []string{"anthropic/claude-haiku-5.5", "z-ai/glm-5.2", "anthropic/claude-opus-5.5"}
+
+	tests := []struct {
+		name string
+		mode llmchannel.Mode
+		want []string
+	}{
+		{"claude_code maps and drops unmappable", llmchannel.ModeClaudeCode, []string{"claude-haiku-5-5", "claude-opus-5-5"}},
+		{"endpoint ships slugs as stored", llmchannel.ModeEndpoint, blacklisted},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, svc, cb, _ := channelLaunchHandlers(t, tt.mode, []string{config.BackendNameAgent})
+			h.blacklist = &stubBlacklist{slugs: blacklisted}
+			card := createRunnable(t, svc, service.CreateCardInput{})
+
+			_, err := h.launch(context.Background(), "test-project", card.ID, launchOptions{})
+			require.NoError(t, err)
+
+			p := cb.lastTrigger(t)
+			require.NotNil(t, p.Selection)
+			assert.Equal(t, tt.want, p.Selection.Blacklist)
+		})
+	}
+}
+
 func TestLaunch_EndpointModeKeepsToday(t *testing.T) {
 	h, svc, cb, ops := channelLaunchHandlers(t, llmchannel.ModeEndpoint, []string{config.BackendNameAgent})
 	card := createRunnable(t, svc, service.CreateCardInput{})

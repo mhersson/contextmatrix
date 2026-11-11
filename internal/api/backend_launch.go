@@ -192,6 +192,7 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 		if mode == llmchannel.ModeClaudeCode {
 			candidates = h.catalog.ClaudeCodeCandidates(ctx)
 			favorites = claudeCodeFavorites(favorites)
+			bl = claudeCodeIDs(bl)
 		}
 
 		payload.Selection = &protocol.SelectionContext{
@@ -285,17 +286,22 @@ func claudeCodeFavorites(rules []protocol.FavoriteRule) []protocol.FavoriteRule 
 	var out []protocol.FavoriteRule
 
 	for _, r := range rules {
-		var models []string
-
-		for _, m := range r.Models {
-			if id, ok := modelcatalog.ClaudeCodeID(m); ok {
-				models = append(models, id)
-			}
-		}
-
-		if len(models) > 0 {
+		if models := claudeCodeIDs(r.Models); len(models) > 0 {
 			r.Models = models
 			out = append(out, r)
+		}
+	}
+
+	return out
+}
+
+// claudeCodeIDs maps model slugs onto Claude Code IDs, dropping any without one.
+func claudeCodeIDs(slugs []string) []string {
+	var out []string
+
+	for _, s := range slugs {
+		if id, ok := modelcatalog.ClaudeCodeID(s); ok {
+			out = append(out, id)
 		}
 	}
 

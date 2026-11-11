@@ -406,15 +406,16 @@ refresh fails. In any other Builder mode there is no Claude Code catalog.
 
 A trigger whose agent runs in `claude_code` mode (see
 [remote execution](remote-execution.md#claude-code-subscription-mode))
-changes three inputs:
+changes four inputs:
 
 | Input                    | In `claude_code` mode                                                                                                                                 |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `selection.candidates`   | The Claude Code catalog instead of the served one.                                                                                                    |
 | `selection.favorites`    | Each rule's slugs mapped to Claude Code IDs (`anthropic/claude-sonnet-5.5` becomes `claude-sonnet-5-5`); a slug without one is dropped, and so is a rule left empty. |
+| `selection.blacklist`    | Each slug mapped to its Claude Code ID the same way; a slug without one is dropped.                                                                   |
 | `model`                  | `backends.agent.default_model` mapped to its Claude Code ID, else `claude_code.default_model`.                                                        |
 
-The blacklist, the tier ladders and the price headroom ship unchanged. A
+The tier ladders and the price headroom ship unchanged. A
 subscription bills nothing per token, but the price band still runs on the AA
 list prices: a model's list price stands in for how much of the usage limit
 it consumes, so the band keeps a frontier model off a `simple` task to save
@@ -433,7 +434,7 @@ is configured (see [Builder modes](#builder-modes)):
 | --------------- | ---------------------------------------------------------------------------------------- |
 | `candidates`    | the cached catalog, cloned per trigger (the [Claude Code catalog](#the-claude-code-catalog) in `claude_code` mode) |
 | `favorites`     | operator tier preferences, global merged with project                                    |
-| `blacklist`     | slugs reported incapable (from `ops.db`)                                                 |
+| `blacklist`     | slugs reported incapable (from `ops.db`), mapped to Claude Code IDs in `claude_code` mode |
 | `tier_bars`     | the per-role quality ladders saved on the admin page; absent when none is saved, which the agent reads as its built-in ladder |
 
 Each `CandidateModel` carries:
