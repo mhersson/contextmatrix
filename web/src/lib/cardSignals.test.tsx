@@ -17,7 +17,21 @@ function baseCard(overrides: Partial<Card> = {}): Card {
   };
 }
 
+const thu14 = new Date(2026, 10, 12, 14, 0).toISOString();
+
 describe('cardSignals', () => {
+  it('names the usage-limit reset on a parked card, and says when it has passed', () => {
+    const card = baseCard({ worker_status: 'parked', park_resets_at: thu14 });
+    const at = (now: number) => cardSignals(card, now).find((s) => s.key === 'worker')?.label;
+    expect(at(Date.parse(thu14) - 60_000)).toBe('Parked - usage limit, resets Thu 14:00');
+    expect(at(Date.parse(thu14) + 60_000)).toBe('Parked - usage limit reset Thu 14:00');
+  });
+
+  it('keeps the plain parked label without a reset time', () => {
+    const signals = cardSignals(baseCard({ worker_status: 'parked' }));
+    expect(signals.find((s) => s.key === 'worker')?.label).toBe('Parked - left for a human, see the card log');
+  });
+
   it('replaces the membership signal with a queued-in-playbook signal while the run is active', () => {
     const card = baseCard({ in_playbooks: ['roll'], playbook_lock: { id: 'roll', title: 'Roll', run_status: 'running' } });
     const signals = cardSignals(card);

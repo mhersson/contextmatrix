@@ -10,6 +10,7 @@ import { useChatStream } from '../../hooks/useChatStream';
 import { useWorkingState } from '../../hooks/useWorkingState';
 import { CHAT_SESSIONS_CHANGED_EVENT, notifyChatSessionsChanged } from '../../hooks/useChatSessions';
 import { clearChatLiveData, setChatLiveData } from '../../hooks/useChatLiveData';
+import { usageLimitText } from '../../lib/subscription';
 
 interface ChatThreadProps {
   sessionID: string;
@@ -32,7 +33,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
   const handoffCtx = useContext(HandoffContext);
   const [session, setSession] = useState<ChatSession | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { logs, connected, connection, sessionUpdate, hasMore, loadingOlder, loadOlder, subscribeBlueprint } =
+  const { logs, connected, connection, sessionUpdate, usageLimit, hasMore, loadingOlder, loadOlder, subscribeBlueprint } =
     useChatStream(sessionID);
 
   // Merge live session updates (context_tokens, model, rehydration_active)
@@ -56,6 +57,9 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
         : {}),
       ...(sessionUpdate.estimated_cost_usd !== undefined
         ? { estimated_cost_usd: sessionUpdate.estimated_cost_usd }
+        : {}),
+      ...(sessionUpdate.subscription_cost_usd !== undefined
+        ? { subscription_cost_usd: sessionUpdate.subscription_cost_usd }
         : {}),
       ...(sessionUpdate.prompt_tokens !== undefined
         ? { prompt_tokens: sessionUpdate.prompt_tokens }
@@ -187,6 +191,8 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
       contextTokens: merged.context_tokens,
       contextTokensUpdatedAt: merged.context_tokens_updated_at,
       estimatedCostUsd: merged.kind === 'architect' ? undefined : merged.estimated_cost_usd,
+      subscriptionCostUsd: merged.subscription_cost_usd,
+      llmChannel: merged.llm_channel,
       promptTokens: merged.prompt_tokens,
       completionTokens: merged.completion_tokens,
       cacheReadTokens: merged.cache_read_tokens,
@@ -314,6 +320,15 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true, phon
             context (cloning repos, restoring branches). You can start typing as
             soon as it announces it's ready.
           </span>
+        </div>
+      )}
+      {usageLimit && (
+        <div
+          role="alert"
+          className="px-4 py-2 text-xs border-b shrink-0"
+          style={{ backgroundColor: 'var(--bg-red)', color: 'var(--fg)', borderColor: 'var(--bg3)' }}
+        >
+          {usageLimitText(usageLimit)}
         </div>
       )}
       <div className="flex-1 min-h-0">

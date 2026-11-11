@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
-import type { ChatModel } from '../types';
+import type { ChatModel, ChatModelList } from '../types';
 
-export type ChatModelSource = 'openrouter' | 'endpoint';
+export type ChatModelSource = ChatModelList['source'];
 
 export interface ChatModelsResult {
   models: ChatModel[];
@@ -10,7 +10,8 @@ export interface ChatModelsResult {
   // → CM's vendor-screened catalog; id/label are the OpenRouter slug and
   // max_tokens is the context window - consumers no longer fetch the OpenRouter
   // API directly from the browser), or 'endpoint' (server-provided list from
-  // the configured OpenAI-compatible endpoint, rendered as a <select>). A
+  // the configured OpenAI-compatible endpoint, rendered as a <select>), or
+  // 'claude_code' (the Claude Code catalog, rendered the same way). A
   // fetch failure or a missing source degrades to an empty 'endpoint' list,
   // which renders nothing - new chats fall back to the server default.
   source: ChatModelSource;

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
-import type { ChatModel } from '../../types';
+import type { ChatModel, ChatModelList } from '../../types';
 
 export interface ChatModelChoice {
-  source: 'openrouter' | 'endpoint';
+  source: ChatModelList['source'];
   model: string;
   defaultModel: string;
   models: ChatModel[];
@@ -27,7 +27,7 @@ export function useChatModelChoice(): ChatModelChoices {
   const [models, setModels] = useState<ChatModel[]>([]);
   const [defaultModel, setDefaultModel] = useState('');
   const [architectDefault, setArchitectDefault] = useState('');
-  const [source, setSource] = useState<'openrouter' | 'endpoint'>('endpoint');
+  const [source, setSource] = useState<ChatModelList['source']>('endpoint');
 
   useEffect(() => {
     let cancelled = false;

@@ -3,6 +3,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { CostCell } from './CostCell';
 import { api } from '../../api/client';
 import { CHAT_SESSIONS_CHANGED_EVENT } from '../../hooks/useChatSessions';
+import { clearChatLiveData, setChatLiveData } from '../../hooks/useChatLiveData';
+import { SUBSCRIPTION_TOOLTIP } from '../../lib/subscription';
 import { resetChatModelsCache } from '../../utils/chatModels';
 import type { BlueprintCost } from '../../types';
 
@@ -48,6 +50,19 @@ describe('CostCell', () => {
     unmount();
     render(<CostCell chatId="S1" cost={NO_CAP} />);
     expect(screen.getByRole('button', { name: 'Cost: $2.14, no cap, set a cap' })).toBeInTheDocument();
+  });
+
+  it("labels the spend as API-equivalent from the session's LLM channel", () => {
+    setChatLiveData('S1', { llmChannel: 'claude_code', subscriptionCostUsd: 2.14 });
+    const { unmount } = render(<CostCell chatId="S1" cost={WITH_CAP} />);
+    try {
+      const trigger = screen.getByRole('button', { name: 'Cost: $2.14 of $2.00 cap, API-equivalent, change cap' });
+      expect(trigger).toHaveTextContent('$2.14 of $2.00, API-equivalent');
+      expect(screen.getByText('$2.14 of $2.00, API-equivalent')).toHaveAttribute('title', SUBSCRIPTION_TOOLTIP);
+    } finally {
+      unmount();
+      clearChatLiveData('S1');
+    }
   });
 
   it('opens with the spend and cap, and focus inside', () => {

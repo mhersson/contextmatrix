@@ -168,7 +168,10 @@ sends `resets_at` (RFC 3339, a past time is accepted); it is shown as
 `park_resets_at` on the card while parked and added to the event. The container then exits
 and its `completed` callback keeps the parked status while clearing the claim.
 The card stays in `review` at phase `pr_gates` with a `## PR Gates` body
-section, and the board shows a yellow "Parked for a human" badge. A human
+section, and the board shows a yellow "Parked for a human" badge. A park with
+`park_resets_at` reads "Parked - usage limit, resets Thu 14:00" (local time)
+in the card panel badge and the board card's hover card instead, and
+"Parked - usage limit reset Thu 14:00" once that time has passed. A human
 re-triggers the card once the gate can pass; the next `queued` replaces
 `parked` and the fresh container resumes at the gate.
 

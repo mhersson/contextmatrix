@@ -390,6 +390,52 @@ describe('useChatStream', () => {
     await waitFor(() => expect(result.current.sessionUpdate?.assistant_working).toBe(false));
   });
 
+  it('parses the subscription cost from session_updated events', async () => {
+    const { result } = renderHook(() => useChatStream('S1'));
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    act(() => {
+      (instances[0] as unknown as MockES).emit('session_updated', { estimated_cost_usd: 0.9, subscription_cost_usd: 0.6 });
+    });
+    await waitFor(() => expect(result.current.sessionUpdate?.subscription_cost_usd).toBe(0.6));
+  });
+
+  it('holds a usage limit until the next assistant output', async () => {
+    const { result } = renderHook(() => useChatStream('S1'));
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    expect(result.current.usageLimit).toBeNull();
+
+    const es = instances[0] as unknown as MockES;
+    act(() => {
+      es.onmessage?.({ data: JSON.stringify({ seq: 1, role: 'system', content: 'usage limit' }) });
+      es.emit('session_updated', { usage_limit: { window: 'five_hour', resets_at: '2026-11-12T13:00:00Z' } });
+    });
+    await waitFor(() =>
+      expect(result.current.usageLimit).toEqual({ window: 'five_hour', resets_at: '2026-11-12T13:00:00Z' }),
+    );
+    // The limit outlives later session updates and non-assistant rows.
+    act(() => {
+      es.emit('session_updated', { assistant_working: false });
+      es.onmessage?.({ data: JSON.stringify({ seq: 2, role: 'user', content: 'hello?' }) });
+    });
+    await waitFor(() => expect(result.current.logs).toHaveLength(2));
+    expect(result.current.usageLimit).not.toBeNull();
+    expect(result.current.sessionUpdate).not.toHaveProperty('usage_limit');
+
+    act(() => {
+      es.onmessage?.({ data: JSON.stringify({ seq: 3, role: 'assistant_text', content: 'back' }) });
+    });
+    await waitFor(() => expect(result.current.usageLimit).toBeNull());
+  });
+
+  it('keeps a usage limit with no reset time', async () => {
+    const { result } = renderHook(() => useChatStream('S1'));
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    act(() => {
+      (instances[0] as unknown as MockES).emit('session_updated', { usage_limit: {} });
+    });
+    await waitFor(() => expect(result.current.usageLimit).toEqual({}));
+  });
+
   it('hands blueprint frames to their listeners and keeps them out of the transcript', async () => {
     listChatMessagesTailMock.mockResolvedValue({ messages: [makeMessage(1), makeMessage(2)] });
     const { result } = renderHook(() => useChatStream('S1'));

@@ -6,6 +6,7 @@ import { useChatLiveData } from '../../hooks/useChatLiveData';
 import { useMenuDismiss } from '../../hooks/useMenuDismiss';
 import { toggleSheet, useSheetButton } from '../Blueprint/sheetButtonStore';
 import { contextPct, formatCostTooltip, modelMaxTokens, useChatModels, usageColor } from '../../utils/chatModels';
+import { SUBSCRIPTION_TOOLTIP, sessionCostText, sessionSubscriptionUSD } from '../../lib/subscription';
 import {
   PANE_SOURCE_MIME,
   CHAT_DRAG_START_EVENT,
@@ -207,6 +208,7 @@ export function PaneHeader({
  * denominator always comes from `GET /api/chats/models` (`useChatModels`),
  * in every source mode - config, endpoint, and openrouter alike. A blueprint
  * session shows the architect's spend from its view instead of the estimate.
+ * A subscription share reads as an API-equivalent estimate (≈).
  */
 function PaneContextUsage({ chatId, fallbackModel, blueprint }: { chatId: string; fallbackModel?: string; blueprint: boolean }) {
   const live = useChatLiveData(chatId);
@@ -227,7 +229,7 @@ function PaneContextUsage({ chatId, fallbackModel, blueprint }: { chatId: string
   const spent = live?.blueprintSpentUsd;
   const cost = spent ?? (blueprint ? undefined : live?.estimatedCostUsd);
   const showCost = cost != null && cost > 0;
-  const costTooltip = showCost
+  const tokensTooltip = showCost
     ? formatCostTooltip({
         promptTokens: live?.promptTokens,
         completionTokens: live?.completionTokens,
@@ -235,6 +237,20 @@ function PaneContextUsage({ chatId, fallbackModel, blueprint }: { chatId: string
         cacheCreationTokens: live?.cacheCreationTokens,
       })
     : '';
+  const subscription = showCost
+    ? sessionSubscriptionUSD({
+        total: cost,
+        subscription: live?.subscriptionCostUsd,
+        blueprint: blueprint || spent !== undefined,
+        channel: live?.llmChannel,
+      })
+    : 0;
+  const costText = showCost ? sessionCostText(cost, subscription, (v) => `$${v.toFixed(2)}`) : '';
+  const costTooltip =
+    subscription > 0 ? [SUBSCRIPTION_TOOLTIP, tokensTooltip].filter(Boolean).join('\n') : tokensTooltip;
+  const costPrefix = spent !== undefined ? 'Spent' : 'Estimated cost';
+  const costName =
+    subscription > 0 ? `${costPrefix} ${costText}, ${SUBSCRIPTION_TOOLTIP}` : `${costPrefix} ${cost?.toFixed(2)} dollars`;
 
   return (
     <>
@@ -250,9 +266,9 @@ function PaneContextUsage({ chatId, fallbackModel, blueprint }: { chatId: string
         <span
           className="chat-pane-cost"
           style={{ color: 'var(--grey1)' }}
-          aria-label={spent !== undefined ? `Spent ${cost.toFixed(2)} dollars` : `Estimated cost ${cost.toFixed(2)} dollars`}
+          aria-label={costName}
           title={costTooltip || undefined}
-        >${cost.toFixed(2)}</span>
+        >{costText}</span>
       )}
     </>
   );

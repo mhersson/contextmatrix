@@ -320,15 +320,30 @@ export interface CostText {
   /** Meter fill against the cap; null without a cap. */
   percent: number | null;
   tone: 'ok' | 'warn' | 'over';
+  /** The suffix naming a subscription estimate in the spend; '' when there is none. */
+  basis: string;
 }
 
-export function costLabel(cost: BlueprintCost): CostText {
+/** CM's own session record: the architect's cost carries no basis of its own. */
+export interface CostSession {
+  llm_channel?: string;
+  subscription_cost_usd?: number;
+}
+
+function costBasis(session: CostSession | undefined): string {
+  if (session?.llm_channel === 'claude_code') return ', API-equivalent';
+  return (session?.subscription_cost_usd ?? 0) > 0 ? ', includes an API-equivalent estimate' : '';
+}
+
+export function costLabel(cost: BlueprintCost, session?: CostSession): CostText {
   const spent = money(cost.spent_usd);
   const unpriced = cost.priced ? '' : ', some runs unpriced';
+  const basis = costBasis(session);
   if (cost.cap_usd <= 0) {
-    return { text: cost.priced ? `${spent}, no cap` : `${spent}${unpriced}`, percent: null, tone: 'ok' };
+    const text = cost.priced ? `${spent}, no cap` : `${spent}${unpriced}`;
+    return { text: `${text}${basis}`, percent: null, tone: 'ok', basis };
   }
   const percent = Math.min(100, (cost.spent_usd / cost.cap_usd) * 100);
   const tone = cost.spent_usd >= cost.cap_usd ? 'over' : percent >= 80 ? 'warn' : 'ok';
-  return { text: `${spent} of ${money(cost.cap_usd)}${unpriced}`, percent, tone };
+  return { text: `${spent} of ${money(cost.cap_usd)}${unpriced}${basis}`, percent, tone, basis };
 }

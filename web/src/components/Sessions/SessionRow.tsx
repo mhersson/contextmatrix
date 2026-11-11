@@ -1,6 +1,7 @@
 import type { MouseEvent } from 'react';
 import type { ChatSession } from '../../types';
-import { formatSessionCost, sessionProjects, statusDotColor } from '../../lib/sessions';
+import { formatSessionCost, sessionProjects, sessionSubscriptionCostUSD, statusDotColor } from '../../lib/sessions';
+import { SUBSCRIPTION_TOOLTIP } from '../../lib/subscription';
 import { formatRelativeTime } from '../../lib/format';
 import { PinIcon } from '../SessionIcons';
 
@@ -68,7 +69,9 @@ export function SessionRow({ session: s, showMode, ticked, onToggle, onPin, onOp
       {showMode && (
         <td>{s.mode ? <span className={`ssn-tag${modeTone(s.mode)}`}>{s.mode}</span> : '-'}</td>
       )}
-      <td className="ssn-mono">{formatSessionCost(s)}</td>
+      <td className="ssn-mono" title={sessionSubscriptionCostUSD(s) > 0 ? SUBSCRIPTION_TOOLTIP : undefined}>
+        {formatSessionCost(s)}
+      </td>
       <td className="ssn-muted" title={exactTime(s.last_active)}>{formatRelativeTime(s.last_active)}</td>
     </tr>
   );

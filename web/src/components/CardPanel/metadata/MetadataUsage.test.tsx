@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { SUBSCRIPTION_TOOLTIP } from '../../../lib/subscription';
 import type { Card, UsageBucket } from '../../../types';
 import { MetadataUsage } from './MetadataUsage';
 
@@ -352,5 +353,62 @@ describe('MetadataUsage', () => {
     render(<MetadataUsage card={card} />);
     const total = screen.getByText('$4.99');
     expect(total).not.toHaveAttribute('title');
+  });
+
+  describe('subscription usage', () => {
+    const sub = (partial: Partial<UsageBucket> = {}) =>
+      bucket({ model: 'claude-sonnet-5-5', cost_usd: 0.5, cost_source: 'estimated', cost_basis: 'subscription', ...partial });
+
+    it('marks a subscription bucket with a trailing ≈ and the subscription tooltip, not the rate-table asterisk', () => {
+      render(<MetadataUsage card={makeCard({ usage_breakdown: [sub()] })} />);
+      const cell = screen.getByText('$0.50≈');
+      expect(cell).toHaveAttribute('title', SUBSCRIPTION_TOOLTIP);
+      expect(cell).not.toHaveTextContent('*');
+    });
+
+    it('labels an all-subscription total as API-equivalent', () => {
+      const card = makeCard({
+        token_usage: { prompt_tokens: 100, completion_tokens: 50, estimated_cost_usd: 0.5 },
+        usage_breakdown: [sub()],
+      });
+      render(<MetadataUsage card={card} />);
+      expect(screen.getByText('≈ $0.50 API-equivalent')).toHaveAttribute('title', SUBSCRIPTION_TOOLTIP);
+      expect(screen.queryByText('Total')).toBeInTheDocument();
+    });
+
+    it('splits a mixed total into the subscription estimate', () => {
+      const card = makeCard({
+        token_usage: { prompt_tokens: 100, completion_tokens: 50, estimated_cost_usd: 2.5 },
+        usage_breakdown: [bucket({ role: 'execute', cost_usd: 2 }), sub({ role: 'review' })],
+      });
+      render(<MetadataUsage card={card} />);
+      expect(screen.getByText('$2.50 total · $0.50 of it subscription estimate')).toHaveAttribute(
+        'title',
+        SUBSCRIPTION_TOOLTIP,
+      );
+      // The metered bucket keeps its plain amount.
+      expect(screen.getByTitle('agent-reported · actual provider cost')).toHaveTextContent(/^\$2\.00$/);
+    });
+
+    it('keeps the rate-table asterisk on a mixed total only for metered estimates', () => {
+      const card = makeCard({
+        token_usage: { prompt_tokens: 100, completion_tokens: 50, estimated_cost_usd: 2.5 },
+        usage_breakdown: [bucket({ role: 'execute', cost_usd: 2, cost_source: 'estimated' }), sub({ role: 'review' })],
+      });
+      render(<MetadataUsage card={card} />);
+      expect(screen.getByText('$2.50* total · $0.50 of it subscription estimate')).toBeInTheDocument();
+    });
+
+    it('counts subtask subscription spend in the run total', () => {
+      const card = makeCard({
+        token_usage: { prompt_tokens: 100, completion_tokens: 50, estimated_cost_usd: 1 },
+        subtask_cost_usd: 0.5,
+        usage_breakdown: [bucket({ role: 'execute', cost_usd: 1 })],
+        subtask_usage: [{ card_id: 'CMX-002', buckets: [sub()] }],
+      });
+      render(<MetadataUsage card={card} />);
+      expect(screen.getByText('$1.50 total · $0.50 of it subscription estimate')).toBeInTheDocument();
+      expect(screen.getByText('Total incl. subtasks')).toBeInTheDocument();
+    });
   });
 });

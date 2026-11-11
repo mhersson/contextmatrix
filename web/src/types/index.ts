@@ -61,6 +61,8 @@ export interface Card {
   pr_url?: string;
   review_attempts?: number;
   worker_status?: 'queued' | 'running' | 'failed' | 'killed' | 'parked';
+  /** RFC 3339 reset time of the usage limit that parked the run; present only while parked. */
+  park_resets_at?: string;
   created: string;
   updated: string;
   activity_log?: ActivityEntry[];
@@ -111,6 +113,8 @@ export interface UsageBucket {
   cost_usd: number;
   cost_source: 'actual' | 'estimated';
   counts_source?: 'collector' | 'self';
+  /** "subscription" for flat-rate Claude subscription usage, priced at list price as an estimate; absent for metered usage. */
+  cost_basis?: 'subscription';
 }
 
 export interface SubtaskUsage {
@@ -373,6 +377,8 @@ export interface ModelCost {
   card_count: number;
   /** True when any card folded into this row carries a rate-table-estimated cost. */
   has_estimates?: boolean;
+  /** True when the row includes subscription usage (an API-equivalent estimate); a row can mix both bases. */
+  subscription?: boolean;
 }
 
 export interface CardCost {
@@ -384,6 +390,8 @@ export interface CardCost {
   estimated_cost_usd: number;
   /** True when this card, or any subtask folded into it, carries a rate-table-estimated cost. */
   has_estimates?: boolean;
+  /** The part of estimated_cost_usd that is a subscription estimate. */
+  subscription_cost_usd?: number;
 }
 
 export interface MetricSeries {
@@ -401,6 +409,8 @@ export interface DashboardData {
   state_counts_parents: Record<string, number>;
   active_agents: ActiveAgent[];
   total_cost_usd: number;
+  /** The part of total_cost_usd that is a subscription estimate, not billed spend. */
+  total_subscription_cost_usd?: number;
   /** True when any card contributing to total_cost_usd carries a rate-table-estimated cost. */
   total_cost_has_estimates?: boolean;
   total_cost_usd_last_30d?: number;
@@ -422,6 +432,8 @@ export interface DashboardData {
   chat_cost_usd_last_30d?: number;
   chat_cost_usd_prior_30d?: number;
   chat_cost_series_30d?: number[];
+  /** The part of chat_cost_usd_last_30d that is a subscription estimate. */
+  chat_subscription_cost_usd?: number;
 }
 
 export interface ActivityFeedEntry {
@@ -994,6 +1006,10 @@ export interface ChatSession {
   cache_creation_tokens?: number;
   /** Running total in USD. Precision floor ~$0.0001. */
   estimated_cost_usd?: number;
+  /** The part of estimated_cost_usd that is a subscription estimate. */
+  subscription_cost_usd?: number;
+  /** The LLM channel the session runs on: set at creation and at every cold open, kept while live. */
+  llm_channel?: LLMChannel;
   /** Pinned sessions stay in the sidebar; omitted when false. */
   pinned?: boolean;
   /** Architect sessions only: the spend CM recorded from the architect; absent until recorded (0 is a recorded 0). */
@@ -1034,7 +1050,9 @@ export interface ChatModelList {
   //  - 'endpoint': server-provided list from the configured OpenAI-compatible
   //    endpoint; rendered as a <select> over the server models[]. The
   //    no-backend fallback is an empty endpoint list.
-  source: 'openrouter' | 'endpoint';
+  //  - 'claude_code': new chats start on the Claude subscription; `models` is
+  //    the Claude Code catalog, which carries no prices.
+  source: 'openrouter' | 'endpoint' | 'claude_code';
   models: ChatModel[];
   default: string;
   /** The architect backend's default model; "" when no architect backend is configured. */
@@ -1326,6 +1344,7 @@ export interface ChatSessionUpdate {
   status?: ChatStatus;
   // Cost and token counters - new running totals after each usage frame.
   estimated_cost_usd?: number;
+  subscription_cost_usd?: number;
   prompt_tokens?: number;
   completion_tokens?: number;
   cache_read_tokens?: number;
@@ -1334,6 +1353,16 @@ export interface ChatSessionUpdate {
   assistant_working?: boolean;
   /** RFC3339 UTC start of the in-flight turn. Absent when not working. */
   assistant_working_since?: string;
+  /** A subscription usage limit stopped the session. */
+  usage_limit?: ChatUsageLimit;
+}
+
+/** A subscription usage limit that stopped a chat or blueprint session. */
+export interface ChatUsageLimit {
+  /** The vendor window that hit its limit, e.g. "five_hour"; absent when none was named. */
+  window?: string;
+  /** RFC 3339; absent when the vendor reported no reset time. */
+  resets_at?: string;
 }
 
 // Blueprint sessions: the architect's view of one blueprint, proxied by CM

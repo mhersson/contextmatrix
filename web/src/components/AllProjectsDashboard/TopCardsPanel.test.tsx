@@ -137,3 +137,17 @@ describe('TopCardsPanel project filter', () => {
     expect(screen.getByText('Orphan card')).toBeInTheDocument();
   });
 });
+
+describe('TopCardsPanel - subscription estimates', () => {
+  it("marks a card's subscription part with ≈ and names it in the tooltip", () => {
+    renderPanel({
+      cards: [
+        { ...cardCosts[0], has_estimates: true, subscription_cost_usd: 3 },
+        cardCosts[1],
+      ],
+    });
+    expect(screen.getByText('$9.00≈')).toHaveAttribute('title', 'incl. ≈ $3.00 subscription estimate');
+    expect(screen.getByText('$1.00')).not.toHaveAttribute('title');
+  });
+});
+

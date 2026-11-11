@@ -134,3 +134,20 @@ describe('ProjectsTable - repo groups', () => {
     expect(text.indexOf('private')).toBeLessThan(text.indexOf('zebra'));
   });
 });
+
+describe('ProjectsTable - subscription estimates', () => {
+  it("marks a project's subscription part with ≈ and names it in the tooltip", () => {
+    const data = { ...summary(1), total_cost_usd: 5, total_subscription_cost_usd: 2 } as DashboardData;
+    render(
+      <MemoryRouter>
+        <ProjectsTable
+          projects={[project('alpha', 'ALP')]}
+          summaries={new Map([['alpha', data]])}
+          boardsRepos={[]}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('$5.00≈')).toHaveAttribute('title', 'incl. ≈ $2.00 subscription estimate');
+  });
+});
+

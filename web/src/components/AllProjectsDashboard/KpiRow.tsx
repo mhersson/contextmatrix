@@ -1,16 +1,22 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Sparkline } from '../Sparkline/Sparkline';
+import { subscriptionShareText } from '../../lib/subscription';
+import { formatUsd } from './utils';
 
 interface KpiRowProps {
   costLast30dUsd: number;
   costPrior30dUsd: number;
   costSeries30d: number[] | undefined;
   costHasEstimates?: boolean;
+  /** The part of costLast30dUsd that is a subscription estimate. */
+  costSubscriptionUsd?: number;
   stateCountsParents: Record<string, number>;
   doneTodayParents: number;
   chatCostLast30dUsd: number;
   chatCostPrior30dUsd: number;
   chatCostSeries30d: number[] | undefined;
+  /** The part of chatCostLast30dUsd that is a subscription estimate. */
+  chatCostSubscriptionUsd?: number;
 }
 
 interface KpiTileProps {
@@ -84,6 +90,12 @@ const COST_TOOLTIP =
 const CHAT_COST_TOOLTIP =
   "Server-wide chat session cost over the last 30 UTC days, bucketed by session last-active day. Cached server-side for 30 seconds.";
 
+/** Leads a cost tile's tooltip with its subscription part, when it has one. */
+function costTooltip(base: string, total: number, subscription: number | undefined): string {
+  if (!subscription || subscription <= 0) return base;
+  return `${formatUsd(total)} ${subscriptionShareText(subscription, formatUsd)}\n\n${base}`;
+}
+
 export function KpiRow({
   costLast30dUsd,
   costPrior30dUsd,
@@ -94,6 +106,8 @@ export function KpiRow({
   chatCostLast30dUsd,
   chatCostPrior30dUsd,
   chatCostSeries30d,
+  costSubscriptionUsd,
+  chatCostSubscriptionUsd,
 }: KpiRowProps) {
   const openParents = stateCountsParents['todo'] ?? 0;
   const inProgressParents = (stateCountsParents['in_progress'] ?? 0) + (stateCountsParents['review'] ?? 0);
@@ -147,7 +161,7 @@ export function KpiRow({
         value={<CostValue amount={costLast30dUsd} estimated={costHasEstimates} />}
         accent="green"
         neutralValue
-        tooltip={COST_TOOLTIP}
+        tooltip={costTooltip(COST_TOOLTIP, costLast30dUsd, costSubscriptionUsd)}
         delta={hasDelta ? { pct: deltaPct, up: deltaUp } : undefined}
         sparkline={costSeries30d !== undefined ? { values: costSeries30d, color: 'var(--green)' } : undefined}
       />
@@ -157,7 +171,7 @@ export function KpiRow({
         value={<CostValue amount={chatCostLast30dUsd} />}
         accent="aqua"
         neutralValue
-        tooltip={CHAT_COST_TOOLTIP}
+        tooltip={costTooltip(CHAT_COST_TOOLTIP, chatCostLast30dUsd, chatCostSubscriptionUsd)}
         delta={hasChatDelta ? { pct: chatDeltaPct, up: chatDeltaUp } : undefined}
         sparkline={chatCostSeries30d !== undefined ? { values: chatCostSeries30d, color: 'var(--aqua)' } : undefined}
       />

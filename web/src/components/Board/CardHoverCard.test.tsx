@@ -73,6 +73,12 @@ describe('CardHoverCard', () => {
     }
   });
 
+  it('names the usage-limit reset on a parked card', () => {
+    renderHover({ ...baseCard, worker_status: 'parked', park_resets_at: new Date(2099, 0, 1, 14, 0).toISOString() });
+    const tip = screen.getByRole('tooltip');
+    expect(within(tip).getByText('Parked - usage limit, resets Thu 14:00')).toBeInTheDocument();
+  });
+
   it('names the blocking cards on the dependency row', () => {
     renderHover({
       ...baseCard,

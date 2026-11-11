@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
-import type { ChatMessage, ChatSessionUpdate, ChatStatus, LogEntry } from '../types';
+import type { ChatMessage, ChatSessionUpdate, ChatStatus, ChatUsageLimit, LogEntry } from '../types';
 import { useRingBuffer } from './useRingBuffer';
 import { notifyChatSessionsChanged } from './useChatSessions';
 
@@ -38,6 +38,17 @@ function roleToType(role: string): LogEntry['type'] {
     default:
       return 'text';
   }
+}
+
+const ASSISTANT_ROLES = new Set(['assistant_text', 'assistant_thinking', 'tool_call']);
+
+function parseUsageLimit(v: unknown): ChatUsageLimit | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const l = v as Record<string, unknown>;
+  return {
+    ...(typeof l.window === 'string' && { window: l.window }),
+    ...(typeof l.resets_at === 'string' && { resets_at: l.resets_at }),
+  };
 }
 
 function eventToLog(e: ChatSSEEvent): LogEntry {
@@ -79,6 +90,9 @@ export interface UseChatStream {
    * `null` until the first session_updated event arrives.
    */
   sessionUpdate: ChatSessionUpdate | null;
+  /** The subscription usage limit that stopped the session; null again from
+   *  the next assistant output. Kept out of sessionUpdate, which never clears. */
+  usageLimit: ChatUsageLimit | null;
   /** True when older persisted history exists below the loaded window. */
   hasMore: boolean;
   /** True while a loadOlder() page fetch is in flight. */
@@ -119,6 +133,7 @@ export function useChatStream(
   const [connected, setConnected] = useState(false);
   const [connection, setConnection] = useState(0);
   const [sessionUpdate, setSessionUpdate] = useState<ChatSessionUpdate | null>(null);
+  const [usageLimit, setUsageLimit] = useState<ChatUsageLimit | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   // prevStatusRef tracks the last-seen status value so the comparison runs
@@ -152,6 +167,7 @@ export function useChatStream(
     setConnected(false);
     setConnection(0);
     setSessionUpdate(null);
+    setUsageLimit(null);
     setHasMore(false);
     setLoadingOlder(false);
     clear();
@@ -218,6 +234,7 @@ export function useChatStream(
             lastSeq = data.seq;
           }
           append([eventToLog(data)]);
+          if (ASSISTANT_ROLES.has(data.role)) setUsageLimit(null);
         } catch {
           // malformed payload - skip
         }
@@ -238,6 +255,7 @@ export function useChatStream(
             }),
             ...(isChatStatus(raw.status) && { status: raw.status }),
             ...(typeof raw.estimated_cost_usd === 'number' && { estimated_cost_usd: raw.estimated_cost_usd }),
+            ...(typeof raw.subscription_cost_usd === 'number' && { subscription_cost_usd: raw.subscription_cost_usd }),
             ...(typeof raw.prompt_tokens === 'number' && { prompt_tokens: raw.prompt_tokens }),
             ...(typeof raw.completion_tokens === 'number' && { completion_tokens: raw.completion_tokens }),
             ...(typeof raw.cache_read_tokens === 'number' && { cache_read_tokens: raw.cache_read_tokens }),
@@ -257,6 +275,8 @@ export function useChatStream(
             notifyChatSessionsChanged();
           }
           setSessionUpdate((prev) => ({ ...(prev ?? {}), ...data }));
+          const limit = parseUsageLimit(raw.usage_limit);
+          if (limit) setUsageLimit(limit);
         } catch {
           // malformed payload - skip
         }
@@ -348,5 +368,5 @@ export function useChatStream(
     }
   }, [sessionID, prepend]);
 
-  return { logs, connected, connection, sessionUpdate, hasMore, loadingOlder, loadOlder, subscribeBlueprint };
+  return { logs, connected, connection, sessionUpdate, usageLimit, hasMore, loadingOlder, loadOlder, subscribeBlueprint };
 }

@@ -127,3 +127,29 @@ describe('KpiRow - Chat cost · 30d tile', () => {
     expect(container.textContent).toContain('Chat cost · 30d');
   });
 });
+
+describe('KpiRow - subscription estimates', () => {
+  const tiles = (container: HTMLElement) => Array.from(container.querySelectorAll('.apd-kpi'));
+  const costTile = (container: HTMLElement) =>
+    tiles(container).find((t) => t.textContent?.startsWith('Cost · 30d'));
+  const chatTile = (container: HTMLElement) =>
+    tiles(container).find((t) => t.textContent?.startsWith('Chat cost · 30d'));
+
+  it('names the subscription part of each cost tile in its tooltip', () => {
+    const { container } = renderKpiRow({
+      costLast30dUsd: 10,
+      costSubscriptionUsd: 2.5,
+      chatCostLast30dUsd: 3,
+      chatCostSubscriptionUsd: 1,
+    });
+    expect(costTile(container)?.getAttribute('title')).toContain('$10.00 incl. ≈ $2.50 subscription estimate');
+    expect(chatTile(container)?.getAttribute('title')).toContain('$3.00 incl. ≈ $1.00 subscription estimate');
+  });
+
+  it('adds nothing without a subscription part', () => {
+    const { container } = renderKpiRow({ costLast30dUsd: 10, chatCostLast30dUsd: 3 });
+    expect(costTile(container)?.getAttribute('title')).not.toContain('subscription');
+    expect(chatTile(container)?.getAttribute('title')).not.toContain('subscription');
+  });
+});
+
