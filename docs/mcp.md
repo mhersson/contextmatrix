@@ -125,7 +125,7 @@ The "Caller" column uses these values:
 | `release_card`              | Drop the claim                                              | claim  |
 | `complete_task`             | Log, transition (subtask to `done`, parent to `review`), release | claim |
 | `report_push`               | Record branch and PR URL; hard error on `main` / `master`   | claim  |
-| `report_parked`             | Set `worker_status: parked` with the reason in the log      | claim  |
+| `report_parked`             | Set `worker_status: parked`, reason in the log, optional `resets_at` | claim  |
 | `increment_review_attempts` | Bump `review_attempts`; the server caps it at 7             | claim  |
 | `promote_to_autonomous`     | Flip `autonomous` to true; idempotent; 409 on terminal cards | human |
 | `run_card`                  | Start an autonomous (Run Auto) agent-backend run; a non-autonomous `todo` card is set autonomous first | human |

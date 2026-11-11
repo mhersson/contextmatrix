@@ -607,6 +607,10 @@ reports whether any of those costs include rate-table-estimated buckets.
 `in_playbooks` lists the playbooks holding a card entry for the card (GET and
 list); omitted when empty and best-effort, so a playbook-store failure leaves
 it empty rather than failing the read.
+`park_resets_at` - computed on read from ops.db, never persisted or merged;
+the RFC 3339 time the usage limit that parked the run resets, set only while
+`worker_status` is `parked` (GET and list) and cleared when the card is queued
+again.
 `playbook_lock` - computed on read, never persisted; `{id, title,
 run_status}` of the runnable playbook that owns the card's `autonomous`,
 `create_pr`, `await_ci`, `merge_pr`, `base_branch`; `run_status` set only

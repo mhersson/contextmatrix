@@ -111,6 +111,9 @@ type Card struct {
 	// SubtaskUsage lists each direct subtask's usage buckets. Computed on
 	// read alongside SubtaskCostUSD, never persisted.
 	SubtaskUsage []SubtaskUsage `yaml:"-" json:"subtask_usage,omitempty"`
+	// ParkResetsAt is when the usage limit that parked the run resets. Set on
+	// read only while worker_status is parked; instance-local, never persisted.
+	ParkResetsAt *time.Time `yaml:"-" json:"park_resets_at,omitempty"`
 	// InPlaybooks lists the IDs of playbooks holding a card entry for this
 	// card. Computed on read, never persisted.
 	InPlaybooks []string `yaml:"-" json:"in_playbooks,omitempty"`

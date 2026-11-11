@@ -495,6 +495,8 @@ func main() {
 
 	slog.Info("op store opened", "path", cfg.OpStore.DBPath)
 
+	svc.SetParkResetStore(opStore)
+
 	llmChannel, err := llmchannel.New(ctx, llmchannel.Config{
 		Endpoint:     llmEndpointFromConfig(cfg.LLMEndpoint),
 		OAuthToken:   cfg.ClaudeCode.OAuthToken,

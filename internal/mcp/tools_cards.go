@@ -238,10 +238,11 @@ type reportPushOutput struct {
 }
 
 type reportParkedInput struct {
-	Project string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
-	CardID  string `json:"card_id" jsonschema:"required,card ID"`
-	AgentID string `json:"agent_id" jsonschema:"required,agent ID"`
-	Reason  string `json:"reason" jsonschema:"required,why the run parked the card, e.g. review parked: attempts cap exhausted without approval"`
+	Project  string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
+	CardID   string `json:"card_id" jsonschema:"required,card ID"`
+	AgentID  string `json:"agent_id" jsonschema:"required,agent ID"`
+	Reason   string `json:"reason" jsonschema:"required,why the run parked the card, e.g. review parked: attempts cap exhausted without approval"`
+	ResetsAt string `json:"resets_at,omitempty" jsonschema:"RFC 3339 time a subscription usage limit resets; set only when a usage limit parked the run"`
 }
 
 type reportParkedOutput struct {
@@ -905,7 +906,18 @@ func registerReportParked(server *mcp.Server, svc *service.CardService) {
 			return nil, reportParkedOutput{}, err
 		}
 
-		card, err := svc.ReportParked(ctx, project, input.CardID, input.AgentID, strings.TrimSpace(input.Reason))
+		var resetsAt *time.Time
+
+		if raw := strings.TrimSpace(input.ResetsAt); raw != "" {
+			t, perr := time.Parse(time.RFC3339, raw)
+			if perr != nil {
+				return nil, reportParkedOutput{}, fmt.Errorf("report parked: resets_at must be RFC 3339: %w", perr)
+			}
+
+			resetsAt = &t
+		}
+
+		card, err := svc.ReportParked(ctx, project, input.CardID, input.AgentID, strings.TrimSpace(input.Reason), resetsAt)
 		if err != nil {
 			return nil, reportParkedOutput{}, fmt.Errorf("report parked: %w", err)
 		}

@@ -146,6 +146,13 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			resets_at   INTEGER NOT NULL,
 			seen_at     INTEGER NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS card_park_resets (
+			project     TEXT NOT NULL,
+			card_id     TEXT NOT NULL,
+			resets_at   INTEGER NOT NULL,
+			recorded_at INTEGER NOT NULL,
+			PRIMARY KEY (project, card_id)
+		)`,
 		`CREATE TABLE IF NOT EXISTS jira_writeback (
 			project         TEXT NOT NULL,
 			card_id         TEXT NOT NULL,
