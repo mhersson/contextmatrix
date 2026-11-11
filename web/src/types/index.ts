@@ -237,7 +237,8 @@ export type EventType =
   | 'playbook.updated'
   | 'playbook.deleted'
   | 'jira_import.progress'
-  | 'jira_import.done';
+  | 'jira_import.done'
+  | 'llm_channel.changed';
 
 export interface SyncResolution {
   path: string;
@@ -812,6 +813,46 @@ export interface SelectorLaddersResponse {
   headroom_default: number;
   is_default: boolean;
   updated_at?: string;
+}
+
+/** Global LLM channel: the configured endpoint, or the Claude Code subscription. */
+export type LLMChannel = 'endpoint' | 'claude_code';
+
+export interface LLMChannelCounts {
+  cards: number;
+  chats: number;
+  blueprints: number;
+}
+
+/** One subscription limit window as last reported by a Claude Code run. */
+export interface LLMChannelUsage {
+  /** Vendor window name, e.g. "seven_day" or "five_hour". */
+  window: string;
+  /** Fraction used: 0.64 is 64%; above 1 during overage. */
+  utilization: number;
+  /** "allowed", "allowed_warning" or "rejected". */
+  status: string;
+  resets_at: string;
+  seen_at: string;
+  /** The window has reset since this reading. */
+  stale: boolean;
+}
+
+/** Shape of GET /api/llm-channel and PUT /api/admin/llm-channel. */
+export interface LLMChannelView {
+  mode: LLMChannel;
+  /** Both sides are configured. */
+  switchable: boolean;
+  endpoint: { type: string; label: string } | null;
+  /** A Claude Code token is configured. */
+  claude_code: boolean;
+  /** Live work per mode; runs keep the mode they started with. */
+  in_flight: Record<LLMChannel, LLMChannelCounts>;
+  /** Backends with no Claude Code support, which stay on `runs_on`. */
+  exceptions: { backend: 'agent' | 'chat' | 'architect'; runs_on: LLMChannel }[];
+  usage: LLMChannelUsage[];
+  updated_at?: string;
+  updated_by?: string;
 }
 
 /** Where a candidate's price came from; `aa` is the Artificial Analysis list price, shown when the gateway publishes none. */

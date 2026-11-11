@@ -51,6 +51,8 @@ import type {
   PatchPlaybookFollowupInput,
   BlueprintArtifact,
   BlueprintView,
+  LLMChannel,
+  LLMChannelView,
 } from '../types';
 
 const BASE_URL = '/api';
@@ -443,6 +445,14 @@ class APIClient {
       method: 'PUT',
       body: JSON.stringify({ ladders, headroom }),
     });
+  }
+
+  async getLLMChannel(): Promise<LLMChannelView> {
+    return this.request<LLMChannelView>('/llm-channel');
+  }
+
+  async putLLMChannel(mode: LLMChannel): Promise<LLMChannelView> {
+    return this.request<LLMChannelView>('/admin/llm-channel', { method: 'PUT', body: JSON.stringify({ mode }) });
   }
 
   async adminSelectorCandidates(): Promise<SelectorCandidatesResponse> {

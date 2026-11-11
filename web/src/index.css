@@ -5499,6 +5499,192 @@ textarea {
   line-height: 1.2;
   color: var(--fg);
 }
+/* LLM channel strip under the wordmark and its popover. The dot is --aqua for
+   Claude Code and --blue for the endpoint; a dashed strip means the viewer
+   cannot switch. */
+.llm-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background-color: var(--aqua);
+}
+.llm-dot--endpoint {
+  background-color: var(--blue);
+}
+.llm-rail-dot {
+  width: 6px;
+  height: 6px;
+  margin-top: 8px;
+}
+.llm-strip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  margin-top: 9px;
+  padding: 3px 8px;
+  border: 1px solid var(--bg3);
+  border-radius: 6px;
+  background-color: transparent;
+  color: var(--fg);
+  font-size: 12px;
+  text-align: left;
+}
+.llm-strip:hover {
+  background-color: var(--bg1);
+}
+.llm-strip--ro {
+  border-style: dashed;
+}
+.llm-strip__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-strip__pct {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--grey1);
+}
+.llm-strip__pct--warn {
+  color: var(--yellow);
+}
+.llm-strip__pct--stop {
+  color: var(--red);
+}
+.llm-strip__chev {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--grey1);
+}
+.llm-sub {
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--grey1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-sub b {
+  color: var(--grey2);
+  font-weight: 500;
+}
+.llm-pop {
+  position: absolute;
+  top: calc(100% + 1px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 6px 10px 10px;
+  padding: 9px 10px 10px;
+  border: 1px solid var(--bg3);
+  border-radius: 6px;
+  background-color: var(--bg2);
+}
+.mk-seg.llm-seg {
+  display: flex;
+  flex-wrap: nowrap;
+  width: 100%;
+  background-color: var(--bg1);
+  color: var(--grey2);
+}
+.mk-seg.llm-seg button {
+  flex: 1;
+  padding: 3px 6px;
+  white-space: nowrap;
+}
+.mk-seg.llm-seg button[aria-pressed='true'] {
+  font-weight: 500;
+}
+.llm-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--fg);
+}
+.llm-row__lock {
+  display: inline-flex;
+  margin-left: auto;
+  color: var(--grey1);
+}
+.llm-error {
+  font-size: 12px;
+  color: var(--red);
+}
+.llm-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--grey2);
+}
+.llm-line b {
+  color: var(--fg);
+  font-weight: 500;
+}
+.llm-line__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.llm-line__icon--blue {
+  color: var(--blue);
+}
+.llm-line__icon--yellow {
+  color: var(--yellow);
+}
+.llm-line__icon--red {
+  color: var(--red);
+}
+.llm-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.llm-meter__top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--grey2);
+}
+.llm-meter__pct {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg);
+}
+.llm-meter__bar {
+  height: 4px;
+  border-radius: 2px;
+  background-color: var(--bg2);
+  overflow: hidden;
+}
+.llm-meter__fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background-color: var(--aqua);
+}
+.llm-meter__fill--warn {
+  background-color: var(--yellow);
+}
+.llm-meter__fill--stop {
+  background-color: var(--red);
+}
+.llm-meter__meta {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--grey0);
+}
 @media (prefers-reduced-motion: reduce) {
   .sb-activity-spin {
     animation: none;
