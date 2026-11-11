@@ -30,7 +30,7 @@ type LLMChannelState interface {
 // Implemented by opstore/sqlite.Store.
 type llmChannelStore interface {
 	OpenCardRuns(ctx context.Context) ([]sqlite.CardRun, error)
-	CloseCardRun(ctx context.Context, project, cardID string, at time.Time) error
+	CloseCardRun(ctx context.Context, project, cardID string, startedNotAfter, at time.Time) error
 	CountLiveSessionsByMode(ctx context.Context) (map[string]map[string]int, error)
 	SubscriptionUsage(ctx context.Context) ([]sqlite.SubscriptionUsageRow, error)
 }
@@ -284,7 +284,7 @@ func (h *llmChannelHandlers) inFlight(ctx context.Context) (map[string]llmChanne
 }
 
 func (h *llmChannelHandlers) closeRun(ctx context.Context, run sqlite.CardRun) {
-	if err := h.store.CloseCardRun(ctx, run.Project, run.CardID, h.now()); err != nil {
+	if err := h.store.CloseCardRun(ctx, run.Project, run.CardID, run.StartedAt, h.now()); err != nil {
 		slog.Warn("close finished card run failed",
 			"project", run.Project, "card_id", run.CardID, "error", err)
 	}

@@ -14,16 +14,24 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 )
 
+// fakeRunCloser honours the started-at bound: started maps "project/id" to the
+// open run's start; a card absent from it is treated as started at the epoch.
 type fakeRunCloser struct {
-	mu     sync.Mutex
-	closed []string
+	mu      sync.Mutex
+	closed  []string
+	started map[string]time.Time
 }
 
-func (f *fakeRunCloser) CloseCardRun(_ context.Context, project, cardID string, _ time.Time) error {
+func (f *fakeRunCloser) CloseCardRun(_ context.Context, project, cardID string, startedNotAfter, _ time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	f.closed = append(f.closed, project+"/"+cardID)
+	key := project + "/" + cardID
+	if st, ok := f.started[key]; ok && st.After(startedNotAfter) {
+		return nil
+	}
+
+	f.closed = append(f.closed, key)
 
 	return nil
 }
@@ -81,4 +89,25 @@ func containsStr(s []string, v string) bool {
 	}
 
 	return false
+}
+
+func TestCardRunCloser_EventOlderThanRerunLeavesItOpen(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	now := time.Now()
+	bus := events.NewBus()
+	rc := &fakeRunCloser{started: map[string]time.Time{
+		"p/P-001": now,                 // rerun started after the stale event
+		"p/P-002": now.Add(-time.Hour), // run that the event does end
+	}}
+	backend.StartCardRunCloser(ctx, bus, rc, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	bus.Publish(events.Event{Type: events.WorkerFailed, Project: "p", CardID: "P-001", Timestamp: now.Add(-time.Minute)})
+	bus.Publish(events.Event{Type: events.WorkerFailed, Project: "p", CardID: "P-002", Timestamp: now})
+
+	assert.Eventually(t, func() bool {
+		return containsStr(rc.snapshot(), "p/P-002")
+	}, 2*time.Second, 5*time.Millisecond)
+	assert.False(t, containsStr(rc.snapshot(), "p/P-001"))
 }

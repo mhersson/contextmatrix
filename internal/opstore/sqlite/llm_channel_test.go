@@ -82,10 +82,10 @@ func TestCardRun_OpenCloseRoundTrip(t *testing.T) {
 		{Project: "p", CardID: "P-002", Mode: "endpoint", StartedAt: t0},
 	}, runs)
 
-	require.NoError(t, st.CloseCardRun(ctx, "p", "P-001", t0.Add(time.Minute)))
+	require.NoError(t, st.CloseCardRun(ctx, "p", "P-001", t0, t0.Add(time.Minute)))
 	// Closing a closed or unknown run is a no-op.
-	require.NoError(t, st.CloseCardRun(ctx, "p", "P-001", t0.Add(2*time.Minute)))
-	require.NoError(t, st.CloseCardRun(ctx, "p", "P-404", t0))
+	require.NoError(t, st.CloseCardRun(ctx, "p", "P-001", t0, t0.Add(2*time.Minute)))
+	require.NoError(t, st.CloseCardRun(ctx, "p", "P-404", t0, t0))
 
 	runs, err = st.OpenCardRuns(ctx)
 	require.NoError(t, err)
@@ -99,7 +99,7 @@ func TestCardRun_RerunReplacesRow(t *testing.T) {
 	t0 := time.Unix(1_700_000_000, 0).UTC()
 
 	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", t0))
-	require.NoError(t, st.CloseCardRun(ctx, "p", "P-001", t0.Add(time.Minute)))
+	require.NoError(t, st.CloseCardRun(ctx, "p", "P-001", t0, t0.Add(time.Minute)))
 	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "claude_code", t0.Add(time.Hour)))
 
 	runs, err := st.OpenCardRuns(ctx)
@@ -147,4 +147,52 @@ func TestSubscriptionUsage_UpsertPerWindow(t *testing.T) {
 	assert.InDelta(t, 0.1, fh.Utilization, 1e-9)
 	assert.Empty(t, fh.Status)
 	assert.True(t, seen1.Equal(fh.SeenAt))
+}
+
+func TestCardRun_CloseIsBoundedByStart(t *testing.T) {
+	st := openLadderStore(t)
+	ctx := context.Background()
+	t0 := time.Unix(1_700_000_000, 123_000_000).UTC()
+	rerun := t0.Add(300 * time.Millisecond) // same second as t0
+
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", t0))
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "claude_code", rerun))
+
+	runs, err := st.OpenCardRuns(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []CardRun{{Project: "p", CardID: "P-001", Mode: "claude_code", StartedAt: rerun}}, runs,
+		"started_at round-trips exactly")
+
+	// A close aimed at the earlier run leaves the rerun open.
+	require.NoError(t, st.CloseCardRun(ctx, "p", "P-001", t0, t0.Add(time.Second)))
+
+	runs, err = st.OpenCardRuns(ctx)
+	require.NoError(t, err)
+	assert.Len(t, runs, 1)
+
+	// A close that covers the rerun's start ends it.
+	require.NoError(t, st.CloseCardRun(ctx, "p", "P-001", rerun, rerun.Add(time.Second)))
+
+	runs, err = st.OpenCardRuns(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, runs)
+}
+
+func TestSubscriptionUsage_SkipsZeroResetsAt(t *testing.T) {
+	st := openLadderStore(t)
+	ctx := context.Background()
+	reset := time.Unix(2_000_000_000, 0).UTC()
+
+	require.NoError(t, st.RecordSubscriptionUsage(ctx, []protocol.SubscriptionUsage{
+		{Window: "seven_day", Utilization: 0.5, ResetsAt: reset},
+	}, time.Unix(1_900_000_000, 0)))
+	require.NoError(t, st.RecordSubscriptionUsage(ctx, []protocol.SubscriptionUsage{
+		{Window: "seven_day", Utilization: 0.9},
+		{Window: "five_hour", Utilization: 0.3},
+	}, time.Unix(1_900_000_100, 0)))
+
+	rows, err := st.SubscriptionUsage(ctx)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.InDelta(t, 0.5, rows[0].Utilization, 1e-9)
 }

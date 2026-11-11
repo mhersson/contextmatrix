@@ -58,18 +58,22 @@ func (s *Store) OpenCardRun(ctx context.Context, project, cardID, mode string, a
 		`INSERT INTO card_run_modes (project, card_id, mode, started_at, ended_at) VALUES (?, ?, ?, ?, NULL)
 		 ON CONFLICT(project, card_id) DO UPDATE SET mode = excluded.mode,
 		   started_at = excluded.started_at, ended_at = NULL`,
-		project, cardID, mode, at.Unix()); err != nil {
+		project, cardID, mode, at.UnixNano()); err != nil {
 		return fmt.Errorf("open card run: %w", err)
 	}
 
 	return nil
 }
 
-// CloseCardRun marks the card's run ended. It is a no-op when none is open.
-func (s *Store) CloseCardRun(ctx context.Context, project, cardID string, at time.Time) error {
+// CloseCardRun marks the card's open run ended, but only when it started at or
+// before startedNotAfter, so a rerun opened after the caller's view stays open.
+// It is a no-op when no such run is open. started_at and ended_at are
+// nanoseconds so a rerun within the same second stays distinguishable.
+func (s *Store) CloseCardRun(ctx context.Context, project, cardID string, startedNotAfter, at time.Time) error {
 	if _, err := s.db.ExecContext(ctx,
-		`UPDATE card_run_modes SET ended_at = ? WHERE project = ? AND card_id = ? AND ended_at IS NULL`,
-		at.Unix(), project, cardID); err != nil {
+		`UPDATE card_run_modes SET ended_at = ?
+		 WHERE project = ? AND card_id = ? AND ended_at IS NULL AND started_at <= ?`,
+		at.UnixNano(), project, cardID, startedNotAfter.UnixNano()); err != nil {
 		return fmt.Errorf("close card run: %w", err)
 	}
 
@@ -97,7 +101,7 @@ func (s *Store) OpenCardRuns(ctx context.Context) ([]CardRun, error) {
 			return nil, fmt.Errorf("scan card run: %w", err)
 		}
 
-		r.StartedAt = time.Unix(at, 0).UTC()
+		r.StartedAt = time.Unix(0, at).UTC()
 		runs = append(runs, r)
 	}
 
@@ -114,7 +118,7 @@ type SubscriptionUsageRow struct {
 	SeenAt time.Time
 }
 
-// RecordSubscriptionUsage upserts each window with the time it was seen.
+// RecordSubscriptionUsage upserts each window that has a reset time with the time it was seen.
 func (s *Store) RecordSubscriptionUsage(ctx context.Context, u []protocol.SubscriptionUsage, seen time.Time) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -124,6 +128,10 @@ func (s *Store) RecordSubscriptionUsage(ctx context.Context, u []protocol.Subscr
 	defer func() { _ = tx.Rollback() }()
 
 	for _, w := range u {
+		if w.ResetsAt.IsZero() {
+			continue
+		}
+
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO subscription_usage (window, utilization, status, resets_at, seen_at) VALUES (?, ?, ?, ?, ?)
 			 ON CONFLICT(window) DO UPDATE SET utilization = excluded.utilization,

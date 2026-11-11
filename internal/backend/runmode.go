@@ -8,9 +8,10 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 )
 
-// CardRunCloser ends the recorded run of a card.
+// CardRunCloser ends the recorded run of a card that started at or before
+// startedNotAfter.
 type CardRunCloser interface {
-	CloseCardRun(ctx context.Context, project, cardID string, at time.Time) error
+	CloseCardRun(ctx context.Context, project, cardID string, startedNotAfter, at time.Time) error
 }
 
 // endsRun reports whether the event marks a card's worker as finished.
@@ -67,7 +68,7 @@ func StartCardRunCloser(ctx context.Context, bus *events.Bus, store CardRunClose
 					at = time.Now()
 				}
 
-				if err := store.CloseCardRun(ctx, e.Project, e.CardID, at); err != nil {
+				if err := store.CloseCardRun(ctx, e.Project, e.CardID, at, at); err != nil {
 					logger.Warn("close card run failed",
 						"project", e.Project, "card_id", e.CardID, "error", err)
 				}

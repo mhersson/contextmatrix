@@ -39,9 +39,17 @@ func (f *fakeLLMChannelStore) OpenCardRuns(context.Context) ([]sqlite.CardRun, e
 	return append([]sqlite.CardRun(nil), f.runs...), nil
 }
 
-func (f *fakeLLMChannelStore) CloseCardRun(_ context.Context, project, cardID string, _ time.Time) error {
+// CloseCardRun honours the started-at bound against the stored runs, like the
+// real store: a run that started after the bound is left open.
+func (f *fakeLLMChannelStore) CloseCardRun(_ context.Context, project, cardID string, startedNotAfter, _ time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	for _, r := range f.runs {
+		if r.Project == project && r.CardID == cardID && r.StartedAt.After(startedNotAfter) {
+			return nil
+		}
+	}
 
 	f.closed = append(f.closed, project+"/"+cardID)
 
@@ -349,4 +357,48 @@ func TestInFlight_ClosesFinishedRuns(t *testing.T) {
 	inFlight := body["in_flight"].(map[string]any)["claude_code"].(map[string]any)
 	assert.InDelta(t, 1, inFlight["cards"], 0)
 	assert.ElementsMatch(t, []string{"p/A-1", "p/A-2", "p/GONE-1"}, f.store.closed)
+}
+
+// cardsAfterRead swaps the run row the moment the reconcile reads the card,
+// as a rerun opening between the read and the close would.
+type cardsAfterRead struct {
+	fakeLLMChannelCards
+	onRead func()
+}
+
+func (c cardsAfterRead) GetCard(ctx context.Context, project, id string) (*board.Card, error) {
+	card, err := c.fakeLLMChannelCards.GetCard(ctx, project, id)
+	c.onRead()
+
+	return card, err
+}
+
+func TestInFlight_RerunDuringReconcileStaysOpen(t *testing.T) {
+	old := time.Unix(1_600_000_000, 0).UTC()
+	rerun := old.Add(200 * time.Millisecond)
+
+	var store *fakeLLMChannelStore
+
+	f := newLLMChannelFixture(t, false, nil, func(s *fakeLLMChannelStore) {
+		store = s
+		s.runs = []sqlite.CardRun{{Project: "p", CardID: "A-1", Mode: "claude_code", StartedAt: old}}
+	})
+
+	// Rebuild the router with a cards double that opens the rerun mid-reconcile.
+	cards := cardsAfterRead{
+		fakeLLMChannelCards: fakeLLMChannelCards{"p/A-1": "completed"},
+		onRead: func() {
+			store.mu.Lock()
+			store.runs = []sqlite.CardRun{{Project: "p", CardID: "A-1", Mode: "claude_code", StartedAt: rerun}}
+			store.mu.Unlock()
+		},
+	}
+	srv := newSelectorAdminServer(t, RouterConfig{
+		LLMChannelState: f.holder, LLMChannelStore: store, LLMChannelCards: cards,
+	}, false)
+
+	getLLMChannel(t, srv, nil)
+
+	assert.Empty(t, store.closed, "the rerun's row is not closed")
+	assert.Len(t, store.runs, 1)
 }
