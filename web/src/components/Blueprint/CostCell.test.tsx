@@ -175,6 +175,32 @@ describe('CostCell', () => {
     expect(save()).toBeEnabled();
   });
 
+  it("prices a blueprint by the architect's own list while chats run on Claude Code", async () => {
+    vi.mocked(api.listChatModels).mockImplementation(async (kind?: string) =>
+      kind === 'architect'
+        ? ({
+            source: 'endpoint',
+            default: 'arch/priced',
+            architect_default: 'arch/priced',
+            models: [
+              { id: 'arch/priced', label: 'priced', max_tokens: 1 },
+              { id: 'arch/free', label: 'free', max_tokens: 1, unpriced: true },
+            ],
+          } as never)
+        : ({
+            source: 'claude_code',
+            default: 'claude-sonnet-5-5',
+            architect_default: 'arch/priced',
+            models: [{ id: 'claude-sonnet-5-5', label: 'claude-sonnet-5-5', max_tokens: 1_000_000 }],
+          } as never),
+    );
+    vi.mocked(api.listChats).mockResolvedValue([{ id: 'S1', model: 'arch/free' }] as never);
+    open(ROOMY_CAP);
+    await waitFor(() => expect(screen.getByText(/No price is known for this model/)).toBeInTheDocument());
+    expect(save()).toBeDisabled();
+    expect(api.listChatModels).toHaveBeenCalledWith('architect');
+  });
+
   it('prices a session with no model of its own by the architect default', async () => {
     vi.mocked(api.listChats).mockResolvedValue([{ id: 'S1', model: '' }] as never);
     open(ROOMY_CAP);

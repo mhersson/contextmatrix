@@ -28,7 +28,7 @@ export function CapPopover({ chatId, cost, onClose }: CapPopoverProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const hintId = useId();
   const { sessions } = useChatSessions();
-  const { models, architectDefault } = useChatModels();
+  const { models, architectDefault } = useChatModels('architect');
   // The view's cost.priced is sticky once any run was unpriced, so the model list decides, as in the New blueprint dialog.
   const model = sessions.find((s) => s.id === chatId)?.model || architectDefault;
   const unpriced = models.some((m) => m.id === model && m.unpriced === true);

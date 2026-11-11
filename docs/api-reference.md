@@ -2659,8 +2659,8 @@ session response carries `origin_chat` and `origin_seq`.
 
 Tells the New Chat dialog which model picker to render. `?kind=architect`
 answers for the mode new blueprints start in, which can differ from the chat
-kind's while only one of them runs on `claude_code`; the blueprint picker asks
-for it. Without `kind` (or with `kind=chat`) the answer is for new chats; any
+kind's while only one of them runs on `claude_code`; the blueprint picker, a
+blueprint pane's context window and the cost cap's price check ask for it. Without `kind` (or with `kind=chat`) the answer is for new chats; any
 other value is a 400.
 
 ```json

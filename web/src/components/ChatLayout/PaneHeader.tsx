@@ -206,13 +206,17 @@ export function PaneHeader({
  * id from the persisted session row until the first session_updated event
  * arrives. Hidden entirely when no model is known. The context window
  * denominator always comes from `GET /api/chats/models` (`useChatModels`),
- * in every source mode - config, endpoint, and openrouter alike. A blueprint
- * session shows the architect's spend from its view instead of the estimate.
+ * in every source mode - config, endpoint, and openrouter alike; a blueprint
+ * reads the architect's list (`?kind=architect`), which can be on another LLM
+ * channel mode. A blueprint session shows the architect's spend from its view
+ * instead of the estimate.
  * A subscription share reads as an API-equivalent estimate (≈).
  */
 function PaneContextUsage({ chatId, fallbackModel, blueprint }: { chatId: string; fallbackModel?: string; blueprint: boolean }) {
   const live = useChatLiveData(chatId);
-  const { models } = useChatModels();
+  const spent = live?.blueprintSpentUsd;
+  const isBlueprint = blueprint || spent !== undefined;
+  const { models } = useChatModels(isBlueprint ? 'architect' : 'chat');
   const modelId = live?.model ?? fallbackModel;
   if (!modelId) return null;
   const m = models.find((x) => x.id === modelId);
@@ -226,7 +230,6 @@ function PaneContextUsage({ chatId, fallbackModel, blueprint }: { chatId: string
     : `Context: ${tokens.toLocaleString()} tokens`;
 
   // A blueprint shows what the architect recorded, so nothing until its view loads; never CM's token estimate.
-  const spent = live?.blueprintSpentUsd;
   const cost = spent ?? (blueprint ? undefined : live?.estimatedCostUsd);
   const showCost = cost != null && cost > 0;
   const tokensTooltip = showCost
@@ -241,7 +244,7 @@ function PaneContextUsage({ chatId, fallbackModel, blueprint }: { chatId: string
     ? sessionSubscriptionUSD({
         total: cost,
         subscription: live?.subscriptionCostUsd,
-        blueprint: blueprint || spent !== undefined,
+        blueprint: isBlueprint,
         channel: live?.llmChannel,
       })
     : 0;

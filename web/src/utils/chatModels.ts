@@ -19,21 +19,32 @@ export interface ChatModelsResult {
   architectDefault?: string;
 }
 
-// Module-scope cache so a single GET /api/chats/models response is reused by
-// every component that needs the model list (PaneHeader, etc).
-const cache: { promise?: Promise<ChatModelsResult>; result?: ChatModelsResult } = {};
+/** Whose list: new chats', or new blueprints' (`?kind=architect`), which can run on another LLM channel mode. */
+export type ChatModelsKind = 'chat' | 'architect';
 
-/** Test seam: forget the module-scope model list. */
-export function resetChatModelsCache() {
-  cache.promise = undefined;
-  cache.result = undefined;
+const EMPTY: ChatModelsResult = { models: [], source: 'endpoint', architectDefault: '' };
+
+interface Cache {
+  promise?: Promise<ChatModelsResult>;
+  result?: ChatModelsResult;
 }
 
-function loadChatModels(): Promise<ChatModelsResult> {
+// Module-scope cache per kind so a single GET /api/chats/models response is
+// reused by every component that needs that list (PaneHeader, etc).
+const caches: Record<ChatModelsKind, Cache> = { chat: {}, architect: {} };
+
+/** Test seam: forget the module-scope model lists. */
+export function resetChatModelsCache() {
+  caches.chat = {};
+  caches.architect = {};
+}
+
+function loadChatModels(kind: ChatModelsKind): Promise<ChatModelsResult> {
+  const cache = caches[kind];
   if (cache.result) return Promise.resolve(cache.result);
   if (cache.promise) return cache.promise;
   cache.promise = api
-    .listChatModels()
+    .listChatModels(kind === 'architect' ? 'architect' : undefined)
     .then((resp) => {
       const result: ChatModelsResult = { models: resp.models, source: resp.source ?? 'endpoint',
         architectDefault: resp.architect_default ?? '',
@@ -41,26 +52,25 @@ function loadChatModels(): Promise<ChatModelsResult> {
       cache.result = result;
       return result;
     })
-    .catch((): ChatModelsResult => ({ models: [], source: 'endpoint', architectDefault: '' }));
+    .catch((): ChatModelsResult => EMPTY);
   return cache.promise;
 }
 
-export function useChatModels(): ChatModelsResult {
-  const [result, setResult] = useState<ChatModelsResult>(
-    cache.result ?? { models: [], source: 'endpoint', architectDefault: '' },
-  );
+/** The model list for new sessions of the kind: a blueprint pane reads the architect's. */
+export function useChatModels(kind: ChatModelsKind = 'chat'): ChatModelsResult {
+  const [loaded, setLoaded] = useState<{ kind: ChatModelsKind; result: ChatModelsResult } | null>(null);
   useEffect(() => {
-    if (cache.result) return;
+    if (caches[kind].result) return;
     let cancelled = false;
-    void loadChatModels().then((r) => {
+    void loadChatModels(kind).then((result) => {
       if (cancelled) return;
-      setResult(r);
+      setLoaded({ kind, result });
     });
     return () => {
       cancelled = true;
     };
-  }, []);
-  return result;
+  }, [kind]);
+  return caches[kind].result ?? (loaded?.kind === kind ? loaded.result : EMPTY);
 }
 
 export function modelMaxTokens(models: ChatModel[], modelId?: string): number {
