@@ -460,9 +460,10 @@ one card. Empty-agent buckets roll up to the dashboard's `unassigned` label.
   `actual`.
 - `cost_basis` is `subscription` for usage served by a flat-rate Claude Code
   subscription and empty for metered usage. A subscription bucket is always
-  `estimated` at the list price (an `actual_cost_usd` is rejected by MCP and
-  ignored by the service), is not billed spend, and counts on
-  `contextmatrix_llm_subscription_cost_usd_total`, never on
+  `estimated`, priced from the rate table (see
+  [Claude Code cost](remote-execution.md#cost)), and is not billed spend: MCP
+  rejects an `actual_cost_usd` with it and the service ignores one. It counts
+  on `contextmatrix_llm_subscription_cost_usd_total`, never on
   `contextmatrix_llm_cost_usd_total`.
 - Token counts are caller-reported in every mode; CM never measures tokens.
   `counts_source` is `collector` when the counts came from a backend reading
@@ -1299,7 +1300,7 @@ and a unique index on `(session_id, seq)`.
 | `cache_read_tokens`         | INTEGER | `0`     | Cumulative cache-read tokens.                                  |
 | `cache_creation_tokens`     | INTEGER | `0`     | Cumulative cache-creation tokens.                              |
 | `estimated_cost_usd`        | REAL    | `0`     | Running USD total, accumulated via `IncrementSessionCost`; includes `subscription_cost_usd`. |
-| `subscription_cost_usd`     | REAL    | `0`     | The part of `estimated_cost_usd` that is an API-equivalent estimate of Claude Code subscription usage at list price; not billed spend. |
+| `subscription_cost_usd`     | REAL    | `0`     | The part of `estimated_cost_usd` that is an API-equivalent estimate of Claude Code subscription usage, priced from the rate table; not billed spend. |
 | `kind`                      | TEXT    | `chat`  | `chat` or `architect` (blueprint); selects the backend.        |
 | `mode`                      | TEXT    | `''`    | Architect session mode; empty for chat sessions.               |
 | `cost_cap_usd`              | REAL    | `0`     | Architect session cost cap in USD; `0` for chat sessions.      |
@@ -1309,7 +1310,7 @@ and a unique index on `(session_id, seq)`.
 | `origin_seq`                | INTEGER | `0`     | The `handoff` row in `origin_chat` the blueprint was started from; `0` otherwise. |
 | `pinned`                    | INTEGER | `0`     | `1` keeps the session in its sidebar section. |
 | `spent_usd`                 | REAL    | `NULL`  | The architect's recorded spend for a blueprint; `NULL` until CM first reads the blueprint view. |
-| `llm_channel`               | TEXT    | `endpoint` | The LLM channel mode the session starts in, `endpoint` or `claude_code`: the current mode at creation and at every cold open, kept while the session is live. |
+| `llm_channel`               | TEXT    | `endpoint` | The LLM channel mode the session starts in, `endpoint` or `claude_code`: the current mode at creation and at every cold open, kept until the session goes cold. |
 
 A partial unique index on `(origin_chat, origin_seq) WHERE origin_chat != ''`
 allows one blueprint per hand-off; deleting the blueprint frees the hand-off.

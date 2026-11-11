@@ -62,10 +62,10 @@ Every view updates live from one Server-Sent Events stream per tab
   then one block per costed subtask with its card id (click to open) and
   model rows. Colour means role and nothing else. `*` marks amounts that
   include rate-table estimates; `≈` marks Claude subscription usage, an
-  API-equivalent estimate at list price, with the tooltip "API-equivalent
-  estimate at list price; billed by the Claude subscription". A total that
-  holds subscription usage reads "$X total · $Y of it subscription estimate",
-  or "≈ $Y API-equivalent" when all of it is. Roles come from the phase the
+  API-equivalent estimate priced from the rate table, with the tooltip
+  "API-equivalent estimate at list price; billed by the Claude subscription".
+  A total that holds subscription usage reads "$X total · $Y of it
+  subscription estimate", or "≈ $Y API-equivalent" when all of it is. Roles come from the phase the
   agent reports on `report_usage`; buckets written before roles existed, or
   reported with no phase (chat-driven cards), show as `other`. That spend cannot be
   re-attributed, so there is no migration.
@@ -184,8 +184,8 @@ for what the channel does.
     reported, never live.
   - While a window is rejected on Claude Code: "Runs park until the reset;
     nothing falls back to" the endpoint.
-  - Each backend that stays on the endpoint, with the reason ("the architect
-    has no Claude Code support yet").
+  - On Claude Code, each backend that stays on the endpoint, with the reason
+    ("the architect has no Claude Code support yet").
 - A switch governs new work only (see
   [sticky runs](remote-execution.md#sticky-runs)).
 - The strip loads with the page and on every event-stream reconnect. While

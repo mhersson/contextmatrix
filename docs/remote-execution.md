@@ -465,7 +465,7 @@ Differences from a chat start:
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `project`, `repo_url`, `worker_image`, `resume` | Never set. The target projects travel in the `architect` block; the transcript is not replayed on a reopen.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `model`                                         | The session row's model, else `backends.architect.default_model` (`claude_code.default_model` in `claude_code` mode), mapped as for chat. |
-| `llm_endpoint`, `mcp_api_key`                   | As for chat: the session's LLM channel endpoint and CM's `mcp_api_key`. A start re-sent to an architect that lost a live blueprint keeps the mode the blueprint started in. |
+| `llm_endpoint`, `mcp_api_key`                   | As for chat: the session's LLM channel endpoint and CM's `mcp_api_key`. A start re-sent to an architect that lost an active or warm-idle blueprint keeps the mode the blueprint started in. |
 | `git_credentials_token`                         | Minted over the architect entry's `api_key`, in the same `<session_id>.<mac>` form as for chat. `GET /api/worker/git-credentials` verifies it and refuses it once the session ends.                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `architect`                                     | `{"projects": ["alpha", "beta"], "mode": "default", "cost_cap_usd": 3, "context_window": 200000, "price": {"prompt_usd_per_mtok": 3, "completion_usd_per_mtok": 15, "cache_read_usd_per_mtok": 0.3, "cache_write_usd_per_mtok": 3.75}}`. `mode` is `default`, `auto`, `auto+emit` or `yolo`. `mode` and `cost_cap_usd` are the session row's, so every start carries the values last changed through `/api/chats/{id}/mode` and `/api/chats/{id}/cap`; the architect takes them only when it creates the blueprint and otherwise keeps its own. `plain_language`, `true` for a blueprint created in plain language and omitted otherwise, is the row's too and is taken the same way. `unattended`, `true` for a blueprint created Unattended and omitted otherwise, is also the row's and is taken the same way. `price` is the model's resolved per-token rate from CM's `token_costs` and catalog lookup, in USD per million tokens with the cache defaults applied; it is omitted when CM has no price for the model, or prices neither its prompt nor its completion tokens, and the architect then refuses to run a capped blueprint. `context_window` is the model's context length in tokens from CM's model catalog, looked up by the same catalog lookup as `price`; a Claude Code catalog ID the catalog does not list takes its static Claude Code window. It is omitted when neither gives a length, and the architect then sizes compaction by its own default. `research`, `{"provider": "brave", "api_key": "..."}`, is present only when `backends.architect.research` is `search`; the architect then gives its interviewing stages web search and fetch. |
 
@@ -585,7 +585,7 @@ Chat frames set `session_id` instead of `card_id`. `type` is one of:
 | `stderr`    | A raw stderr line from the container.                                                                                                             |
 | `system`    | Container lifecycle event (started, completed, failed, canceled, promoted). A frame carrying `usage_limit` (`{window?, resets_at?}`, `resets_at` absent when the vendor reported none) says a subscription usage limit stopped the turn; CM relays it to the chat or blueprint pane as `session_updated`. |
 | `user`      | A human message echoed by the backend's `/message` handler.                                                                                       |
-| `usage`     | Per-turn token accounting; `content` is empty. `usage` carries `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, and `cost_usd` (gateway-reported turn cost; absent or 0 means none, and CM prices the turn from its rate table). A subscription frame carries `cost_basis: "subscription"` instead of a cost, and `subscription`, the last-seen windows (`window`, `utilization`, `status`, `resets_at`); CM prices it at the list price as an estimate and ignores any `cost_usd` on it. |
+| `usage`     | Per-turn token accounting; `content` is empty. `usage` carries `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, and `cost_usd` (gateway-reported turn cost; absent or 0 means none, and CM prices the turn from its rate table). A subscription frame carries `cost_basis: "subscription"` instead of a cost, and `subscription`, the last-seen windows (`window`, `utilization`, `status`, `resets_at`); CM ignores any `cost_usd` on it and prices it from its rate table as an API-equivalent estimate (see [Cost](#cost)). |
 | `status`    | Chat-mode run state, `content` is `working` or `idle`. Ephemeral: the chat manager turns it into presence state and never persists it.            |
 
 `user_question` exists on the wire only for persisted entries that still
@@ -1006,7 +1006,7 @@ catalog.
   backend holds it from the trigger. A rerun takes the current mode. CM
   records each run's mode in ops.db (`card_run_modes`) only to count work in
   flight.
-- A chat or blueprint keeps the mode it started in while it is live (its
+- A chat or blueprint keeps the mode it started in until it goes cold (its
   `llm_channel` field). A cold open, through `/open` or a send to a cold
   session, adopts the current mode.
 
@@ -1054,7 +1054,7 @@ A subscription usage limit parks work and never falls back to the endpoint.
   [`GET /logs`](#get-backend_urllogs)), and the pane shows a banner with the
   reset time (see [web UI](web-ui.md#global-chat)).
 - Workers report each window's last-seen state: `subscription_usage` on
-  `report_usage`, `subscription` on chat usage frames. CM keeps the newest
+  `report_usage`, `subscription` on chat usage frames. CM keeps the last
   reading per window in ops.db (`subscription_usage`), drops a window without
   a reset time, and serves the readings on `GET /api/llm-channel`.
 
@@ -1066,9 +1066,10 @@ A subscription usage limit parks work and never falls back to the endpoint.
 - CM prices it as an estimate (`cost_source: estimated` on a card bucket) by
   the usual order (see
   [token cost rates](configuration.md#token-cost-rates)): a
-  `token_costs` row keyed on the Claude Code ID first, then the catalog. The
-  catalog prices the three IDs at their Artificial Analysis list price, which
-  needs `backends.agent.aa_api_key` on an enabled agent entry; without it,
+  `token_costs` row keyed on the Claude Code ID first, then the catalog: the
+  served catalog's rate when it knows the name, else the Claude Code
+  catalog's Artificial Analysis list price, which needs
+  `backends.agent.aa_api_key` on an enabled agent entry. Without that key,
   key `token_costs` rows on the three IDs.
 - Card usage lands in buckets of its own (see
   [data model](data-model.md#usage-breakdown)) and a chat keeps its

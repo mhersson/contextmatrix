@@ -395,9 +395,9 @@ the served catalog, refreshed with it, and keeps its last good set when a
 refresh fails. In any other Builder mode there is no Claude Code catalog.
 
 - Each model joins its AA row the way the `openai` leg joins a served model.
-  Its priors are its intelligence index over the best AA score, and the AA
-  list price prices it. The quality floor applies; the allowlist and
-  `model_priors` do not.
+  Its priors are its intelligence index over the best AA score, and its
+  candidate price is the AA list price. The quality floor applies; the
+  allowlist and `model_priors` do not.
 - Candidates carry the bare Claude Code ID as `slug` and an empty `creator`,
   so the selector resolves no vendor for them and the vendor-diversity
   preference never steers a Best-of-N, mob or review-panel seat.

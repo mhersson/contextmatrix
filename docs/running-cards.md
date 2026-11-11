@@ -295,8 +295,9 @@ endpoint catalog. Where it shows:
   estimated buckets after a rate change; actual costs are never touched.
 
 A Claude Code run reports with `cost_basis: subscription`. Its cost is an
-API-equivalent estimate at list price, kept in buckets of its own and never
-billed spend; the UI marks it `≈` wherever it shows (see
+API-equivalent estimate priced from the rate table (see
+[Claude Code cost](remote-execution.md#cost)), kept in buckets of its own and
+never billed spend; the UI marks it `≈` wherever it shows (see
 [web UI](web-ui.md#board-view)).
 
 ## See also
