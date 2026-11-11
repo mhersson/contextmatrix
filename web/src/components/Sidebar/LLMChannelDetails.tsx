@@ -51,7 +51,7 @@ function LockIcon() {
   );
 }
 
-function Meter({ usage }: { usage: LLMChannelUsage }) {
+function Meter({ usage, mode }: { usage: LLMChannelUsage; mode: LLMChannel }) {
   const pct = usagePct(usage);
   const reset = formatReset(usage.resets_at);
   const meta = usage.stale
@@ -60,7 +60,7 @@ function Meter({ usage }: { usage: LLMChannelUsage }) {
   return (
     <div className="llm-meter">
       <div className="llm-meter__top">
-        <span>{windowLabel(usage.window)}</span>
+        <span>{windowLabel(usage.window, mode)}</span>
         {!usage.stale && <span className="llm-meter__pct">{pct}%</span>}
       </div>
       <div className="llm-meter__bar" aria-hidden="true">
@@ -104,7 +104,7 @@ export function LLMChannelDetails({ view, canSwitch, onSwitch, error }: LLMChann
 
   const other = otherMode(view.mode);
   const otherCount = inFlightTotal(view, other);
-  const rejected = rejectedWindow(view.usage);
+  const rejected = view.mode === 'claude_code' ? rejectedWindow(view.usage) : null;
   const endpointLabel = channelLabel(view, 'endpoint');
 
   return (
@@ -139,7 +139,7 @@ export function LLMChannelDetails({ view, canSwitch, onSwitch, error }: LLMChann
         </div>
       )}
 
-      {view.usage.map((u) => <Meter key={u.window} usage={u} />)}
+      {view.usage.map((u) => <Meter key={u.window} usage={u} mode={view.mode} />)}
 
       {rejected && (
         <div className="llm-line">

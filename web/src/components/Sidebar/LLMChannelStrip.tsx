@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useOptionalAuth } from '../../hooks/useAuth';
 import { useLLMChannel } from '../../hooks/useLLMChannel';
 import {
@@ -27,7 +27,7 @@ function Chevron() {
  * positioned ancestor, so the brand header must be `relative`.
  */
 export function LLMChannelStrip() {
-  const { view, setMode, error } = useLLMChannel();
+  const { view, setMode, error, clearError } = useLLMChannel();
   const auth = useOptionalAuth();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -35,18 +35,23 @@ export function LLMChannelStrip() {
   const popoverId = useId();
   const subId = useId();
 
+  const close = useCallback(() => {
+    setOpen(false);
+    clearError();
+  }, [clearError]);
+
   useEffect(() => {
     if (!open) return;
     const onMouseDown = (e: MouseEvent) => {
       if (containerRef.current?.contains(e.target as Node)) return;
       // Focus would otherwise drop to <body> with the popover it sat in.
       if (containerRef.current?.contains(document.activeElement)) stripRef.current?.focus();
-      setOpen(false);
+      close();
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       stripRef.current?.focus();
-      setOpen(false);
+      close();
     };
     document.addEventListener('mousedown', onMouseDown);
     document.addEventListener('keydown', onKeyDown);
@@ -54,7 +59,7 @@ export function LLMChannelStrip() {
       document.removeEventListener('mousedown', onMouseDown);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [open]);
+  }, [open, close]);
 
   if (!view?.claude_code) return null;
 
@@ -62,7 +67,7 @@ export function LLMChannelStrip() {
   const mayChange = auth?.mode !== 'multi' || Boolean(auth?.user?.is_admin);
   const canSwitch = view.switchable && mayChange;
   const label = channelLabel(view, view.mode);
-  const headline = headlineWindow(view.usage);
+  const headline = view.mode === 'claude_code' ? headlineWindow(view.usage) : null;
   const tone = headline ? usageTone(headline) : 'ok';
   const pct = headline && (tone === 'stop' ? 'limit' : `${usagePct(headline)}% ${windowShort(headline.window)}`);
   const items = subLineItems(view);
@@ -77,7 +82,7 @@ export function LLMChannelStrip() {
         aria-expanded={open}
         aria-controls={popoverId}
         aria-describedby={items.length > 0 ? subId : undefined}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => (open ? close() : setOpen(true))}
       >
         <span className={`llm-dot llm-dot--${view.mode}`} aria-hidden="true" />
         <span className="llm-strip__label">{label}</span>

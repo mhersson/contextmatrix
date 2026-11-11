@@ -139,6 +139,29 @@ describe('LLMChannelStrip', () => {
     expect(within(pop).getByText(/Runs park until the reset; nothing falls back to OpenRouter/)).toBeInTheDocument();
   });
 
+  it('keeps the subscription reading off the strip in endpoint mode', async () => {
+    getMock.mockResolvedValue(view({ mode: 'endpoint', usage: [usage({ utilization: 1, status: 'rejected' })] }));
+    render(<LLMChannelStrip />);
+    const s = await strip();
+    expect(s).toHaveTextContent('OpenRouter');
+    expect(s).not.toHaveTextContent('%');
+    expect(s).not.toHaveTextContent('limit');
+    expect(s).toHaveAccessibleDescription('');
+
+    const pop = await openPopover();
+    expect(within(pop).queryByText(/Runs park/)).toBeNull();
+  });
+
+  it('labels the meters as Claude Code readings in endpoint mode', async () => {
+    getMock.mockResolvedValue(view({ mode: 'endpoint', usage: [usage({ window: 'five_hour', utilization: 0.3 }), usage()] }));
+    render(<LLMChannelStrip />);
+    const pop = await openPopover();
+    expect(within(pop).getByText('Claude Code 5-hour')).toBeInTheDocument();
+    expect(within(pop).getByText('Claude Code weekly')).toBeInTheDocument();
+    expect(within(pop).getByText('30%')).toBeInTheDocument();
+    expect(within(pop).getByText('64%')).toBeInTheDocument();
+  });
+
   it('omits the percentage without a usage reading', async () => {
     getMock.mockResolvedValue(view({ usage: [] }));
     render(<LLMChannelStrip />);
@@ -234,14 +257,25 @@ describe('LLMChannelStrip', () => {
     expect(within(pop).getAllByRole('button')).toHaveLength(2);
   });
 
-  it('shows a failed switch inline', async () => {
+  it('shows a failed switch inline and clears it when the popover closes', async () => {
     getMock.mockResolvedValue(view());
     putMock.mockRejectedValue({ error: 'llm channel mode is not configured', code: 'BAD_REQUEST' });
     render(<LLMChannelStrip />);
+    const s = await strip();
     const pop = await openPopover();
     fireEvent.click(within(pop).getByRole('button', { name: 'OpenRouter' }));
     expect(await within(pop).findByText('llm channel mode is not configured')).toBeInTheDocument();
     expect(within(pop).getByRole('button', { name: 'Claude Code' })).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.click(s);
+    expect(within(popover()).queryByRole('alert')).toBeNull();
+
+    fireEvent.click(within(popover()).getByRole('button', { name: 'OpenRouter' }));
+    expect(await within(popover()).findByRole('alert')).toBeInTheDocument();
+    fireEvent.click(s);
+    fireEvent.click(s);
+    expect(within(popover()).queryByRole('alert')).toBeNull();
   });
 
   it('shows a static row without a lock when only claude_code is configured', async () => {

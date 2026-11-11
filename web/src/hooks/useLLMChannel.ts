@@ -10,8 +10,9 @@ const EVENT_DEBOUNCE_MS = 1_000;
 export interface LLMChannelState {
   view: LLMChannelView | null;
   setMode: (mode: LLMChannel) => Promise<void>;
-  /** The last failed switch, cleared by the next attempt. */
+  /** The last failed switch, cleared by the next attempt or clearError. */
   error: string | null;
+  clearError: () => void;
 }
 
 /**
@@ -76,5 +77,7 @@ export function useLLMChannel(): LLMChannelState {
     }
   }, []);
 
-  return { view, setMode, error };
+  const clearError = useCallback(() => setError(null), []);
+
+  return { view, setMode, error, clearError };
 }

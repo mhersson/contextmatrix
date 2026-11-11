@@ -5665,7 +5665,7 @@ textarea {
 .llm-meter__bar {
   height: 4px;
   border-radius: 2px;
-  background-color: var(--bg2);
+  background-color: var(--bg3);
   overflow: hidden;
 }
 .llm-meter__fill {

@@ -38,10 +38,15 @@ export function windowShort(window: string): string {
   return window;
 }
 
-export function windowLabel(window: string): string {
-  if (window === 'seven_day') return 'Weekly limit';
-  if (window === 'five_hour') return '5-hour limit';
-  return window;
+const windowNames: Record<string, { own: string; short: string }> = {
+  seven_day: { own: 'Weekly limit', short: 'weekly' },
+  five_hour: { own: '5-hour limit', short: '5-hour' },
+};
+
+/** Meter label; on the endpoint it names the subscription, which is not the active channel. */
+export function windowLabel(window: string, mode: LLMChannel): string {
+  const names = windowNames[window] ?? { own: window, short: window };
+  return mode === 'claude_code' ? names.own : `Claude Code ${names.short}`;
 }
 
 const resetFormatter = new Intl.DateTimeFormat('en-GB', {
@@ -110,7 +115,7 @@ export function subLineText(item: SubLineItem): string {
 /** The strip's sub-line: only what needs saying, in a fixed order. */
 export function subLineItems(view: LLMChannelView): SubLineItem[] {
   const items: SubLineItem[] = [];
-  const rejected = rejectedWindow(view.usage);
+  const rejected = view.mode === 'claude_code' ? rejectedWindow(view.usage) : null;
   if (rejected) {
     const reset = formatReset(rejected.resets_at);
     items.push({ text: `Limit reached · ${reset ? `resets ${reset}` : 'reset time not reported'}` });
