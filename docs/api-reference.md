@@ -1060,7 +1060,8 @@ subscription usage. Any session in `multi` mode; open in `none` mode.
 - `in_flight` always has both modes. It counts card runs whose worker is
   `queued` or `running` by the mode they were triggered in, and `active` or
   `warm-idle` chats and blueprints by their `llm_channel`. A recorded card
-  run whose worker has ended is closed by this read.
+  run whose worker has ended, or whose card or project no longer exists, is
+  closed by this read.
 - `exceptions` lists each enabled backend that is not in
   `claude_code.backends`. Its `runs_on` is `endpoint`: it stays on the
   endpoint while the mode is `claude_code`; or `none` when `llm_endpoint` is

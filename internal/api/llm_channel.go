@@ -263,7 +263,7 @@ func (h *llmChannelHandlers) inFlight(ctx context.Context) (map[string]llmChanne
 		card, err := h.cards.GetCard(ctx, run.Project, run.CardID)
 
 		switch {
-		case errors.Is(err, storage.ErrCardNotFound):
+		case errors.Is(err, storage.ErrCardNotFound), errors.Is(err, storage.ErrProjectNotFound):
 			h.closeRun(ctx, run)
 
 			continue

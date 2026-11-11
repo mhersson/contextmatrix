@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -378,6 +379,40 @@ func TestInFlight_ClosesFinishedRuns(t *testing.T) {
 	inFlight := body["in_flight"].(map[string]any)["claude_code"].(map[string]any)
 	assert.InDelta(t, 1, inFlight["cards"], 0)
 	assert.ElementsMatch(t, []string{"p/A-1", "p/A-2", "p/GONE-1"}, f.store.closed)
+}
+
+// cardsWithGoneProject reports every card of the "gone" project as a missing project.
+type cardsWithGoneProject struct{ fakeLLMChannelCards }
+
+func (c cardsWithGoneProject) GetCard(ctx context.Context, project, id string) (*board.Card, error) {
+	if project == "gone" {
+		return nil, fmt.Errorf("get card: %w", storage.ErrProjectNotFound)
+	}
+
+	return c.fakeLLMChannelCards.GetCard(ctx, project, id)
+}
+
+func TestInFlight_ClosesRunOfDeletedProject(t *testing.T) {
+	var store *fakeLLMChannelStore
+
+	f := newLLMChannelFixture(t, false, nil, func(s *fakeLLMChannelStore) {
+		store = s
+		s.runs = []sqlite.CardRun{
+			{Project: "gone", CardID: "G-1", Mode: "claude_code"},
+			{Project: "p", CardID: "A-1", Mode: "claude_code"},
+		}
+	})
+
+	srv := newSelectorAdminServer(t, RouterConfig{
+		LLMChannelState: f.holder, LLMChannelStore: store,
+		LLMChannelCards: cardsWithGoneProject{fakeLLMChannelCards{"p/A-1": "running"}},
+	}, false)
+
+	_, _, body := getLLMChannel(t, srv, nil)
+
+	inFlight := body["in_flight"].(map[string]any)["claude_code"].(map[string]any)
+	assert.InDelta(t, 1, inFlight["cards"], 0)
+	assert.Equal(t, []string{"gone/G-1"}, store.closed)
 }
 
 // cardsAfterRead swaps the run row the moment the reconcile reads the card,
