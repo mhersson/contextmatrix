@@ -29,6 +29,7 @@ func Defaults() *Config {
 	applyMobDefaults(cfg)
 	applyAuthDefaults(cfg)
 	applyJiraDefaults(cfg)
+	applyClaudeCodeDefaults(cfg)
 	applyBackendDefaults(cfg)
 
 	// Load applies this default only when issue importing is enabled, so the

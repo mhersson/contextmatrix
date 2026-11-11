@@ -4367,3 +4367,121 @@ func TestKnowledgeConfigValidation(t *testing.T) {
 		})
 	}
 }
+
+// ---------- ClaudeCodeConfig tests ----------
+
+func TestClaudeCodeConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     ClaudeCodeConfig
+		wantErr string
+	}{
+		{name: "empty is valid", cfg: ClaudeCodeConfig{}},
+		{name: "token and backends", cfg: ClaudeCodeConfig{OAuthToken: "tok", Backends: []string{"chat", "agent"}}},
+		{name: "token without backends", cfg: ClaudeCodeConfig{OAuthToken: "tok"}},
+		{name: "unknown backend", cfg: ClaudeCodeConfig{OAuthToken: "tok", Backends: []string{"runner"}}, wantErr: "claude_code.backends"},
+		{name: "duplicate backend", cfg: ClaudeCodeConfig{OAuthToken: "tok", Backends: []string{"chat", "chat"}}, wantErr: "claude_code.backends"},
+		{name: "backends without token", cfg: ClaudeCodeConfig{Backends: []string{"chat"}}, wantErr: "claude_code.oauth_token"},
+		{name: "unknown default model", cfg: ClaudeCodeConfig{DefaultModel: "claude-fable-5-2"}, wantErr: "claude_code.default_model"},
+		{name: "known default model", cfg: ClaudeCodeConfig{DefaultModel: "claude-haiku-5-5"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.validate()
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+			assert.NotContains(t, err.Error(), "tok\"")
+		})
+	}
+}
+
+func TestClaudeCodeConfig_Configured(t *testing.T) {
+	assert.False(t, ClaudeCodeConfig{}.Configured())
+	assert.True(t, ClaudeCodeConfig{OAuthToken: "tok"}.Configured())
+}
+
+func TestLoad_ClaudeCodeEnvOverrides(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards:
+  dir: `+boardsDir+`
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
+claude_code:
+  oauth_token: yaml-token
+  backends: [agent]
+  default_model: claude-opus-5-5
+`)
+
+	t.Run("yaml only", func(t *testing.T) {
+		cfg, err := Load(path)
+		require.NoError(t, err)
+
+		assert.Equal(t, ClaudeCodeConfig{
+			OAuthToken: "yaml-token", Backends: []string{"agent"}, DefaultModel: "claude-opus-5-5",
+		}, cfg.ClaudeCode)
+	})
+
+	t.Run("env overrides", func(t *testing.T) {
+		t.Setenv("CONTEXTMATRIX_CLAUDE_CODE_OAUTH_TOKEN", "env-token")
+		t.Setenv("CONTEXTMATRIX_CLAUDE_CODE_BACKENDS", " chat , architect")
+		t.Setenv("CONTEXTMATRIX_CLAUDE_CODE_DEFAULT_MODEL", "claude-haiku-5-5")
+
+		cfg, err := Load(path)
+		require.NoError(t, err)
+
+		assert.Equal(t, "env-token", cfg.ClaudeCode.OAuthToken)
+		assert.Equal(t, []string{"chat", "architect"}, cfg.ClaudeCode.Backends)
+		assert.Equal(t, "claude-haiku-5-5", cfg.ClaudeCode.DefaultModel)
+	})
+
+	t.Run("empty env keeps yaml", func(t *testing.T) {
+		t.Setenv("CONTEXTMATRIX_CLAUDE_CODE_BACKENDS", "")
+
+		cfg, err := Load(path)
+		require.NoError(t, err)
+
+		assert.Equal(t, []string{"agent"}, cfg.ClaudeCode.Backends)
+	})
+}
+
+func TestLoad_ClaudeCodeInvalidDoesNotLeakToken(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards:
+  dir: `+boardsDir+`
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
+claude_code:
+  oauth_token: super-secret-token
+  backends: [runner]
+`)
+
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "claude_code.backends")
+	assert.NotContains(t, err.Error(), "super-secret-token")
+}
+
+func TestDefaults_ClaudeCode(t *testing.T) {
+	assert.Equal(t,
+		ClaudeCodeConfig{OAuthToken: "", Backends: []string{}, DefaultModel: "claude-sonnet-5-5"},
+		Defaults().ClaudeCode)
+}
