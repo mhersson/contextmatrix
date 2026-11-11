@@ -9,7 +9,8 @@ import (
 // schemaVersion is the current opstore schema revision. Bump it when an older
 // binary cannot run correctly against the new schema: an image older than the
 // stamp refuses to start. A column with a default that older binaries never
-// name does not bump, so a rollback still opens the database. Every CREATE is
+// name does not bump, and neither does a new table an older binary never
+// names, so a rollback still opens the database. Every CREATE is
 // IF NOT EXISTS, so an older database grows the new table on open and is
 // stamped; a newer database is refused.
 const schemaVersion = 6
@@ -122,6 +123,12 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			id         INTEGER PRIMARY KEY CHECK (id = 1),
 			headroom   REAL NOT NULL,
 			updated_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS llm_channel (
+			id         INTEGER PRIMARY KEY CHECK (id = 1),
+			mode       TEXT NOT NULL,
+			updated_at INTEGER NOT NULL,
+			updated_by TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS jira_writeback (
 			project         TEXT NOT NULL,

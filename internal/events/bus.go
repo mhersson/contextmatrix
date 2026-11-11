@@ -43,6 +43,10 @@ const (
 	JiraImportProgress EventType = "jira_import.progress"
 	JiraImportDone     EventType = "jira_import.done"
 
+	// LLMChannelChanged is published with empty Project when the global LLM
+	// channel mode is switched; Data carries only the new mode.
+	LLMChannelChanged EventType = "llm_channel.changed"
+
 	SyncStarted   EventType = "sync.started"
 	SyncCompleted EventType = "sync.completed"
 	SyncConflict  EventType = "sync.conflict"

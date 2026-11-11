@@ -37,6 +37,7 @@ import (
 	ghimport "github.com/mhersson/contextmatrix/internal/github"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/jiraimport"
+	"github.com/mhersson/contextmatrix/internal/llmchannel"
 	mcpserver "github.com/mhersson/contextmatrix/internal/mcp"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
@@ -493,6 +494,20 @@ func main() {
 	defer opStore.Close()
 
 	slog.Info("op store opened", "path", cfg.OpStore.DBPath)
+
+	llmChannel, err := llmchannel.New(ctx, llmchannel.Config{
+		Endpoint:     llmEndpointFromConfig(cfg.LLMEndpoint),
+		OAuthToken:   cfg.ClaudeCode.OAuthToken,
+		Supported:    cfg.ClaudeCode.Backends,
+		DefaultModel: cfg.ClaudeCode.DefaultModel,
+	}, opStore, bus)
+	if err != nil {
+		slog.Error("failed to init llm channel", "error", err)
+		cancel()
+		os.Exit(1)
+	}
+
+	slog.Info("llm channel ready", "mode", string(llmChannel.Mode()), "switchable", llmChannel.Switchable())
 
 	// Model catalog builder: constructed whenever there is a rate source. The
 	// AA+agent path also yields selection candidates (routerCfg.Catalog below);
