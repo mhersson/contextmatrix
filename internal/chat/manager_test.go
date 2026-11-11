@@ -7949,3 +7949,108 @@ func TestUsageLimitFrame_PublishesState(t *testing.T) {
 		})
 	}
 }
+
+func TestHandleUsage_ArchitectSubscriptionPricedAtList(t *testing.T) {
+	hub := chat.NewSSEHub(64)
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	const model = "arch-sub-priced"
+
+	windows := []protocol.SubscriptionUsage{
+		{Window: "five_hour", Utilization: 0.4, Status: "allowed", ResetsAt: time.Date(2026, 1, 2, 8, 0, 0, 0, time.UTC)},
+	}
+	rec := &recordedUsage{}
+
+	mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) {
+		c.Store = store
+		c.Hub = hub
+		c.Pricer = newStubPricer(map[string]float64{model: 0.02})
+		c.UsageRecorder = rec
+	})
+	arch.streamLogsFn = streamEntries(chat.LogEntry{
+		Type: "usage", Model: model,
+		Usage: &chat.TokenUsage{
+			InputTokens: 100, OutputTokens: 50, CostUSD: 9.99,
+			CostBasis: protocol.CostBasisSubscription, Subscription: windows,
+		},
+	})
+
+	chatBase := testutil.ToFloat64(metrics.ChatCostUSDTotal.WithLabelValues("none", model))
+	subBase := testutil.ToFloat64(metrics.ChatSubscriptionCostUSDTotal.WithLabelValues("none", model))
+
+	sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web",
+	})
+	require.NoError(t, err)
+
+	ev := openAndWaitForUsageEvent(t, mgr, hub, sess.ID)
+
+	assert.InDelta(t, 0.02, ev.SessionUpdate.EstimatedCostUSD, 1e-9)
+	assert.InDelta(t, 0.02, ev.SessionUpdate.SubscriptionCostUSD, 1e-9)
+
+	got, err := store.GetSession(context.Background(), sess.ID)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.02, got.EstimatedCostUSD, 1e-9)
+	assert.InDelta(t, 0.02, got.SubscriptionCostUSD, 1e-9)
+
+	assert.InDelta(t, chatBase, testutil.ToFloat64(metrics.ChatCostUSDTotal.WithLabelValues("none", model)), 1e-9)
+	assert.InDelta(t, subBase+0.02, testutil.ToFloat64(metrics.ChatSubscriptionCostUSDTotal.WithLabelValues("none", model)), 1e-9)
+	assert.Equal(t, [][]protocol.SubscriptionUsage{windows}, rec.calls())
+}
+
+func TestUsageLimitFrame_ArchitectPublishesStateAfterRow(t *testing.T) {
+	reset := time.Date(2026, 1, 2, 8, 0, 0, 0, time.UTC)
+	limit := protocol.UsageLimit{Window: "five_hour", ResetsAt: reset}
+
+	hub := chat.NewSSEHub(64)
+	mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) { c.Hub = hub })
+	arch.streamLogsFn = streamEntries(chat.LogEntry{Type: "system", Content: "Usage limit reached", UsageLimit: &limit})
+
+	sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web",
+	})
+	require.NoError(t, err)
+
+	events, _, err := hub.Subscribe(sess.ID, 0)
+	require.NoError(t, err)
+
+	_, err = mgr.OpenSession(context.Background(), sess.ID)
+	require.NoError(t, err)
+
+	var (
+		sawRow bool
+		update *chat.SessionUpdate
+	)
+
+	deadline := time.After(2 * time.Second)
+
+	for update == nil {
+		select {
+		case e := <-events:
+			if e.Role == chat.RoleSystem && e.Content == "Usage limit reached" {
+				sawRow = true
+			}
+
+			if e.Kind == chat.SSEKindSessionUpdate && e.SessionUpdate != nil && e.SessionUpdate.UsageLimit != nil {
+				update = e.SessionUpdate
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for the usage-limit session update")
+		}
+	}
+
+	assert.True(t, sawRow, "the system row arrives before the update")
+
+	raw, err := json.Marshal(update.UsageLimit)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"window":"five_hour","resets_at":"2026-01-02T08:00:00Z"}`, string(raw))
+
+	msgs, err := mgr.ListMessages(context.Background(), sess.ID, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "Usage limit reached", msgs[0].Content)
+	assert.Empty(t, msgs[0].Kind)
+}
