@@ -2,7 +2,7 @@ import { Link, useNavigate } from 'react-router';
 import type { ProjectConfig } from '../../types';
 import { useMemo } from 'react';
 import { chipTint } from '../../lib/chip';
-import { subscriptionShareText } from '../../lib/subscription';
+import { subscriptionShareTitle } from '../../lib/subscription';
 import {
   distributionSegments,
   formatUsd,
@@ -123,7 +123,7 @@ export function ProjectsTable({ projects, summaries, boardsRepos = [] }: Project
             fontSize: 11.5,
             color: row.cost > 0 ? 'var(--yellow)' : 'var(--grey0)',
           }}
-          title={subscription > 0 ? subscriptionShareText(subscription, formatUsd) : undefined}
+          title={subscription > 0 ? subscriptionShareTitle(subscription, formatUsd) : undefined}
         >
           {formatUsd(row.cost)}
           {subscription > 0 ? '≈' : ''}

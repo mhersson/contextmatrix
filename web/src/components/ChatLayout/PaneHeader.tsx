@@ -246,8 +246,9 @@ function PaneContextUsage({ chatId, fallbackModel, blueprint }: { chatId: string
       })
     : 0;
   const costText = showCost ? sessionCostText(cost, subscription, (v) => `$${v.toFixed(2)}`) : '';
+  // A labelled cost may be cut short, so its tooltip opens with the whole label.
   const costTooltip =
-    subscription > 0 ? [SUBSCRIPTION_TOOLTIP, tokensTooltip].filter(Boolean).join('\n') : tokensTooltip;
+    subscription > 0 ? [costText, SUBSCRIPTION_TOOLTIP, tokensTooltip].filter(Boolean).join('\n') : tokensTooltip;
   const costPrefix = spent !== undefined ? 'Spent' : 'Estimated cost';
   const costName =
     subscription > 0 ? `${costPrefix} ${costText}, ${SUBSCRIPTION_TOOLTIP}` : `${costPrefix} ${cost?.toFixed(2)} dollars`;
@@ -264,7 +265,7 @@ function PaneContextUsage({ chatId, fallbackModel, blueprint }: { chatId: string
       )}
       {showCost && (
         <span
-          className="chat-pane-cost"
+          className={`chat-pane-cost${subscription > 0 ? ' chat-pane-cost--labelled' : ''}`}
           style={{ color: 'var(--grey1)' }}
           aria-label={costName}
           title={costTooltip || undefined}

@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Sparkline } from '../Sparkline/Sparkline';
-import { subscriptionShareText } from '../../lib/subscription';
+import { SUBSCRIPTION_TOOLTIP, subscriptionShareText } from '../../lib/subscription';
 import { formatUsd } from './utils';
 
 interface KpiRowProps {
@@ -70,14 +70,14 @@ function KpiTile({ label, badge, value, accent, neutralValue, tooltip, delta, sp
   );
 }
 
-function CostValue({ amount, estimated }: { amount: number; estimated?: boolean }) {
+function CostValue({ amount, estimated, subscription }: { amount: number; estimated?: boolean; subscription?: boolean }) {
   const fixed = amount.toFixed(2);
   const [whole, frac] = fixed.split('.');
   return (
     <>
       ${whole}
       <span style={{ fontSize: '0.55em', color: 'var(--grey1)', fontWeight: 400 }}>.{frac}</span>
-      {estimated ? '*' : ''}
+      {subscription ? '≈' : estimated ? '*' : ''}
     </>
   );
 }
@@ -93,7 +93,7 @@ const CHAT_COST_TOOLTIP =
 /** Leads a cost tile's tooltip with its subscription part, when it has one. */
 function costTooltip(base: string, total: number, subscription: number | undefined): string {
   if (!subscription || subscription <= 0) return base;
-  return `${formatUsd(total)} ${subscriptionShareText(subscription, formatUsd)}\n\n${base}`;
+  return `${SUBSCRIPTION_TOOLTIP}\n${formatUsd(total)} ${subscriptionShareText(subscription, formatUsd)}\n\n${base}`;
 }
 
 export function KpiRow({
@@ -168,7 +168,7 @@ export function KpiRow({
       <KpiTile
         label="Chat cost · 30d"
         badge="USD"
-        value={<CostValue amount={chatCostLast30dUsd} />}
+        value={<CostValue amount={chatCostLast30dUsd} subscription={(chatCostSubscriptionUsd ?? 0) > 0} />}
         accent="aqua"
         neutralValue
         tooltip={costTooltip(CHAT_COST_TOOLTIP, chatCostLast30dUsd, chatCostSubscriptionUsd)}

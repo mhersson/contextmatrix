@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { ProjectsTable } from './ProjectsTable';
 import type { ProjectConfig, DashboardData } from '../../types';
+import { SUBSCRIPTION_TOOLTIP } from '../../lib/subscription';
 
 function project(name: string, prefix: string): ProjectConfig {
   return {
@@ -147,7 +148,10 @@ describe('ProjectsTable - subscription estimates', () => {
         />
       </MemoryRouter>,
     );
-    expect(screen.getByText('$5.00≈')).toHaveAttribute('title', 'incl. ≈ $2.00 subscription estimate');
+    expect(screen.getByText('$5.00≈')).toHaveAttribute(
+      'title',
+      `${SUBSCRIPTION_TOOLTIP}\nincl. ≈ $2.00 subscription estimate`,
+    );
   });
 });
 

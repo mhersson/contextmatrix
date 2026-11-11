@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, useSearchParams } from 'react-router';
 import { TopCardsPanel } from './TopCardsPanel';
 import type { CardCost, ProjectConfig } from '../../types';
+import { SUBSCRIPTION_TOOLTIP } from '../../lib/subscription';
 
 const cardCosts: CardCost[] = [
   { card_id: 'ALPHA-1', card_title: 'Top card',    assigned_agent: 'agent-a', prompt_tokens: 1, completion_tokens: 1, estimated_cost_usd: 9.0 },
@@ -146,7 +147,10 @@ describe('TopCardsPanel - subscription estimates', () => {
         cardCosts[1],
       ],
     });
-    expect(screen.getByText('$9.00≈')).toHaveAttribute('title', 'incl. ≈ $3.00 subscription estimate');
+    expect(screen.getByText('$9.00≈')).toHaveAttribute(
+      'title',
+      `${SUBSCRIPTION_TOOLTIP}\nincl. ≈ $3.00 subscription estimate`,
+    );
     expect(screen.getByText('$1.00')).not.toHaveAttribute('title');
   });
 });

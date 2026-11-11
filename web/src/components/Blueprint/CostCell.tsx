@@ -1,14 +1,13 @@
 import { useCallback, useRef, useState, type CSSProperties } from 'react';
-import { useChatLiveData } from '../../hooks/useChatLiveData';
 import { useMenuDismiss } from '../../hooks/useMenuDismiss';
 import { SUBSCRIPTION_TOOLTIP } from '../../lib/subscription';
 import type { BlueprintCost } from '../../types';
 import { CapPopover } from './CapPopover';
 import { costLabel, money } from './stages';
+import { useCostSession } from './useCostSession';
 
 export function CostCell({ chatId, cost: raw }: { chatId: string; cost: BlueprintCost }) {
-  const live = useChatLiveData(chatId);
-  const cost = costLabel(raw, { llm_channel: live?.llmChannel, subscription_cost_usd: live?.subscriptionCostUsd });
+  const cost = costLabel(raw, useCostSession(chatId));
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);

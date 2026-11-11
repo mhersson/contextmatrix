@@ -242,7 +242,7 @@ describe('PaneContextUsage subscription cost', () => {
     );
     render(<PaneHeader {...baseProps} chat={activeChat()} />);
     const cost = screen.getByText('≈ $0.50');
-    expect(cost).toHaveAttribute('title', SUBSCRIPTION_TOOLTIP);
+    expect(cost).toHaveAttribute('title', `≈ $0.50\n${SUBSCRIPTION_TOOLTIP}`);
     expect(cost).toHaveAccessibleName(`Estimated cost ≈ $0.50, ${SUBSCRIPTION_TOOLTIP}`);
   });
 
@@ -258,14 +258,16 @@ describe('PaneContextUsage subscription cost', () => {
     );
     render(<PaneHeader {...baseProps} chat={activeChat()} />);
     const cost = screen.getByText('$1.50 (≈ $0.50 subscription)');
-    expect(cost).toHaveAttribute('title', `${SUBSCRIPTION_TOOLTIP}\nInput: 10`);
+    expect(cost).toHaveAttribute('title', `$1.50 (≈ $0.50 subscription)\n${SUBSCRIPTION_TOOLTIP}\nInput: 10`);
+    // The labelled cost yields with an ellipsis instead of crowding out the title.
+    expect(cost).toHaveClass('chat-pane-cost--labelled');
   });
 
   it("reads a blueprint's whole spend as API-equivalent while it runs on Claude Code", () => {
     const architect = { ...activeChat(), kind: 'architect' as const };
     act(() => setChatLiveData('chat-1', { model: 'model-x', blueprintSpentUsd: 2, subscriptionCostUsd: 1.2, llmChannel: 'claude_code' }));
     render(<PaneHeader {...baseProps} chat={architect} />);
-    expect(screen.getByText('≈ $2.00')).toHaveAttribute('title', SUBSCRIPTION_TOOLTIP);
+    expect(screen.getByText('≈ $2.00')).toHaveAttribute('title', `≈ $2.00\n${SUBSCRIPTION_TOOLTIP}`);
   });
 
   it('splits a blueprint back on the endpoint by its recorded subscription part', () => {
@@ -279,6 +281,7 @@ describe('PaneContextUsage subscription cost', () => {
     act(() => setChatLiveData('chat-1', { model: 'model-x', estimatedCostUsd: 0.5, llmChannel: 'endpoint' }));
     render(<PaneHeader {...baseProps} chat={activeChat()} />);
     expect(screen.getByText('$0.50')).not.toHaveAttribute('title');
+    expect(screen.getByText('$0.50')).not.toHaveClass('chat-pane-cost--labelled');
   });
 });
 

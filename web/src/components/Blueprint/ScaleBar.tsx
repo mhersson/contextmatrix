@@ -2,9 +2,11 @@ import type { BlueprintPipelineStep, BlueprintView } from '../../types';
 import { TechnicalDetail } from '../TechnicalDetail';
 import { CostCell } from './CostCell';
 import { ModeCell } from './ModeCell';
+import { useCostSession } from './useCostSession';
 import {
   artifactsFor,
   barGroups,
+  costBasis,
   currentStep,
   describeCurrent,
   money,
@@ -40,6 +42,7 @@ export function ScaleBar({ chatId, view, compact, onOpenStage }: ScaleBarProps) 
   const groups = barGroups(view);
   const steps = groups.flatMap((g) => g.steps);
   const lineClass = text?.tone === 'waiting' ? 'bp-ask' : text?.tone === 'failed' ? 'bp-failed' : undefined;
+  const basis = costBasis(useCostSession(chatId));
   const segment = (s: BlueprintPipelineStep) => {
     const i = steps.indexOf(s);
     return (
@@ -48,6 +51,7 @@ export function ScaleBar({ chatId, view, compact, onOpenStage }: ScaleBarProps) 
         step={s}
         view={view}
         tone={segmentTone(s, s === current, text?.tone)}
+        basis={basis}
         first={i === 0}
         end={i >= steps.length - 3}
         onOpen={onOpenStage}
@@ -97,6 +101,8 @@ interface SegmentProps {
   step: BlueprintPipelineStep;
   view: BlueprintView;
   tone: SegmentTone;
+  /** The session's cost basis suffix, from costBasis. */
+  basis: string;
   /** Draws the bar's left edge. */
   first: boolean;
   /** One of the last three: its tooltip opens leftwards. */
@@ -104,10 +110,10 @@ interface SegmentProps {
   onOpen: (stage: string, slice: string) => void;
 }
 
-function Segment({ step, view, tone, first, end, onOpen }: SegmentProps) {
+function Segment({ step, view, tone, basis, first, end, onOpen }: SegmentProps) {
   const st = stageText(step.stage);
   const status = stepStatusText(step, view);
-  const cost = step.cost_usd > 0 ? `, ${money(step.cost_usd)}` : '';
+  const cost = step.cost_usd > 0 ? `, ${money(step.cost_usd)}${basis}` : '';
   const head = `${st.name}${sliceSuffix(view.slices, sliceOf(step))}${step.gate ? ', gate' : ''}`;
   const detail = `${personaName(step.persona)}. ${status}${cost}`;
   const label = `${head}. ${detail}`;

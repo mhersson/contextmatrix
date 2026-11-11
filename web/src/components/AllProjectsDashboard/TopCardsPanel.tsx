@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router';
 import type { CardCost, ProjectConfig } from '../../types';
 import { filterCardCosts } from '../../utils/costTableUtils';
 import { DeckPanel } from './DeckPanel';
-import { subscriptionShareText } from '../../lib/subscription';
+import { subscriptionShareTitle } from '../../lib/subscription';
 import { formatUsd, projectForCardId } from './utils';
 
 interface TopCardsPanelProps {
@@ -159,7 +159,7 @@ export function TopCardsPanel({ cardCosts, prefixMap, projects }: TopCardsPanelP
             const cost = `${formatUsd(c.estimated_cost_usd)}${subscription > 0 ? '≈' : c.has_estimates ? '*' : ''}`;
             const costTitle =
               subscription > 0
-                ? subscriptionShareText(subscription, formatUsd)
+                ? subscriptionShareTitle(subscription, formatUsd)
                 : c.has_estimates
                   ? 'includes costs estimated from the rate table'
                   : undefined;

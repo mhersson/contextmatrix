@@ -4,7 +4,9 @@ import { notifyChatSessionsChanged, useChatSessions } from '../../hooks/useChatS
 import { UNPRICED_CAP_REASON } from '../../pages/Chat/blueprintForm';
 import { useChatModels } from '../../utils/chatModels';
 import type { BlueprintCost } from '../../types';
-import { money } from './stages';
+import { SUBSCRIPTION_TOOLTIP } from '../../lib/subscription';
+import { costBasis, money } from './stages';
+import { useCostSession } from './useCostSession';
 
 const RAISES = [2, 5, 10];
 
@@ -30,6 +32,7 @@ export function CapPopover({ chatId, cost, onClose }: CapPopoverProps) {
   // The view's cost.priced is sticky once any run was unpriced, so the model list decides, as in the New blueprint dialog.
   const model = sessions.find((s) => s.id === chatId)?.model || architectDefault;
   const unpriced = models.some((m) => m.id === model && m.unpriced === true);
+  const basis = costBasis(useCostSession(chatId));
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -76,7 +79,9 @@ export function CapPopover({ chatId, cost, onClose }: CapPopoverProps) {
         void save();
       }}
     >
-      <b>{money(cost.spent_usd)} spent</b>
+      <b title={basis ? SUBSCRIPTION_TOOLTIP : undefined}>
+        {money(cost.spent_usd)} spent{basis}
+      </b>
       <small>{hasCap ? `Cap ${money(cost.cap_usd)}` : 'No cap'}</small>
       <div className="bp-cap-raises" role="group" aria-label="Raise the cap">
         {RAISES.map((r) => (

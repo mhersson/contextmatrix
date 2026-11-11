@@ -3,10 +3,30 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import { ScaleBar } from './ScaleBar';
 import { THREE_SLICES, ref, viewAtDesignGate, viewEndedAtSlicing, viewEndedInSlice, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
 import { stageText } from './stages';
+import { clearChatLiveData, setChatLiveData } from '../../hooks/useChatLiveData';
 
 function tones() {
   return screen.getAllByRole('listitem').map((li) => li.getAttribute('data-tone'));
 }
+
+describe('ScaleBar step cost', () => {
+  it.each([
+    ['on Claude Code', { llmChannel: 'claude_code' }, /, \$0\.03, API-equivalent$/],
+    ['back on the endpoint', { llmChannel: 'endpoint', subscriptionCostUsd: 0.1 }, /, \$0\.03, includes an API-equivalent estimate$/],
+    ['on the endpoint only', { llmChannel: 'endpoint' }, /, \$0\.03$/],
+  ])('labels a step cost by the session record %s', (_name, live, name) => {
+    setChatLiveData('S1', live);
+    const { unmount } = render(<ScaleBar chatId="S1" view={viewAtDesignGate()} compact={false} onOpenStage={() => {}} />);
+    try {
+      const intake = screen.getAllByRole('listitem')[0];
+      expect(within(intake).getByRole('button')).toHaveAccessibleName(name);
+      expect(intake.querySelector('.bp-seg-tip small')?.textContent).toMatch(name);
+    } finally {
+      unmount();
+      clearChatLiveData('S1');
+    }
+  });
+});
 
 describe('ScaleBar', () => {
   it('draws done, folded, waiting and pending segments', () => {

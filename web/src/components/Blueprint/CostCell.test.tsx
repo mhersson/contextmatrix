@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { CostCell } from './CostCell';
 import { api } from '../../api/client';
 import { CHAT_SESSIONS_CHANGED_EVENT } from '../../hooks/useChatSessions';
@@ -59,6 +59,19 @@ describe('CostCell', () => {
       const trigger = screen.getByRole('button', { name: 'Cost: $2.14 of $2.00 cap, API-equivalent, change cap' });
       expect(trigger).toHaveTextContent('$2.14 of $2.00, API-equivalent');
       expect(screen.getByText('$2.14 of $2.00, API-equivalent')).toHaveAttribute('title', SUBSCRIPTION_TOOLTIP);
+    } finally {
+      unmount();
+      clearChatLiveData('S1');
+    }
+  });
+
+  it('labels the spend in the popover from the session record', () => {
+    setChatLiveData('S1', { llmChannel: 'claude_code' });
+    const { unmount } = render(<CostCell chatId="S1" cost={WITH_CAP} />);
+    try {
+      fireEvent.click(screen.getByRole('button', { name: /^Cost:/ }));
+      const dialog = screen.getByRole('dialog', { name: 'Cost cap' });
+      expect(within(dialog).getByText('$2.14 spent, API-equivalent')).toHaveAttribute('title', SUBSCRIPTION_TOOLTIP);
     } finally {
       unmount();
       clearChatLiveData('S1');

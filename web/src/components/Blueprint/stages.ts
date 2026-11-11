@@ -330,7 +330,8 @@ export interface CostSession {
   subscription_cost_usd?: number;
 }
 
-function costBasis(session: CostSession | undefined): string {
+/** The suffix naming a subscription estimate in a blueprint's spend; '' when there is none. */
+export function costBasis(session: CostSession | undefined): string {
   if (session?.llm_channel === 'claude_code') return ', API-equivalent';
   return (session?.subscription_cost_usd ?? 0) > 0 ? ', includes an API-equivalent estimate' : '';
 }

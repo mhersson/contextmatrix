@@ -1924,6 +1924,21 @@ textarea {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
 }
+/* A cost labelled with its subscription share can be wide: it yields with an
+   ellipsis, and the title keeps a share of the header. */
+.chat-pane-meta:has(.chat-pane-cost--labelled) {
+  flex-shrink: 1;
+  min-width: 0;
+}
+.chat-pane-header:has(.chat-pane-cost--labelled) .chat-pane-title {
+  min-width: 30%;
+}
+.chat-pane-cost--labelled {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .chat-pane-status-dot {
   width: 6px;
   height: 6px;

@@ -56,6 +56,16 @@ export function subscriptionShareText(subscription: number, fmt: Fmt): string {
   return `incl. ≈ ${fmt(subscription)} subscription estimate`;
 }
 
+/** The tooltip of an amount marked ≈ that is only partly subscription: the shared sentence, then the share. */
+export function subscriptionShareTitle(subscription: number, fmt: Fmt): string {
+  return `${SUBSCRIPTION_TOOLTIP}\n${subscriptionShareText(subscription, fmt)}`;
+}
+
+/** The tooltip for an amount's mark: the shared sentence goes wherever ≈ shows. */
+export function markTitle(mark: string): string | undefined {
+  return mark === '≈' ? SUBSCRIPTION_TOOLTIP : undefined;
+}
+
 /** The parked label for a run a usage limit stopped; null without a usable reset time. */
 export function parkedResetLabel(resetsAt: string | undefined, now: number = Date.now()): string | null {
   if (!resetsAt) return null;

@@ -1,7 +1,13 @@
 import { Fragment } from 'react';
 import type { Card, UsageBucket } from '../../../types';
 import { formatCost, formatTokens } from '../../../lib/format';
-import { SUBSCRIPTION_TOOLTIP, cardTotalText, isSubscriptionBucket, subscriptionUSD } from '../../../lib/subscription';
+import {
+  SUBSCRIPTION_TOOLTIP,
+  cardTotalText,
+  isSubscriptionBucket,
+  markTitle,
+  subscriptionUSD,
+} from '../../../lib/subscription';
 import { groupBucketsByRole } from '../utils';
 
 interface MetadataUsageProps {
@@ -224,7 +230,9 @@ export function MetadataUsage({ card, onSubtaskClick }: MetadataUsageProps) {
                 key={s.key}
                 className={`bf-usage-seg${s.hatch ? ' bf-usage-seg--hatch' : ''}`}
                 style={{ flex: `${s.cost / total} 0 0`, backgroundColor: s.hatch ? undefined : s.color }}
-                title={`${s.word} ${formatCost(s.cost)}${s.mark} (${share(s.cost, total)})`}
+                title={[`${s.word} ${formatCost(s.cost)}${s.mark} (${share(s.cost, total)})`, markTitle(s.mark)]
+                  .filter(Boolean)
+                  .join('\n')}
               />
             ))}
           </div>
@@ -237,7 +245,7 @@ export function MetadataUsage({ card, onSubtaskClick }: MetadataUsageProps) {
                   aria-hidden="true"
                 />
                 <span className="text-[var(--grey2)]">{s.word}</span>
-                <span className="tabular-nums">
+                <span className="tabular-nums" title={markTitle(s.mark)}>
                   {formatCost(s.cost)}
                   {s.mark}
                 </span>
@@ -253,7 +261,7 @@ export function MetadataUsage({ card, onSubtaskClick }: MetadataUsageProps) {
             <div className="bf-usage-card bf-usage-card--own">
               <span className="bf-usage-id">{card.id}</span>
               <span className="bf-usage-kind">this card</span>
-              <span className="bf-usage-amt">
+              <span className="bf-usage-amt" title={markTitle(costMark(buckets))}>
                 {formatCost(ownCost)}
                 {costMark(buckets)}
               </span>
@@ -283,7 +291,7 @@ export function MetadataUsage({ card, onSubtaskClick }: MetadataUsageProps) {
                     </span>
                     {steps.length > 0 && <span className="bf-usage-steps">{steps.join(', ')}</span>}
                     {g.buckets.length > 1 && (
-                      <span className="bf-usage-amt">
+                      <span className="bf-usage-amt" title={markTitle(costMark(g.buckets))}>
                         {formatCost(g.cost)}
                         {costMark(g.buckets)}
                       </span>
@@ -315,7 +323,7 @@ export function MetadataUsage({ card, onSubtaskClick }: MetadataUsageProps) {
             )}
             <span className="bf-usage-kind">subtask</span>
             {s.buckets.length > 1 && (
-              <span className="bf-usage-amt">
+              <span className="bf-usage-amt" title={markTitle(costMark(s.buckets))}>
                 {formatCost(bucketsCost(s.buckets))}
                 {costMark(s.buckets)}
               </span>

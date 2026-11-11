@@ -119,8 +119,10 @@ Drag-to-reorder rules:
   activity feed and a top-cards panel. With more than one boards repository the
   projects table and the sidebar group projects by repository. The totals keep
   Claude subscription estimates in: a cost tile's tooltip names that part
-  ("$X incl. ≈ $Y subscription estimate"), and a model row that includes any,
-  or a top-cards or projects row with a subscription part, carries `≈`.
+  ("$X incl. ≈ $Y subscription estimate"), and the Chat cost tile, a model row
+  that includes any, and a top-cards or projects row with a subscription part
+  carry `≈`. Every `≈` carries the tooltip "API-equivalent estimate at list
+  price; billed by the Claude subscription".
 
 ## Execution console
 
@@ -192,8 +194,9 @@ board. Promote-to-autonomous lives in that tab.
 - When a Claude subscription usage limit stops a chat or blueprint, a red
   banner under the pane header reads "Claude usage limit reached · resets Thu
   14:00" in local time, or "reset time not reported" when the vendor gave
-  none. It clears on the next assistant output and is not stored, so a reload
-  drops it.
+  none. It clears once the assistant answers a message sent after it, so
+  trailing output from the stopped turn leaves it up. It is not stored, so a
+  reload drops it.
 - The message box takes up to 64 KiB on a blueprint and 8 KiB on a chat (and on
   the card Chat tab), counted in bytes. From 90 percent of the limit it shows
   the size against the limit; over it Send is disabled. Nothing is cut. Unsent
@@ -254,7 +257,9 @@ board. Promote-to-autonomous lives in that tab.
   "$X (≈ $Y subscription)" when mixed, with the same tooltip; a blueprint on
   Claude Code reads its whole spend as "≈ $Y", since the architect's figure
   carries no basis. The Sessions page and the admin Chats page follow the same
-  rule. Once the view loads, the header's mode is the view's too, so a switch
+  rule. A long cost label yields with an ellipsis before the pane title does,
+  and its tooltip holds the whole label. Once the view loads, the header's
+  mode is the view's too, so a switch
   the architect refused never shows there. A blueprint created in plain language shows a Plain
   language badge beside the pill; once the view loads the badge follows the
   view, so an architect that does not run plain language shows none. An Unattended
@@ -364,11 +369,13 @@ board. Promote-to-autonomous lives in that tab.
     technical reason folded under it. Hover a segment for its persona, status
     and cost; click a finished one to open its artifact. The right end shows the
     architect's spend against the blueprint cap; the meter turns orange at 80%
-    and red at the cap. The session's LLM channel labels it: ", API-equivalent"
-    on Claude Code, and ", includes an API-equivalent estimate" on the endpoint
-    once the blueprint ran on the subscription before. Click it (it is a
-    button, also with no cap set) for a popover with the spend, the cap,
-    +$2 / +$5 / +$10 raises (added to the cap, or to the spend with no cap), an amount field and a "No cap" choice. An
+    and red at the cap. The session's LLM channel labels that spend, each
+    step's cost, the popover's spend and the board sheet's run cost:
+    ", API-equivalent" on Claude Code, and ", includes an API-equivalent
+    estimate" on the endpoint once the blueprint ran on the subscription
+    before. Click it (it is a button, also with no cap set) for a popover with
+    the labelled spend, the cap, +$2 / +$5 / +$10 raises (added to the cap, or
+    to the spend with no cap), an amount field and a "No cap" choice. An
     amount at or below the spend is refused, as is any amount on a model CM
     cannot price (only "No cap" is offered, and only when a cap is set). Raising
     the cap continues a blueprint that stopped on its cap. The change goes to

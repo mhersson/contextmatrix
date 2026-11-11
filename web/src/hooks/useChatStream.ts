@@ -90,8 +90,9 @@ export interface UseChatStream {
    * `null` until the first session_updated event arrives.
    */
   sessionUpdate: ChatSessionUpdate | null;
-  /** The subscription usage limit that stopped the session; null again from
-   *  the next assistant output. Kept out of sessionUpdate, which never clears. */
+  /** The subscription usage limit that stopped the session; null again once
+   *  the assistant answers a message sent after it. Kept out of
+   *  sessionUpdate, which never clears. */
   usageLimit: ChatUsageLimit | null;
   /** True when older persisted history exists below the loaded window. */
   hasMore: boolean;
@@ -139,6 +140,9 @@ export function useChatStream(
   // prevStatusRef tracks the last-seen status value so the comparison runs
   // once per real SSE event (not twice under StrictMode setter double-invoke).
   const prevStatusRef = useRef<ChatStatus | undefined>(undefined);
+  // 'set' while the banner shows, 'sent' once a message followed it. Only
+  // output in 'sent' clears it: the stopped turn can still emit trailing rows.
+  const limitPhaseRef = useRef<'none' | 'set' | 'sent'>('none');
   /** Oldest loaded seq; null until a non-empty bootstrap page lands. */
   const oldestSeqRef = useRef<number | null>(null);
   /** Synchronous re-entrancy guard - state updates are async. */
@@ -234,7 +238,12 @@ export function useChatStream(
             lastSeq = data.seq;
           }
           append([eventToLog(data)]);
-          if (ASSISTANT_ROLES.has(data.role)) setUsageLimit(null);
+          if (data.role === 'user' && limitPhaseRef.current === 'set') {
+            limitPhaseRef.current = 'sent';
+          } else if (ASSISTANT_ROLES.has(data.role) && limitPhaseRef.current === 'sent') {
+            limitPhaseRef.current = 'none';
+            setUsageLimit(null);
+          }
         } catch {
           // malformed payload - skip
         }
@@ -276,7 +285,10 @@ export function useChatStream(
           }
           setSessionUpdate((prev) => ({ ...(prev ?? {}), ...data }));
           const limit = parseUsageLimit(raw.usage_limit);
-          if (limit) setUsageLimit(limit);
+          if (limit) {
+            limitPhaseRef.current = 'set';
+            setUsageLimit(limit);
+          }
         } catch {
           // malformed payload - skip
         }

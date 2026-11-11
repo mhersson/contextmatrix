@@ -399,6 +399,23 @@ describe('MetadataUsage', () => {
       expect(screen.getByText('$2.50* total · $0.50 of it subscription estimate')).toBeInTheDocument();
     });
 
+    it('gives every ≈ the subscription tooltip: legend, bar, role subtotal, this card and subtask subtotals', () => {
+      const card = makeCard({
+        id: 'CMX-001',
+        token_usage: { prompt_tokens: 100, completion_tokens: 50, estimated_cost_usd: 1.5 },
+        subtask_cost_usd: 1,
+        usage_breakdown: [bucket({ role: 'execute', cost_usd: 0.5 }), sub({ role: 'execute', model: 'claude-opus-5-5', cost_usd: 1 })],
+        subtask_usage: [{ card_id: 'CMX-002', buckets: [sub({ cost_usd: 0.4 }), sub({ model: 'claude-haiku-5-5', cost_usd: 0.6 })] }],
+      });
+      render(<MetadataUsage card={card} />);
+      const marked = screen.getAllByText(/≈$/);
+      // Legend (execute, subtasks), role subtotal, this card, subtask subtotal and the three subscription rows.
+      expect(marked).toHaveLength(8);
+      for (const el of marked) expect(el).toHaveAttribute('title', SUBSCRIPTION_TOOLTIP);
+      const bar = screen.getByRole('img', { name: 'cost split by role' });
+      for (const seg of Array.from(bar.children)) expect(seg.getAttribute('title')).toContain(SUBSCRIPTION_TOOLTIP);
+    });
+
     it('counts subtask subscription spend in the run total', () => {
       const card = makeCard({
         token_usage: { prompt_tokens: 100, completion_tokens: 50, estimated_cost_usd: 1 },
