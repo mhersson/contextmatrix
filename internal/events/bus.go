@@ -43,8 +43,8 @@ const (
 	JiraImportProgress EventType = "jira_import.progress"
 	JiraImportDone     EventType = "jira_import.done"
 
-	// LLMChannelChanged is published with empty Project when the global LLM
-	// channel mode is switched; Data carries only the new mode.
+	// LLMChannelChanged carries only the current mode, with empty Project; a mode
+	// switch and every stored subscription usage reading publish it.
 	LLMChannelChanged EventType = "llm_channel.changed"
 
 	SyncStarted   EventType = "sync.started"

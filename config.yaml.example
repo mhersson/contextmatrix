@@ -155,9 +155,11 @@ theme: "everforest"
 # Code support. default_model is one of claude-opus-5-5, claude-sonnet-5-5,
 # claude-haiku-5-5.
 #
-# Claude Code prices come from Artificial Analysis through the agent backend's
-# aa_api_key (backends.agent.aa_api_key); without it, only token_costs rows
-# keyed on the three Claude Code model IDs price them.
+# Claude Code model IDs price like any model: a token_costs row keyed on the ID
+# first, then the catalog, which prices them at the Artificial Analysis list
+# price when the agent backend is enabled with aa_api_key
+# (backends.agent.aa_api_key). Without that key, key token_costs rows on the
+# three Claude Code model IDs.
 #
 # Env: CONTEXTMATRIX_CLAUDE_CODE_OAUTH_TOKEN
 #      CONTEXTMATRIX_CLAUDE_CODE_BACKENDS (comma-separated)
