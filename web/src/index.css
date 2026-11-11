@@ -5677,11 +5677,14 @@ textarea {
   font-size: 11px;
   color: var(--fg);
 }
-/* --bg3 and --bg4 all but vanish on the --bg2 popover in the light palettes. */
+/* A --bg0 track lets every fill stand clear of it; the --bg5 outline keeps the
+   track itself visible on the --bg2 popover (--bg3 and --bg4 vanish there in
+   the light palettes). */
 .llm-meter__bar {
   height: 4px;
   border-radius: 2px;
-  background-color: var(--bg5);
+  background-color: var(--bg0);
+  box-shadow: inset 0 0 0 1px var(--bg5);
   overflow: hidden;
 }
 .llm-meter__fill {
@@ -5691,7 +5694,7 @@ textarea {
   background-color: var(--aqua);
 }
 .llm-meter__fill--warn {
-  background-color: var(--yellow);
+  background-color: var(--orange);
 }
 .llm-meter__fill--stop {
   background-color: var(--red);

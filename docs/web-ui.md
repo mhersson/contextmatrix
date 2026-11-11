@@ -181,7 +181,9 @@ for what the channel does.
   - One meter per subscription window: "Weekly limit" or "5-hour limit" on
     Claude Code ("Claude Code weekly" or "Claude Code 5-hour" on the
     endpoint), the percentage, the reset time in local time and how long ago
-    the reading was seen. A window past its reset reads "reset Thu 14:00 · no
+    the reading was seen. The bar fills aqua, orange from 80 percent and red
+    when rejected, on a light track with an outline, so each state shows in
+    every palette. A window past its reset reads "reset Thu 14:00 · no
     reading since" over an empty bar. Readings are the newest a worker
     reported, never live.
   - While a window is rejected on Claude Code: "Runs park until the reset;
