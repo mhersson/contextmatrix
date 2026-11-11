@@ -5662,10 +5662,11 @@ textarea {
   font-size: 11px;
   color: var(--fg);
 }
+/* --bg3 and --bg4 all but vanish on the --bg2 popover in the light palettes. */
 .llm-meter__bar {
   height: 4px;
   border-radius: 2px;
-  background-color: var(--bg3);
+  background-color: var(--bg5);
   overflow: hidden;
 }
 .llm-meter__fill {

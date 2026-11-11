@@ -50,6 +50,8 @@ export function LLMChannelStrip() {
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      // One Escape closes only the popover, not the mobile drawer's window listener too.
+      e.stopPropagation();
       stripRef.current?.focus();
       close();
     };
@@ -73,7 +75,13 @@ export function LLMChannelStrip() {
   const items = subLineItems(view);
 
   return (
-    <div ref={containerRef}>
+    <div
+      ref={containerRef}
+      onBlur={(e) => {
+        // A null target (window blur, a click on plain text) is not leaving.
+        if (open && e.relatedTarget && !e.currentTarget.contains(e.relatedTarget)) close();
+      }}
+    >
       <button
         ref={stripRef}
         type="button"

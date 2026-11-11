@@ -411,6 +411,22 @@ describe('Sidebar LLM channel', () => {
     expect(await screen.findByRole('img', { name: 'LLM channel: Claude Code' })).toBeInTheDocument();
   });
 
+  it('closes only the popover on Escape inside the mobile drawer', async () => {
+    const onMobileClose = vi.fn();
+    renderSidebar({ mobileOpen: true, onMobileClose });
+    const drawer = screen.getByRole('dialog', { name: 'Sidebar navigation' });
+    const strip = await within(drawer).findByRole('button', { name: /LLM channel: Claude Code/ });
+    fireEvent.click(strip);
+    expect(within(drawer).getByRole('group', { name: 'LLM channel' })).toBeInTheDocument();
+
+    fireEvent.keyDown(strip, { key: 'Escape' });
+    expect(within(drawer).queryByRole('group', { name: 'LLM channel' })).toBeNull();
+    expect(onMobileClose).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(strip, { key: 'Escape' });
+    expect(onMobileClose).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the strip in the mobile drawer', async () => {
     renderSidebar({ mobileOpen: true, onMobileClose: vi.fn() });
     const drawer = screen.getByRole('dialog', { name: 'Sidebar navigation' });

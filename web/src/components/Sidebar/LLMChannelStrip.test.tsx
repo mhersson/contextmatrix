@@ -13,6 +13,7 @@ const bus = vi.hoisted(() => {
   const handlers = new Map<string, (e: BoardEvent) => void>();
   return {
     handlers,
+    epoch: 0,
     subscribe: (pattern: string, fn: (e: BoardEvent) => void) => {
       handlers.set(pattern, fn);
       return () => {
@@ -22,7 +23,7 @@ const bus = vi.hoisted(() => {
   };
 });
 vi.mock('../../hooks/useSSEBus', () => ({
-  useSSEBus: () => ({ subscribe: bus.subscribe, connected: true, reconnectEpoch: 0 }),
+  useSSEBus: () => ({ subscribe: bus.subscribe, connected: true, reconnectEpoch: bus.epoch }),
 }));
 
 function emit(type: string) {
@@ -85,6 +86,7 @@ beforeEach(() => {
   getMock.mockReset();
   putMock.mockReset();
   bus.handlers.clear();
+  bus.epoch = 0;
   setAuth('none');
 });
 
@@ -230,6 +232,24 @@ describe('LLMChannelStrip', () => {
     expect(screen.queryByRole('group', { name: 'LLM channel' })).toBeNull();
   });
 
+  it('closes the popover when focus leaves it, without pulling focus back', async () => {
+    getMock.mockResolvedValue(view());
+    render(<><LLMChannelStrip /><button>elsewhere</button></>);
+    const s = await strip();
+    act(() => s.focus());
+    fireEvent.click(s);
+    act(() => within(popover()).getByRole('button', { name: 'OpenRouter' }).focus());
+    act(() => s.focus());
+    act(() => s.blur());
+    expect(popover()).toBeInTheDocument();
+
+    const elsewhere = screen.getByRole('button', { name: 'elsewhere' });
+    act(() => within(popover()).getByRole('button', { name: 'OpenRouter' }).focus());
+    act(() => elsewhere.focus());
+    expect(screen.queryByRole('group', { name: 'LLM channel' })).toBeNull();
+    expect(elsewhere).toHaveFocus();
+  });
+
   it('lets an admin switch with the active side pressed and applies the returned view', async () => {
     setAuth('multi', true);
     getMock.mockResolvedValue(view());
@@ -347,6 +367,18 @@ describe('LLMChannelStrip', () => {
     vi.useRealTimers();
     expect(getMock).toHaveBeenCalledTimes(2);
     await waitFor(() => expect(s).toHaveTextContent('OpenRouter'));
+  });
+  it('refetches after an SSE reconnect, not on a plain rerender', async () => {
+    getMock.mockResolvedValue(view());
+    const { rerender } = render(<LLMChannelStrip />);
+    await strip();
+    rerender(<LLMChannelStrip />);
+    await act(async () => {});
+    expect(getMock).toHaveBeenCalledTimes(1);
+
+    bus.epoch = 1;
+    rerender(<LLMChannelStrip />);
+    await waitFor(() => expect(getMock).toHaveBeenCalledTimes(2));
   });
 });
 
