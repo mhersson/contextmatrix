@@ -159,6 +159,9 @@ type ProjectUsage struct {
 	CacheReadTokens     int64   `json:"cache_read_tokens"`
 	CacheCreationTokens int64   `json:"cache_creation_tokens"`
 	EstimatedCostUSD    float64 `json:"estimated_cost_usd"`
+	// SubscriptionCostUSD is the part of EstimatedCostUSD that is an
+	// API-equivalent estimate of flat-rate subscription usage.
+	SubscriptionCostUSD float64 `json:"subscription_cost_usd,omitempty"`
 	CardCount           int     `json:"card_count"`
 }
 
@@ -391,6 +394,7 @@ func (s *CardService) AggregateUsage(ctx context.Context, project string) (*Proj
 			usage.CacheReadTokens += card.TokenUsage.CacheReadTokens
 			usage.CacheCreationTokens += card.TokenUsage.CacheCreationTokens
 			usage.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
+			usage.SubscriptionCostUSD += subscriptionCost(card)
 			usage.CardCount++
 		}
 	}

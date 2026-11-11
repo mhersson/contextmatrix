@@ -1720,7 +1720,8 @@ the base-branch dropdown.
 ### GET /api/projects/{project}/usage
 
 Aggregated token usage across all cards in a project. Every field is always
-present; `card_count` counts cards with a `token_usage` record.
+present except `subscription_cost_usd`; `card_count` counts cards with a
+`token_usage` record.
 
 ```json
 {
@@ -1729,9 +1730,14 @@ present; `card_count` counts cards with a `token_usage` record.
   "cache_read_tokens": 380000,
   "cache_creation_tokens": 12000,
   "estimated_cost_usd": 0.315,
+  "subscription_cost_usd": 0.12,
   "card_count": 8
 }
 ```
+
+`subscription_cost_usd` is the part of `estimated_cost_usd` from
+subscription-basis buckets: an API-equivalent estimate of flat-rate Claude
+subscription usage, not billed spend. It is omitted when zero.
 
 ### GET /api/projects/{project}/dashboard
 
