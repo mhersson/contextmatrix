@@ -113,7 +113,7 @@ export interface UsageBucket {
   cost_usd: number;
   cost_source: 'actual' | 'estimated';
   counts_source?: 'collector' | 'self';
-  /** "subscription" for flat-rate Claude subscription usage, priced at list price as an estimate; absent for metered usage. */
+  /** "subscription" for flat-rate Claude subscription usage, an API-equivalent estimate priced from the rate table; absent for metered usage. */
   cost_basis?: 'subscription';
 }
 

@@ -146,8 +146,9 @@ type ReportUsageInput struct {
 	Step       string
 	DurationMS int64
 	// CostBasis is "" (metered) or protocol.CostBasisSubscription. A
-	// subscription report never carries an actual cost: it is always the
-	// list-price estimate and lands in its own bucket.
+	// subscription report never carries an actual cost: it is always an
+	// API-equivalent estimate priced from the rate table and lands in its own
+	// bucket.
 	CostBasis string
 }
 

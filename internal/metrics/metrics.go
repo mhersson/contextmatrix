@@ -175,7 +175,7 @@ var (
 
 	LLMSubscriptionCostUSDTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "contextmatrix_llm_subscription_cost_usd_total",
-		Help: "Notional list-price cost in USD of subscription-served LLM usage reported via report_usage; not billed spend.",
+		Help: "API-equivalent estimate in USD, priced from the rate table, of subscription-served LLM usage reported via report_usage; not billed spend.",
 	}, []string{"project", "model", "phase", "run_mode"})
 
 	LLMTokensTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -240,7 +240,7 @@ var (
 
 	ChatSubscriptionCostUSDTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "contextmatrix_chat_subscription_cost_usd_total",
-		Help: "Chat subscription usage priced at the list rate in USD, by project and model; not billed spend and never added to the chat cost counter.",
+		Help: "Chat subscription usage as an API-equivalent estimate in USD priced from the rate table, by project and model; not billed spend and never added to the chat cost counter.",
 	}, []string{"project", "model"})
 
 	ChatTokensTotal = prometheus.NewCounterVec(prometheus.CounterOpts{

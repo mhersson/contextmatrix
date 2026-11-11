@@ -664,7 +664,7 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fall
 	// The gateway's reported cost wins; the rate table prices only frames
 	// without one, so the unknown-model signal counts table-priced frames.
 	// A subscription frame has no billed cost: any producer figure is dropped
-	// so it can only take the list-price estimate.
+	// so it can only take the API-equivalent estimate priced from the rate table.
 	subscription := e.Usage.CostBasis == protocol.CostBasisSubscription
 
 	cost := e.Usage.CostUSD
