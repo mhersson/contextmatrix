@@ -1068,8 +1068,9 @@ subscription usage readings. Any session in `multi` mode; open in `none` mode.
   unset: it gets no endpoint and fails closed. Empty without a token.
 - `usage` is the newest reading of each subscription window, ordered by
   window: a reading with a later `resets_at` replaces the stored one, and
-  within the same period only one with a utilization at least as high. `status` is the vendor's (`allowed`, `allowed_warning`, `rejected`)
-  and may be empty; `stale` is `true` once `resets_at` has passed, since the
+  within the same period only one with a utilization at least as high.
+  `status` is the vendor's (`allowed`, `allowed_warning`, `rejected`) and
+  may be empty; `stale` is `true` once `resets_at` has passed, since the
   reading predates the reset.
 - `updated_at` and `updated_by` describe the last switch; both are omitted
   until the first one.
