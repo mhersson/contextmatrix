@@ -217,7 +217,8 @@ describe('LLMChannelStrip', () => {
     render(<LLMChannelStrip />);
     const line = 'Card runs unavailable: no endpoint is configured and the agent has no Claude Code support yet';
     const s = await strip();
-    expect(s).toHaveAccessibleDescription(line);
+    expect(s).toHaveAccessibleDescription('Card runs unavailable');
+    expect(screen.getByText('Card runs unavailable')).toHaveAttribute('title', line);
     const pop = await openPopover();
     expect(within(pop).getByText(line)).toBeInTheDocument();
     expect(within(pop).queryByText(/stay on/)).toBeNull();

@@ -100,8 +100,8 @@ export function channelExceptions(view: LLMChannelView): ChannelException[] {
     const feature = exceptionFeature[e.backend] ?? e.backend;
     const reason = `${exceptionBackend[e.backend] ?? e.backend} has no Claude Code support yet`;
     if (e.runs_on === 'none') {
-      const text = `${feature} unavailable: no endpoint is configured and ${reason}`;
-      return { text, detail: text };
+      const text = `${feature} unavailable`;
+      return { text, detail: `${text}: no endpoint is configured and ${reason}` };
     }
     const text = `${feature} stay on ${channelLabel(view, 'endpoint')}`;
     return { text, detail: `${text}: ${reason}` };
@@ -112,6 +112,8 @@ export interface SubLineItem {
   /** Rendered emphasised before the text. */
   count?: number;
   text: string;
+  /** Tooltip wording when it says more than the text. */
+  title?: string;
 }
 
 export function subLineText(item: SubLineItem): string {
@@ -129,6 +131,6 @@ export function subLineItems(view: LLMChannelView): SubLineItem[] {
   const other = otherMode(view.mode);
   const n = inFlightTotal(view, other);
   if (n > 0) items.push({ count: n, text: `still on ${channelLabel(view, other)}` });
-  for (const e of channelExceptions(view)) items.push({ text: e.text });
+  for (const e of channelExceptions(view)) items.push({ text: e.text, title: e.detail });
   return items;
 }

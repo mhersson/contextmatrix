@@ -100,7 +100,7 @@ export function LLMChannelStrip() {
         </span>
       </button>
       {items.length > 0 && (
-        <p id={subId} className="llm-sub" title={items.map(subLineText).join(' · ')}>
+        <p id={subId} className="llm-sub" title={items.map((item) => item.title ?? subLineText(item)).join(' · ')}>
           {items.map((item, i) => (
             <Fragment key={i}>
               {i > 0 && ' · '}
