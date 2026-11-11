@@ -7487,6 +7487,10 @@ func (memChannelStore) LLMChannel(context.Context) (string, time.Time, string, e
 
 func (memChannelStore) PutLLMChannel(context.Context, string, string) error { return nil }
 
+func (memChannelStore) RecordSubscriptionUsage(context.Context, []protocol.SubscriptionUsage, time.Time) error {
+	return nil
+}
+
 func channelEndpoint() *protocol.LLMEndpoint {
 	return &protocol.LLMEndpoint{Type: "openai", BaseURL: "https://gw.example/v1", APIKey: "k"}
 }

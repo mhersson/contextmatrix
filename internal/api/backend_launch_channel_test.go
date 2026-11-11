@@ -30,6 +30,10 @@ func (memChannelStore) LLMChannel(context.Context) (string, time.Time, string, e
 
 func (memChannelStore) PutLLMChannel(context.Context, string, string) error { return nil }
 
+func (memChannelStore) RecordSubscriptionUsage(context.Context, []protocol.SubscriptionUsage, time.Time) error {
+	return nil
+}
+
 // channelLaunchHandlers wires a launch handler to a real holder and ops store.
 func channelLaunchHandlers(t *testing.T, mode llmchannel.Mode, supported []string) (*backendHandlers, *service.CardService, *captureBackend, *opsqlite.Store) {
 	t.Helper()

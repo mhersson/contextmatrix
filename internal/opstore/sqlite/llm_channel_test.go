@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
+
 	"github.com/mhersson/contextmatrix/internal/sqliteutil"
 )
 
@@ -103,4 +105,46 @@ func TestCardRun_RerunReplacesRow(t *testing.T) {
 	runs, err := st.OpenCardRuns(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, []CardRun{{Project: "p", CardID: "P-001", Mode: "claude_code", StartedAt: t0.Add(time.Hour)}}, runs)
+}
+
+func TestSubscriptionUsage_UpsertPerWindow(t *testing.T) {
+	st := openLadderStore(t)
+	ctx := context.Background()
+
+	rows, err := st.SubscriptionUsage(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, rows)
+
+	reset1 := time.Unix(2_000_000_000, 0).UTC()
+	reset2 := time.Unix(2_000_100_000, 0).UTC()
+	seen1 := time.Unix(1_900_000_000, 0).UTC()
+	seen2 := time.Unix(1_900_000_500, 0).UTC()
+
+	require.NoError(t, st.RecordSubscriptionUsage(ctx, []protocol.SubscriptionUsage{
+		{Window: "seven_day", Utilization: 0.4, Status: "allowed", ResetsAt: reset1},
+		{Window: "five_hour", Utilization: 0.1, ResetsAt: reset1},
+	}, seen1))
+	require.NoError(t, st.RecordSubscriptionUsage(ctx, []protocol.SubscriptionUsage{
+		{Window: "seven_day", Utilization: 0.64, Status: "allowed_warning", ResetsAt: reset2},
+	}, seen2))
+
+	rows, err = st.SubscriptionUsage(ctx)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+
+	byWindow := map[string]SubscriptionUsageRow{}
+	for _, r := range rows {
+		byWindow[r.Window] = r
+	}
+
+	sd := byWindow["seven_day"]
+	assert.InDelta(t, 0.64, sd.Utilization, 1e-9)
+	assert.Equal(t, "allowed_warning", sd.Status)
+	assert.True(t, reset2.Equal(sd.ResetsAt))
+	assert.True(t, seen2.Equal(sd.SeenAt))
+
+	fh := byWindow["five_hour"]
+	assert.InDelta(t, 0.1, fh.Utilization, 1e-9)
+	assert.Empty(t, fh.Status)
+	assert.True(t, seen1.Equal(fh.SeenAt))
 }

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	protocol "github.com/mhersson/contextmatrix-protocol"
 )
 
 // LLMChannel returns the stored global LLM channel mode, when it was written
@@ -104,4 +106,69 @@ func (s *Store) OpenCardRuns(ctx context.Context) ([]CardRun, error) {
 	}
 
 	return runs, nil
+}
+
+// SubscriptionUsageRow is the last-seen state of one subscription window.
+type SubscriptionUsageRow struct {
+	protocol.SubscriptionUsage
+	SeenAt time.Time
+}
+
+// RecordSubscriptionUsage upserts each window with the time it was seen.
+func (s *Store) RecordSubscriptionUsage(ctx context.Context, u []protocol.SubscriptionUsage, seen time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("record subscription usage: %w", err)
+	}
+
+	defer func() { _ = tx.Rollback() }()
+
+	for _, w := range u {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO subscription_usage (window, utilization, status, resets_at, seen_at) VALUES (?, ?, ?, ?, ?)
+			 ON CONFLICT(window) DO UPDATE SET utilization = excluded.utilization,
+			   status = excluded.status, resets_at = excluded.resets_at, seen_at = excluded.seen_at`,
+			w.Window, w.Utilization, w.Status, w.ResetsAt.Unix(), seen.Unix()); err != nil {
+			return fmt.Errorf("record subscription usage: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("record subscription usage: %w", err)
+	}
+
+	return nil
+}
+
+// SubscriptionUsage returns every window's last-seen state, ordered by window.
+func (s *Store) SubscriptionUsage(ctx context.Context) ([]SubscriptionUsageRow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT window, utilization, status, resets_at, seen_at FROM subscription_usage ORDER BY window`)
+	if err != nil {
+		return nil, fmt.Errorf("list subscription usage: %w", err)
+	}
+	defer rows.Close()
+
+	var out []SubscriptionUsageRow
+
+	for rows.Next() {
+		var (
+			r            SubscriptionUsageRow
+			resets, seen int64
+		)
+
+		if err := rows.Scan(&r.Window, &r.Utilization, &r.Status, &resets, &seen); err != nil {
+			return nil, fmt.Errorf("scan subscription usage: %w", err)
+		}
+
+		r.ResetsAt = time.Unix(resets, 0).UTC()
+		r.SeenAt = time.Unix(seen, 0).UTC()
+		out = append(out, r)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list subscription usage: %w", err)
+	}
+
+	return out, nil
 }

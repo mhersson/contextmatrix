@@ -298,7 +298,15 @@ type RouterConfig struct {
 	// records the mode each run started in. Both are nil in deployments
 	// without the channel wiring.
 	LLMChannel LLMChannelResolver
-	CardRuns   CardRunRecorder
+	// LLMChannelState, LLMChannelStore and ConfiguredBackend back
+	// /api/llm-channel; ConfiguredBackend lists the backend kinds declared
+	// under backends:. LLMChannelCards defaults to Service. The routes are
+	// registered only when LLMChannelState and LLMChannelStore are set.
+	LLMChannelState   LLMChannelState
+	LLMChannelStore   LLMChannelStore
+	LLMChannelCards   LLMChannelCards
+	ConfiguredBackend []string
+	CardRuns          CardRunRecorder
 	// BestOfN bounds the card-level best_of_n field: cardHandlers rejects
 	// any value outside 0 or 2..MaxCandidates. Zero value (MaxCandidates 0)
 	// means only 0 validates - effectively disabling best_of_n until
@@ -577,6 +585,24 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("PUT /api/admin/selector/ladders", selh.putLadders)
 		mux.HandleFunc("GET /api/admin/selector/candidates", selh.getCandidates)
 		mux.HandleFunc("POST /api/admin/selector/preview", selh.preview)
+	}
+
+	if cfg.LLMChannelState != nil && cfg.LLMChannelStore != nil {
+		cards := cfg.LLMChannelCards
+		if cards == nil && cfg.Service != nil {
+			cards = cfg.Service
+		}
+
+		lh := &llmChannelHandlers{
+			state:       cfg.LLMChannelState,
+			store:       cfg.LLMChannelStore,
+			cards:       cards,
+			backends:    cfg.ConfiguredBackend,
+			authEnabled: cfg.AuthService != nil,
+			now:         time.Now,
+		}
+		mux.HandleFunc("GET /api/llm-channel", lh.get)
+		mux.HandleFunc("PUT /api/admin/llm-channel", lh.put)
 	}
 
 	// Auth routes - only in multi mode.

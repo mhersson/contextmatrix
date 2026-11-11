@@ -43,6 +43,7 @@ type Store interface {
 	// LLMChannel returns an empty mode when nothing is stored.
 	LLMChannel(ctx context.Context) (mode string, at time.Time, by string, err error)
 	PutLLMChannel(ctx context.Context, mode, by string) error
+	RecordSubscriptionUsage(ctx context.Context, u []protocol.SubscriptionUsage, seen time.Time) error
 }
 
 // Publisher is the event bus.
@@ -62,6 +63,9 @@ type Holder struct {
 	store Store
 	bus   Publisher
 	mode  atomic.Pointer[Mode]
+
+	// setMu serializes Set so persist, swap, at/by and publish stay one unit.
+	setMu sync.Mutex
 
 	mu sync.RWMutex
 	at time.Time
@@ -135,6 +139,9 @@ func (h *Holder) Set(ctx context.Context, mode Mode, by string) error {
 		return ErrNotConfigured
 	}
 
+	h.setMu.Lock()
+	defer h.setMu.Unlock()
+
 	if err := h.store.PutLLMChannel(ctx, string(mode), by); err != nil {
 		return fmt.Errorf("persist llm channel: %w", err)
 	}
@@ -153,6 +160,53 @@ func (h *Holder) Set(ctx context.Context, mode Mode, by string) error {
 
 	return nil
 }
+
+// RecordUsage stores the subscription windows a worker reported and tells the
+// UIs. A window without a reset time is dropped; failures are logged, never
+// returned.
+func (h *Holder) RecordUsage(ctx context.Context, u []protocol.SubscriptionUsage) {
+	kept := make([]protocol.SubscriptionUsage, 0, len(u))
+
+	for _, w := range u {
+		if w.ResetsAt.IsZero() {
+			slog.Debug("dropping subscription window without a reset time", "window", w.Window)
+
+			continue
+		}
+
+		kept = append(kept, w)
+	}
+
+	if len(kept) == 0 {
+		return
+	}
+
+	now := time.Now().UTC()
+
+	if err := h.store.RecordSubscriptionUsage(ctx, kept, now); err != nil {
+		slog.Warn("record subscription usage failed", "error", err)
+
+		return
+	}
+
+	h.bus.Publish(events.Event{
+		Type:      events.LLMChannelChanged,
+		Timestamp: now,
+		Data:      map[string]any{"mode": string(h.Mode())},
+	})
+}
+
+// EndpointType is the configured endpoint's type, or "" when none is set.
+func (h *Holder) EndpointType() string {
+	if h.cfg.Endpoint == nil {
+		return ""
+	}
+
+	return h.cfg.Endpoint.Type
+}
+
+// ClaudeCodeConfigured reports whether a subscription token is configured.
+func (h *Holder) ClaudeCodeConfigured() bool { return h.configured(ModeClaudeCode) }
 
 // Supported reports whether claude_code is allowed for the backend kind.
 func (h *Holder) Supported(kind Kind) bool {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,10 +19,32 @@ import (
 const testToken = "sk-ant-oat-secret"
 
 type fakeStore struct {
-	mode    string
-	puts    []string
-	putErr  error
-	readErr error
+	mu       sync.Mutex
+	mode     string
+	puts     []string
+	putErr   error
+	readErr  error
+	usage    map[string]protocol.SubscriptionUsage
+	usageErr error
+}
+
+func (f *fakeStore) RecordSubscriptionUsage(_ context.Context, u []protocol.SubscriptionUsage, _ time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.usageErr != nil {
+		return f.usageErr
+	}
+
+	if f.usage == nil {
+		f.usage = map[string]protocol.SubscriptionUsage{}
+	}
+
+	for _, w := range u {
+		f.usage[w.Window] = w
+	}
+
+	return nil
 }
 
 func (f *fakeStore) LLMChannel(context.Context) (string, time.Time, string, error) {
@@ -33,15 +56,25 @@ func (f *fakeStore) PutLLMChannel(_ context.Context, mode, _ string) error {
 		return f.putErr
 	}
 
+	f.mu.Lock()
 	f.puts = append(f.puts, mode)
 	f.mode = mode
+	f.mu.Unlock()
 
 	return nil
 }
 
-type fakeBus struct{ events []events.Event }
+type fakeBus struct {
+	mu     sync.Mutex
+	events []events.Event
+}
 
-func (b *fakeBus) Publish(e events.Event) { b.events = append(b.events, e) }
+func (b *fakeBus) Publish(e events.Event) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.events = append(b.events, e)
+}
 
 func endpoint() *protocol.LLMEndpoint {
 	return &protocol.LLMEndpoint{Type: "openai", BaseURL: "https://gw.example", APIKey: "k"}
@@ -223,4 +256,105 @@ func TestHolder_TokenNeverInEvents(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotContains(t, string(b), testToken)
 	}
+}
+
+func TestRecordUsage_DropsZeroResetsAt(t *testing.T) {
+	ctx := context.Background()
+	reset := time.Unix(2_000_000_000, 0).UTC()
+
+	newHolder := func(t *testing.T) (*Holder, *fakeStore, *fakeBus) {
+		t.Helper()
+
+		st, bus := &fakeStore{}, &fakeBus{}
+		h, err := New(ctx, Config{Endpoint: endpoint(), OAuthToken: testToken}, st, bus)
+		require.NoError(t, err)
+
+		return h, st, bus
+	}
+
+	t.Run("only the good window is stored", func(t *testing.T) {
+		h, st, bus := newHolder(t)
+
+		h.RecordUsage(ctx, []protocol.SubscriptionUsage{
+			{Window: "seven_day", Utilization: 0.5, ResetsAt: reset},
+			{Window: "five_hour", Utilization: 0.2, ResetsAt: time.Time{}},
+		})
+
+		assert.Len(t, st.usage, 1)
+		assert.Contains(t, st.usage, "seven_day")
+		require.Len(t, bus.events, 1)
+		assert.Equal(t, events.LLMChannelChanged, bus.events[0].Type)
+	})
+
+	t.Run("a zero window leaves the earlier row unchanged", func(t *testing.T) {
+		h, st, _ := newHolder(t)
+
+		h.RecordUsage(ctx, []protocol.SubscriptionUsage{{Window: "seven_day", Utilization: 0.5, ResetsAt: reset}})
+		h.RecordUsage(ctx, []protocol.SubscriptionUsage{{Window: "seven_day", Utilization: 0.9}})
+
+		assert.InDelta(t, 0.5, st.usage["seven_day"].Utilization, 1e-9)
+	})
+
+	t.Run("all-zero stores and publishes nothing", func(t *testing.T) {
+		h, st, bus := newHolder(t)
+
+		h.RecordUsage(ctx, []protocol.SubscriptionUsage{{Window: "seven_day", Utilization: 0.9}})
+
+		assert.Empty(t, st.usage)
+		assert.Empty(t, bus.events)
+	})
+
+	t.Run("store error does not panic or publish", func(t *testing.T) {
+		h, st, bus := newHolder(t)
+		st.usageErr = errors.New("boom")
+
+		h.RecordUsage(ctx, []protocol.SubscriptionUsage{{Window: "seven_day", ResetsAt: reset}})
+
+		assert.Empty(t, bus.events)
+	})
+}
+
+func TestSet_ConcurrentCallsStayConsistent(t *testing.T) {
+	ctx := context.Background()
+	st, bus := &fakeStore{}, &fakeBus{}
+
+	h, err := New(ctx, Config{Endpoint: endpoint(), OAuthToken: testToken}, st, bus)
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+
+	for i := range 40 {
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+
+			mode := ModeEndpoint
+			if i%2 == 0 {
+				mode = ModeClaudeCode
+			}
+
+			assert.NoError(t, h.Set(ctx, mode, "human:a"))
+		}()
+
+		go func() {
+			defer wg.Done()
+
+			_ = h.Mode()
+			_, _ = h.Updated()
+		}()
+	}
+
+	wg.Wait()
+
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	assert.Equal(t, string(h.Mode()), st.mode, "memory and store agree after overlapping Sets")
+
+	bus.mu.Lock()
+	defer bus.mu.Unlock()
+
+	require.Len(t, bus.events, 40)
+	assert.Equal(t, string(h.Mode()), bus.events[39].Data["mode"], "last event matches the final mode")
 }

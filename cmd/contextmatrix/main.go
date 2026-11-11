@@ -769,6 +769,9 @@ func main() {
 		AuthMode:               cfg.Auth.Mode,
 		LLMEndpoint:            llmEndpointFromConfig(cfg.LLMEndpoint),
 		LLMChannel:             llmChannel,
+		LLMChannelState:        llmChannel,
+		LLMChannelStore:        opStore,
+		ConfiguredBackend:      configuredBackendKinds(cfg),
 		CardRuns:               opStore,
 		BestOfN:                cfg.BestOfN,
 		Mob:                    cfg.Mob,
@@ -1230,4 +1233,23 @@ func (chatBackendDisabled) StreamLogs(ctx context.Context, _ string, _ func(chat
 	<-ctx.Done()
 
 	return ctx.Err()
+}
+
+// configuredBackendKinds lists the enabled backends: kinds in a fixed order.
+func configuredBackendKinds(cfg *config.Config) []string {
+	var kinds []string
+
+	if _, ok := cfg.AgentBackend(); ok {
+		kinds = append(kinds, config.BackendNameAgent)
+	}
+
+	if _, ok := cfg.ChatBackend(); ok {
+		kinds = append(kinds, config.BackendNameChat)
+	}
+
+	if _, ok := cfg.ArchitectBackend(); ok {
+		kinds = append(kinds, config.BackendNameArchitect)
+	}
+
+	return kinds
 }
