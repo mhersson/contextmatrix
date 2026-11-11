@@ -193,6 +193,10 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		}
 	}
 
+	if err := addColumnIfMissing(ctx, db, "chat_cost_archive", "subscription_cost_usd", "REAL NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+
 	// After the column loop: an upgraded database has the columns only now.
 	if _, err := db.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_sessions_origin
 		ON chat_sessions(origin_chat, origin_seq) WHERE origin_chat != ''`); err != nil {

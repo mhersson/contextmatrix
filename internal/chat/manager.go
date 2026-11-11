@@ -3080,6 +3080,7 @@ const chatCostCacheTTL = 30 * time.Second
 type chatCostCache struct {
 	last30d    float64
 	prior30d   float64
+	subLast30d float64
 	series30d  []float64
 	computedAt time.Time
 }
@@ -3091,7 +3092,7 @@ type chatCostCache struct {
 // Errors are not cached: a transient store error causes the next caller to
 // retry immediately. The returned values are zero on error; callers should
 // log the error and emit a metric but continue rendering the dashboard.
-func (m *Manager) GetChatCostSummary(ctx context.Context) (last30d, prior30d float64, series30d []float64, err error) {
+func (m *Manager) GetChatCostSummary(ctx context.Context) (last30d, prior30d, subscriptionLast30d float64, series30d []float64, err error) {
 	now := m.clk.Now().UTC()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	until := todayStart.Add(24 * time.Hour)
@@ -3105,20 +3106,21 @@ func (m *Manager) GetChatCostSummary(ctx context.Context) (last30d, prior30d flo
 	if !cached.computedAt.IsZero() && now.Sub(cached.computedAt) < chatCostCacheTTL {
 		// Return a defensive copy so the caller cannot mutate the cached backing
 		// array. The cache entry itself is never exposed - copy-on-read.
-		return cached.last30d, cached.prior30d, append([]float64(nil), cached.series30d...), nil
+		return cached.last30d, cached.prior30d, cached.subLast30d, append([]float64(nil), cached.series30d...), nil
 	}
 
 	// Cache miss or expiry: re-compute.
-	last30d, prior30d, series30d, err = m.store.AggregateCost(ctx, since, until)
+	last30d, prior30d, subscriptionLast30d, series30d, err = m.store.AggregateCost(ctx, since, until)
 	if err != nil {
 		// Do NOT cache errors: next caller should retry immediately.
-		return 0, 0, nil, fmt.Errorf("chat: GetChatCostSummary: %w", err)
+		return 0, 0, 0, nil, fmt.Errorf("chat: GetChatCostSummary: %w", err)
 	}
 
 	m.mu.Lock()
 	m.costCache = chatCostCache{
 		last30d:    last30d,
 		prior30d:   prior30d,
+		subLast30d: subscriptionLast30d,
 		series30d:  series30d,
 		computedAt: now,
 	}
@@ -3127,5 +3129,5 @@ func (m *Manager) GetChatCostSummary(ctx context.Context) (last30d, prior30d flo
 	// Return a defensive copy here too: the value returned to this first caller
 	// must not share backing array with the freshly-cached entry. Copy-on-read
 	// is the chosen invariant - the cache entry is always private to the cache.
-	return last30d, prior30d, append([]float64(nil), series30d...), nil
+	return last30d, prior30d, subscriptionLast30d, append([]float64(nil), series30d...), nil
 }

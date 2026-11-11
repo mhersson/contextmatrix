@@ -120,9 +120,10 @@ type Store interface {
 	// last_active falls in [since, until). prior30d covers the prior window of
 	// equal width ending at since. series30d is a length-30 daily slice (index 0 =
 	// since, index 29 = the day before until), filled with 0.0 for days with
-	// no sessions. The caller is responsible for aligning since/until to UTC
+	// no sessions. subscriptionLast30d is the part of last30d that is an
+	// API-equivalent subscription estimate, never above a session's own cost. The caller is responsible for aligning since/until to UTC
 	// midnight boundaries; no boundary adjustment is performed here.
-	AggregateCost(ctx context.Context, since, until time.Time) (last30d, prior30d float64, series30d []float64, err error)
+	AggregateCost(ctx context.Context, since, until time.Time) (last30d, prior30d, subscriptionLast30d float64, series30d []float64, err error)
 
 	Close() error
 }

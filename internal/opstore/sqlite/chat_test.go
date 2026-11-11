@@ -485,7 +485,7 @@ func TestAggregateCost_HappyPath(t *testing.T) {
 	// Session C: 20 days ago. Cost $3.00. -> series[9] (29-20)
 	newTestSessionAtTime(t, store, todayStart.Add(-20*24*time.Hour).Add(6*time.Hour), 3.00)
 
-	last30d, prior30d, series30d, err := store.AggregateCost(ctx, since, until)
+	last30d, prior30d, _, series30d, err := store.AggregateCost(ctx, since, until)
 	require.NoError(t, err)
 
 	// Total last30d = 1 + 2 + 3 = 6
@@ -525,7 +525,7 @@ func TestAggregateCost_Empty(t *testing.T) {
 	until := todayStart.Add(24 * time.Hour)
 	since := todayStart.AddDate(0, 0, -29)
 
-	last30d, prior30d, series30d, err := store.AggregateCost(ctx, since, until)
+	last30d, prior30d, _, series30d, err := store.AggregateCost(ctx, since, until)
 	require.NoError(t, err)
 
 	assert.InDelta(t, 0.0, last30d, 1e-9)
@@ -552,7 +552,7 @@ func TestAggregateCost_PriorPeriod(t *testing.T) {
 	// Session 35 days ago - in the prior window (since-30..since).
 	newTestSessionAtTime(t, store, todayStart.Add(-35*24*time.Hour).Add(6*time.Hour), 5.00)
 
-	last30d, prior30d, series30d, err := store.AggregateCost(ctx, since, until)
+	last30d, prior30d, _, series30d, err := store.AggregateCost(ctx, since, until)
 	require.NoError(t, err)
 
 	assert.InDelta(t, 0.0, last30d, 1e-9, "last30d should be 0 (session is outside window)")
@@ -801,7 +801,7 @@ func TestAggregateCost_IncludesArchivedSessions(t *testing.T) {
 	require.NoError(t, store.DeleteSession(ctx, idToDelete))
 	require.NoError(t, store.DeleteSession(ctx, idToDeletePrior))
 
-	last30d, prior30d, series30d, err := store.AggregateCost(ctx, since, until)
+	last30d, prior30d, _, series30d, err := store.AggregateCost(ctx, since, until)
 	require.NoError(t, err)
 
 	// last30d must include live ($1) + archived ($2) = $3.
@@ -1187,7 +1187,7 @@ func TestAggregateCost_BlueprintCostIsRecordedSpend(t *testing.T) {
 	newTestBlueprintAtTime(t, store, at, 9.00, &spend)
 	newTestBlueprintAtTime(t, store, at, 7.00, nil)
 
-	last30d, _, series, err := store.AggregateCost(context.Background(), since, until)
+	last30d, _, _, series, err := store.AggregateCost(context.Background(), since, until)
 	require.NoError(t, err)
 	assert.InDelta(t, 2.50, last30d, 1e-9)
 	assert.InDelta(t, 2.50, series[29], 1e-9)
@@ -1212,7 +1212,7 @@ func TestDeleteSession_ArchivesABlueprintsRecordedSpend(t *testing.T) {
 	require.NoError(t, store.DeleteSession(ctx, bp))
 	require.NoError(t, store.DeleteSession(ctx, c))
 
-	last30d, _, _, err := store.AggregateCost(ctx, since, until)
+	last30d, _, _, _, err := store.AggregateCost(ctx, since, until)
 	require.NoError(t, err)
 	assert.InDelta(t, 2.50, last30d, 1e-9)
 
@@ -1387,4 +1387,43 @@ func TestIncrementSessionCost_SubscriptionCostAddsToBothColumns(t *testing.T) {
 	require.NoError(t, err)
 	assert.InDelta(t, 0.75, sess.EstimatedCostUSD, 1e-9)
 	assert.InDelta(t, 0.25, sess.SubscriptionCostUSD, 1e-9)
+}
+
+func TestAggregateCost_SubscriptionPart(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	now := time.Date(2026, 5, 22, 14, 0, 0, 0, time.UTC)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	until := todayStart.Add(24 * time.Hour)
+	since := todayStart.AddDate(0, 0, -29)
+	at := now.Add(-2 * time.Hour)
+
+	// Metered chat: no subscription part.
+	newTestSessionAtTime(t, store, at, 1.00)
+
+	// Subscription chat, deleted afterwards: its share must survive in the archive.
+	archived := newTestSessionAtTime(t, store, at, 0)
+	_, _, _, _, _, _, err = store.IncrementSessionCost(ctx, archived, 1, 1, 0, 0, 0, 0.75, "m")
+	require.NoError(t, err)
+	require.NoError(t, store.DeleteSession(ctx, archived))
+
+	// Live subscription chat.
+	live := newTestSessionAtTime(t, store, at, 0)
+	_, _, _, _, _, _, err = store.IncrementSessionCost(ctx, live, 1, 1, 0, 0, 0, 0.25, "m")
+	require.NoError(t, err)
+
+	// Blueprint whose recorded spend is below CM's own subscription estimate:
+	// the subscription part is capped at the session total.
+	spend := 0.10
+	bp := newTestBlueprintAtTime(t, store, at, 0, &spend)
+	_, _, _, _, _, _, err = store.IncrementSessionCost(ctx, bp, 1, 1, 0, 0, 0, 0.40, "m")
+	require.NoError(t, err)
+
+	last30d, _, sub30d, _, err := store.AggregateCost(ctx, since, until)
+	require.NoError(t, err)
+	assert.InDelta(t, 1.00+0.75+0.25+0.10, last30d, 1e-9, "totals still count everything")
+	assert.InDelta(t, 0.75+0.25+0.10, sub30d, 1e-9)
 }

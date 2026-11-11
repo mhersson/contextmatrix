@@ -1702,6 +1702,13 @@ present; `card_count` counts cards with a `token_usage` record.
   can show run-level numbers next to card-level ones.
 - `total_cost_has_estimates*` and each row's `has_estimates` are `true` when
   any contributing bucket has `cost_source: estimated`; omitted when false.
+- `total_subscription_cost_usd`, `chat_subscription_cost_usd`, each
+  `card_costs_30d` row's `subscription_cost_usd` and each `model_costs_30d`
+  row's `subscription` say how much of a total is an API-equivalent estimate of
+  flat-rate subscription usage rather than billed spend; the totals still
+  include it. All are omitted when zero or false. A model row is flagged when
+  any of its cost is subscription usage. The chat part is capped per session at
+  that session's own cost.
 - `assigned_agent` on a `card_costs_30d` row is omitted when no agent owns
   the card. Rows fold each subtask's tokens and cost into the parent, so a
   parent row appears even when only its subtasks have spend; subtasks whose

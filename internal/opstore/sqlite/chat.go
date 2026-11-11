@@ -415,10 +415,10 @@ func (s *Store) DeleteSession(ctx context.Context, id string) error {
 		INSERT INTO chat_cost_archive
 			(id, project, model, last_active,
 			 prompt_tokens, completion_tokens, cache_read_tokens,
-			 cache_creation_tokens, estimated_cost_usd, deleted_at)
+			 cache_creation_tokens, estimated_cost_usd, subscription_cost_usd, deleted_at)
 		SELECT id, project, model, last_active,
 			prompt_tokens, completion_tokens, cache_read_tokens,
-			cache_creation_tokens, `+sessionCostExpr+`, ?
+			cache_creation_tokens, `+sessionCostExpr+`, `+sessionSubscriptionCostExpr+`, ?
 		FROM chat_sessions WHERE id = ?
 		ON CONFLICT(id) DO NOTHING`,
 		time.Now().UTC().Unix(), id,
@@ -732,31 +732,38 @@ func scanSession(sc scanner) (chat.Session, error) {
 // recorded, never CM's estimate), a chat's estimate.
 const sessionCostExpr = "CASE WHEN kind = 'architect' THEN COALESCE(spent_usd, 0) ELSE estimated_cost_usd END"
 
+// sessionSubscriptionCostExpr is the API-equivalent estimate inside sessionCostExpr.
+// Capped at the session total: a blueprint's total is the backend-reported spend, a
+// different source from CM's own frame estimate.
+const sessionSubscriptionCostExpr = "MIN(COALESCE(subscription_cost_usd, 0), " + sessionCostExpr + ")"
+
 // costRowsSubquery is a UNION ALL over live and archived sessions that exposes
-// the session cost AS cost and last_active for a half-open time window
-// [?, ?). It accepts four bind parameters: since, until, since, until.
-const costRowsSubquery = `SELECT ` + sessionCostExpr + ` AS cost, last_active FROM chat_sessions     WHERE last_active >= ? AND last_active < ?
+// the session cost AS cost, its subscription part AS sub_cost and last_active
+// for a half-open time window [?, ?). It accepts four bind parameters: since,
+// until, since, until.
+const costRowsSubquery = `SELECT ` + sessionCostExpr + ` AS cost, ` + sessionSubscriptionCostExpr + ` AS sub_cost, last_active FROM chat_sessions     WHERE last_active >= ? AND last_active < ?
                           UNION ALL
-                          SELECT estimated_cost_usd AS cost, last_active FROM chat_cost_archive WHERE last_active >= ? AND last_active < ?`
+                          SELECT estimated_cost_usd AS cost, subscription_cost_usd AS sub_cost, last_active FROM chat_cost_archive WHERE last_active >= ? AND last_active < ?`
 
 // AggregateCost returns cost aggregates over the 30-day window [since, until)
 // and the equal-width prior window [since-30d, since). series30d is a
 // length-30 daily slice; index 0 = since, index 29 = the day before until.
-// Days with no sessions are filled with 0.0. Both live sessions and archived
+// Days with no sessions are filled with 0.0. subscriptionLast30d is the part of
+// last30d that is a subscription estimate. Both live sessions and archived
 // (deleted) sessions contribute via UNION ALL over chat_sessions and
 // chat_cost_archive.
-func (s *Store) AggregateCost(ctx context.Context, since, until time.Time) (last30d, prior30d float64, series30d []float64, err error) {
+func (s *Store) AggregateCost(ctx context.Context, since, until time.Time) (last30d, prior30d, subscriptionLast30d float64, series30d []float64, err error) {
 	const numDays = 30
 
 	series30d = make([]float64, numDays)
 
 	// last30d: sum of cost in [since, until) across live + archived sessions.
 	row := s.db.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(cost), 0.0) FROM (`+costRowsSubquery+`)`,
+		`SELECT COALESCE(SUM(cost), 0.0), COALESCE(SUM(sub_cost), 0.0) FROM (`+costRowsSubquery+`)`,
 		since.Unix(), until.Unix(), since.Unix(), until.Unix(),
 	)
-	if err = row.Scan(&last30d); err != nil {
-		return 0, 0, nil, fmt.Errorf("chat: aggregate cost last30d: %w", err)
+	if err = row.Scan(&last30d, &subscriptionLast30d); err != nil {
+		return 0, 0, 0, nil, fmt.Errorf("chat: aggregate cost last30d: %w", err)
 	}
 
 	// prior30d: sum of cost in the equal-width window before since.
@@ -767,7 +774,7 @@ func (s *Store) AggregateCost(ctx context.Context, since, until time.Time) (last
 		priorStart.Unix(), since.Unix(), priorStart.Unix(), since.Unix(),
 	)
 	if err = row.Scan(&prior30d); err != nil {
-		return 0, 0, nil, fmt.Errorf("chat: aggregate cost prior30d: %w", err)
+		return 0, 0, 0, nil, fmt.Errorf("chat: aggregate cost prior30d: %w", err)
 	}
 
 	// series30d: per-day sums bucketed by date(last_active, 'unixepoch').
@@ -777,7 +784,7 @@ func (s *Store) AggregateCost(ctx context.Context, since, until time.Time) (last
 		since.Unix(), until.Unix(), since.Unix(), until.Unix(),
 	)
 	if err != nil {
-		return 0, 0, nil, fmt.Errorf("chat: aggregate cost series: %w", err)
+		return 0, 0, 0, nil, fmt.Errorf("chat: aggregate cost series: %w", err)
 	}
 	defer rows.Close()
 
@@ -791,7 +798,7 @@ func (s *Store) AggregateCost(ctx context.Context, since, until time.Time) (last
 		)
 
 		if err = rows.Scan(&dayStr, &dayCost); err != nil {
-			return 0, 0, nil, fmt.Errorf("chat: aggregate cost series scan: %w", err)
+			return 0, 0, 0, nil, fmt.Errorf("chat: aggregate cost series scan: %w", err)
 		}
 
 		// Parse the day string (SQLite date() returns "YYYY-MM-DD").
@@ -810,10 +817,10 @@ func (s *Store) AggregateCost(ctx context.Context, since, until time.Time) (last
 	}
 
 	if err = rows.Err(); err != nil {
-		return 0, 0, nil, fmt.Errorf("chat: aggregate cost series rows: %w", err)
+		return 0, 0, 0, nil, fmt.Errorf("chat: aggregate cost series rows: %w", err)
 	}
 
-	return last30d, prior30d, series30d, nil
+	return last30d, prior30d, subscriptionLast30d, series30d, nil
 }
 
 // IncrementSessionCost atomically adds token deltas and cost to the session row

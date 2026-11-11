@@ -741,7 +741,7 @@ func TestReportUsageSeedsMigrationBucketForLegacyCost(t *testing.T) {
 	cards, err := svc.store.ListCards(ctx, "test-project", storage.CardFilter{})
 	require.NoError(t, err)
 
-	_, _, total := aggregateCostsWithParentIndex(cards, buildCardIndex(cards))
+	_, _, total, _ := aggregateCostsWithParentIndex(cards, buildCardIndex(cards))
 	assert.InDelta(t, 6.0, total, 1e-9, "grand total preserved")
 }
 
@@ -811,7 +811,7 @@ func TestReportUsageSeedsMigrationBucketForLegacyTokensZeroCost(t *testing.T) {
 	cards, err := svc.store.ListCards(ctx, "test-project", storage.CardFilter{})
 	require.NoError(t, err)
 
-	modelCosts, _, _ := aggregateCostsWithParentIndex(cards, buildCardIndex(cards))
+	modelCosts, _, _, _ := aggregateCostsWithParentIndex(cards, buildCardIndex(cards))
 
 	byModel := make(map[string]ModelCost, len(modelCosts))
 	for _, mc := range modelCosts {
@@ -1489,7 +1489,7 @@ func TestAggregateCostsFlagsEstimates(t *testing.T) {
 		},
 	}
 
-	modelCosts, cardCosts, _ := aggregateCostsWithParentIndex(cards, buildCardIndex(cards))
+	modelCosts, cardCosts, _, _ := aggregateCostsWithParentIndex(cards, buildCardIndex(cards))
 
 	byCard := map[string]bool{}
 	for _, c := range cardCosts {

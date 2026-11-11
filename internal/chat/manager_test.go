@@ -3823,7 +3823,7 @@ type aggregateCountingStore struct {
 	calls atomic.Int64
 }
 
-func (a *aggregateCountingStore) AggregateCost(ctx context.Context, since, until time.Time) (float64, float64, []float64, error) {
+func (a *aggregateCountingStore) AggregateCost(ctx context.Context, since, until time.Time) (float64, float64, float64, []float64, error) {
 	a.calls.Add(1)
 
 	return a.Store.AggregateCost(ctx, since, until)
@@ -3836,10 +3836,10 @@ type failingAggregateCostStore struct {
 	calls atomic.Int64
 }
 
-func (f *failingAggregateCostStore) AggregateCost(_ context.Context, _, _ time.Time) (float64, float64, []float64, error) {
+func (f *failingAggregateCostStore) AggregateCost(_ context.Context, _, _ time.Time) (float64, float64, float64, []float64, error) {
 	f.calls.Add(1)
 
-	return 0, 0, nil, errors.New("injected AggregateCost failure")
+	return 0, 0, 0, nil, errors.New("injected AggregateCost failure")
 }
 
 // TestGetChatCostSummary_UTCAlignment seeds a session with last_active = now-2h
@@ -3880,7 +3880,7 @@ func TestGetChatCostSummary_UTCAlignment(t *testing.T) {
 	_, _, _, _, _, _, err = realStore.IncrementSessionCost(ctx, sessID, 100, 50, 0, 0, 1.50, 0, "claude-sonnet-4-6")
 	require.NoError(t, err)
 
-	last30d, _, series30d, err := mgr.GetChatCostSummary(ctx)
+	last30d, _, _, series30d, err := mgr.GetChatCostSummary(ctx)
 	require.NoError(t, err)
 
 	// last30d should include the cost.
@@ -3916,12 +3916,12 @@ func TestGetChatCostSummary_Cache(t *testing.T) {
 	ctx := context.Background()
 
 	// First call: cache miss → store hit (count = 1).
-	_, _, _, err = mgr.GetChatCostSummary(ctx)
+	_, _, _, _, err = mgr.GetChatCostSummary(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), countingStore.calls.Load(), "first call should hit store")
 
 	// Second call: cache hit → store NOT hit (count stays 1).
-	_, _, _, err = mgr.GetChatCostSummary(ctx)
+	_, _, _, _, err = mgr.GetChatCostSummary(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), countingStore.calls.Load(), "second call within TTL should use cache")
 
@@ -3929,7 +3929,7 @@ func TestGetChatCostSummary_Cache(t *testing.T) {
 	clk.Advance(31 * time.Second)
 
 	// Third call: cache expired → store hit again (count = 2).
-	_, _, _, err = mgr.GetChatCostSummary(ctx)
+	_, _, _, _, err = mgr.GetChatCostSummary(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), countingStore.calls.Load(), "third call after TTL expiry should re-query store")
 }
@@ -3959,12 +3959,12 @@ func TestGetChatCostSummary_ErrorNotCached(t *testing.T) {
 	ctx := context.Background()
 
 	// First error call → count = 1.
-	_, _, _, err = mgr.GetChatCostSummary(ctx)
+	_, _, _, _, err = mgr.GetChatCostSummary(ctx)
 	require.Error(t, err, "should return error from failing store")
 	assert.Equal(t, int64(1), failStore.calls.Load())
 
 	// Second call → error not cached → count = 2.
-	_, _, _, err = mgr.GetChatCostSummary(ctx)
+	_, _, _, _, err = mgr.GetChatCostSummary(ctx)
 	require.Error(t, err)
 	assert.Equal(t, int64(2), failStore.calls.Load(), "error must not be cached: second call should also hit store")
 }
@@ -4007,7 +4007,7 @@ func TestGetChatCostSummary_SeriesDefensiveCopy(t *testing.T) {
 	require.NoError(t, err)
 
 	// First call - populates cache and returns a copy.
-	_, _, series1, err := mgr.GetChatCostSummary(ctx)
+	_, _, _, series1, err := mgr.GetChatCostSummary(ctx)
 	require.NoError(t, err)
 	require.Len(t, series1, 30, "series1 must have 30 elements")
 
@@ -4017,7 +4017,7 @@ func TestGetChatCostSummary_SeriesDefensiveCopy(t *testing.T) {
 
 	// Second call - still within TTL window, must use the cache.
 	// The cached entry must be unaffected by the mutation above.
-	_, _, series2, err := mgr.GetChatCostSummary(ctx)
+	_, _, _, series2, err := mgr.GetChatCostSummary(ctx)
 	require.NoError(t, err)
 	require.Len(t, series2, 30, "series2 must have 30 elements")
 

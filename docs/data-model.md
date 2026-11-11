@@ -1327,6 +1327,7 @@ blueprint's `spent_usd` (0 until recorded). Rows are retained indefinitely; ther
 | `cache_read_tokens`     | INTEGER | `0`     | Cumulative cache-read tokens.              |
 | `cache_creation_tokens` | INTEGER | `0`     | Cumulative cache-creation tokens.          |
 | `estimated_cost_usd`    | REAL    | `0`     | The session's cost at delete time (a blueprint's `spent_usd`, else the estimate); rows archived earlier keep the estimate. |
+| `subscription_cost_usd` | REAL    | `0`     | The part of `estimated_cost_usd` that is an API-equivalent subscription estimate, capped at the session's cost at delete time. |
 | `deleted_at`            | INTEGER | -       | Unix epoch of deletion.                    |
 
 `estimated_cost_usd` is a SQLite `REAL` (IEEE 754 double); rounding drift
