@@ -879,6 +879,52 @@ func TestReportUsageTool_Validation(t *testing.T) {
 		assert.InDelta(t, 0.13, rec.got[0][0].Utilization, 1e-9)
 		assert.Equal(t, "allowed", rec.got[0][0].Status)
 		assert.True(t, rec.got[0][0].ResetsAt.Equal(time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC)))
+
+		getResult := callTool(t, env, "get_card", map[string]any{"project": "test-project", "card_id": card.ID})
+		require.False(t, getResult.IsError)
+
+		var fetched board.Card
+		unmarshalResult(t, getResult, &fetched)
+		require.Len(t, fetched.UsageBreakdown, 1)
+		assert.Equal(t, "subscription", fetched.UsageBreakdown[0].CostBasis)
+		assert.Equal(t, "estimated", fetched.UsageBreakdown[0].CostSource)
+	})
+
+	t.Run("zero resets_at is accepted and forwarded", func(t *testing.T) {
+		rec := &recordedUsage{}
+		env := setupMCP(t, func(c *ServerConfig) { c.SubscriptionUsage = rec })
+		card := createTestCard(t, env, "zero reset", "task", "medium")
+
+		result := callTool(t, env, "report_usage", map[string]any{
+			"project": "test-project", "card_id": card.ID, "agent_id": "agent-1",
+			"prompt_tokens": int64(100), "completion_tokens": int64(50),
+			"cost_basis":         "subscription",
+			"subscription_usage": []any{with(validWindow, "resets_at", "0001-01-01T00:00:00Z")},
+		})
+		require.False(t, result.IsError)
+		require.Len(t, rec.got, 1)
+		require.Len(t, rec.got[0], 1)
+		assert.True(t, rec.got[0][0].ResetsAt.IsZero())
+	})
+
+	t.Run("failed report does not record windows", func(t *testing.T) {
+		rec := &recordedUsage{}
+		env := setupMCP(t, func(c *ServerConfig) { c.SubscriptionUsage = rec })
+		card := createTestCard(t, env, "mismatch", "task", "medium")
+
+		claim := callTool(t, env, "claim_card", map[string]any{
+			"project": "test-project", "card_id": card.ID, "agent_id": "owner",
+		})
+		require.False(t, claim.IsError)
+
+		result := callTool(t, env, "report_usage", map[string]any{
+			"project": "test-project", "card_id": card.ID, "agent_id": "intruder",
+			"prompt_tokens": int64(100), "completion_tokens": int64(50),
+			"cost_basis":         "subscription",
+			"subscription_usage": []any{validWindow},
+		})
+		require.True(t, result.IsError)
+		assert.Empty(t, rec.got)
 	})
 
 	t.Run("nil recorder is skipped", func(t *testing.T) {

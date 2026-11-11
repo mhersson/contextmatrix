@@ -484,8 +484,9 @@ one card. Empty-agent buckets roll up to the dashboard's `unassigned` label.
   `mob_moderator`, `gate`, ...) that fed the bucket beyond the primary phase
   call, sorted; `main` and unknown words are not recorded. On a shared board,
   a pre-role server merges buckets on `(agent, model)` and drops `role` and
-  `steps` when it writes, so upgrade every instance that writes the board
-  together.
+  `steps` when it writes, and a server older than `cost_basis` drops that
+  field, turning subscription buckets into metered ones, so upgrade every
+  instance that writes the board together.
 - The cumulative `TokenUsage` stays equal to the bucket sum: each report
   increments both. Cards with no buckets fall back to `assigned_agent` for
   their rollup.
