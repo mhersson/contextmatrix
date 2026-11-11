@@ -165,11 +165,11 @@ func TestCatalogRateLookup_ClaudeCode(t *testing.T) {
 	b := modelcatalog.NewBuilder("aa-key", 0.5, nil, time.Hour, modelcatalog.WithClaudeCode(),
 		modelcatalog.WithCatalogURLs(aaSrv.URL, orSrv.URL))
 
-	rate, ok := catalogRateLookup(b)("claude-sonnet-5-5")
+	rate, ok := catalogRateLookup(t.Context(), b)("claude-sonnet-5-5")
 	require.True(t, ok)
 	assert.InDelta(t, 3.0/1e6, rate.Prompt, 1e-15)
 	assert.InDelta(t, 15.0/1e6, rate.Completion, 1e-15)
 
-	_, ok = catalogRateLookup(b)("claude-unknown-5-5")
+	_, ok = catalogRateLookup(t.Context(), b)("claude-unknown-5-5")
 	assert.False(t, ok)
 }

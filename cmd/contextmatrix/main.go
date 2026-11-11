@@ -537,7 +537,7 @@ func main() {
 	)
 
 	if catalogBuilder != nil {
-		svc.SetCatalogRateLookup(catalogRateLookup(catalogBuilder))
+		svc.SetCatalogRateLookup(catalogRateLookup(ctx, catalogBuilder))
 
 		svc.SetModelValidator(catalogBuilder.Validate)
 
@@ -929,9 +929,7 @@ func dirHasGit(dir string) bool {
 
 // catalogRateLookup prices a model from the served catalog, then from the
 // Claude Code catalog.
-func catalogRateLookup(b *modelcatalog.Builder) func(string) (service.ModelRate, bool) {
-	ctx := context.Background()
-
+func catalogRateLookup(ctx context.Context, b *modelcatalog.Builder) func(string) (service.ModelRate, bool) {
 	return func(model string) (service.ModelRate, bool) {
 		p, ok := b.Rate(ctx, model)
 		if !ok {
