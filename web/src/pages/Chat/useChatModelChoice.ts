@@ -32,8 +32,9 @@ function keepOrDefault(pick: string, models: ChatModel[], defaultModel: string):
 /**
  * Two model lists and two independent picks, one for chats and one for
  * blueprints. Each kind gets its own list because the LLM channel can start
- * the two kinds in different modes. A failed fetch leaves that list empty,
- * which hides the endpoint picker, and the create POST omits the model.
+ * the two kinds in different modes. A failed first fetch leaves that list
+ * empty, which hides the endpoint picker, and the create POST omits the model;
+ * a failed refetch keeps the previous list and pick.
  * Each pick seeds to its server default so an untouched picker sends what it shows.
  * Both lists refetch when an LLM channel event names a mode other than the one
  * last seen; usage readings fire the same event without a switch.

@@ -120,8 +120,9 @@ Drag-to-reorder rules:
   projects table and the sidebar group projects by repository. The totals keep
   Claude subscription estimates in: a cost tile's tooltip names that part
   ("$X incl. ≈ $Y subscription estimate"), and a cost tile, a model row or a
-  top-cards or projects row with a subscription part carries `≈`; the Cost
-  tile keeps `*` for other estimates. Every `≈` carries the tooltip
+  top-cards or projects row with a subscription part carries `≈`. On the Cost
+  tile `≈` then stands alone; without a subscription part the tile marks
+  rate-table estimates with `*`. Every `≈` carries the tooltip
   "API-equivalent estimate at list price; billed by the Claude subscription".
 
 ## Execution console
