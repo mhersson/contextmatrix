@@ -158,7 +158,7 @@ export function KpiRow({
       <KpiTile
         label="Cost · 30d"
         badge="USD"
-        value={<CostValue amount={costLast30dUsd} estimated={costHasEstimates} />}
+        value={<CostValue amount={costLast30dUsd} estimated={costHasEstimates} subscription={(costSubscriptionUsd ?? 0) > 0} />}
         accent="green"
         neutralValue
         tooltip={costTooltip(COST_TOOLTIP, costLast30dUsd, costSubscriptionUsd)}

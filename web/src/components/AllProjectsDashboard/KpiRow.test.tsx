@@ -159,6 +159,16 @@ describe('KpiRow - subscription estimates', () => {
     expect(costTile(container)?.getAttribute('title')?.startsWith(SUBSCRIPTION_TOOLTIP)).toBe(true);
   });
 
+  it('marks the cost tile with ≈ for a subscription share and keeps * for other estimates', () => {
+    const value = (container: HTMLElement) => costTile(container)?.querySelector('.apd-kpi-value')?.textContent;
+    const { container, unmount } = renderKpiRow({ costLast30dUsd: 10, costHasEstimates: true, costSubscriptionUsd: 2.5 });
+    expect(value(container)).toMatch(/^\$10\.00≈/);
+    unmount();
+
+    const metered = renderKpiRow({ costLast30dUsd: 10, costHasEstimates: true });
+    expect(value(metered.container)).toMatch(/^\$10\.00\*/);
+  });
+
   it('adds nothing without a subscription part', () => {
     const { container } = renderKpiRow({ costLast30dUsd: 10, chatCostLast30dUsd: 3 });
     expect(costTile(container)?.getAttribute('title')).not.toContain('subscription');

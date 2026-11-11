@@ -119,10 +119,10 @@ Drag-to-reorder rules:
   activity feed and a top-cards panel. With more than one boards repository the
   projects table and the sidebar group projects by repository. The totals keep
   Claude subscription estimates in: a cost tile's tooltip names that part
-  ("$X incl. ≈ $Y subscription estimate"), and the Chat cost tile, a model row
-  that includes any, and a top-cards or projects row with a subscription part
-  carry `≈`. Every `≈` carries the tooltip "API-equivalent estimate at list
-  price; billed by the Claude subscription".
+  ("$X incl. ≈ $Y subscription estimate"), and a cost tile, a model row or a
+  top-cards or projects row with a subscription part carries `≈`; the Cost
+  tile keeps `*` for other estimates. Every `≈` carries the tooltip
+  "API-equivalent estimate at list price; billed by the Claude subscription".
 
 ## Execution console
 
