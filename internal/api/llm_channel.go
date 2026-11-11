@@ -67,9 +67,12 @@ type llmChannelCounts struct {
 	Blueprints int `json:"blueprints"`
 }
 
+// llmChannelRunsOnNone is an exception's runs_on when no endpoint is configured.
+const llmChannelRunsOnNone = "none"
+
 type llmChannelException struct {
 	Backend string `json:"backend"`
-	RunsOn  string `json:"runs_on"`
+	RunsOn  string `json:"runs_on"` // endpoint, or none
 }
 
 type llmChannelUsage struct {
@@ -177,9 +180,15 @@ func (h *llmChannelHandlers) build(ctx context.Context) (llmChannelResponse, err
 	}
 
 	if resp.ClaudeCode {
+		// Without an endpoint an unsupported backend gets no llm_endpoint and fails closed.
+		runsOn := string(llmchannel.ModeEndpoint)
+		if resp.Endpoint == nil {
+			runsOn = llmChannelRunsOnNone
+		}
+
 		for _, kind := range h.backends {
 			if !h.state.Supported(kind) {
-				resp.Exceptions = append(resp.Exceptions, llmChannelException{Backend: kind, RunsOn: string(llmchannel.ModeEndpoint)})
+				resp.Exceptions = append(resp.Exceptions, llmChannelException{Backend: kind, RunsOn: runsOn})
 			}
 		}
 	}

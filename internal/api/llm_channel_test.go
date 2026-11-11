@@ -237,6 +237,27 @@ func TestGetLLMChannel_NothingConfigured(t *testing.T) {
 	assert.Empty(t, body["exceptions"])
 }
 
+// Without an endpoint an unsupported backend has nowhere to run.
+func TestGetLLMChannel_ClaudeCodeOnlyExceptionRunsOnNone(t *testing.T) {
+	holder, err := llmchannel.New(context.Background(), llmchannel.Config{
+		OAuthToken: llmChannelTestToken,
+		Supported:  []string{config.BackendNameChat},
+	}, memChannelStore{}, events.NewBus())
+	require.NoError(t, err)
+
+	srv := newSelectorAdminServer(t, RouterConfig{
+		LLMChannelState:   holder,
+		LLMChannelStore:   &fakeLLMChannelStore{},
+		ConfiguredBackend: []string{config.BackendNameAgent, config.BackendNameChat},
+	}, false)
+
+	code, _, body := getLLMChannel(t, srv, nil)
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, "claude_code", body["mode"])
+	assert.Nil(t, body["endpoint"])
+	assert.Equal(t, []any{map[string]any{"backend": "agent", "runs_on": "none"}}, body["exceptions"])
+}
+
 func putLLMChannel(t *testing.T, srv *httptest.Server, body any, cookie *http.Cookie) (*http.Response, map[string]any) {
 	t.Helper()
 

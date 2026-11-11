@@ -860,8 +860,8 @@ export interface LLMChannelView {
   claude_code: boolean;
   /** Live work per mode; runs keep the mode they started with. */
   in_flight: Record<LLMChannel, LLMChannelCounts>;
-  /** Backends with no Claude Code support, which stay on `runs_on`. */
-  exceptions: { backend: 'agent' | 'chat' | 'architect'; runs_on: LLMChannel }[];
+  /** Backends with no Claude Code support: they stay on the endpoint, or with none configured (`none`) cannot run. */
+  exceptions: { backend: 'agent' | 'chat' | 'architect'; runs_on: 'endpoint' | 'none' }[];
   usage: LLMChannelUsage[];
   updated_at?: string;
   updated_by?: string;

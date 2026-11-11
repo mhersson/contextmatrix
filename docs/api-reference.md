@@ -1062,8 +1062,9 @@ subscription usage. Any session in `multi` mode; open in `none` mode.
   `warm-idle` chats and blueprints by their `llm_channel`. A recorded card
   run whose worker has ended is closed by this read.
 - `exceptions` lists each enabled backend that is not in
-  `claude_code.backends`: it stays on the endpoint while the mode is
-  `claude_code`. Empty without a token.
+  `claude_code.backends`. Its `runs_on` is `endpoint`: it stays on the
+  endpoint while the mode is `claude_code`; or `none` when `llm_endpoint` is
+  unset: it gets no endpoint and fails closed. Empty without a token.
 - `usage` is the last reading of each subscription window, ordered by
   window. `status` is the vendor's (`allowed`, `allowed_warning`, `rejected`)
   and may be empty; `stale` is `true` once `resets_at` has passed, since the

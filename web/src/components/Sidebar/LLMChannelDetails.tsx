@@ -151,7 +151,7 @@ export function LLMChannelDetails({ view, canSwitch, onSwitch, error }: LLMChann
       {channelExceptions(view).map((e) => (
         <div key={e.text} className="llm-line">
           <span className="llm-line__icon llm-line__icon--yellow"><WarnIcon /></span>
-          <span>{`${e.text}: ${e.reason}`}</span>
+          <span>{e.detail}</span>
         </div>
       ))}
     </>

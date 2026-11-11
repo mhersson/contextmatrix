@@ -165,8 +165,9 @@ for what the channel does.
 - A line under the strip says only what needs saying, in this order: "Limit
   reached · resets Thu 14:00" while a window is rejected on Claude Code, how
   much live work is still on the other mode ("2 still on OpenRouter"), and on
-  Claude Code each backend that stays on the endpoint ("Blueprints stay on
-  OpenRouter").
+  Claude Code each backend without Claude Code support: "Blueprints stay on
+  OpenRouter", or with no endpoint configured "Blueprints unavailable: no
+  endpoint is configured and the architect has no Claude Code support yet".
 - Clicking the strip opens a popover. Escape, a click outside it or moving
   focus out of it closes it.
   - Viewers who may switch, an admin in `multi` mode or anyone in `none`
@@ -184,8 +185,10 @@ for what the channel does.
     reported, never live.
   - While a window is rejected on Claude Code: "Runs park until the reset;
     nothing falls back to" the endpoint.
-  - On Claude Code, each backend that stays on the endpoint, with the reason
-    ("the architect has no Claude Code support yet").
+  - On Claude Code, each backend without Claude Code support, with the
+    reason ("Blueprints stay on OpenRouter: the architect has no Claude Code
+    support yet"), or the same unavailable line as above when no endpoint is
+    configured.
 - A switch governs new work only (see
   [sticky runs](remote-execution.md#sticky-runs)).
 - The strip loads with the page and on every event-stream reconnect. While

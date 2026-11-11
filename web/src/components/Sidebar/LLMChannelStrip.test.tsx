@@ -208,6 +208,21 @@ describe('LLMChannelStrip', () => {
     expect(within(popover()).queryByText(/stay on/)).toBeNull();
   });
 
+  it('names an exception unavailable when no endpoint is configured', async () => {
+    getMock.mockResolvedValue(view({
+      switchable: false,
+      endpoint: null,
+      exceptions: [{ backend: 'agent', runs_on: 'none' }],
+    }));
+    render(<LLMChannelStrip />);
+    const line = 'Card runs unavailable: no endpoint is configured and the agent has no Claude Code support yet';
+    const s = await strip();
+    expect(s).toHaveAccessibleDescription(line);
+    const pop = await openPopover();
+    expect(within(pop).getByText(line)).toBeInTheDocument();
+    expect(within(pop).queryByText(/stay on/)).toBeNull();
+  });
+
   it('opens the popover on a click and closes it on Escape, an outside click or a second click', async () => {
     getMock.mockResolvedValue(view());
     render(<><LLMChannelStrip /><button>elsewhere</button></>);

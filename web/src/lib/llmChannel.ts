@@ -87,19 +87,25 @@ const exceptionFeature = { agent: 'Card runs', chat: 'Chats', architect: 'Bluepr
 const exceptionBackend = { agent: 'the agent', chat: 'the chat backend', architect: 'the architect' } as const;
 
 export interface ChannelException {
-  /** "Blueprints stay on OpenRouter" */
+  /** Sub-line text: "Blueprints stay on OpenRouter" */
   text: string;
-  /** "the architect has no Claude Code support yet" */
-  reason: string;
+  /** Popover line, with the reason: "Blueprints stay on OpenRouter: the architect has no Claude Code support yet" */
+  detail: string;
 }
 
-/** Backends that stay on the endpoint; only worth saying while Claude Code is active. */
+/** Backends without Claude Code support; only worth saying while Claude Code is active. */
 export function channelExceptions(view: LLMChannelView): ChannelException[] {
   if (view.mode !== 'claude_code') return [];
-  return view.exceptions.map((e) => ({
-    text: `${exceptionFeature[e.backend] ?? e.backend} stay on ${channelLabel(view, e.runs_on)}`,
-    reason: `${exceptionBackend[e.backend] ?? e.backend} has no Claude Code support yet`,
-  }));
+  return view.exceptions.map((e) => {
+    const feature = exceptionFeature[e.backend] ?? e.backend;
+    const reason = `${exceptionBackend[e.backend] ?? e.backend} has no Claude Code support yet`;
+    if (e.runs_on === 'none') {
+      const text = `${feature} unavailable: no endpoint is configured and ${reason}`;
+      return { text, detail: text };
+    }
+    const text = `${feature} stay on ${channelLabel(view, 'endpoint')}`;
+    return { text, detail: `${text}: ${reason}` };
+  });
 }
 
 export interface SubLineItem {

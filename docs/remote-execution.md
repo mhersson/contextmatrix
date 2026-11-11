@@ -972,7 +972,8 @@ the token only where everyone who can start work is its owner.
    comma-separated). List a backend only once its running release supports
    Claude Code: CM cannot check, and in `claude_code` mode it sends the token
    to every listed backend. A backend left out keeps the endpoint while the
-   mode is `claude_code`, and the UI names it as an exception.
+   mode is `claude_code`, or fails closed when no endpoint is configured, and
+   the UI names it as an exception.
 4. Optionally set `claude_code.default_model`: `claude-sonnet-5-5` (the
    default), `claude-opus-5-5` or `claude-haiku-5-5`.
 
