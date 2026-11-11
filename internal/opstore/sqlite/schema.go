@@ -130,6 +130,14 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			updated_at INTEGER NOT NULL,
 			updated_by TEXT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS card_run_modes (
+			project    TEXT NOT NULL,
+			card_id    TEXT NOT NULL,
+			mode       TEXT NOT NULL,
+			started_at INTEGER NOT NULL,
+			ended_at   INTEGER,
+			PRIMARY KEY (project, card_id)
+		)`,
 		`CREATE TABLE IF NOT EXISTS jira_writeback (
 			project         TEXT NOT NULL,
 			card_id         TEXT NOT NULL,

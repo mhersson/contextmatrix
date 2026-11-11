@@ -3198,7 +3198,12 @@ default_skills:
 // --- SelectionContext assembly for agent backend ---
 
 type stubCatalog struct {
-	candidates []protocol.CandidateModel
+	candidates       []protocol.CandidateModel
+	claudeCandidates []protocol.CandidateModel
+}
+
+func (s *stubCatalog) ClaudeCodeCandidates(_ context.Context) []protocol.CandidateModel {
+	return s.claudeCandidates
 }
 
 func (s *stubCatalog) Candidates(_ context.Context) []protocol.CandidateModel {

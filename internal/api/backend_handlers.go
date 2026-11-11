@@ -12,6 +12,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/backend/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/githubauth"
+	"github.com/mhersson/contextmatrix/internal/llmchannel"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -38,6 +39,21 @@ const (
 // package does not import modelcatalog.
 type catalogProvider interface {
 	Candidates(ctx context.Context) []protocol.CandidateModel
+	ClaudeCodeCandidates(ctx context.Context) []protocol.CandidateModel
+}
+
+// LLMChannelResolver is the slice of the LLM channel holder that card
+// triggers use. Implemented by *llmchannel.Holder.
+type LLMChannelResolver interface {
+	Effective(kind llmchannel.Kind) llmchannel.Mode
+	EndpointFor(kind llmchannel.Kind, recorded llmchannel.Mode) (*protocol.LLMEndpoint, llmchannel.Mode)
+	ResolveModel(mode llmchannel.Mode, model, endpointDefault string) string
+}
+
+// CardRunRecorder stores the LLM channel mode each card run started in.
+// Implemented by opstore/sqlite.Store.
+type CardRunRecorder interface {
+	OpenCardRun(ctx context.Context, project, cardID, mode string, at time.Time) error
 }
 
 // blacklistReader returns the set of OpenRouter slugs that must never be
@@ -109,6 +125,13 @@ type backendHandlers struct {
 	// trigger payload. nil when llm_endpoint is unconfigured; the wire field is
 	// then omitted and the backends fail closed rather than using a local key.
 	llmEndpoint *protocol.LLMEndpoint
+
+	// llmChannel picks the endpoint, catalog and model by the global LLM
+	// channel mode. nil keeps llmEndpoint and the backend default model.
+	llmChannel LLMChannelResolver
+
+	// cardRuns records each run's mode; nil skips the record.
+	cardRuns CardRunRecorder
 
 	// instanceTokenProvider mints the instance-scoped git credential attached
 	// to task-skills-source responses. Unlike providerForProject (per-project,

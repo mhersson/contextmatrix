@@ -292,6 +292,12 @@ type RouterConfig struct {
 	// place). nil when llm_endpoint is unset; the trigger then carries no
 	// endpoint and the backend refuses the run.
 	LLMEndpoint *protocol.LLMEndpoint
+
+	// LLMChannel selects the card-trigger endpoint, candidates and model by
+	// the global LLM channel mode; CardRuns records the mode each run
+	// started in. Both are nil in deployments without the channel wiring.
+	LLMChannel LLMChannelResolver
+	CardRuns   CardRunRecorder
 	// BestOfN bounds the card-level best_of_n field: cardHandlers rejects
 	// any value outside 0 or 2..MaxCandidates. Zero value (MaxCandidates 0)
 	// means only 0 validates - effectively disabling best_of_n until
@@ -650,6 +656,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		taskSkillsGitRemoteURL: cfg.TaskSkillsGitRemoteURL,
 		providerForProject:     cfg.ProviderForProject,
 		llmEndpoint:            cfg.LLMEndpoint,
+		llmChannel:             cfg.LLMChannel,
+		cardRuns:               cfg.CardRuns,
 		instanceTokenProvider:  cfg.GitHubTokenProvider,
 	}
 

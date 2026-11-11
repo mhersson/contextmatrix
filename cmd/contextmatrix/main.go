@@ -584,7 +584,7 @@ func main() {
 
 	// Wire backend subsystems: client, end-session subscriber, reconcile sweep,
 	// and session-log manager.
-	backendSys := wireBackendSubsystems(ctx, cfg, svc, bus)
+	backendSys := wireBackendSubsystems(ctx, cfg, svc, bus, opStore)
 
 	// Interface fields must stay untyped-nil when the backend is disabled -
 	// a nil *backend.Client wrapped in the interface would defeat every
@@ -768,6 +768,8 @@ func main() {
 		AuthService:            authSvc,
 		AuthMode:               cfg.Auth.Mode,
 		LLMEndpoint:            llmEndpointFromConfig(cfg.LLMEndpoint),
+		LLMChannel:             llmChannel,
+		CardRuns:               opStore,
 		BestOfN:                cfg.BestOfN,
 		Mob:                    cfg.Mob,
 		KnowledgeProviders:     cfg.Knowledge.ProviderNames(),
