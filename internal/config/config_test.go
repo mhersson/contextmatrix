@@ -4455,6 +4455,17 @@ claude_code:
 
 		assert.Equal(t, []string{"agent"}, cfg.ClaudeCode.Backends)
 	})
+
+	for name, v := range map[string]string{"commas only": ",", "whitespace only": " "} {
+		t.Run(name+" env keeps yaml", func(t *testing.T) {
+			t.Setenv("CONTEXTMATRIX_CLAUDE_CODE_BACKENDS", v)
+
+			cfg, err := Load(path)
+			require.NoError(t, err)
+
+			assert.Equal(t, []string{"agent"}, cfg.ClaudeCode.Backends)
+		})
+	}
 }
 
 func TestLoad_ClaudeCodeInvalidDoesNotLeakToken(t *testing.T) {

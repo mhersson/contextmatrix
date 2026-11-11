@@ -2194,7 +2194,7 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_CLAUDE_CODE_BACKENDS"); v != "" {
-		backends := []string{}
+		var backends []string
 
 		for s := range strings.SplitSeq(v, ",") {
 			if s = strings.TrimSpace(s); s != "" {
@@ -2202,7 +2202,9 @@ func applyEnvOverrides(cfg *Config) error {
 			}
 		}
 
-		cfg.ClaudeCode.Backends = backends
+		if len(backends) > 0 {
+			cfg.ClaudeCode.Backends = backends
+		}
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_CLAUDE_CODE_DEFAULT_MODEL"); v != "" {
