@@ -229,3 +229,89 @@ func TestContextWindow_FallsBackToClaudeCodeList(t *testing.T) {
 		})
 	}
 }
+
+// A refresh whose AA fetch fails keeps the Claude Code pair the last
+// successful refresh built.
+func TestBuilder_ClaudeCodeFailedRefreshKeepsLastGood(t *testing.T) {
+	t.Parallel()
+
+	var failAA atomic.Bool
+
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if failAA.Load() {
+			w.WriteHeader(http.StatusInternalServerError)
+
+			return
+		}
+
+		_, _ = w.Write([]byte(aaClaudeCodePage))
+	}))
+	t.Cleanup(aaSrv.Close)
+
+	orSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	t.Cleanup(orSrv.Close)
+
+	b := NewBuilder("aa-key", 0.5, nil, time.Minute, WithClaudeCode())
+	b.aaEndpoint = aaSrv.URL
+	b.orEndpoint = orSrv.URL
+
+	ctx := context.Background()
+
+	require.Len(t, b.ClaudeCodeCandidates(ctx), 3)
+
+	want, ok := b.ClaudeCodeRate(ctx, "claude-opus-5-5")
+	require.True(t, ok)
+
+	failAA.Store(true)
+	b.mu.Lock()
+	b.cachedAt = time.Now().Add(-2 * time.Hour)
+	b.lastRefreshAttempt = time.Time{}
+	b.mu.Unlock()
+
+	assert.Len(t, b.ClaudeCodeCandidates(ctx), 3)
+
+	got, ok := b.ClaudeCodeRate(ctx, "claude-opus-5-5")
+	require.True(t, ok)
+	assert.Equal(t, want, got)
+}
+
+// The endpoint (openai-compatible) leg derives the Claude Code pair from the
+// same AA fetch as the OpenRouter leg.
+func TestBuilder_ClaudeCodeEndpointLeg(t *testing.T) {
+	t.Parallel()
+
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(aaClaudeCodePage))
+	}))
+	t.Cleanup(aaSrv.Close)
+
+	epSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"model-a","context_length":200000,
+			"pricing":{"prompt":"0.000003","completion":"0.000015"},
+			"capabilities":{"features":["tools"]}}]}`))
+	}))
+	t.Cleanup(epSrv.Close)
+
+	b := NewBuilder("aa-key", 0.5, nil, time.Hour,
+		WithClaudeCode(), WithEndpoint(epSrv.URL, "secret", nil))
+	b.aaEndpoint = aaSrv.URL
+
+	ctx := context.Background()
+	got := map[string]float64{}
+
+	for _, c := range b.ClaudeCodeCandidates(ctx) {
+		got[c.Slug] = c.CoderPrior
+	}
+
+	assert.InDelta(t, 1.0, got["claude-opus-5-5"], 1e-12)
+	assert.InDelta(t, 48.0/60, got["claude-sonnet-5-5"], 1e-12)
+	assert.InDelta(t, 36.0/60, got["claude-haiku-5-5"], 1e-12)
+	assert.Len(t, got, 3)
+
+	p, ok := b.ClaudeCodeRate(ctx, "claude-opus-5-5")
+	require.True(t, ok)
+	assert.InDelta(t, 5.0/1e6, p.Prompt, 1e-15)
+	assert.InDelta(t, 25.0/1e6, p.Completion, 1e-15)
+}
