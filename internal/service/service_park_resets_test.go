@@ -208,3 +208,35 @@ func TestParkResetsAt_HiddenWhenNotParked(t *testing.T) {
 	require.Len(t, listed, 1)
 	assert.Nil(t, listed[0].ParkResetsAt)
 }
+
+func TestReportParked_NoResetTimeDropsStaleRow(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	fake := newFakeParkResets()
+	svc.SetParkResetStore(fake)
+
+	id := claimedCard(t, svc)
+	resets := time.Now().Add(time.Hour)
+
+	_, err := svc.ReportParked(ctx, "test-project", id, "agent-1", "usage limit", &resets)
+	require.NoError(t, err)
+
+	// Leave parked without queueing: the row survives.
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", id, "failed", "crashed")
+	require.NoError(t, err)
+	require.True(t, fake.has("test-project", id))
+
+	_, err = svc.ClaimCard(ctx, "test-project", id, "agent-1")
+	require.NoError(t, err)
+
+	got, err := svc.ReportParked(ctx, "test-project", id, "agent-1", "review parked", nil)
+	require.NoError(t, err)
+	assert.Nil(t, got.ParkResetsAt)
+
+	fetched, err := svc.GetCard(ctx, "test-project", id)
+	require.NoError(t, err)
+	assert.Equal(t, "parked", fetched.WorkerStatus)
+	assert.Nil(t, fetched.ParkResetsAt)
+}

@@ -290,12 +290,17 @@ func (s *CardService) ReportParked(ctx context.Context, project, id, agentID, re
 
 	data := map[string]any{"worker_status": "parked", "reason": reason}
 
-	if resetsAt != nil && !resetsAt.IsZero() && s.parkResets != nil {
-		if err := s.parkResets.PutParkReset(ctx, project, id, *resetsAt); err != nil {
-			ctxlog.Logger(ctx).Warn("record park reset failed", "card_id", id, "project", project, "error", err)
-		} else {
-			at := *resetsAt
-			card.ParkResetsAt = &at
+	if s.parkResets != nil {
+		if resetsAt != nil && !resetsAt.IsZero() {
+			if err := s.parkResets.PutParkReset(ctx, project, id, *resetsAt); err != nil {
+				ctxlog.Logger(ctx).Warn("record park reset failed", "card_id", id, "project", project, "error", err)
+			} else {
+				at := *resetsAt
+				card.ParkResetsAt = &at
+			}
+		} else if err := s.parkResets.ClearParkReset(ctx, project, id); err != nil {
+			// A row left by an earlier park must not read as this park's reset.
+			ctxlog.Logger(ctx).Warn("clear park reset failed", "card_id", id, "project", project, "error", err)
 		}
 	}
 
