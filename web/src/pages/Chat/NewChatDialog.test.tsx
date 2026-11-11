@@ -57,9 +57,9 @@ vi.mock('../../hooks/useSSEBus', () => ({
   }),
 }));
 
-function emit(type: string) {
+function emit(type: string, data?: Record<string, unknown>) {
   const prefix = type.slice(0, type.indexOf('.'));
-  act(() => bus.handlers.get(`${prefix}.*`)?.({ type, project: '', card_id: '', timestamp: '' } as BoardEvent));
+  act(() => bus.handlers.get(`${prefix}.*`)?.({ type, project: '', card_id: '', timestamp: '', data } as BoardEvent));
 }
 
 let architectEnabled = true;
@@ -239,7 +239,7 @@ describe('NewChatDialog', () => {
       modelList = claudeModels;
       chatDefault = 'claude-sonnet-5-5';
       architectList = { source: 'claude_code', models: claudeModels, default: 'claude-opus-5-5' };
-      emit('llm_channel.changed');
+      emit('llm_channel.changed', { mode: 'claude_code' });
     }
 
     it('offers the new lists for chats and blueprints', async () => {
@@ -268,12 +268,57 @@ describe('NewChatDialog', () => {
       renderDialog();
       fireEvent.change(await screen.findByLabelText('Model'), { target: { value: 'other/priced' } });
       modelList = baseModels.filter((m) => m.id !== 'free/unpriced');
-      emit('llm_channel.changed');
+      emit('llm_channel.changed', { mode: 'claude_code' });
       await waitFor(() => expect(screen.queryByRole('option', { name: /Free unpriced/ })).not.toBeInTheDocument());
       expect(screen.getByLabelText('Model')).toHaveValue('other/priced');
       fireEvent.click(screen.getByRole('button', { name: 'Create chat' }));
       await waitFor(() => expect(createChat).toHaveBeenCalled());
       expect(createChat.mock.calls[0][0].model).toBe('other/priced');
+    });
+
+    // An empty OpenRouter catalog degrades the picker to free text.
+    async function typeSlug(slug: string) {
+      modelSource = 'openrouter';
+      modelList = [];
+      renderDialog();
+      fireEvent.change(await screen.findByLabelText('Model'), { target: { value: slug } });
+      await act(async () => {});
+      expect(listChatModels).toHaveBeenCalledTimes(2);
+    }
+
+    it('ignores an event that repeats the mode or names none, and keeps a typed slug', async () => {
+      await typeSlug('vendor/typed-slug');
+      emit('llm_channel.changed', { mode: 'endpoint' });
+      emit('llm_channel.changed');
+      await act(async () => {});
+      expect(listChatModels).toHaveBeenCalledTimes(2);
+      expect(screen.getByLabelText('Model')).toHaveValue('vendor/typed-slug');
+      fireEvent.click(screen.getByRole('button', { name: 'Create chat' }));
+      await waitFor(() => expect(createChat).toHaveBeenCalled());
+      expect(createChat.mock.calls[0][0].model).toBe('vendor/typed-slug');
+    });
+
+    it('takes the mode from a claude_code list, so usage readings on it refetch nothing', async () => {
+      modelSource = 'claude_code';
+      modelList = claudeModels;
+      chatDefault = 'claude-sonnet-5-5';
+      renderDialog();
+      await waitFor(() => expect(screen.getByLabelText('Model')).toHaveValue('claude-sonnet-5-5'));
+      await act(async () => {});
+      emit('llm_channel.changed', { mode: 'claude_code' });
+      emit('llm_channel.changed', { mode: 'claude_code' });
+      await act(async () => {});
+      expect(listChatModels).toHaveBeenCalledTimes(2);
+    });
+
+    it('refetches on a mode change and moves a typed slug the new list lacks to its default', async () => {
+      await typeSlug('vendor/typed-slug');
+      switchToClaudeCode();
+      await waitFor(() => expect(screen.getByLabelText('Model')).toHaveValue('claude-sonnet-5-5'));
+      expect(listChatModels).toHaveBeenCalledTimes(4);
+      fireEvent.click(screen.getByRole('button', { name: 'Create chat' }));
+      await waitFor(() => expect(createChat).toHaveBeenCalled());
+      expect(createChat.mock.calls[0][0].model).toBe('claude-sonnet-5-5');
     });
   });
 

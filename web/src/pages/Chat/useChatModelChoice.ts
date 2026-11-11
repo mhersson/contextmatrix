@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api/client';
 import { useSSEBus } from '../../hooks/useSSEBus';
 import type { ChatModel, ChatModelList } from '../../types';
@@ -35,7 +35,8 @@ function keepOrDefault(pick: string, models: ChatModel[], defaultModel: string):
  * the two kinds in different modes. A failed fetch leaves that list empty,
  * which hides the endpoint picker, and the create POST omits the model.
  * Each pick seeds to its server default so an untouched picker sends what it shows.
- * Both lists refetch on every LLM channel event, since a switch changes catalogs.
+ * Both lists refetch when an LLM channel event names a mode other than the one
+ * last seen; usage readings fire the same event without a switch.
  */
 export function useChatModelChoice(): ChatModelChoices {
   const [model, setModel] = useState('');
@@ -43,14 +44,26 @@ export function useChatModelChoice(): ChatModelChoices {
   const [chatList, setChatList] = useState<ModelList>(EMPTY);
   const [blueprintList, setBlueprintList] = useState<ModelList>(EMPTY);
   const [channelEpoch, setChannelEpoch] = useState(0);
+  // The global mode the lists match: seeded by the first fetch, else by the first event.
+  const seenMode = useRef<string | null>(null);
   const { subscribe } = useSSEBus();
 
-  useEffect(() => subscribe('llm_channel.*', () => setChannelEpoch((n) => n + 1)), [subscribe]);
+  useEffect(
+    () =>
+      subscribe('llm_channel.*', (e) => {
+        const mode = e.data?.mode;
+        if (typeof mode !== 'string' || mode === seenMode.current) return;
+        seenMode.current = mode;
+        setChannelEpoch((n) => n + 1);
+      }),
+    [subscribe],
+  );
 
   useEffect(() => {
     let cancelled = false;
-    void api
-      .listChatModels()
+    const chatFetch = api.listChatModels();
+    const blueprintFetch = api.listChatModels('architect');
+    void chatFetch
       .then((resp) => {
         if (cancelled) return;
         setChatList({ source: resp.source ?? 'endpoint', models: resp.models, defaultModel: resp.default });
@@ -59,8 +72,7 @@ export function useChatModelChoice(): ChatModelChoices {
       .catch((e) => {
         console.warn('listChatModels failed; picker disabled', e);
       });
-    void api
-      .listChatModels('architect')
+    void blueprintFetch
       .then((resp) => {
         if (cancelled) return;
         setBlueprintList({ source: resp.source ?? 'endpoint', models: resp.models, defaultModel: resp.architect_default });
@@ -69,6 +81,13 @@ export function useChatModelChoice(): ChatModelChoices {
       .catch((e) => {
         console.warn('listChatModels(architect) failed; picker disabled', e);
       });
+    // A list on claude_code means the mode is; with none, it is endpoint or no list follows the mode.
+    void Promise.allSettled([chatFetch, blueprintFetch]).then((results) => {
+      if (cancelled || seenMode.current !== null) return;
+      seenMode.current = results.some((r) => r.status === 'fulfilled' && r.value.source === 'claude_code')
+        ? 'claude_code'
+        : 'endpoint';
+    });
     return () => {
       cancelled = true;
     };
