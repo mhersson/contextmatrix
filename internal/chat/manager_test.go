@@ -32,6 +32,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
 	"github.com/mhersson/contextmatrix/internal/metrics"
+	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
@@ -7534,6 +7535,11 @@ func TestOpenCold_AdoptsCurrentMode(t *testing.T) {
 			name: "claude_code row opens on the endpoint", createdIn: llmchannel.ModeClaudeCode, openIn: llmchannel.ModeEndpoint,
 			model: "claude-opus-5-5", wantEndpoint: channelEndpoint(), wantModel: "chat/default",
 		},
+		{
+			// An endpoint that serves bare Claude IDs keeps them.
+			name: "endpoint row keeps a bare Claude ID", createdIn: llmchannel.ModeEndpoint, openIn: llmchannel.ModeEndpoint,
+			model: "claude-opus-5-5", wantEndpoint: channelEndpoint(), wantModel: "claude-opus-5-5",
+		},
 	}
 
 	for _, tt := range tests {
@@ -7666,8 +7672,11 @@ func TestColdPrep_ArchitectModelInClaudeCode(t *testing.T) {
 	want := protocol.ModelPrice{PromptUSDPerMTok: 3, CompletionUSDPerMTok: 15, CacheReadUSDPerMTok: 0.3, CacheWriteUSDPerMTok: 3.75}
 	ch := newChannel(t, llmchannel.ModeClaudeCode, config.BackendNameChat, config.BackendNameArchitect)
 
+	var noCatalog *modelcatalog.Builder
+
 	mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) {
 		c.LLMChannel = ch
+		c.ArchitectContextWindow = noCatalog.ContextWindow
 		c.ArchitectPrice = func(model string) (protocol.ModelPrice, bool) {
 			if model == "claude-sonnet-5-5" {
 				return want, true
@@ -7690,6 +7699,7 @@ func TestColdPrep_ArchitectModelInClaudeCode(t *testing.T) {
 	require.NotNil(t, opts.Architect)
 	require.NotNil(t, opts.Architect.Price)
 	assert.Equal(t, want, *opts.Architect.Price)
+	assert.Equal(t, 1_000_000, opts.Architect.ContextWindow)
 
 	// Without a price the start carries the cap alone: an uncapped blueprint
 	// runs with no cap, and the architect refuses the capped one's runs.

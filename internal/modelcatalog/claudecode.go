@@ -41,6 +41,18 @@ func ClaudeCodeID(name string) (string, bool) {
 	return id, true
 }
 
+// claudeCodeContextWindow is the static window of a Claude Code catalog ID, 0
+// for any other name. Only exact IDs match: a window lookup resolves no names.
+func claudeCodeContextWindow(name string) int {
+	for _, m := range ClaudeCodeModels() {
+		if m.ID == name {
+			return m.ContextWindow
+		}
+	}
+
+	return 0
+}
+
 // WithClaudeCode makes the Builder derive the Claude Code catalog from the
 // Artificial Analysis fetch it already does. It needs the AA key.
 func WithClaudeCode() BuilderOption {

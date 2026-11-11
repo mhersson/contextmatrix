@@ -2585,7 +2585,7 @@ management lives under `/api/admin/chats`.
 | `pinned`                                                                           | omitempty | `true` once pinned; set through `PATCH /api/chats/{id}`                                    |
 | `spent_usd`                                                                        | omitempty | Architect sessions only: the architect's `cost.spent_usd` as CM last read it; absent until the first read. CM reads it on each blueprint view read, after each architect run, and once at startup for a blueprint without one |
 | `assistant_working`, `assistant_working_since`                                     | omitempty | In-memory presence derived from `status` log frames                                        |
-| `llm_channel`                                                                      | always    | `endpoint` or `claude_code`: the LLM channel mode the session starts in, set at creation and at every cold `/open`. A live session keeps it; a cold open adopts the current mode |
+| `llm_channel`                                                                      | always    | `endpoint` or `claude_code`: the LLM channel mode the session starts in, set at creation and at every cold open (an `/open` or a send to a cold session). A live session keeps it; a cold open adopts the current mode |
 
 ### POST /api/chats
 
@@ -2599,17 +2599,19 @@ All three fields are optional, but the body must be valid JSON (`{}` at
 minimum). An empty `title` is filled from the first user message; `project`
 may be empty for cross-project chats; `model` defaults to
 `backends.chat.default_model` (`claude_code.default_model` while new chats
-start in `claude_code` mode) and is forwarded to the container on every
-`/open`, mapped onto the catalog of the mode that open starts in.
+start in `claude_code` mode) and is forwarded to the container on every cold
+open. A `claude_code` open maps it onto the Claude Code catalog; an endpoint
+open maps it only when the session last ran on `claude_code`, so a bare Claude
+Code ID then becomes the backend default.
 
-Model validation follows the active source (see `GET /api/chats/models`):
+Model validation follows the mode the session's kind starts in. In
+`claude_code` mode `model` must map to a Claude Code catalog ID (stored as
+that ID). Otherwise it follows the active source (see `GET /api/chats/models`):
 in `endpoint` mode `model` must be in the endpoint's served list, in
-`openrouter` mode in CM's vendor-screened catalog, in `claude_code` mode it
-must map to a Claude Code catalog ID (stored as that ID); an unknown model is
-400 `INVALID_MODEL`, and an unfetched or failed list fails open. `claude_code`
-mode wins over both others; when both an OpenAI-compatible endpoint and an
-OpenRouter chat backend are configured, endpoint mode wins. With none, the
-value is accepted unvalidated.
+`openrouter` mode in CM's vendor-screened catalog. An unknown model is 400
+`INVALID_MODEL`, and an unfetched or failed list fails open. When both an
+OpenAI-compatible endpoint and an OpenRouter chat backend are configured,
+endpoint mode wins. With neither, the value is accepted unvalidated.
 
 A blueprint session on the architect backend takes its own fields:
 
@@ -2628,9 +2630,11 @@ has the architect plan so the playbook run never stops for a person except at
 a real gate, and put the checks a person makes after the run in the playbook's
 follow-ups. It is fixed at creation, no endpoint changes it, and it is ignored
 on a chat session. `model` is not defaulted at create for architect sessions:
-the cold open uses `backends.architect.default_model`. A `model` equal to that
-default is accepted without catalog validation, exactly like an omitted one;
-any other model is validated against the catalog as for chat sessions.
+the cold open uses `backends.architect.default_model` (`claude_code.default_model`
+when the architect starts in `claude_code` mode). A `model` equal to
+`backends.architect.default_model` is accepted without catalog validation,
+exactly like an omitted one; any other model is validated as for chat
+sessions, by the mode the architect starts in.
 Violations are 400 `INVALID_CHAT_INPUT` with the reason in `details`; a create
 with no architect backend configured is 409 `CHAT_KIND_UNAVAILABLE`.
 
@@ -2665,8 +2669,9 @@ Tells the New Chat dialog which model picker to render.
   upstream fetch fails the response carries `fetch_error` with an empty
   list. Also returned as
   `{"source":"endpoint","models":[],"default":"","architect_default":""}` when
-  no chat backend is configured (`architect_default` is still the architect
-  entry's default when that backend is configured).
+  no chat backend is configured and new chats do not start in `claude_code`
+  mode (`architect_default` is still the architect entry's default when that
+  backend is configured).
 - `"claude_code"`: new chats start in `claude_code` mode (the LLM channel is
   `claude_code` and `chat` is in `claude_code.backends`). `models` is the
   Claude Code catalog (`claude-opus-5-5`, `claude-sonnet-5-5`,
@@ -2675,8 +2680,8 @@ Tells the New Chat dialog which model picker to render.
 
 `architect_default` is always present: `backends.architect.default_model` when
 the architect backend is configured (`claude_code.default_model` under the
-`claude_code` source when the architect runs in that mode too), else `""`. The New blueprint dialog seeds
-its model pick from it.
+`claude_code` source when the architect runs in that mode too), else `""`.
+The New blueprint dialog seeds its model pick from it.
 
 Blacklisted models carry `"blacklisted": true` (absent otherwise, best-effort
 join, informational only - see `GET /api/models`). Models CM cannot price

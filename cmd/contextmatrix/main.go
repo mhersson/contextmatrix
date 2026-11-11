@@ -578,7 +578,7 @@ func main() {
 
 	// Chat: manager + SSE hub + idle reaper + warm-idle grace timer. The chat
 	// store is the shared operational store (opStore) opened above.
-	// ContextWindow is nil-receiver safe, so a deployment without a catalog sends no context window.
+	// ContextWindow is nil-receiver safe: a deployment without a catalog sends a window only for Claude Code IDs.
 	chatMgr, chatHub, chatCleanup, chatWorkerAPIKey := wireChat(ctx, cfg, svc, opStore, catalogBuilder.ContextWindow, llmChannel)
 	defer chatCleanup()
 

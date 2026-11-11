@@ -124,8 +124,9 @@ type chatHandlers struct {
 	// live multiplexes the architect's live blueprint stream onto the chat
 	// SSE of architect sessions; nil when no architect is configured.
 	live *blueprintLive
-	// llmChannel switches the picker and the create-time check to the Claude
-	// Code catalog while new chats start in claude_code mode; nil never does.
+	// llmChannel puts the picker on the Claude Code catalog while new chats
+	// start in claude_code mode, and checks a new session's model against it
+	// while its kind starts there; nil does neither.
 	llmChannel LLMChannelResolver
 }
 
@@ -257,13 +258,13 @@ func (h *chatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sessions)
 }
 
-// chatMode is the LLM channel mode a new chat starts in.
-func (h *chatHandlers) chatMode() llmchannel.Mode {
+// startMode is the LLM channel mode a new session of the kind starts in.
+func (h *chatHandlers) startMode(kind chat.SessionKind) llmchannel.Mode {
 	if h.llmChannel == nil {
 		return llmchannel.ModeEndpoint
 	}
 
-	return h.llmChannel.Effective(config.BackendNameChat)
+	return h.llmChannel.Effective(chat.ChannelKind(kind))
 }
 
 // isArchitectDefault reports whether model is the architect backend's own
@@ -306,7 +307,7 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 	applyDefault := kind != chat.KindArchitect
 
 	switch {
-	case h.chatMode() == llmchannel.ModeClaudeCode:
+	case h.startMode(kind) == llmchannel.ModeClaudeCode:
 		if model == "" && applyDefault {
 			model = h.llmChannel.ResolveModel(llmchannel.ModeClaudeCode, "", "")
 		}
@@ -422,7 +423,7 @@ func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 		FetchError       string           `json:"fetch_error,omitempty"`
 	}
 
-	if h.chatMode() == llmchannel.ModeClaudeCode {
+	if h.startMode(chat.KindChat) == llmchannel.ModeClaudeCode {
 		cc := modelcatalog.ClaudeCodeModels()
 		models := make([]chatModelEntry, len(cc))
 
@@ -435,7 +436,7 @@ func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 		// A blueprint with no model of its own starts on the default of the
 		// mode its architect runs in.
 		archDefault := h.architectDefault
-		if archDefault != "" && h.llmChannel.Effective(config.BackendNameArchitect) == llmchannel.ModeClaudeCode {
+		if archDefault != "" && h.startMode(chat.KindArchitect) == llmchannel.ModeClaudeCode {
 			archDefault = def
 		}
 

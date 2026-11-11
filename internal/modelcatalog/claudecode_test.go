@@ -189,3 +189,43 @@ func TestBuilder_ClaudeCodeRate(t *testing.T) {
 		assert.Empty(t, b.ClaudeCodeCandidates(context.Background()))
 	})
 }
+
+// A Claude Code catalog ID the served catalog lacks takes its window from the
+// static Claude Code list; a served entry wins, and other names resolve nothing.
+func TestContextWindow_FallsBackToClaudeCodeList(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	var noCatalog *Builder
+
+	served := NewBuilder("", 0.65, nil, 0)
+	seedServed(t, served, map[string]orEntry{
+		"z-ai/glm-5.2":     {ContextWindow: 131072},
+		"claude-haiku-5-5": {ContextWindow: 200000},
+	})
+
+	tests := []struct {
+		name  string
+		b     *Builder
+		model string
+		want  int
+	}{
+		{"no catalog, catalog id", noCatalog, "claude-sonnet-5-5", 1_000_000},
+		{"no catalog, anthropic slug", noCatalog, "anthropic/claude-opus-5.5", 0},
+		{"no catalog, dotted bare name", noCatalog, "claude-sonnet-5.5", 0},
+		{"no catalog, unknown model", noCatalog, "deepseek/deepseek-v4-flash", 0},
+		{"served catalog lacks the id", served, "claude-sonnet-5-5", 1_000_000},
+		{"served entry wins", served, "claude-haiku-5-5", 200000},
+		{"served non-claude model", served, "z-ai/glm-5.2", 131072},
+		{"claude id outside the list", served, "claude-fable-5-5", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, tt.b.ContextWindow(ctx, tt.model))
+		})
+	}
+}

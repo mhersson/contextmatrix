@@ -2465,3 +2465,51 @@ func TestCreateChat_ValidatesClaudeCodeModel(t *testing.T) {
 		})
 	}
 }
+
+// A blueprint follows its own kind's mode: with chat on claude_code and the
+// architect on the endpoint, its model is checked against the endpoint side.
+func TestCreateChat_ArchitectFollowsItsOwnMode(t *testing.T) {
+	t.Parallel()
+
+	opts := openRouterFixtureOpts()
+	opts.architectBackendCfg = &config.ArchitectBackendConfig{DefaultModel: "z-ai/glm-5.2"}
+	opts.validateModel = func(_ context.Context, slug string) bool { return slug == "deepseek/deepseek-v4-flash" }
+	opts.llmChannel = chatChannel(t, llmchannel.ModeClaudeCode, config.BackendNameChat)
+	mux, _ := newChatFixture(t, opts)
+
+	tests := []struct {
+		name      string
+		model     string
+		wantCode  int
+		wantModel string
+	}{
+		{name: "openrouter slug", model: "deepseek/deepseek-v4-flash", wantCode: http.StatusCreated, wantModel: "deepseek/deepseek-v4-flash"},
+		{name: "empty model stays empty", model: "", wantCode: http.StatusCreated, wantModel: ""},
+		{name: "architect default is exempt", model: "z-ai/glm-5.2", wantCode: http.StatusCreated, wantModel: "z-ai/glm-5.2"},
+		{name: "unknown slug", model: "nope/unknown", wantCode: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			body, err := json.Marshal(map[string]any{"kind": "architect", "projects": []string{"alpha"}, "model": tt.model})
+			require.NoError(t, err)
+
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats", string(body)))
+			require.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
+
+			if tt.wantCode != http.StatusCreated {
+				assert.Contains(t, rec.Body.String(), ErrCodeInvalidModel)
+
+				return
+			}
+
+			var sess chat.Session
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sess))
+			assert.Equal(t, tt.wantModel, sess.Model)
+			assert.Equal(t, string(llmchannel.ModeEndpoint), sess.LLMChannel)
+		})
+	}
+}
