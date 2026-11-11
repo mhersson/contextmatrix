@@ -1,7 +1,10 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -142,4 +145,31 @@ func TestFloorAccessor(t *testing.T) {
 			assert.InDelta(t, tt.expected, b.Floor(), 1e-9)
 		})
 	}
+}
+
+func TestCatalogRateLookup_ClaudeCode(t *testing.T) {
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"slug":"claude-sonnet-5-5","model_creator":{"name":"Anthropic"},
+			 "evaluations":{"artificial_analysis_intelligence_index":60,"artificial_analysis_coding_index":null},
+			 "pricing":{"price_1m_input_tokens":3,"price_1m_output_tokens":15,"price_1m_cache_hit_tokens":0.3,"price_1m_cache_write_tokens":3.75}}
+		],"tier":"free","intelligence_index_version":5,"pagination":{"page":1,"page_size":200,"total_pages":1,"has_more":false}}`))
+	}))
+	t.Cleanup(aaSrv.Close)
+
+	orSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	t.Cleanup(orSrv.Close)
+
+	b := modelcatalog.NewBuilder("aa-key", 0.5, nil, time.Hour, modelcatalog.WithClaudeCode(),
+		modelcatalog.WithCatalogURLs(aaSrv.URL, orSrv.URL))
+
+	rate, ok := catalogRateLookup(b)("claude-sonnet-5-5")
+	require.True(t, ok)
+	assert.InDelta(t, 3.0/1e6, rate.Prompt, 1e-15)
+	assert.InDelta(t, 15.0/1e6, rate.Completion, 1e-15)
+
+	_, ok = catalogRateLookup(b)("claude-unknown-5-5")
+	assert.False(t, ok)
 }

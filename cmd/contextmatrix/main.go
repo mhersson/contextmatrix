@@ -537,19 +537,7 @@ func main() {
 	)
 
 	if catalogBuilder != nil {
-		svc.SetCatalogRateLookup(func(model string) (service.ModelRate, bool) {
-			p, ok := catalogBuilder.Rate(ctx, model)
-			if !ok {
-				return service.ModelRate{}, false
-			}
-
-			return service.ModelRate{
-				Prompt:     p.Prompt,
-				Completion: p.Completion,
-				CacheRead:  p.CacheRead,
-				CacheWrite: p.CacheWrite,
-			}, true
-		})
+		svc.SetCatalogRateLookup(catalogRateLookup(catalogBuilder))
 
 		svc.SetModelValidator(catalogBuilder.Validate)
 
@@ -939,6 +927,30 @@ func dirHasGit(dir string) bool {
 	return err == nil
 }
 
+// catalogRateLookup prices a model from the served catalog, then from the
+// Claude Code catalog.
+func catalogRateLookup(b *modelcatalog.Builder) func(string) (service.ModelRate, bool) {
+	ctx := context.Background()
+
+	return func(model string) (service.ModelRate, bool) {
+		p, ok := b.Rate(ctx, model)
+		if !ok {
+			p, ok = b.ClaudeCodeRate(ctx, model)
+		}
+
+		if !ok {
+			return service.ModelRate{}, false
+		}
+
+		return service.ModelRate{
+			Prompt:     p.Prompt,
+			Completion: p.Completion,
+			CacheRead:  p.CacheRead,
+			CacheWrite: p.CacheWrite,
+		}, true
+	}
+}
+
 // newCatalogBuilder constructs the model catalog Builder from the current
 // configuration. Returns nil when there is no rate source (no AA key, no
 // endpoint, and no OpenRouter catalog).
@@ -962,6 +974,10 @@ func newCatalogBuilder(cfg *config.Config, agentCfg *config.AgentBackendConfig, 
 		}
 
 		opts = append(opts, modelcatalog.WithFavorites(flattenFavorites(agentCfg.Favorites)))
+
+		if cfg.ClaudeCode.Configured() {
+			opts = append(opts, modelcatalog.WithClaudeCode())
+		}
 
 		return modelcatalog.NewBuilder(agentCfg.AAAPIKey, agentCfg.CatalogQualityFloor, agentCfg.ModelAllowlist, 0, opts...)
 
