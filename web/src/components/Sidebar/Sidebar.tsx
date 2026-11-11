@@ -11,7 +11,6 @@ import { useOptionalAuth } from '../../hooks/useAuth';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useRepoSectionsCollapsed } from '../../hooks/useRepoSectionsCollapsed';
 import { formatVersionWithLocalTime } from '../../utils/formatVersion';
-import { useChatModelsChannelReset } from '../../utils/chatModels';
 import { boardsRepoName, type PlaybookSummary, type ProjectConfig, type SessionKind } from '../../types';
 import { ProjectCard } from './ProjectCard';
 import { SessionSections } from './SessionSections';
@@ -115,7 +114,6 @@ export function Sidebar({ onNewProject, onNewSession, mobileOpen = false, onMobi
   );
   const { summaries } = useProjectSummariesContext();
   const playbooksTarget = usePlaybooksLinkTarget();
-  useChatModelsChannelReset();
 
   const renderProject = (p: ProjectConfig) => (
     <NavLink

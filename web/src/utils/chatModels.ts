@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
-import { useSSEBus } from '../hooks/useSSEBus';
 import type { ChatModel, ChatModelList } from '../types';
 
 export type ChatModelSource = ChatModelList['source'];
@@ -34,19 +33,10 @@ interface Cache {
 // reused by every component that needs that list (PaneHeader, etc).
 const caches: Record<ChatModelsKind, Cache> = { chat: {}, architect: {} };
 
-/** Forget the module-scope model lists; a fetch still in flight lands in the dropped cache. */
+/** Test seam: forget the module-scope model lists. */
 export function resetChatModelsCache() {
   caches.chat = {};
   caches.architect = {};
-}
-
-/**
- * Forgets both lists on every LLM channel event, so the next consumer fetches
- * the current mode's catalog. Mounted once, by the always-present Sidebar.
- */
-export function useChatModelsChannelReset() {
-  const { subscribe } = useSSEBus();
-  useEffect(() => subscribe('llm_channel.*', resetChatModelsCache), [subscribe]);
 }
 
 function loadChatModels(kind: ChatModelsKind): Promise<ChatModelsResult> {
