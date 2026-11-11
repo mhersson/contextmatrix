@@ -414,6 +414,9 @@ func containsModelID(models []chatModelEntry, id string) bool {
 //     chats fall back to the server default.
 //   - "claude_code": new chats start in claude_code mode; Models is the
 //     Claude Code catalog and Default is claude_code.default_model.
+//
+// ?kind=architect answers for the mode new blueprints start in instead, so
+// the blueprint picker offers what createChat accepts for that kind.
 func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 	type response struct {
 		Source           string           `json:"source"`
@@ -423,7 +426,19 @@ func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 		FetchError       string           `json:"fetch_error,omitempty"`
 	}
 
-	if h.startMode(chat.KindChat) == llmchannel.ModeClaudeCode {
+	kind := chat.KindChat
+
+	switch q := r.URL.Query().Get("kind"); q {
+	case "", string(chat.KindChat):
+	case string(chat.KindArchitect):
+		kind = chat.KindArchitect
+	default:
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid kind", q)
+
+		return
+	}
+
+	if h.startMode(kind) == llmchannel.ModeClaudeCode {
 		cc := modelcatalog.ClaudeCodeModels()
 		models := make([]chatModelEntry, len(cc))
 

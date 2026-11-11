@@ -2419,6 +2419,89 @@ func TestChatsModels_ClaudeCodeSource(t *testing.T) {
 	}
 }
 
+// The blueprint picker asks for the architect's own list: during a rollout the
+// chat kind can run on claude_code while the architect stays on the endpoint.
+func TestChatsModels_KindArchitect(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		supported       []string
+		query           string
+		wantStatus      int
+		wantSource      string
+		wantDefault     string
+		wantArchDefault string
+	}{
+		{
+			name: "architect on the endpoint while chat runs claude_code", supported: []string{config.BackendNameChat},
+			query: "?kind=architect", wantStatus: http.StatusOK,
+			wantSource: "openrouter", wantDefault: "anthropic/claude-opus-5.5", wantArchDefault: "anthropic/claude-opus-5.5",
+		},
+		{
+			name: "architect on claude_code while chat runs the endpoint", supported: []string{config.BackendNameArchitect},
+			query: "?kind=architect", wantStatus: http.StatusOK,
+			wantSource: "claude_code", wantDefault: "claude-sonnet-5-5", wantArchDefault: "claude-sonnet-5-5",
+		},
+		{
+			name: "an explicit chat kind is the chat list", supported: []string{config.BackendNameChat},
+			query: "?kind=chat", wantStatus: http.StatusOK,
+			wantSource: "claude_code", wantDefault: "claude-sonnet-5-5", wantArchDefault: "anthropic/claude-opus-5.5",
+		},
+		{
+			name: "an unknown kind is refused", supported: []string{config.BackendNameChat},
+			query: "?kind=card", wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := &chatHandlers{
+				openRouter:       true,
+				orDefault:        "anthropic/claude-opus-5.5",
+				architectDefault: "anthropic/claude-opus-5.5",
+				servedModels: func(context.Context) []chatModelEntry {
+					return []chatModelEntry{{ID: "deepseek/deepseek-v4-flash"}}
+				},
+				llmChannel: chatChannel(t, llmchannel.ModeClaudeCode, tt.supported...),
+			}
+
+			rec := httptest.NewRecorder()
+			h.listModels(rec, httptest.NewRequest(http.MethodGet, "/api/chats/models"+tt.query, nil))
+			require.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			var body struct {
+				Source           string           `json:"source"`
+				Models           []chatModelEntry `json:"models"`
+				Default          string           `json:"default"`
+				ArchitectDefault string           `json:"architect_default"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+
+			assert.Equal(t, tt.wantSource, body.Source)
+			assert.Equal(t, tt.wantDefault, body.Default)
+			assert.Equal(t, tt.wantArchDefault, body.ArchitectDefault)
+
+			ids := make([]string, len(body.Models))
+			for i, m := range body.Models {
+				ids[i] = m.ID
+			}
+
+			if tt.wantSource == "claude_code" {
+				assert.Equal(t, []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"}, ids)
+			} else {
+				assert.Equal(t, []string{"deepseek/deepseek-v4-flash"}, ids)
+			}
+		})
+	}
+}
+
 func TestCreateChat_ValidatesClaudeCodeModel(t *testing.T) {
 	t.Parallel()
 

@@ -562,8 +562,9 @@ class APIClient {
     });
   }
 
-  async listChatModels(): Promise<ChatModelList> {
-    return this.request<ChatModelList>('/chats/models');
+  /** `architect` asks for the list new blueprints start on, which can differ from the chat list. */
+  async listChatModels(kind?: 'architect'): Promise<ChatModelList> {
+    return this.request<ChatModelList>(kind ? `/chats/models?kind=${kind}` : '/chats/models');
   }
 
   async getModelCatalog(): Promise<ModelCatalogResponse> {

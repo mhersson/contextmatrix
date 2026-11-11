@@ -12,6 +12,7 @@ vi.mock('react-router', () => ({ useNavigate: () => navigate }));
 const createChat = vi.fn();
 const openChat = vi.fn();
 const sendChatMessage = vi.fn();
+const listChatModels = vi.fn();
 vi.mock('../../api/client', () => {
   const isAPIError = (e: unknown): e is { error: string; code?: string } =>
     typeof e === 'object' && e !== null && typeof (e as { error?: unknown }).error === 'string';
@@ -20,13 +21,7 @@ vi.mock('../../api/client', () => {
       createChat: (...args: unknown[]) => createChat(...args),
       openChat: (...args: unknown[]) => openChat(...args),
       sendChatMessage: (...args: unknown[]) => sendChatMessage(...args),
-      listChatModels: () =>
-        Promise.resolve({
-          source: modelSource,
-          models: modelList,
-          default: 'chat/default',
-          architect_default: 'arch/default',
-        }),
+      listChatModels: (...args: unknown[]) => listChatModels(...args),
     },
     isAPIError,
     describeApiError: (e: unknown, fallback: string) => (isAPIError(e) ? e.error : fallback),
@@ -48,7 +43,7 @@ vi.mock('../../hooks/useProjects', () => ({
 vi.mock('../../hooks/useChatSessions', () => ({ notifyChatSessionsChanged: vi.fn() }));
 
 let architectEnabled = true;
-let modelSource: 'endpoint' | 'openrouter' = 'endpoint';
+let modelSource: 'endpoint' | 'openrouter' | 'claude_code' = 'endpoint';
 const baseModels = [
   { id: 'chat/default', label: 'Chat default', max_tokens: 1000 },
   { id: 'arch/default', label: 'Arch default', max_tokens: 1000 },
@@ -56,6 +51,8 @@ const baseModels = [
   { id: 'free/unpriced', label: 'Free unpriced', max_tokens: 1000, unpriced: true },
 ];
 let modelList = baseModels;
+/** The architect's own list when it differs from the chat list; null serves the chat list for both. */
+let architectList: { source: 'endpoint' | 'openrouter' | 'claude_code'; models: typeof baseModels; default: string } | null = null;
 vi.mock('../../hooks/useTheme', () => ({ useTheme: () => ({ architectEnabled, favorites: null }) }));
 
 let identity: string | null = 'human:web-abc';
@@ -82,6 +79,14 @@ describe('NewChatDialog', () => {
     projectsError = null;
     modelSource = 'endpoint';
     modelList = baseModels;
+    architectList = null;
+    listChatModels.mockReset().mockImplementation((kind?: string) =>
+      Promise.resolve(
+        kind === 'architect' && architectList
+          ? { ...architectList, architect_default: architectList.default }
+          : { source: modelSource, models: modelList, default: 'chat/default', architect_default: 'arch/default' },
+      ),
+    );
     createChat.mockResolvedValue({ id: 'S1', title: '', status: 'cold' });
     openChat.mockResolvedValue({ id: 'S1', title: '', status: 'active' });
     sendChatMessage.mockResolvedValue({ ok: true, message_id: 'M1' });
@@ -172,6 +177,21 @@ describe('NewChatDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create blueprint' }));
     await waitFor(() => expect(createChat).toHaveBeenCalled());
     expect(createChat.mock.calls[0][0].model).toBe('other/priced');
+  });
+
+  it("offers the architect's own list in the blueprint picker while chats run on Claude Code", async () => {
+    modelSource = 'claude_code';
+    modelList = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'].map((id) => ({ id, label: id, max_tokens: 1000 }));
+    architectList = { source: 'endpoint', models: baseModels, default: 'arch/default' };
+    startBlueprint();
+    const picker = await screen.findByLabelText('Model');
+    await waitFor(() => expect(picker).toHaveValue('arch/default'));
+    expect(listChatModels).toHaveBeenCalledWith('architect');
+    expect(screen.getByRole('option', { name: /Other priced/ })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /claude-sonnet-5-5/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Chat' }));
+    expect(screen.getByRole('option', { name: /claude-sonnet-5-5/ })).toBeInTheDocument();
   });
 
   it('keeps the blueprint and chat picks independent', async () => {

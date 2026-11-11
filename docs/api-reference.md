@@ -52,7 +52,7 @@ GET    /api/worker/git-credentials  ?host=&path=       # per-repo git credential
 
 GET    /api/chats                                      ?project=&status=&kind=&created_by=&limit=
 POST   /api/chats                                      # create a new chat session (cold)
-GET    /api/chats/models                               # chat model picker source (openrouter|endpoint|claude_code)
+GET    /api/chats/models                               ?kind=chat|architect  # model picker source (openrouter|endpoint|claude_code)
 GET    /api/chats/{id}
 PATCH  /api/chats/{id}                                 # rename a session
 DELETE /api/chats/{id}                                 # delete session and transcript
@@ -2657,7 +2657,11 @@ session response carries `origin_chat` and `origin_seq`.
 
 ### GET /api/chats/models
 
-Tells the New Chat dialog which model picker to render.
+Tells the New Chat dialog which model picker to render. `?kind=architect`
+answers for the mode new blueprints start in, which can differ from the chat
+kind's while only one of them runs on `claude_code`; the blueprint picker asks
+for it. Without `kind` (or with `kind=chat`) the answer is for new chats; any
+other value is a 400.
 
 ```json
 {
@@ -2676,11 +2680,12 @@ Tells the New Chat dialog which model picker to render.
   upstream fetch fails the response carries `fetch_error` with an empty
   list. Also returned as
   `{"source":"endpoint","models":[],"default":"","architect_default":""}` when
-  no chat backend is configured and new chats do not start in `claude_code`
-  mode (`architect_default` is still the architect entry's default when that
-  backend is configured).
-- `"claude_code"`: new chats start in `claude_code` mode (the LLM channel is
-  `claude_code` and `chat` is in `claude_code.backends`). `models` is the
+  no chat backend is configured and the kind asked for does not start in
+  `claude_code` mode (`architect_default` is still the architect entry's
+  default when that backend is configured).
+- `"claude_code"`: new sessions of the kind asked for start in `claude_code`
+  mode (the LLM channel is `claude_code` and the kind's backend is in
+  `claude_code.backends`). `models` is the
   Claude Code catalog (`claude-opus-5-5`, `claude-sonnet-5-5`,
   `claude-haiku-5-5`) and `default` is `claude_code.default_model`, as is
   `architect_default` when the architect runs in `claude_code` mode too.

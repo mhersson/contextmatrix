@@ -213,7 +213,9 @@ board. Promote-to-autonomous lives in that tab.
   project from a list (or Across projects, with no checkout) and a model. A
   blueprint picks one or more target projects, one of four described modes
   (default, auto, auto + emit, yolo), a Plain language switch, an Unattended switch, a model
-  (defaulting to the architect's default, kept separate from the chat pick) and
+  (from the list for the mode new blueprints start in, which can differ from
+  the chat list's, defaulting to the architect's default and kept separate from
+  the chat pick) and
   a cost cap preset ($1, $2, $5, $10 or no cap), in that order, and runs on the
   architect backend instead of a chat worker. Plain language asks the person
   only what they want and how it should look and work; the architect makes the
