@@ -1067,11 +1067,11 @@ subscription usage readings. Any session in `multi` mode; open in `none` mode.
   endpoint while the mode is `claude_code`; or `none` when `llm_endpoint` is
   unset: it gets no endpoint and fails closed. Empty without a token.
 - `usage` is the newest reading of each subscription window, ordered by
-  window: a reading with a later `resets_at` replaces the stored one, and
-  within the same period only one with a utilization at least as high.
-  `status` is the vendor's (`allowed`, `allowed_warning`, `rejected`) and
-  may be empty; `stale` is `true` once `resets_at` has passed, since the
-  reading predates the reset.
+  window: a reading with a later `resets_at` replaces the stored one; within
+  the same period a higher utilization does, and an equal one unless it would
+  replace a stored `rejected` status with another. `status` is the vendor's
+  (`allowed`, `allowed_warning`, `rejected`) and may be empty; `stale` is
+  `true` once `resets_at` has passed, since the reading predates the reset.
 - `updated_at` and `updated_by` describe the last switch; both are omitted
   until the first one.
 

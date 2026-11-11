@@ -120,8 +120,8 @@ type SubscriptionUsageRow struct {
 
 // RecordSubscriptionUsage upserts each window that has a reset time with the
 // time it was seen. An older reading, such as a card run's last one landing
-// after a chat's, is ignored: a later reset wins, and within one period
-// utilization only rises.
+// after a chat's, is ignored: a later reset wins, within one period
+// utilization only rises, and an equal one never clears a rejected status.
 func (s *Store) RecordSubscriptionUsage(ctx context.Context, u []protocol.SubscriptionUsage, seen time.Time) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -141,7 +141,9 @@ func (s *Store) RecordSubscriptionUsage(ctx context.Context, u []protocol.Subscr
 			   status = excluded.status, resets_at = excluded.resets_at, seen_at = excluded.seen_at
 			 WHERE excluded.resets_at > subscription_usage.resets_at
 			   OR (excluded.resets_at = subscription_usage.resets_at
-			       AND excluded.utilization >= subscription_usage.utilization)`,
+			       AND (excluded.utilization > subscription_usage.utilization
+			            OR (excluded.utilization = subscription_usage.utilization
+			                AND (subscription_usage.status <> 'rejected' OR excluded.status = 'rejected'))))`,
 			w.Window, w.Utilization, w.Status, w.ResetsAt.Unix(), seen.Unix()); err != nil {
 			return fmt.Errorf("record subscription usage: %w", err)
 		}

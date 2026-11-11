@@ -150,23 +150,29 @@ func TestSubscriptionUsage_UpsertPerWindow(t *testing.T) {
 }
 
 // A reading replaces the stored one only when it is not older: a later reset
-// always wins, and within one period utilization only rises.
+// always wins, within one period utilization only rises, and at equal
+// utilization a stored rejected status yields only to another rejected one.
 func TestSubscriptionUsage_KeepsNewerReading(t *testing.T) {
 	reset := time.Unix(2_000_000_000, 0).UTC()
 	seen1 := time.Unix(1_900_000_000, 0).UTC()
 	seen2 := time.Unix(1_900_000_500, 0).UTC()
-	stored := protocol.SubscriptionUsage{Window: "five_hour", Utilization: 0.5, Status: "rejected", ResetsAt: reset}
+
+	reading := func(util float64, status string, resets time.Time) protocol.SubscriptionUsage {
+		return protocol.SubscriptionUsage{Window: "five_hour", Utilization: util, Status: status, ResetsAt: resets}
+	}
 
 	tests := []struct {
-		name     string
-		incoming protocol.SubscriptionUsage
-		replaces bool
+		name             string
+		stored, incoming protocol.SubscriptionUsage
+		replaces         bool
 	}{
-		{"older period", protocol.SubscriptionUsage{Window: "five_hour", Utilization: 0.9, Status: "allowed", ResetsAt: reset.Add(-5 * time.Hour)}, false},
-		{"same period lower", protocol.SubscriptionUsage{Window: "five_hour", Utilization: 0.4, Status: "allowed", ResetsAt: reset}, false},
-		{"same period equal", protocol.SubscriptionUsage{Window: "five_hour", Utilization: 0.5, Status: "allowed_warning", ResetsAt: reset}, true},
-		{"same period higher", protocol.SubscriptionUsage{Window: "five_hour", Utilization: 0.7, Status: "allowed_warning", ResetsAt: reset}, true},
-		{"later period", protocol.SubscriptionUsage{Window: "five_hour", Utilization: 0.1, Status: "allowed", ResetsAt: reset.Add(5 * time.Hour)}, true},
+		{"older period", reading(0.5, "rejected", reset), reading(0.9, "allowed", reset.Add(-5*time.Hour)), false},
+		{"same period lower", reading(0.5, "rejected", reset), reading(0.4, "allowed", reset), false},
+		{"same period equal keeps rejected", reading(0.5, "rejected", reset), reading(0.5, "allowed", reset), false},
+		{"same period equal rejected over rejected", reading(0.5, "rejected", reset), reading(0.5, "rejected", reset), true},
+		{"same period equal over allowed_warning", reading(0.5, "allowed_warning", reset), reading(0.5, "allowed", reset), true},
+		{"same period higher", reading(0.5, "rejected", reset), reading(0.7, "allowed_warning", reset), true},
+		{"later period", reading(0.5, "rejected", reset), reading(0.1, "allowed", reset.Add(5*time.Hour)), true},
 	}
 
 	for _, tt := range tests {
@@ -174,14 +180,14 @@ func TestSubscriptionUsage_KeepsNewerReading(t *testing.T) {
 			st := openLadderStore(t)
 			ctx := context.Background()
 
-			require.NoError(t, st.RecordSubscriptionUsage(ctx, []protocol.SubscriptionUsage{stored}, seen1))
+			require.NoError(t, st.RecordSubscriptionUsage(ctx, []protocol.SubscriptionUsage{tt.stored}, seen1))
 			require.NoError(t, st.RecordSubscriptionUsage(ctx, []protocol.SubscriptionUsage{tt.incoming}, seen2))
 
 			rows, err := st.SubscriptionUsage(ctx)
 			require.NoError(t, err)
 			require.Len(t, rows, 1)
 
-			want, wantSeen := stored, seen1
+			want, wantSeen := tt.stored, seen1
 			if tt.replaces {
 				want, wantSeen = tt.incoming, seen2
 			}

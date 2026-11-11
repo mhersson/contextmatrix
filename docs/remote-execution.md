@@ -1057,10 +1057,11 @@ A subscription usage limit parks work and never falls back to the endpoint.
 - Workers report each window's last-seen state: `subscription_usage` on
   `report_usage`, `subscription` on chat usage frames. CM keeps the newest
   reading per window in ops.db (`subscription_usage`): a later `resets_at`
-  replaces it, and within one period only a utilization at least as high
-  does, so a card run's last reading cannot overwrite a fresher chat one. It
-  drops a window without a reset time and serves the readings on
-  `GET /api/llm-channel`.
+  replaces it; within one period a higher utilization does, and an equal one
+  unless it would replace a stored `rejected` status with another. A card
+  run's last reading therefore cannot overwrite a fresher chat one or hide a
+  live limit. CM drops a window without a reset time and serves the readings
+  on `GET /api/llm-channel`.
 
 ### Cost
 
