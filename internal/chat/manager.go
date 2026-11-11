@@ -1642,7 +1642,7 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 	// A cold open adopts the current mode; the row keeps it while live.
 	mode := m.effectiveMode(sess.Kind)
 
-	opts, err := m.coldPrep(ctx, sess, mode)
+	opts, mode, err := m.coldPrep(ctx, sess, mode)
 	if err != nil {
 		return Session{}, err
 	}
@@ -1808,7 +1808,9 @@ func (m *Manager) restartArchitect(ctx context.Context, sessionID string) error 
 				return errArchitectNotLive
 			}
 
-			opts, err := m.coldPrep(ctx, sess, llmchannel.Mode(sess.LLMChannel))
+			recorded := llmchannel.Mode(sess.LLMChannel)
+
+			opts, mode, err := m.coldPrep(ctx, sess, recorded)
 			if err != nil {
 				return fmt.Errorf("chat: restart architect: %w", err)
 			}
@@ -1823,6 +1825,10 @@ func (m *Manager) restartArchitect(ctx context.Context, sessionID string) error 
 			}
 
 			m.logger.Info("chat: architect session restarted in place", "session_id", sessionID)
+
+			if mode != recorded {
+				m.recordRestartMode(ctx, sessionID, mode, opts.Model)
+			}
 
 			return nil
 		}); err != nil {
@@ -1840,6 +1846,22 @@ func (m *Manager) restartArchitect(ctx context.Context, sessionID string) error 
 	})
 
 	return err
+}
+
+// recordRestartMode stores the fallback mode and model a restart ran on when
+// the recorded mode was no longer usable, so in-flight counts and labels match.
+// The start already succeeded, so a failed write is logged, not returned.
+func (m *Manager) recordRestartMode(ctx context.Context, sessionID string, mode llmchannel.Mode, model string) {
+	sess, err := m.store.GetSession(ctx, sessionID)
+	if err == nil {
+		sess.LLMChannel, sess.Model = string(mode), model
+		err = m.store.UpdateSession(ctx, sess)
+	}
+
+	if err != nil {
+		m.logger.Warn("chat: record restarted blueprint's llm channel failed",
+			"session_id", sessionID, "llm_channel", string(mode), "error", err)
+	}
 }
 
 // wakeConsumer cuts the session's consumer backoff short. Only the send path
@@ -1862,9 +1884,9 @@ func (m *Manager) wakeConsumer(sessionID string) {
 }
 
 // coldPrep gathers the inputs needed by Backend.StartChat for a cold open on
-// mode, which falls back to the kind's effective mode when no longer usable.
-// The stored model maps onto the resolved mode's catalog.
-func (m *Manager) coldPrep(ctx context.Context, sess Session, mode llmchannel.Mode) (StartChatOpts, error) {
+// mode, which falls back to the kind's effective mode when no longer usable,
+// and returns the resolved mode. The stored model maps onto its catalog.
+func (m *Manager) coldPrep(ctx context.Context, sess Session, mode llmchannel.Mode) (StartChatOpts, llmchannel.Mode, error) {
 	endpoint, mode := m.endpointFor(sess.Kind, mode)
 
 	if sess.Kind == KindArchitect {
@@ -1907,7 +1929,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session, mode llmchannel.Mo
 			start.Architect.ContextWindow = m.architectContextWindow(ctx, model)
 		}
 
-		return start, nil
+		return start, mode, nil
 	}
 
 	var execInfo ProjectExecInfo
@@ -1917,7 +1939,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session, mode llmchannel.Mo
 
 		execInfo, err = m.resolveProjectExec(ctx, sess.Project)
 		if err != nil {
-			return StartChatOpts{}, fmt.Errorf("chat: resolve project exec for %q: %w", sess.Project, err)
+			return StartChatOpts{}, "", fmt.Errorf("chat: resolve project exec for %q: %w", sess.Project, err)
 		}
 	}
 
@@ -1951,7 +1973,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session, mode llmchannel.Mo
 		Resume:              resume,
 		LLMEndpoint:         endpoint,
 		GitCredentialsToken: gitCredentialsToken,
-	}, nil
+	}, mode, nil
 }
 
 // ChannelKind is the backend kind the LLM channel knows a session kind by.

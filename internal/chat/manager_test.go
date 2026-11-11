@@ -7637,6 +7637,46 @@ func TestRestartArchitect_KeepsRecordedMode(t *testing.T) {
 	}
 }
 
+// A live blueprint whose recorded mode is no longer usable restarts on the
+// fallback, and the row records the mode and model that run.
+func TestRestartArchitect_FallbackRecordsResolvedMode(t *testing.T) {
+	ctx := context.Background()
+	ch := newChannel(t, llmchannel.ModeClaudeCode, config.BackendNameChat)
+
+	var store chat.Store
+
+	mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) {
+		c.LLMChannel = ch
+		store = c.Store
+	})
+
+	bp := openArchitect(t, mgr)
+
+	// Recorded on claude_code under a config that still listed the architect.
+	row, err := store.GetSession(ctx, bp.ID)
+	require.NoError(t, err)
+
+	row.LLMChannel, row.Model = string(llmchannel.ModeClaudeCode), "claude-opus-5-5"
+	require.NoError(t, store.UpdateSession(ctx, row))
+
+	arch.mu.Lock()
+	arch.sendErrSeq = []error{errSessionUnknown(), nil}
+	arch.mu.Unlock()
+
+	_, err = mgr.SendUserMessage(ctx, bp.ID, "approve")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), arch.startCalls.Load(), "one re-sent start")
+
+	opts := arch.startOpts()
+	assert.Equal(t, channelEndpoint(), opts.LLMEndpoint)
+	assert.Equal(t, "arch/default", opts.Model)
+
+	got, err := mgr.GetSession(ctx, bp.ID)
+	require.NoError(t, err)
+	assert.Equal(t, string(llmchannel.ModeEndpoint), got.LLMChannel)
+	assert.Equal(t, "arch/default", got.Model)
+}
+
 // A chat backend that lost a live session reopens it cold, and a cold open
 // adopts the current mode.
 func TestReopenCold_AdoptsCurrentMode(t *testing.T) {
