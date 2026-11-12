@@ -2,6 +2,7 @@ package modelcatalog
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"strings"
 
@@ -58,14 +59,15 @@ func WithCatalogURLs(aaURL, orURL string) BuilderOption {
 }
 
 // buildClaudeCode scores the protocol Claude Code catalog against the AA rows.
-// It returns the candidates (Creator blanked) and the priced catalog.
-func buildClaudeCode(aa []aaModel, floor float64) ([]protocol.CandidateModel, map[string]orEntry) {
+// It returns the candidates (Creator blanked), the priced catalog, each
+// candidate's provenance and how many catalog IDs joined a scored AA row.
+func buildClaudeCode(aa []aaModel, floor float64) ([]protocol.CandidateModel, map[string]orEntry, map[string]CandidateProvenance, int) {
 	static := make(map[string]orEntry, len(selection.ClaudeCodeModels()))
 	for _, m := range selection.ClaudeCodeModels() {
 		static[m.ID] = orEntry{ContextWindow: m.ContextWindow, Tools: true}
 	}
 
-	scored, _, listPrices := buildEndpointCandidates(aa, static, nil, floor, nil, "")
+	scored, exclusions, listPrices := buildEndpointCandidates(aa, static, nil, floor, nil, "")
 
 	cands := make([]protocol.CandidateModel, 0, len(scored))
 	for _, s := range scored {
@@ -80,7 +82,7 @@ func buildClaudeCode(aa []aaModel, floor float64) ([]protocol.CandidateModel, ma
 
 	applyAAListPrices(static, listPrices)
 
-	return cands, static
+	return cands, static, scoredProvenance(scored), endpointServedScored(scored, exclusions)
 }
 
 // ClaudeCodeCandidates returns the Claude Code selection candidates, rated
@@ -97,6 +99,44 @@ func (b *Builder) ClaudeCodeCandidates(ctx context.Context) []protocol.Candidate
 	b.refreshIfStaleLocked(ctx)
 
 	return b.claudeCodeCached
+}
+
+// ClaudeCodeProvenance is Provenance for the Claude Code candidates, keyed by
+// catalog ID. Nil without Claude Code data.
+func (b *Builder) ClaudeCodeProvenance(ctx context.Context) map[string]CandidateProvenance {
+	if b == nil || !b.claudeCode {
+		return nil
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.refreshIfStaleLocked(ctx)
+
+	return maps.Clone(b.claudeCodeProvenance)
+}
+
+// ClaudeCodeStats is Stats for the Claude Code candidates: the same AA
+// snapshot, with ServedScored counting the catalog IDs that joined a scored
+// AA row. Zero without Claude Code data.
+func (b *Builder) ClaudeCodeStats(ctx context.Context) CatalogStats {
+	if b == nil || !b.claudeCode {
+		return CatalogStats{}
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.refreshIfStaleLocked(ctx)
+
+	if b.claudeCodeCached == nil {
+		return CatalogStats{}
+	}
+
+	stats := b.stats
+	stats.ServedScored = b.claudeCodeServedScored
+
+	return stats
 }
 
 // ClaudeCodeRate returns the AA list price of a Claude Code catalog ID. ok is

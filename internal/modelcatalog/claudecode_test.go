@@ -300,3 +300,50 @@ func TestBuilder_ClaudeCodeEndpointLeg(t *testing.T) {
 	assert.InDelta(t, 5.0/1e6, p.Prompt, 1e-15)
 	assert.InDelta(t, 25.0/1e6, p.Completion, 1e-15)
 }
+
+func TestBuilder_ClaudeCodeProvenanceAndStats(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	t.Run("with Claude Code", func(t *testing.T) {
+		t.Parallel()
+
+		b, hits := claudeCodeBuilder(t, "aa-key", WithClaudeCode())
+
+		prov := b.ClaudeCodeProvenance(ctx)
+		require.Len(t, prov, 3)
+
+		for _, id := range []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"} {
+			assert.Equal(t, CandidateProvenance{PriceSource: "aa", ScoredFrom: id, PriorSource: PriorSourceAA}, prov[id], id)
+		}
+
+		stats := b.ClaudeCodeStats(ctx)
+		served := b.Stats(ctx)
+
+		assert.Equal(t, 3, stats.ServedScored)
+		assert.Equal(t, served.IndexVersion, stats.IndexVersion)
+		assert.Equal(t, served.AAScored, stats.AAScored)
+		assert.InDelta(t, served.BestAAScore, stats.BestAAScore, 1e-12)
+		assert.EqualValues(t, 1, hits.Load())
+	})
+
+	t.Run("below the floor still counts as scored", func(t *testing.T) {
+		t.Parallel()
+
+		b, _ := claudeCodeBuilder(t, "aa-key", WithClaudeCode())
+		b.floor = 0.7
+
+		assert.Len(t, b.ClaudeCodeProvenance(ctx), 2)
+		assert.Equal(t, 3, b.ClaudeCodeStats(ctx).ServedScored)
+	})
+
+	t.Run("without WithClaudeCode", func(t *testing.T) {
+		t.Parallel()
+
+		b, _ := claudeCodeBuilder(t, "aa-key")
+
+		assert.Empty(t, b.ClaudeCodeProvenance(ctx))
+		assert.Equal(t, CatalogStats{}, b.ClaudeCodeStats(ctx))
+	})
+}
