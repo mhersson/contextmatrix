@@ -171,7 +171,6 @@ export function Column({ state, cards, config, sortMode, onSortChange, collapsed
               <CardItem
                 key={card.id}
                 card={card}
-                unclaimedWarningSeconds={config.unclaimed_warning_seconds}
                 onClick={() => onCardClick?.(card)}
                 flashCardId={flashCardId}
                 isCollapsed={collapsedCards?.has(card.id)}

@@ -1,6 +1,6 @@
 import type { Card } from '../../types';
 import { chipTint } from '../../lib/chip';
-import { cardSignals, splitCardSignals, type CardSignal } from '../../lib/cardSignals';
+import { cardSignals, splitCardSignals } from '../../lib/cardSignals';
 
 /**
  * Header signal cluster: worker status, deps, autonomous, mob, best-of-n,
@@ -9,7 +9,8 @@ import { cardSignals, splitCardSignals, type CardSignal } from '../../lib/cardSi
  * title: the browser holds those for ~1s, so the card's hovercard (opened
  * from the header group this cluster sits in) explains the icons instead.
  */
-export function CardSignalIcons({ card, signals = cardSignals(card) }: { card: Card; signals?: CardSignal[] }) {
+export function CardSignalIcons({ card }: { card: Card }) {
+  const signals = cardSignals(card);
   if (signals.length === 0) return null;
 
   const { visible, hidden } = splitCardSignals(signals);

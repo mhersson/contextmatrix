@@ -1,7 +1,7 @@
 import type { Card, ProjectConfig } from '../../types';
 import { isTerminalState } from '../../lib/cardState';
-import { CardTimingDetails } from '../CardTiming/CardClock';
 import { MetadataStatus } from './metadata/MetadataStatus';
+import { MetadataTiming } from './metadata/MetadataTiming';
 import { MetadataAssignee } from './metadata/MetadataAssignee';
 import { MetadataAgent } from './metadata/MetadataAgent';
 import { MetadataRelated } from './metadata/MetadataRelated';
@@ -42,7 +42,7 @@ interface CardPanelMetadataProps {
  *   6. MetadataSkills   - three-state skills selector
  *   7. MetadataUsage    - cost total, role split, per-role model rows, subtask blocks
  *
- * CardTimingDetails follows MetadataStatus; on a finished card (done /
+ * MetadataTiming follows MetadataStatus; on a finished card (done /
  * not_planned) it sits directly above MetadataUsage instead.
  *
  * This wrapper just composes them and renders the Created/Updated footer.
@@ -67,7 +67,7 @@ export function CardPanelMetadata({
   onDependsOnChange,
 }: CardPanelMetadataProps) {
   const finished = isTerminalState(card.state);
-  const timing = <CardTimingDetails card={card} unclaimedWarningSeconds={config.unclaimed_warning_seconds} />;
+  const timing = <MetadataTiming card={card} />;
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">

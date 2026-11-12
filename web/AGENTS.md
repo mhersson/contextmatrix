@@ -111,10 +111,9 @@ keeps the hamburger and a way back to the board.
   on `--bg-red` and `--bg-orange` with a ring in the tone around `--fg` text,
   and minor is `--blueprint-quiet` text in a `--bg3` ring.
 - Card state borders: agent-active = `--aqua`, stalled = `--red`,
-  unassigned = `--bg3`. The unclaimed warning (`unclaimed_warning_seconds`)
-  takes the parked `--yellow` edge, with its own hourglass signal.
+  unassigned = `--bg3`.
 - Card clock (`CardTiming/CardClock.tsx`): `--aqua` icon, the agent-active
-  tone; it shows only while an agent holds the card.
+  tone.
 - Primary action = `--green`; secondary = `--aqua`; destructive = `--red`.
 - Parent-ID badge (subtasks only): `--bg-blue` bg + `--aqua` text - same as the
   active-agent indicator.

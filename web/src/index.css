@@ -6304,64 +6304,6 @@ textarea {
   gap: 4px;
   min-width: 0;
 }
-/* A .card-hover the pointer can rest on and read (the card clock's timing box). */
-.card-hover--hoverable {
-  pointer-events: auto;
-  cursor: default;
-}
-
-/* Tile clock: time in the current state while an agent works on the card.
-   A button, so keyboard focus and a tap open its timing box. The focus ring
-   comes from the same Tailwind utilities as the card's, so nothing here sets
-   outline or box-shadow. */
-.card-clock {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-  padding: 1px 5px;
-  border: 0;
-  border-radius: 9999px;
-  background: transparent;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  line-height: 1.2;
-  white-space: nowrap;
-  color: var(--fg);
-  cursor: help;
-}
-/* A 24px tall press target without growing the header row. */
-.card-clock::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 24px;
-  transform: translateY(-50%);
-}
-.card-clock:hover { background: var(--bg3); }
-/* --aqua: an agent is working on the card, as on the card's left edge. */
-.card-clock__icon {
-  display: inline-flex;
-  color: var(--aqua);
-}
-.card-clock__icon svg { width: 12px; height: 12px; }
-.card-timing__title {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--grey1);
-}
-.card-timing__claims {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 2px;
-}
-.card-timing__agent { color: var(--fg); }
 
 /* ── Project settings page ───────────────────────────────────────────── */
 /* Single centred column under the project crumb: a board-band style header,
