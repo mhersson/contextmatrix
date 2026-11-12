@@ -545,7 +545,6 @@ type ProjectConfig struct {
     Verify           *VerifyConfig            `yaml:"verify,omitempty"            json:"verify,omitempty"`
     CardDefaults     *CardDefaults            `yaml:"card_defaults,omitempty"     json:"card_defaults,omitempty"`
     POC              bool                     `yaml:"poc,omitempty"               json:"poc,omitempty"`
-    UnclaimedWarningSeconds int               `yaml:"unclaimed_warning_seconds,omitempty" json:"unclaimed_warning_seconds,omitempty"`
     KnowledgeProvider string                  `yaml:"knowledge_provider,omitempty" json:"knowledge_provider,omitempty"`
     KnowledgeScope    string                  `yaml:"knowledge_scope,omitempty"    json:"knowledge_scope,omitempty"`
     Favorites        map[string]TierFavorites `yaml:"favorites,omitempty"         json:"-"`
@@ -1056,7 +1055,6 @@ Top-level `.board.yaml` fields (full reference in
 | `verify`            | Project verify gate; see the card-level `verify` field.                          |
 | `card_defaults`     | Create-time defaults for the card automation fields; see below.                  |
 | `poc`               | Proof-of-concept flag; see below.                                                |
-| `unclaimed_warning_seconds` | Board warning for an unheld `in_progress` / `review` card; see below.    |
 | `knowledge_provider` | Name of a `knowledge.providers` entry; see below.                               |
 | `knowledge_scope`   | The product's name at that provider; see below.                                  |
 | `favorites`         | Per-tier model preferences, hand-edited only; see the `Favorites` note.          |
@@ -1129,14 +1127,6 @@ Settings, Execution tab); MCP `update_project` preserves it. On a shared
 boards repo the three-way merge keeps a change made on one side only, so a
 remote `next_id` bump neither drops a local switch-on nor brings back a flag
 switched off locally.
-
-### `unclaimed_warning_seconds` (optional, `int`)
-
-Off when absent or `0`. When set, the board marks an `in_progress` or
-`review` card that no agent has held for that many seconds. Negative values fail
-validation. Hand-edited in `.board.yaml`; no REST or MCP field sets it, and
-updates preserve it. On a shared boards repo a one-sided change survives the
-three-way merge, as with `poc`.
 
 ### `knowledge_provider` / `knowledge_scope` (optional, `string`)
 

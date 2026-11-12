@@ -82,9 +82,6 @@ Every view updates live from one Server-Sent Events stream per tab
   Models used on a finished card), shows the same rows with every claim and
   how long nobody has held an open card. Times tick in the browser, without
   requests. Cards claimed before claims were recorded read "Worked: unknown".
-  With `unclaimed_warning_seconds` set in `.board.yaml` (off by default), an
-  `in_progress` or `review` card no agent has held that long takes the
-  parked yellow edge plus an hourglass signal, named in its hovercard.
 - **Collapsing**: columns collapse to a strip, cards to a header row. Both sets
   are stored per project in `localStorage` under
   `contextmatrix-collapsed-columns-<project>` and

@@ -175,39 +175,6 @@ func TestResolveProject_POCOneSidedChangeKept(t *testing.T) {
 	}
 }
 
-func TestResolveProject_UnclaimedWarningOneSidedChangeKept(t *testing.T) {
-	tests := []struct {
-		name                       string
-		base, ours, theirs, wanted int
-	}{
-		{"local switch-on kept", 0, 3600, 0, 3600},
-		{"local switch-off kept", 3600, 0, 3600, 0},
-		{"remote change taken", 3600, 3600, 7200, 7200},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			base := projCfg()
-			base.UnclaimedWarningSeconds = tt.base
-			ours := projCfg()
-			ours.UnclaimedWarningSeconds = tt.ours
-			theirs := projCfg()
-			theirs.UnclaimedWarningSeconds = tt.theirs
-			theirs.NextID = base.NextID + 1
-
-			out, err := Resolve(Input{
-				Path: "alpha/.board.yaml", Base: serializeProj(t, base),
-				Ours: serializeProj(t, ours), Theirs: serializeProj(t, theirs),
-			}, testCtx())
-			require.NoError(t, err)
-
-			got, err := board.ParseProjectConfig(out.Content)
-			require.NoError(t, err)
-			assert.Equal(t, tt.wanted, got.UnclaimedWarningSeconds)
-			assert.Empty(t, out.Resolutions)
-		})
-	}
-}
-
 func TestResolveProject_KnowledgeOneSidedChangeKept(t *testing.T) {
 	tests := []struct {
 		name                       string

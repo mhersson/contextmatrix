@@ -73,9 +73,6 @@ type ProjectConfig struct {
 	// POC marks a proof-of-concept project: agent runs get one generic
 	// reviewer and main-behaviour tests. Human-set; no MCP tool writes it.
 	POC bool `yaml:"poc,omitempty" json:"poc,omitempty"`
-	// UnclaimedWarningSeconds turns on the board's warning for an in_progress
-	// or review card that no agent has held for this long. Zero is off.
-	UnclaimedWarningSeconds int `yaml:"unclaimed_warning_seconds,omitempty" json:"unclaimed_warning_seconds,omitempty"`
 	// KnowledgeProvider names a knowledge.providers entry; KnowledgeScope is a
 	// name only that provider understands.
 	KnowledgeProvider string                   `yaml:"knowledge_provider,omitempty" json:"knowledge_provider,omitempty"`
@@ -221,10 +218,6 @@ func validateProjectConfig(cfg *ProjectConfig) error {
 
 	if cfg.NextID < 1 {
 		return fmt.Errorf("%w: next_id must be >= 1", ErrInvalidProjectConfig)
-	}
-
-	if cfg.UnclaimedWarningSeconds < 0 {
-		return fmt.Errorf("%w: unclaimed_warning_seconds must be >= 0", ErrInvalidProjectConfig)
 	}
 
 	// Check stalled state exists

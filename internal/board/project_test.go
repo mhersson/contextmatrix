@@ -184,16 +184,6 @@ func TestValidateProjectConfig(t *testing.T) {
 			expectedErr: ErrInvalidProjectConfig,
 		},
 		{
-			name:        "unclaimed warning set",
-			modify:      func(cfg *ProjectConfig) { cfg.UnclaimedWarningSeconds = 3600 },
-			expectedErr: nil,
-		},
-		{
-			name:        "negative unclaimed warning",
-			modify:      func(cfg *ProjectConfig) { cfg.UnclaimedWarningSeconds = -1 },
-			expectedErr: ErrInvalidProjectConfig,
-		},
-		{
 			name: "missing stalled state",
 			modify: func(cfg *ProjectConfig) {
 				cfg.States = []string{"todo", "done"}
