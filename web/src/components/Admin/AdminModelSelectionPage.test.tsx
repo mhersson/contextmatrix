@@ -2,10 +2,11 @@ import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { act, render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { AdminModelSelectionPage } from './AdminModelSelectionPage';
 import { PREVIEW_DEBOUNCE_MS } from './useSelectorPreview';
-import type { ModelBlacklistEntry, SelectorCandidatesResponse, SelectorLadders, SelectorLaddersResponse, SelectorPreview } from '../../types';
+import type { LLMChannel, LLMChannelView, ModelBlacklistEntry, SelectorCandidatesResponse, SelectorLadders, SelectorLaddersResponse, SelectorPreview, SelectorTier } from '../../types';
 import { CHART_LAYOUT, qualityScale } from './chart';
 import { snapBar } from './ladder';
-import { CANDIDATES, pick, previewFixture } from './selector.fixtures';
+import { CANDIDATES, candidate, pick, previewFixture } from './selector.fixtures';
+import { PROVIDER_FILTER_KEY } from './useProviderFilter';
 
 const mocks = vi.hoisted(() => ({
   adminSelectorLadders: vi.fn(),
@@ -16,6 +17,24 @@ const mocks = vi.hoisted(() => ({
   adminDelistModel: vi.fn(),
   adminBlacklistModel: vi.fn(),
 }));
+
+const channel = vi.hoisted(() => ({ view: null as LLMChannelView | null }));
+
+vi.mock('../../hooks/useLLMChannel', () => ({
+  useLLMChannel: () => ({ view: channel.view, setMode: async () => {}, error: null, clearError: () => {} }),
+}));
+
+function channelView(mode: LLMChannel): LLMChannelView {
+  return {
+    mode,
+    switchable: true,
+    endpoint: { type: 'openrouter', label: 'OpenRouter' },
+    claude_code: true,
+    in_flight: { endpoint: { cards: 0, chats: 0, blueprints: 0 }, claude_code: { cards: 0, chats: 0, blueprints: 0 } },
+    exceptions: [],
+    usage: [],
+  };
+}
 
 vi.mock('../../api/client', async (importOriginal) => {
   const orig = await importOriginal<typeof import('../../api/client')>();
@@ -57,6 +76,7 @@ function equalLadders(): SelectorLadders {
 
 function catalogRes(): SelectorCandidatesResponse {
   return {
+    catalog: 'endpoint',
     candidates: CANDIDATES,
     favorites: [],
     blacklist: ['c/weak'],
@@ -68,6 +88,29 @@ function catalogRes(): SelectorCandidatesResponse {
     served_scored_models: 27,
     best_aa_score: 59.4,
   };
+}
+
+const CLAUDE_IDS = ['claude-haiku-5-5', 'claude-opus-5-5', 'claude-sonnet-5-5'];
+
+/** The Claude Code catalog: catalog IDs with no creator. */
+function claudeCatalogRes(): SelectorCandidatesResponse {
+  const priors = [0.6, 1, 0.84];
+  return {
+    ...catalogRes(),
+    catalog: 'claude_code',
+    candidates: CLAUDE_IDS.map((id, i) => ({ ...candidate(id, priors[i], priors[i], (i + 1) * 6e-6), creator: '', price_source: 'aa' as const, scored_from: id })),
+    blacklist: [],
+    served_scored_models: 3,
+  };
+}
+
+/** Every pick and seat is claude-sonnet-5-5. */
+function claudePreview(): SelectorPreview {
+  const tiers = {} as SelectorPreview['tiers'];
+  for (const t of ['simple', 'moderate', 'complex', 'critical'] as SelectorTier[]) {
+    tiers[t] = { coder: pick('claude-sonnet-5-5', 'coder', t, t, 1.8e-5), reviewer: pick('claude-sonnet-5-5', 'reviewer', t, t, 1.8e-5), panel: [] };
+  }
+  return { catalog: 'claude_code', tiers };
 }
 
 function blacklistEntry(overrides: Partial<ModelBlacklistEntry> = {}): ModelBlacklistEntry {
@@ -102,6 +145,8 @@ beforeAll(() => {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  channel.view = null;
+  localStorage.removeItem(PROVIDER_FILTER_KEY);
   mocks.adminSelectorLadders.mockResolvedValue(laddersRes(savedLadders()));
   mocks.adminSelectorCandidates.mockResolvedValue(catalogRes());
   mocks.adminSelectorPreview.mockResolvedValue(previewFixture());
@@ -675,5 +720,117 @@ describe('AdminModelSelectionPage - context menu', () => {
 
     expect(await screen.findByText(/failed to add blacklist entry/i)).toBeInTheDocument();
     expect(marks('a/mid-coder')).not.toContain('blacklisted');
+  });
+});
+
+describe('AdminModelSelectionPage - LLM channel', () => {
+  it('names the catalog the server reports', async () => {
+    for (const res of [catalogRes(), claudeCatalogRes()]) {
+      mocks.adminSelectorCandidates.mockResolvedValue(res);
+      const { unmount } = render(<AdminModelSelectionPage />);
+      await waitFor(() => expect(screen.getByTestId('tl-catalog')).toHaveAttribute('data-catalog', res.catalog));
+      unmount();
+    }
+  });
+
+  it('shows every Claude Code candidate and no provider chips, whatever the stored filter hides', async () => {
+    localStorage.setItem(PROVIDER_FILTER_KEY, JSON.stringify(['other']));
+    mocks.adminSelectorCandidates.mockResolvedValue(claudeCatalogRes());
+    mocks.adminSelectorPreview.mockResolvedValue(claudePreview());
+    await renderLoaded();
+
+    expect(screen.queryByRole('group', { name: 'Provider filter' })).not.toBeInTheDocument();
+    for (const id of CLAUDE_IDS) expect(screen.getByTestId(`tl-pt-${id}`)).toBeInTheDocument();
+  });
+
+  it('keeps the provider chips for the served catalog', async () => {
+    await renderLoaded();
+
+    expect(screen.getByRole('group', { name: 'Provider filter' })).toBeInTheDocument();
+  });
+
+  it('refetches the catalog and the preview when the channel flips', async () => {
+    channel.view = channelView('endpoint');
+    const { rerender } = render(<AdminModelSelectionPage />);
+    await waitFor(() => expect(mocks.adminSelectorPreview).toHaveBeenCalled());
+    expect(mocks.adminSelectorCandidates).toHaveBeenCalledTimes(1);
+
+    mocks.adminSelectorCandidates.mockResolvedValue(claudeCatalogRes());
+    mocks.adminSelectorPreview.mockResolvedValue(claudePreview());
+    channel.view = channelView('claude_code');
+    rerender(<AdminModelSelectionPage />);
+
+    await waitFor(() => expect(screen.getByTestId('tl-catalog')).toHaveAttribute('data-catalog', 'claude_code'));
+    expect(mocks.adminSelectorCandidates).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(screen.getByTestId('tl-preview')).toHaveAttribute('aria-busy', 'false'));
+    expect(within(screen.getByTestId('tl-preview')).getAllByText('claude-sonnet-5-5').length).toBeGreaterThan(0);
+  });
+
+  it('does not refetch when the channel first loads', async () => {
+    const { rerender } = render(<AdminModelSelectionPage />);
+    await waitFor(() => expect(mocks.adminSelectorPreview).toHaveBeenCalled());
+
+    channel.view = channelView('endpoint');
+    rerender(<AdminModelSelectionPage />);
+    await act(async () => {});
+
+    expect(mocks.adminSelectorCandidates).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-runs the preview when the refresh after a mismatch returns the catalog on screen', async () => {
+    mocks.adminSelectorPreview.mockResolvedValueOnce(claudePreview()).mockResolvedValue(previewFixture());
+
+    render(<AdminModelSelectionPage />);
+    await waitFor(() => expect(mocks.adminSelectorPreview).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTestId('tl-preview')).toHaveAttribute('aria-busy', 'false'));
+
+    expect(mocks.adminSelectorCandidates).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('tl-catalog')).toHaveAttribute('data-catalog', 'endpoint');
+    expect(screen.getByTestId('tl-seat-complex-0')).toBeInTheDocument();
+  });
+
+  it('opens no menu on a Claude Code point struck by an entry stored under its gateway slug', async () => {
+    mocks.adminSelectorCandidates.mockResolvedValue({ ...claudeCatalogRes(), blacklist: ['claude-opus-5-5'] });
+    mocks.adminSelectorPreview.mockResolvedValue(claudePreview());
+    mocks.adminModelBlacklist.mockResolvedValue({ models: [blacklistEntry({ slug: 'anthropic/claude-opus-5.5' })] });
+    await renderLoaded();
+    await waitFor(() => expect(screen.getByText('anthropic/claude-opus-5.5')).toBeInTheDocument());
+
+    fireEvent.contextMenu(screen.getByTestId('tl-pt-claude-opus-5-5'), { clientX: 50, clientY: 60 });
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('offers delist on a Claude Code point stored under its own ID, and add on an unstruck one', async () => {
+    mocks.adminSelectorCandidates.mockResolvedValue({ ...claudeCatalogRes(), blacklist: ['claude-opus-5-5'] });
+    mocks.adminSelectorPreview.mockResolvedValue(claudePreview());
+    mocks.adminModelBlacklist.mockResolvedValue({ models: [blacklistEntry({ slug: 'claude-opus-5-5' })] });
+    await renderLoaded();
+    await waitFor(() => expect(screen.getAllByText('claude-opus-5-5').length).toBeGreaterThan(0));
+
+    fireEvent.contextMenu(screen.getByTestId('tl-pt-claude-opus-5-5'), { clientX: 50, clientY: 60 });
+    expect(within(screen.getByRole('menu', { name: 'claude-opus-5-5' })).getByRole('menuitem', { name: 'Remove from blacklist' })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.contextMenu(screen.getByTestId('tl-pt-claude-haiku-5-5'), { clientX: 50, clientY: 60 });
+    expect(within(screen.getByRole('menu', { name: 'claude-haiku-5-5' })).getByRole('menuitem', { name: 'Add to blacklist' })).toBeInTheDocument();
+  });
+
+  it('holds a preview from another catalog as pending and refreshes the catalog', async () => {
+    let resolveRefresh: (r: SelectorCandidatesResponse) => void = () => {};
+    mocks.adminSelectorCandidates
+      .mockResolvedValueOnce(catalogRes())
+      .mockImplementationOnce(() => new Promise<SelectorCandidatesResponse>((resolve) => { resolveRefresh = resolve; }));
+    mocks.adminSelectorPreview.mockResolvedValue(claudePreview());
+
+    render(<AdminModelSelectionPage />);
+    await waitFor(() => expect(mocks.adminSelectorCandidates).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId('tl-preview')).toHaveAttribute('aria-busy', 'true');
+    expect(within(screen.getByTestId('tl-preview')).queryByText('claude-sonnet-5-5')).not.toBeInTheDocument();
+
+    resolveRefresh(claudeCatalogRes());
+    await waitFor(() => expect(screen.getByTestId('tl-preview')).toHaveAttribute('aria-busy', 'false'));
+    expect(screen.getByTestId('tl-catalog')).toHaveAttribute('data-catalog', 'claude_code');
+    expect(within(screen.getByTestId('tl-preview')).getAllByText('claude-sonnet-5-5').length).toBeGreaterThan(0);
   });
 });

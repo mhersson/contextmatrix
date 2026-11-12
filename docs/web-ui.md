@@ -795,10 +795,14 @@ See [playbooks](playbooks.md#follow-ups).
 
 ## Model selection
 
-`/admin/model-selection` is the tier ladders page. A data-source strip under
+`/admin/model-selection` is the tier ladders page. The header names the
+catalog it shows: the Claude Code catalog while card runs start on Claude
+Code, else the catalog the gateway serves. Switching the LLM channel refetches
+it. A data-source strip under
 the header states the catalog snapshot the page shows: the Artificial Analysis
 Intelligence Index version, the AA models scored, the models scored and served
-by the gateway with tool use, the candidate count and quality floor, the best
+by the gateway with tool use (the Claude Code models scored, for the Claude
+Code catalog), the candidate count and quality floor, the best
 AA score (prior 1.00), the reasoning effort the gateway pins for its OpenAI
 models when one is configured, the refresh time, and a link to Artificial
 Analysis. While the catalog is loading or unavailable the strip shows no
@@ -848,7 +852,7 @@ Provider chips above the chart, each with its candidate count, plus `all` and
 `none`, hide that provider's points; the panel meta then shows
 `N of M candidates shown`. The selection is remembered per browser and is
 display-only: it never changes the scales, picks, seats, counts, saved ladders
-or any request.
+or any request. The Claude Code catalog shows no chips and every point.
 
 The pick preview sits right of the chart, and under it on narrow screens. Its
 rows run from `critical` to `simple`: the bar (both bars when the switch is on
@@ -864,7 +868,8 @@ reported incapable, with a per-row **Delist**. Right-clicking a point, a pick
 name in the preview, or a panel seat opens a menu with **Add to blacklist**, or
 **Remove from blacklist** when the model is already struck; either change
 refetches the catalog and re-runs the preview at once, independently of the
-unsaved ladders. Details in
+unsaved ladders. On the Claude Code catalog a point struck only by an entry
+stored under its gateway slug opens no menu; its table row delists it. Details in
 [model selection](model-selection.md#the-ladders-page).
 
 ## Keyboard shortcuts

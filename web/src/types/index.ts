@@ -882,7 +882,7 @@ export interface SelectorCandidate {
   completion_price_per_tok: number;
   context_window: number;
   price_source: SelectorPriceSource;
-  /** The AA slug an automatic join scored the priors from; empty for a model_priors entry and on the OpenRouter leg. */
+  /** The AA slug an automatic join scored the priors from; empty for a model_priors entry and for a served candidate on the OpenRouter leg. */
   scored_from: string;
   prior_source: SelectorPriorSource;
 }
@@ -893,7 +893,11 @@ export interface SelectorFavoriteRule {
   models: string[];
 }
 
+/** The LLM channel mode whose catalog a selector response came from: the Claude Code catalog while card runs start on Claude Code, else the served one. */
+export type SelectorCatalog = 'claude_code' | 'endpoint';
+
 export interface SelectorCandidatesResponse {
+  catalog: SelectorCatalog;
   candidates: SelectorCandidate[];
   favorites: SelectorFavoriteRule[];
   blacklist: string[];
@@ -905,7 +909,7 @@ export interface SelectorCandidatesResponse {
   intelligence_index_version: string;
   /** AA rows with an intelligence index. */
   aa_scored_models: number;
-  /** Gateway models with tool use joined to a scored AA row, before the allowlist and the floor; model_priors entries are not counted. */
+  /** Gateway models with tool use (Claude Code catalog IDs for the claude_code catalog) joined to a scored AA row, before the allowlist and the floor; model_priors entries are not counted. */
   served_scored_models: number;
   /** The best AA score, the normalizer behind prior 1.00; 0 when there is none. */
   best_aa_score: number;
@@ -965,6 +969,7 @@ export interface SelectorTierPreview {
 }
 
 export interface SelectorPreview {
+  catalog: SelectorCatalog;
   tiers: Record<SelectorTier, SelectorTierPreview>;
 }
 
