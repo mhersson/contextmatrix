@@ -248,3 +248,49 @@ func TestSubscriptionUsage_SkipsZeroResetsAt(t *testing.T) {
 	require.Len(t, rows, 1)
 	assert.InDelta(t, 0.5, rows[0].Utilization, 1e-9)
 }
+
+// Within one period a rejected reading always wins its status, and the stored
+// utilization only rises, so a rejected reading of unknown utilization never
+// lowers it.
+func TestSubscriptionUsage_RejectedWinsStatusKeepsMaxUtilization(t *testing.T) {
+	reset := time.Unix(2_000_000_000, 0).UTC()
+	seen1 := time.Unix(1_900_000_000, 0).UTC()
+	seen2 := time.Unix(1_900_000_500, 0).UTC()
+
+	reading := func(util float64, status string, resets time.Time) protocol.SubscriptionUsage {
+		return protocol.SubscriptionUsage{Window: "five_hour", Utilization: util, Status: status, ResetsAt: resets}
+	}
+
+	tests := []struct {
+		name             string
+		stored, incoming protocol.SubscriptionUsage
+		wantUtil         float64
+		wantStatus       string
+		wantSeen         time.Time
+	}{
+		{"rejected lower utilization", reading(0.8, "allowed_warning", reset), reading(0.3, "rejected", reset), 0.8, "rejected", seen2},
+		{"rejected unknown utilization", reading(0.8, "allowed", reset), reading(0, "rejected", reset), 0.8, "rejected", seen2},
+		{"rejected higher utilization", reading(0.5, "allowed", reset), reading(1, "rejected", reset), 1, "rejected", seen2},
+		{"allowed equal keeps rejected", reading(1, "rejected", reset), reading(1, "allowed", reset), 1, "rejected", seen1},
+		{"allowed lower keeps rejected", reading(1, "rejected", reset), reading(0.2, "allowed", reset), 1, "rejected", seen1},
+		{"later period replaces rejected", reading(1, "rejected", reset), reading(0.1, "allowed", reset.Add(5*time.Hour)), 0.1, "allowed", seen2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := openLadderStore(t)
+			ctx := context.Background()
+
+			require.NoError(t, st.RecordSubscriptionUsage(ctx, []protocol.SubscriptionUsage{tt.stored}, seen1))
+			require.NoError(t, st.RecordSubscriptionUsage(ctx, []protocol.SubscriptionUsage{tt.incoming}, seen2))
+
+			rows, err := st.SubscriptionUsage(ctx)
+			require.NoError(t, err)
+			require.Len(t, rows, 1)
+
+			assert.InDelta(t, tt.wantUtil, rows[0].Utilization, 1e-9)
+			assert.Equal(t, tt.wantStatus, rows[0].Status)
+			assert.True(t, tt.wantSeen.Equal(rows[0].SeenAt), "seen_at %v, want %v", rows[0].SeenAt, tt.wantSeen)
+		})
+	}
+}

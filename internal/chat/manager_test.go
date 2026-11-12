@@ -7893,6 +7893,7 @@ func TestUsageLimitFrame_PublishesState(t *testing.T) {
 	}{
 		{"with reset", protocol.UsageLimit{Window: "five_hour", ResetsAt: reset}, `{"window":"five_hour","resets_at":"2026-01-02T08:00:00Z"}`},
 		{"without reset", protocol.UsageLimit{Window: "seven_day"}, `{"window":"seven_day"}`},
+		{"without window", protocol.UsageLimit{ResetsAt: reset}, `{"resets_at":"2026-01-02T08:00:00Z"}`},
 	}
 
 	for _, tt := range tests {
@@ -7906,8 +7907,10 @@ func TestUsageLimitFrame_PublishesState(t *testing.T) {
 			backend := &usageStreamingBackend{
 				entries: []chat.LogEntry{{Type: "system", Content: "Usage limit reached", UsageLimit: &tt.limit}},
 			}
+			rec := &recordedUsage{}
 			mgr := newManager(t, chat.Config{
 				Store: store, Backend: backend, Clock: clock.Real(), IdleTTL: time.Hour, Hub: hub, DefaultModel: "m",
+				UsageRecorder: rec,
 			})
 
 			sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{Title: "t", CreatedBy: "x"})
@@ -7946,6 +7949,16 @@ func TestUsageLimitFrame_PublishesState(t *testing.T) {
 			raw, err := json.Marshal(update.UsageLimit)
 			require.NoError(t, err)
 			assert.JSONEq(t, tt.want, string(raw))
+
+			if tt.limit.Window == "" || tt.limit.ResetsAt.IsZero() {
+				assert.Empty(t, rec.calls(), "a limit without a window or reset records nothing")
+
+				return
+			}
+
+			assert.Equal(t, [][]protocol.SubscriptionUsage{{
+				{Window: tt.limit.Window, Utilization: 1, Status: "rejected", ResetsAt: tt.limit.ResetsAt},
+			}}, rec.calls())
 		})
 	}
 }
@@ -8006,7 +8019,8 @@ func TestUsageLimitFrame_ArchitectPublishesStateAfterRow(t *testing.T) {
 	limit := protocol.UsageLimit{Window: "five_hour", ResetsAt: reset}
 
 	hub := chat.NewSSEHub(64)
-	mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) { c.Hub = hub })
+	rec := &recordedUsage{}
+	mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) { c.Hub = hub; c.UsageRecorder = rec })
 	arch.streamLogsFn = streamEntries(chat.LogEntry{Type: "system", Content: "Usage limit reached", UsageLimit: &limit})
 
 	sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{
@@ -8047,6 +8061,9 @@ func TestUsageLimitFrame_ArchitectPublishesStateAfterRow(t *testing.T) {
 	raw, err := json.Marshal(update.UsageLimit)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"window":"five_hour","resets_at":"2026-01-02T08:00:00Z"}`, string(raw))
+	assert.Equal(t, [][]protocol.SubscriptionUsage{{
+		{Window: "five_hour", Utilization: 1, Status: "rejected", ResetsAt: reset},
+	}}, rec.calls())
 
 	msgs, err := mgr.ListMessages(context.Background(), sess.ID, 0, 10)
 	require.NoError(t, err)

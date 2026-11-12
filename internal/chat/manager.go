@@ -754,6 +754,18 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fall
 	}
 }
 
+// recordUsageLimit stores the limited window as rejected: a window at its limit
+// is fully used. A limit naming no window or reset time cannot be stored.
+func (m *Manager) recordUsageLimit(ctx context.Context, limit *protocol.UsageLimit) {
+	if m.usageRecorder == nil || limit.Window == "" || limit.ResetsAt.IsZero() {
+		return
+	}
+
+	m.usageRecorder.RecordUsage(ctx, []protocol.SubscriptionUsage{{
+		Window: limit.Window, Utilization: 1, Status: "rejected", ResetsAt: limit.ResetsAt,
+	}})
+}
+
 // publishUsageLimit tells open UIs that a subscription usage limit stopped the session.
 func (m *Manager) publishUsageLimit(sessionID string, limit *protocol.UsageLimit) {
 	if m.hub == nil {
@@ -846,6 +858,8 @@ func (m *Manager) startConsumer(sessionID string, restart bool) {
 			}
 
 			if e.UsageLimit != nil {
+				m.recordUsageLimit(ctx, e.UsageLimit)
+
 				// Publish after the system row below, so an open UI sees the row first.
 				defer m.publishUsageLimit(sessionID, e.UsageLimit)
 			}

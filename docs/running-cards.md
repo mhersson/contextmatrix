@@ -196,8 +196,8 @@ card; the next `queued` replaces `parked`. A run parks when:
   fresh container resumes at the gate.
 - **A review loop ends with findings remaining.** The card stays in `review`.
 - **A Claude Code subscription usage limit stops the run.** The run also sends
-  `resets_at` (RFC 3339, a past time is accepted): the card carries it as
-  `park_resets_at` while parked, `worker.parked` carries it too, and the next
+  `resets_at` (RFC 3339, a past time is accepted) and the limited `window`: the
+  card carries the reset as `park_resets_at` while parked, `worker.parked` carries it too, and the next
   `queued` clears it. The card panel badge and the board card's hover card
   then read "Parked - usage limit, resets Thu 14:00" (local time), and
   "Parked - usage limit reset Thu 14:00" once that time has passed. Nothing

@@ -243,6 +243,7 @@ type reportParkedInput struct {
 	AgentID  string `json:"agent_id" jsonschema:"required,agent ID"`
 	Reason   string `json:"reason" jsonschema:"required,why the run parked the card, e.g. review parked: attempts cap exhausted without approval"`
 	ResetsAt string `json:"resets_at,omitempty" jsonschema:"RFC 3339 time a subscription usage limit resets; set only when a usage limit parked the run"`
+	Window   string `json:"window,omitempty" jsonschema:"the subscription window whose usage limit parked the run, e.g. five_hour; send with resets_at"`
 }
 
 type reportParkedOutput struct {
@@ -894,7 +895,7 @@ func registerReportPush(server *mcp.Server, svc *service.CardService) {
 
 // --- report_parked tool ---
 
-func registerReportParked(server *mcp.Server, svc *service.CardService) {
+func registerReportParked(server *mcp.Server, svc *service.CardService, recorder UsageRecorder) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "report_parked",
 		Description: "Report that this run is parking the card - review or PR gates left for a human. " +
@@ -920,6 +921,12 @@ func registerReportParked(server *mcp.Server, svc *service.CardService) {
 		card, err := svc.ReportParked(ctx, project, input.CardID, input.AgentID, strings.TrimSpace(input.Reason), resetsAt)
 		if err != nil {
 			return nil, reportParkedOutput{}, fmt.Errorf("report parked: %w", err)
+		}
+
+		if window := strings.TrimSpace(input.Window); recorder != nil && window != "" && resetsAt != nil && !resetsAt.IsZero() {
+			recorder.RecordUsage(ctx, []protocol.SubscriptionUsage{{
+				Window: window, Utilization: 1, Status: "rejected", ResetsAt: *resetsAt,
+			}})
 		}
 
 		return nil, reportParkedOutput{Card: summarizeCardForAgent(card, input.AgentID)}, nil

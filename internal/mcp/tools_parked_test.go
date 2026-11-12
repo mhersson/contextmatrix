@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -131,5 +132,77 @@ func TestReportParkedTool_ResetsAt(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "parked", card.WorkerStatus)
 		assert.Nil(t, card.ParkResetsAt)
+	})
+}
+
+func TestReportParkedTool_RecordsRejectedWindow(t *testing.T) {
+	reset := time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name string
+		args map[string]any
+		want [][]protocol.SubscriptionUsage
+	}{
+		{
+			name: "window with resets_at records rejected",
+			args: map[string]any{"window": "five_hour", "resets_at": reset.Format(time.RFC3339)},
+			want: [][]protocol.SubscriptionUsage{{
+				{Window: "five_hour", Utilization: 1, Status: "rejected", ResetsAt: reset},
+			}},
+		},
+		{
+			name: "resets_at without window records nothing",
+			args: map[string]any{"resets_at": reset.Format(time.RFC3339)},
+		},
+		{
+			name: "window without resets_at records nothing",
+			args: map[string]any{"window": "five_hour"},
+		},
+		{
+			name: "window with zero resets_at records nothing",
+			args: map[string]any{"window": "five_hour", "resets_at": "0001-01-01T00:00:00Z"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := &recordedUsage{}
+			env := setupMCP(t, func(c *ServerConfig) { c.SubscriptionUsage = rec })
+			env.svc.SetParkResetStore(&parkResetRecorder{rows: map[string]time.Time{}})
+
+			createTestCard(t, env, "Limit", "task", "medium")
+			callTool(t, env, "claim_card", map[string]any{
+				"project": "test-project", "card_id": "TEST-001", "agent_id": "agent-A",
+			})
+
+			args := map[string]any{
+				"project": "test-project", "card_id": "TEST-001", "agent_id": "agent-A",
+				"reason": "usage limit reached",
+			}
+			for k, v := range tt.args {
+				args[k] = v
+			}
+
+			result := callTool(t, env, "report_parked", args)
+			require.False(t, result.IsError)
+			assert.Equal(t, tt.want, rec.got)
+		})
+	}
+
+	t.Run("a failed park records nothing", func(t *testing.T) {
+		rec := &recordedUsage{}
+		env := setupMCP(t, func(c *ServerConfig) { c.SubscriptionUsage = rec })
+
+		createTestCard(t, env, "Limit", "task", "medium")
+		callTool(t, env, "claim_card", map[string]any{
+			"project": "test-project", "card_id": "TEST-001", "agent_id": "agent-A",
+		})
+
+		result := callTool(t, env, "report_parked", map[string]any{
+			"project": "test-project", "card_id": "TEST-001", "agent_id": "agent-B",
+			"reason": "usage limit reached", "window": "five_hour", "resets_at": reset.Format(time.RFC3339),
+		})
+		require.True(t, result.IsError)
+		assert.Empty(t, rec.got)
 	})
 }

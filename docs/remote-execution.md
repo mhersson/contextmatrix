@@ -1048,17 +1048,20 @@ contextmatrix-agent; CM implements and enforces none of them:
 
 A subscription usage limit parks work and never falls back to the endpoint.
 
-- A card run parks through `report_parked` with the limit's `resets_at`; see
-  [parked cards](running-cards.md#parked-cards). Rerunning it is a human
-  action.
+- A card run parks through `report_parked` with the limit's `resets_at` and
+  `window`; see [parked cards](running-cards.md#parked-cards). Rerunning it is
+  a human action.
 - A chat or blueprint turn ends with a `usage_limit` frame (see
   [`GET /logs`](#get-backend_urllogs)), and the pane shows a banner with the
-  reset time (see [web UI](web-ui.md#global-chat)).
+  reset time (see [web UI](web-ui.md#global-chat)). A `usage_limit` frame
+  naming a window and a reset time, and `report_parked` with both, record that
+  window as `rejected` at full utilization.
 - Workers report each window's last-seen state: `subscription_usage` on
   `report_usage`, `subscription` on chat usage frames. CM keeps the newest
   reading per window in ops.db (`subscription_usage`): a later `resets_at`
-  replaces it; within one period a higher utilization does, and an equal one
-  unless it would replace a stored `rejected` status with another. A card
+  replaces it; within one period a `rejected` reading always wins its status,
+  otherwise a higher utilization wins and an equal one never clears a stored
+  `rejected`, and the stored utilization only rises. A card
   run's last reading therefore cannot overwrite a fresher chat one or hide a
   live limit. CM drops a window without a reset time and serves the readings
   on `GET /api/llm-channel`.

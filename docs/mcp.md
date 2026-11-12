@@ -125,7 +125,7 @@ The "Caller" column uses these values:
 | `release_card`              | Drop the claim                                              | claim  |
 | `complete_task`             | Log, transition (subtask to `done`, parent to `review`), release | claim |
 | `report_push`               | Record branch and PR URL; hard error on `main` / `master`   | claim  |
-| `report_parked`             | Set `worker_status: parked`; optional `resets_at`           | claim  |
+| `report_parked`             | Set `worker_status: parked`; optional `resets_at`, `window`  | claim  |
 | `increment_review_attempts` | Bump `review_attempts`; the server caps it at 7             | claim  |
 | `promote_to_autonomous`     | Flip `autonomous` to true; idempotent; 409 on terminal cards | human |
 | `run_card`                  | Start an autonomous (Run Auto) agent-backend run; a non-autonomous `todo` card is set autonomous first | human |
@@ -135,7 +135,9 @@ The "Caller" column uses these values:
 subscription usage limit parked the run; the card shows it as
 `park_resets_at` until it is queued again. An empty value or the zero time
 (`0001-01-01T00:00:00Z`) counts as absent; any other value that is not RFC
-3339 fails the call.
+3339 fails the call. With `window` (e.g. `five_hour`) as well, the call
+also records that window as `rejected` at full utilization, valid until
+`resets_at`; a `window` without `resets_at` is accepted and records nothing.
 
 ### Workflow skills
 
