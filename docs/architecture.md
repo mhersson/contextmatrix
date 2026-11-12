@@ -107,6 +107,7 @@ into real enforcement.
 (`/api/admin/credentials*`), admin chat management (`/api/admin/chats*`),
 the model-outcomes, model-blacklist and selector
 (`/api/admin/selector/*`: ladders, candidates, preview) admin endpoints,
+the LLM channel switch (`PUT /api/admin/llm-channel`),
 `GET /api/backends/{backend}/images`, and project
 management (`POST`/`PUT`/`DELETE /api/projects*`,
 `POST /api/projects/{project}/recalculate-costs`; see `authEnabled` in
@@ -190,8 +191,9 @@ listing) keeps the broad installation token. Contract:
 [API reference](api-reference.md) and [remote execution](remote-execution.md).
 
 The LLM key is kept out of workers by the backends, not by CM. CM still sends
-the real `llm_endpoint` (type, base URL, key) on every trigger and chat start,
-and its own catalog reads of the endpoint are unaffected. The agent and chat
+the real `llm_endpoint` (type, base URL, key) on every trigger and chat start
+on the endpoint side of the LLM channel, and its own catalog reads of the
+endpoint are unaffected. The agent and chat
 backends keep the key in `serve`'s memory behind an LLM proxy at `/llm` on
 `serve`'s own listener. The worker gets a stand-in token in `LLM_API_KEY` and
 the proxy URL in `LLM_BASE_URL`; the token works only at that proxy and is
@@ -219,6 +221,16 @@ revoked when the run or session ends. Upstream LLM calls therefore leave from
             T at serve's proxy → reachable only inside the trusted network,
                                  and dead once the run ends
 ```
+
+The Claude Code subscription token (`claude_code.oauth_token`) has no such
+stand-in. It travels only in `LLMEndpoint.OAuthToken` (`llm_endpoint.oauth_token`
+on the wire) on trigger and chat-start payloads in `claude_code` mode, and the
+`claude` process needs it in its environment, so it is readable inside worker
+containers and a prompt-injected agent could exfiltrate it. CM never returns
+it in any API response, event or log; `GET /api/llm-channel` says only
+whether one is configured. Who may spend it is an operator obligation CM does
+not enforce: see
+[Claude Code subscription mode](remote-execution.md#claude-code-subscription-mode).
 
 ### Model-written mockups
 
@@ -278,6 +290,9 @@ revoked when the run or session ends. Upstream LLM calls therefore leave from
   MCP cannot write it, and its REST `HUMAN_ONLY_FIELD` gate forks like every
   other identity check.
 - Review `githubauth` token handling strictly.
+- The Claude Code token in any API response, event, SSE frame, activity
+  entry, error message or log line is a finding; its presence in a worker's
+  environment is the design.
 - A mockup shell response losing `sandbox allow-scripts` or
   `X-DNS-Prefetch-Control: off`, or gaining a network source (any directive
   beyond the policy above), the shell writing a source before it deletes the
@@ -387,6 +402,7 @@ failure the service layer closes the gap:
 | `mcp`               | `NewServer`, tools, prompts                          | MCP over Streamable HTTP on `/mcp` (`POST`, `GET`, `DELETE`); tools call `CardService`; prompts serve `workflow-skills/`.                                                |
 | `backend`           | client, reconcile, `sessionlog.Manager`              | Task-backend webhook client, reconcile sweep, end-session subscriber, HMAC signature cache, per-card session-log buffer and fan-out hub.                                 |
 | `chat`              | `Manager`, `Store`, `SSEHub`, `IdleReaper`, `transcript` | Global chat sessions: lifecycle, transcript persistence, per-session SSE, cost accumulation, cold-reopen resume payloads.                                            |
+| `llmchannel`        | `Holder`                                             | The global LLM channel mode (`endpoint` or `claude_code`), saved in `ops.db`: resolves each start's endpoint and model, records subscription usage readings, publishes `llm_channel.changed`. |
 | `opstore`           | `sqlite.Store`                                       | `ops.db` (tables: see configuration.md). Schema is `CREATE TABLE IF NOT EXISTS` with no migration ledger.               |
 | `images`            | `Store`, `Layered`, `RepoIndex`, `Process`           | Content-hashed image store: `images.db` plus `<project>/images/` files in shared repos.                                                                                 |
 | `modelcatalog`      | `Builder`                                            | Fetches and rates model candidates (Artificial Analysis joined with OpenRouter or an OpenAI-compatible endpoint); 6h TTL, last-good fallback. See [model selection](model-selection.md). |

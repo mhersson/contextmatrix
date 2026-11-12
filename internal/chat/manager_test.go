@@ -28,7 +28,12 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/clock"
+	"github.com/mhersson/contextmatrix/internal/config"
+	"github.com/mhersson/contextmatrix/internal/events"
+	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/llmchannel/llmchanneltest"
 	"github.com/mhersson/contextmatrix/internal/metrics"
+	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
@@ -139,6 +144,10 @@ func (s *stubBackend) StreamLogs(ctx context.Context, sessionID string, onEntry 
 // consumers before the store and the directory go away.
 func newManager(t *testing.T, cfg chat.Config) *chat.Manager {
 	t.Helper()
+
+	if cfg.LLMChannel == nil {
+		cfg.LLMChannel = llmchanneltest.EndpointOnly(nil)
+	}
 
 	mgr := chat.NewManager(cfg)
 
@@ -2292,6 +2301,7 @@ func TestManager_OpenCold_PassesLLMEndpointToBackend(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
+	ctx := context.Background()
 	backend := &stubBackend{}
 	endpoint := &protocol.LLMEndpoint{
 		Type:    "openrouter",
@@ -2299,14 +2309,13 @@ func TestManager_OpenCold_PassesLLMEndpointToBackend(t *testing.T) {
 		APIKey:  "sk-test-key",
 	}
 	mgr := newManager(t, chat.Config{
-		Store:       store,
-		Backend:     backend,
-		Clock:       clock.Real(),
-		IdleTTL:     time.Hour,
-		LLMEndpoint: endpoint,
+		Store:      store,
+		Backend:    backend,
+		Clock:      clock.Real(),
+		IdleTTL:    time.Hour,
+		LLMChannel: llmchanneltest.EndpointOnly(endpoint),
 	})
 
-	ctx := context.Background()
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
 	require.NoError(t, err)
 
@@ -2316,7 +2325,7 @@ func TestManager_OpenCold_PassesLLMEndpointToBackend(t *testing.T) {
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 
-	require.NotNil(t, backend.lastOpts.LLMEndpoint, "configured Manager.LLMEndpoint must reach StartChatOpts")
+	require.NotNil(t, backend.lastOpts.LLMEndpoint, "the configured endpoint must reach StartChatOpts")
 	assert.Equal(t, *endpoint, *backend.lastOpts.LLMEndpoint)
 }
 
@@ -2327,10 +2336,11 @@ func TestManager_OpenCold_OmitsLLMEndpointWhenUnconfigured(t *testing.T) {
 
 	backend := &stubBackend{}
 	mgr := newManager(t, chat.Config{
-		Store:   store,
-		Backend: backend,
-		Clock:   clock.Real(),
-		IdleTTL: time.Hour,
+		Store:      store,
+		Backend:    backend,
+		Clock:      clock.Real(),
+		IdleTTL:    time.Hour,
+		LLMChannel: llmchanneltest.EndpointOnly(nil),
 	})
 
 	ctx := context.Background()
@@ -2343,7 +2353,7 @@ func TestManager_OpenCold_OmitsLLMEndpointWhenUnconfigured(t *testing.T) {
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 
-	assert.Nil(t, backend.lastOpts.LLMEndpoint, "unconfigured Manager.LLMEndpoint must leave StartChatOpts nil")
+	assert.Nil(t, backend.lastOpts.LLMEndpoint, "a channel without llm_endpoint must leave StartChatOpts nil")
 }
 
 // --- per-project backend image tests ---
@@ -3240,12 +3250,12 @@ type incrementFailingStore struct {
 
 func (s *incrementFailingStore) FailNextIncrement() { s.failNext.Store(true) }
 
-func (s *incrementFailingStore) IncrementSessionCost(ctx context.Context, sessionID string, dPrompt, dCompletion, dCacheRead, dCacheCreation int64, dCost float64, model string) (int64, int64, int64, int64, float64, error) {
+func (s *incrementFailingStore) IncrementSessionCost(ctx context.Context, sessionID string, dPrompt, dCompletion, dCacheRead, dCacheCreation int64, dCost, dSub float64, model string) (int64, int64, int64, int64, float64, float64, error) {
 	if s.failNext.CompareAndSwap(true, false) {
-		return 0, 0, 0, 0, 0, errors.New("injected: IncrementSessionCost failure")
+		return 0, 0, 0, 0, 0, 0, errors.New("injected: IncrementSessionCost failure")
 	}
 
-	return s.Store.IncrementSessionCost(ctx, sessionID, dPrompt, dCompletion, dCacheRead, dCacheCreation, dCost, model)
+	return s.Store.IncrementSessionCost(ctx, sessionID, dPrompt, dCompletion, dCacheRead, dCacheCreation, dCost, dSub, model)
 }
 
 // openAndWaitForUsageEvent opens the session and waits for a session_updated
@@ -3816,7 +3826,7 @@ type aggregateCountingStore struct {
 	calls atomic.Int64
 }
 
-func (a *aggregateCountingStore) AggregateCost(ctx context.Context, since, until time.Time) (float64, float64, []float64, error) {
+func (a *aggregateCountingStore) AggregateCost(ctx context.Context, since, until time.Time) (float64, float64, float64, []float64, error) {
 	a.calls.Add(1)
 
 	return a.Store.AggregateCost(ctx, since, until)
@@ -3829,10 +3839,10 @@ type failingAggregateCostStore struct {
 	calls atomic.Int64
 }
 
-func (f *failingAggregateCostStore) AggregateCost(_ context.Context, _, _ time.Time) (float64, float64, []float64, error) {
+func (f *failingAggregateCostStore) AggregateCost(_ context.Context, _, _ time.Time) (float64, float64, float64, []float64, error) {
 	f.calls.Add(1)
 
-	return 0, 0, nil, errors.New("injected AggregateCost failure")
+	return 0, 0, 0, nil, errors.New("injected AggregateCost failure")
 }
 
 // TestGetChatCostSummary_UTCAlignment seeds a session with last_active = now-2h
@@ -3870,10 +3880,10 @@ func TestGetChatCostSummary_UTCAlignment(t *testing.T) {
 	}))
 
 	// Add cost via IncrementSessionCost.
-	_, _, _, _, _, err = realStore.IncrementSessionCost(ctx, sessID, 100, 50, 0, 0, 1.50, "claude-sonnet-4-6")
+	_, _, _, _, _, _, err = realStore.IncrementSessionCost(ctx, sessID, 100, 50, 0, 0, 1.50, 0, "claude-sonnet-4-6")
 	require.NoError(t, err)
 
-	last30d, _, series30d, err := mgr.GetChatCostSummary(ctx)
+	last30d, _, _, series30d, err := mgr.GetChatCostSummary(ctx)
 	require.NoError(t, err)
 
 	// last30d should include the cost.
@@ -3909,12 +3919,12 @@ func TestGetChatCostSummary_Cache(t *testing.T) {
 	ctx := context.Background()
 
 	// First call: cache miss → store hit (count = 1).
-	_, _, _, err = mgr.GetChatCostSummary(ctx)
+	_, _, _, _, err = mgr.GetChatCostSummary(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), countingStore.calls.Load(), "first call should hit store")
 
 	// Second call: cache hit → store NOT hit (count stays 1).
-	_, _, _, err = mgr.GetChatCostSummary(ctx)
+	_, _, _, _, err = mgr.GetChatCostSummary(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), countingStore.calls.Load(), "second call within TTL should use cache")
 
@@ -3922,7 +3932,7 @@ func TestGetChatCostSummary_Cache(t *testing.T) {
 	clk.Advance(31 * time.Second)
 
 	// Third call: cache expired → store hit again (count = 2).
-	_, _, _, err = mgr.GetChatCostSummary(ctx)
+	_, _, _, _, err = mgr.GetChatCostSummary(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), countingStore.calls.Load(), "third call after TTL expiry should re-query store")
 }
@@ -3952,12 +3962,12 @@ func TestGetChatCostSummary_ErrorNotCached(t *testing.T) {
 	ctx := context.Background()
 
 	// First error call → count = 1.
-	_, _, _, err = mgr.GetChatCostSummary(ctx)
+	_, _, _, _, err = mgr.GetChatCostSummary(ctx)
 	require.Error(t, err, "should return error from failing store")
 	assert.Equal(t, int64(1), failStore.calls.Load())
 
 	// Second call → error not cached → count = 2.
-	_, _, _, err = mgr.GetChatCostSummary(ctx)
+	_, _, _, _, err = mgr.GetChatCostSummary(ctx)
 	require.Error(t, err)
 	assert.Equal(t, int64(2), failStore.calls.Load(), "error must not be cached: second call should also hit store")
 }
@@ -3996,11 +4006,11 @@ func TestGetChatCostSummary_SeriesDefensiveCopy(t *testing.T) {
 		LastActive: now.Add(-1 * time.Hour),
 		CreatedBy:  "human:test",
 	}))
-	_, _, _, _, _, err = realStore.IncrementSessionCost(ctx, sessID, 100, 50, 0, 0, 2.00, "claude-sonnet-4-6")
+	_, _, _, _, _, _, err = realStore.IncrementSessionCost(ctx, sessID, 100, 50, 0, 0, 2.00, 0, "claude-sonnet-4-6")
 	require.NoError(t, err)
 
 	// First call - populates cache and returns a copy.
-	_, _, series1, err := mgr.GetChatCostSummary(ctx)
+	_, _, _, series1, err := mgr.GetChatCostSummary(ctx)
 	require.NoError(t, err)
 	require.Len(t, series1, 30, "series1 must have 30 elements")
 
@@ -4010,7 +4020,7 @@ func TestGetChatCostSummary_SeriesDefensiveCopy(t *testing.T) {
 
 	// Second call - still within TTL window, must use the cache.
 	// The cached entry must be unaffected by the mutation above.
-	_, _, series2, err := mgr.GetChatCostSummary(ctx)
+	_, _, _, series2, err := mgr.GetChatCostSummary(ctx)
 	require.NoError(t, err)
 	require.Len(t, series2, 30, "series2 must have 30 elements")
 
@@ -7521,4 +7531,585 @@ func TestManager_EveryArchitectStartCarriesUnattended(t *testing.T) {
 
 	openArchitect(t, mgr)
 	assert.False(t, startUnattended(), "a blueprint created without it")
+}
+
+func channelEndpoint() *protocol.LLMEndpoint {
+	return &protocol.LLMEndpoint{Type: "openai", BaseURL: "https://gw.example/v1", APIKey: "k"}
+}
+
+func claudeCodeEndpoint() *protocol.LLMEndpoint {
+	return &protocol.LLMEndpoint{Type: protocol.LLMEndpointTypeClaudeCode, OAuthToken: "tok"}
+}
+
+// newChannel builds an LLM channel with both sides configured, switched to
+// mode, that runs claude_code for the supported backend kinds.
+func newChannel(t *testing.T, mode llmchannel.Mode, supported ...string) *llmchannel.Holder {
+	t.Helper()
+
+	h, err := llmchannel.New(context.Background(), llmchannel.Config{
+		Endpoint:     channelEndpoint(),
+		OAuthToken:   "tok",
+		Supported:    supported,
+		DefaultModel: "claude-sonnet-5-5",
+	}, llmchanneltest.Store{}, events.NewBus())
+	require.NoError(t, err)
+	require.NoError(t, h.Set(context.Background(), mode, "human:test"))
+
+	return h
+}
+
+func (s *stubBackend) startOpts() chat.StartChatOpts {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.lastOpts
+}
+
+func TestOpenCold_AdoptsCurrentMode(t *testing.T) {
+	tests := []struct {
+		name              string
+		createdIn, openIn llmchannel.Mode
+		model             string
+		wantEndpoint      *protocol.LLMEndpoint
+		wantModel         string
+	}{
+		{
+			name: "endpoint row opens on claude_code", createdIn: llmchannel.ModeEndpoint, openIn: llmchannel.ModeClaudeCode,
+			model: "deepseek/deepseek-v4-flash", wantEndpoint: claudeCodeEndpoint(), wantModel: "claude-sonnet-5-5",
+		},
+		{
+			name: "claude_code row opens on the endpoint", createdIn: llmchannel.ModeClaudeCode, openIn: llmchannel.ModeEndpoint,
+			model: "claude-opus-5-5", wantEndpoint: channelEndpoint(), wantModel: "chat/default",
+		},
+		{
+			// An endpoint that serves bare Claude IDs keeps them.
+			name: "endpoint row keeps a bare Claude ID", createdIn: llmchannel.ModeEndpoint, openIn: llmchannel.ModeEndpoint,
+			model: "claude-opus-5-5", wantEndpoint: channelEndpoint(), wantModel: "claude-opus-5-5",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			ch := newChannel(t, tt.createdIn, config.BackendNameChat)
+			mgr, backend, _ := newManagerWithStubsAndConfig(t, chat.Config{
+				IdleTTL: time.Hour, DefaultModel: "chat/default", LLMChannel: ch,
+			})
+
+			sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web", Model: tt.model})
+			require.NoError(t, err)
+
+			created, err := mgr.GetSession(ctx, sess.ID)
+			require.NoError(t, err)
+			require.Equal(t, string(tt.createdIn), created.LLMChannel)
+
+			require.NoError(t, ch.Set(ctx, tt.openIn, "human:test"))
+
+			_, err = mgr.OpenSession(ctx, sess.ID)
+			require.NoError(t, err)
+
+			opts := backend.startOpts()
+			assert.Equal(t, tt.wantEndpoint, opts.LLMEndpoint)
+			assert.Equal(t, tt.wantModel, opts.Model)
+
+			row, err := mgr.GetSession(ctx, sess.ID)
+			require.NoError(t, err)
+			assert.Equal(t, string(tt.openIn), row.LLMChannel)
+			assert.Equal(t, tt.wantModel, row.Model)
+		})
+	}
+}
+
+func TestOpenCold_ArchitectUnsupported(t *testing.T) {
+	ch := newChannel(t, llmchannel.ModeClaudeCode, config.BackendNameChat)
+	mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) { c.LLMChannel = ch })
+
+	bp := openArchitect(t, mgr)
+
+	opts := arch.startOpts()
+	assert.Equal(t, channelEndpoint(), opts.LLMEndpoint)
+	assert.Equal(t, "arch/default", opts.Model)
+
+	row, err := mgr.GetSession(context.Background(), bp.ID)
+	require.NoError(t, err)
+	assert.Equal(t, string(llmchannel.ModeEndpoint), row.LLMChannel)
+}
+
+// A live blueprint the architect lost is restarted on the mode it started in,
+// whatever the switch says now.
+func TestRestartArchitect_KeepsRecordedMode(t *testing.T) {
+	tests := []struct {
+		name          string
+		startIn, now  llmchannel.Mode
+		wantEndpoint  *protocol.LLMEndpoint
+		wantStartedOn string
+	}{
+		{"endpoint run", llmchannel.ModeEndpoint, llmchannel.ModeClaudeCode, channelEndpoint(), "arch/default"},
+		{"claude_code run", llmchannel.ModeClaudeCode, llmchannel.ModeEndpoint, claudeCodeEndpoint(), "claude-sonnet-5-5"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			ch := newChannel(t, tt.startIn, config.BackendNameChat, config.BackendNameArchitect)
+			mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) { c.LLMChannel = ch })
+
+			bp := openArchitect(t, mgr)
+			require.Equal(t, tt.wantEndpoint, arch.startOpts().LLMEndpoint)
+
+			require.NoError(t, ch.Set(ctx, tt.now, "human:test"))
+
+			arch.mu.Lock()
+			arch.sendErrSeq = []error{errSessionUnknown(), nil}
+			arch.mu.Unlock()
+
+			_, err := mgr.SendUserMessage(ctx, bp.ID, "approve")
+			require.NoError(t, err)
+			require.Equal(t, int64(2), arch.startCalls.Load(), "one re-sent start")
+
+			opts := arch.startOpts()
+			assert.Equal(t, tt.wantEndpoint, opts.LLMEndpoint)
+			assert.Equal(t, tt.wantStartedOn, opts.Model)
+
+			row, err := mgr.GetSession(ctx, bp.ID)
+			require.NoError(t, err)
+			assert.Equal(t, string(tt.startIn), row.LLMChannel, "the restart keeps the row's mode")
+			assert.Equal(t, tt.wantStartedOn, row.Model)
+		})
+	}
+}
+
+// A live blueprint whose recorded mode is no longer usable restarts on the
+// fallback, and the row records the mode and model that run.
+func TestRestartArchitect_FallbackRecordsResolvedMode(t *testing.T) {
+	ctx := context.Background()
+	ch := newChannel(t, llmchannel.ModeClaudeCode, config.BackendNameChat)
+
+	var store chat.Store
+
+	mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) {
+		c.LLMChannel = ch
+		store = c.Store
+	})
+
+	bp := openArchitect(t, mgr)
+
+	// Recorded on claude_code under a config that still listed the architect.
+	row, err := store.GetSession(ctx, bp.ID)
+	require.NoError(t, err)
+
+	row.LLMChannel, row.Model = string(llmchannel.ModeClaudeCode), "claude-opus-5-5"
+	require.NoError(t, store.UpdateSession(ctx, row))
+
+	arch.mu.Lock()
+	arch.sendErrSeq = []error{errSessionUnknown(), nil}
+	arch.mu.Unlock()
+
+	_, err = mgr.SendUserMessage(ctx, bp.ID, "approve")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), arch.startCalls.Load(), "one re-sent start")
+
+	opts := arch.startOpts()
+	assert.Equal(t, channelEndpoint(), opts.LLMEndpoint)
+	assert.Equal(t, "arch/default", opts.Model)
+
+	got, err := mgr.GetSession(ctx, bp.ID)
+	require.NoError(t, err)
+	assert.Equal(t, string(llmchannel.ModeEndpoint), got.LLMChannel)
+	assert.Equal(t, "arch/default", got.Model)
+}
+
+// A chat backend that lost a live session reopens it cold, and a cold open
+// adopts the current mode.
+func TestReopenCold_AdoptsCurrentMode(t *testing.T) {
+	ctx := context.Background()
+	ch := newChannel(t, llmchannel.ModeEndpoint, config.BackendNameChat)
+	mgr, backend, _ := newManagerWithStubsAndConfig(t, chat.Config{
+		IdleTTL: time.Hour, DefaultModel: "chat/default", LLMChannel: ch,
+	})
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web", Model: "deepseek/deepseek-v4-flash"})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+	require.Equal(t, channelEndpoint(), backend.startOpts().LLMEndpoint)
+
+	require.NoError(t, ch.Set(ctx, llmchannel.ModeClaudeCode, "human:test"))
+
+	backend.mu.Lock()
+	backend.sendErrSeq = []error{errSessionUnknown(), nil}
+	backend.mu.Unlock()
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "hello")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), backend.startCalls.Load())
+
+	opts := backend.startOpts()
+	assert.Equal(t, claudeCodeEndpoint(), opts.LLMEndpoint)
+	assert.Equal(t, "claude-sonnet-5-5", opts.Model)
+
+	row, err := mgr.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, string(llmchannel.ModeClaudeCode), row.LLMChannel)
+}
+
+func TestColdPrep_ArchitectModelInClaudeCode(t *testing.T) {
+	ctx := context.Background()
+	want := protocol.ModelPrice{PromptUSDPerMTok: 3, CompletionUSDPerMTok: 15, CacheReadUSDPerMTok: 0.3, CacheWriteUSDPerMTok: 3.75}
+	ch := newChannel(t, llmchannel.ModeClaudeCode, config.BackendNameChat, config.BackendNameArchitect)
+
+	var noCatalog *modelcatalog.Builder
+
+	mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) {
+		c.LLMChannel = ch
+		c.ArchitectContextWindow = noCatalog.ContextWindow
+		c.ArchitectPrice = func(model string) (protocol.ModelPrice, bool) {
+			if model == "claude-sonnet-5-5" {
+				return want, true
+			}
+
+			return protocol.ModelPrice{}, false
+		}
+	})
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha"}, Model: "anthropic/claude-sonnet-5.5", CreatedBy: "human:web",
+	})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err)
+
+	opts := arch.startOpts()
+	assert.Equal(t, "claude-sonnet-5-5", opts.Model)
+	assert.Equal(t, claudeCodeEndpoint(), opts.LLMEndpoint)
+	require.NotNil(t, opts.Architect)
+	require.NotNil(t, opts.Architect.Price)
+	assert.Equal(t, want, *opts.Architect.Price)
+	assert.Equal(t, 1_000_000, opts.Architect.ContextWindow)
+
+	// Without a price the start carries the cap alone: an uncapped blueprint
+	// runs with no cap, and the architect refuses the capped one's runs.
+	for _, capUSD := range []float64{0, 4} {
+		t.Run(fmt.Sprintf("unpriced cap %v", capUSD), func(t *testing.T) {
+			unpriced, _, unpricedArch := newManagerWithArchitectStub(t, func(c *chat.Config) {
+				c.LLMChannel = ch
+				c.ArchitectPrice = func(string) (protocol.ModelPrice, bool) { return protocol.ModelPrice{}, false }
+			})
+
+			bp, err := unpriced.CreateSession(ctx, chat.CreateInput{
+				Kind: chat.KindArchitect, Projects: []string{"alpha"}, Model: "anthropic/claude-sonnet-5.5",
+				CostCapUSD: capUSD, CreatedBy: "human:web",
+			})
+			require.NoError(t, err)
+			_, err = unpriced.OpenSession(ctx, bp.ID)
+			require.NoError(t, err)
+
+			opts := unpricedArch.startOpts()
+			require.NotNil(t, opts.Architect)
+			assert.Nil(t, opts.Architect.Price)
+			assert.InDelta(t, capUSD, opts.Architect.CostCapUSD, 1e-9)
+		})
+	}
+}
+
+type recordedUsage struct {
+	mu      sync.Mutex
+	windows [][]protocol.SubscriptionUsage
+}
+
+func (r *recordedUsage) RecordUsage(_ context.Context, u []protocol.SubscriptionUsage) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.windows = append(r.windows, u)
+}
+
+func (r *recordedUsage) calls() [][]protocol.SubscriptionUsage {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return append([][]protocol.SubscriptionUsage(nil), r.windows...)
+}
+
+func TestHandleUsage_SubscriptionPricedAtList(t *testing.T) {
+	hub := chat.NewSSEHub(64)
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	const (
+		model   = "sub-priced"
+		project = "sub-project"
+	)
+
+	windows := []protocol.SubscriptionUsage{
+		{Window: "five_hour", Utilization: 0.4, Status: "allowed", ResetsAt: time.Date(2026, 1, 2, 8, 0, 0, 0, time.UTC)},
+	}
+	rec := &recordedUsage{}
+	backend := &usageStreamingBackend{
+		entries: []chat.LogEntry{{
+			Type: "usage", Model: model,
+			Usage: &chat.TokenUsage{
+				InputTokens: 100, OutputTokens: 50, CostUSD: 9.99,
+				CostBasis: protocol.CostBasisSubscription, Subscription: windows,
+			},
+		}},
+	}
+	mgr := newManager(t, chat.Config{
+		Store: store, Backend: backend, Clock: clock.Real(), IdleTTL: time.Hour, Hub: hub,
+		DefaultModel: model, Pricer: newStubPricer(map[string]float64{model: 0.02}), UsageRecorder: rec,
+	})
+
+	chatBase := testutil.ToFloat64(metrics.ChatCostUSDTotal.WithLabelValues(project, model))
+	subBase := testutil.ToFloat64(metrics.ChatSubscriptionCostUSDTotal.WithLabelValues(project, model))
+
+	sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{Title: "t", Project: project, CreatedBy: "x"})
+	require.NoError(t, err)
+
+	ev := openAndWaitForUsageEvent(t, mgr, hub, sess.ID)
+
+	assert.InDelta(t, 0.02, ev.SessionUpdate.EstimatedCostUSD, 1e-9)
+	assert.InDelta(t, 0.02, ev.SessionUpdate.SubscriptionCostUSD, 1e-9)
+
+	got, err := store.GetSession(context.Background(), sess.ID)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.02, got.EstimatedCostUSD, 1e-9)
+	assert.InDelta(t, 0.02, got.SubscriptionCostUSD, 1e-9)
+
+	assert.InDelta(t, chatBase, testutil.ToFloat64(metrics.ChatCostUSDTotal.WithLabelValues(project, model)), 1e-9)
+	assert.InDelta(t, subBase+0.02, testutil.ToFloat64(metrics.ChatSubscriptionCostUSDTotal.WithLabelValues(project, model)), 1e-9)
+	assert.Equal(t, [][]protocol.SubscriptionUsage{windows}, rec.calls())
+}
+
+func TestHandleUsage_MeteredUnchanged(t *testing.T) {
+	hub := chat.NewSSEHub(64)
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	const (
+		model   = "metered-unchanged"
+		project = "metered-project"
+	)
+
+	rec := &recordedUsage{}
+	backend := &usageStreamingBackend{
+		entries: []chat.LogEntry{{
+			Type: "usage", Model: model,
+			Usage: &chat.TokenUsage{InputTokens: 100, OutputTokens: 50, CostUSD: 0.5},
+		}},
+	}
+	mgr := newManager(t, chat.Config{
+		Store: store, Backend: backend, Clock: clock.Real(), IdleTTL: time.Hour, Hub: hub,
+		DefaultModel: model, Pricer: newStubPricer(map[string]float64{model: 0.02}), UsageRecorder: rec,
+	})
+
+	chatBase := testutil.ToFloat64(metrics.ChatCostUSDTotal.WithLabelValues(project, model))
+	subBase := testutil.ToFloat64(metrics.ChatSubscriptionCostUSDTotal.WithLabelValues(project, model))
+
+	sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{Title: "t", Project: project, CreatedBy: "x"})
+	require.NoError(t, err)
+
+	ev := openAndWaitForUsageEvent(t, mgr, hub, sess.ID)
+	assert.InDelta(t, 0.5, ev.SessionUpdate.EstimatedCostUSD, 1e-9)
+	assert.Zero(t, ev.SessionUpdate.SubscriptionCostUSD)
+
+	got, err := store.GetSession(context.Background(), sess.ID)
+	require.NoError(t, err)
+	assert.Zero(t, got.SubscriptionCostUSD)
+
+	assert.InDelta(t, chatBase+0.5, testutil.ToFloat64(metrics.ChatCostUSDTotal.WithLabelValues(project, model)), 1e-9)
+	assert.InDelta(t, subBase, testutil.ToFloat64(metrics.ChatSubscriptionCostUSDTotal.WithLabelValues(project, model)), 1e-9)
+	assert.Empty(t, rec.calls())
+}
+
+func TestUsageLimitFrame_PublishesState(t *testing.T) {
+	reset := time.Date(2026, 1, 2, 8, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name  string
+		limit protocol.UsageLimit
+		want  string
+	}{
+		{"with reset", protocol.UsageLimit{Window: "five_hour", ResetsAt: reset}, `{"window":"five_hour","resets_at":"2026-01-02T08:00:00Z"}`},
+		{"without reset", protocol.UsageLimit{Window: "seven_day"}, `{"window":"seven_day"}`},
+		{"without window", protocol.UsageLimit{ResetsAt: reset}, `{"resets_at":"2026-01-02T08:00:00Z"}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hub := chat.NewSSEHub(64)
+
+			store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = store.Close() })
+
+			backend := &usageStreamingBackend{
+				entries: []chat.LogEntry{{Type: "system", Content: "Usage limit reached", UsageLimit: &tt.limit}},
+			}
+			rec := &recordedUsage{}
+			mgr := newManager(t, chat.Config{
+				Store: store, Backend: backend, Clock: clock.Real(), IdleTTL: time.Hour, Hub: hub, DefaultModel: "m",
+				UsageRecorder: rec,
+			})
+
+			sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{Title: "t", CreatedBy: "x"})
+			require.NoError(t, err)
+
+			events, _, err := hub.Subscribe(sess.ID, 0)
+			require.NoError(t, err)
+
+			_, err = mgr.OpenSession(context.Background(), sess.ID)
+			require.NoError(t, err)
+
+			var (
+				sawRow bool
+				update *chat.SessionUpdate
+			)
+
+			deadline := time.After(2 * time.Second)
+
+			for update == nil {
+				select {
+				case e := <-events:
+					if e.Role == chat.RoleSystem && e.Content == "Usage limit reached" {
+						sawRow = true
+					}
+
+					if e.Kind == chat.SSEKindSessionUpdate && e.SessionUpdate != nil && e.SessionUpdate.UsageLimit != nil {
+						update = e.SessionUpdate
+					}
+				case <-deadline:
+					t.Fatal("timed out waiting for the usage-limit session update")
+				}
+			}
+
+			assert.True(t, sawRow, "the plain system row is still appended")
+
+			raw, err := json.Marshal(update.UsageLimit)
+			require.NoError(t, err)
+			assert.JSONEq(t, tt.want, string(raw))
+
+			if tt.limit.Window == "" || tt.limit.ResetsAt.IsZero() {
+				assert.Empty(t, rec.calls(), "a limit without a window or reset records nothing")
+
+				return
+			}
+
+			assert.Equal(t, [][]protocol.SubscriptionUsage{{
+				{Window: tt.limit.Window, Utilization: 1, Status: "rejected", ResetsAt: tt.limit.ResetsAt},
+			}}, rec.calls())
+		})
+	}
+}
+
+func TestHandleUsage_ArchitectSubscriptionPricedAtList(t *testing.T) {
+	hub := chat.NewSSEHub(64)
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	const model = "arch-sub-priced"
+
+	windows := []protocol.SubscriptionUsage{
+		{Window: "five_hour", Utilization: 0.4, Status: "allowed", ResetsAt: time.Date(2026, 1, 2, 8, 0, 0, 0, time.UTC)},
+	}
+	rec := &recordedUsage{}
+
+	mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) {
+		c.Store = store
+		c.Hub = hub
+		c.Pricer = newStubPricer(map[string]float64{model: 0.02})
+		c.UsageRecorder = rec
+	})
+	arch.streamLogsFn = streamEntries(chat.LogEntry{
+		Type: "usage", Model: model,
+		Usage: &chat.TokenUsage{
+			InputTokens: 100, OutputTokens: 50, CostUSD: 9.99,
+			CostBasis: protocol.CostBasisSubscription, Subscription: windows,
+		},
+	})
+
+	chatBase := testutil.ToFloat64(metrics.ChatCostUSDTotal.WithLabelValues("none", model))
+	subBase := testutil.ToFloat64(metrics.ChatSubscriptionCostUSDTotal.WithLabelValues("none", model))
+
+	sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web",
+	})
+	require.NoError(t, err)
+
+	ev := openAndWaitForUsageEvent(t, mgr, hub, sess.ID)
+
+	assert.InDelta(t, 0.02, ev.SessionUpdate.EstimatedCostUSD, 1e-9)
+	assert.InDelta(t, 0.02, ev.SessionUpdate.SubscriptionCostUSD, 1e-9)
+
+	got, err := store.GetSession(context.Background(), sess.ID)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.02, got.EstimatedCostUSD, 1e-9)
+	assert.InDelta(t, 0.02, got.SubscriptionCostUSD, 1e-9)
+
+	assert.InDelta(t, chatBase, testutil.ToFloat64(metrics.ChatCostUSDTotal.WithLabelValues("none", model)), 1e-9)
+	assert.InDelta(t, subBase+0.02, testutil.ToFloat64(metrics.ChatSubscriptionCostUSDTotal.WithLabelValues("none", model)), 1e-9)
+	assert.Equal(t, [][]protocol.SubscriptionUsage{windows}, rec.calls())
+}
+
+func TestUsageLimitFrame_ArchitectPublishesStateAfterRow(t *testing.T) {
+	reset := time.Date(2026, 1, 2, 8, 0, 0, 0, time.UTC)
+	limit := protocol.UsageLimit{Window: "five_hour", ResetsAt: reset}
+
+	hub := chat.NewSSEHub(64)
+	rec := &recordedUsage{}
+	mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) { c.Hub = hub; c.UsageRecorder = rec })
+	arch.streamLogsFn = streamEntries(chat.LogEntry{Type: "system", Content: "Usage limit reached", UsageLimit: &limit})
+
+	sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web",
+	})
+	require.NoError(t, err)
+
+	events, _, err := hub.Subscribe(sess.ID, 0)
+	require.NoError(t, err)
+
+	_, err = mgr.OpenSession(context.Background(), sess.ID)
+	require.NoError(t, err)
+
+	var (
+		sawRow bool
+		update *chat.SessionUpdate
+	)
+
+	deadline := time.After(2 * time.Second)
+
+	for update == nil {
+		select {
+		case e := <-events:
+			if e.Role == chat.RoleSystem && e.Content == "Usage limit reached" {
+				sawRow = true
+			}
+
+			if e.Kind == chat.SSEKindSessionUpdate && e.SessionUpdate != nil && e.SessionUpdate.UsageLimit != nil {
+				update = e.SessionUpdate
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for the usage-limit session update")
+		}
+	}
+
+	assert.True(t, sawRow, "the system row arrives before the update")
+
+	raw, err := json.Marshal(update.UsageLimit)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"window":"five_hour","resets_at":"2026-01-02T08:00:00Z"}`, string(raw))
+	assert.Equal(t, [][]protocol.SubscriptionUsage{{
+		{Window: "five_hour", Utilization: 1, Status: "rejected", ResetsAt: reset},
+	}}, rec.calls())
+
+	msgs, err := mgr.ListMessages(context.Background(), sess.ID, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "Usage limit reached", msgs[0].Content)
+	assert.Empty(t, msgs[0].Kind)
 }

@@ -806,3 +806,42 @@ func TestResolveCard_Shapes(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+func TestMergeBuckets_KeepsBasis(t *testing.T) {
+	sub := func(prompt int64) board.UsageBucket {
+		return board.UsageBucket{Agent: "x", Model: "m", PromptTokens: prompt, CostUSD: float64(prompt), CostSource: "estimated", CostBasis: "subscription"}
+	}
+	metered := func(prompt int64) board.UsageBucket {
+		return board.UsageBucket{Agent: "x", Model: "m", PromptTokens: prompt, CostUSD: float64(prompt), CostSource: "estimated"}
+	}
+
+	t.Run("both sides add to a subscription bucket", func(t *testing.T) {
+		got := mergeBuckets(
+			[]board.UsageBucket{sub(10)},
+			[]board.UsageBucket{sub(15)},
+			[]board.UsageBucket{sub(12)},
+		)
+
+		require.Len(t, got, 1)
+		assert.Equal(t, "subscription", got[0].CostBasis)
+		assert.Equal(t, int64(17), got[0].PromptTokens)
+	})
+
+	t.Run("subscription and metered stay separate", func(t *testing.T) {
+		got := mergeBuckets(
+			nil,
+			[]board.UsageBucket{sub(5)},
+			[]board.UsageBucket{metered(7)},
+		)
+
+		require.Len(t, got, 2)
+
+		byBasis := map[string]board.UsageBucket{}
+		for _, b := range got {
+			byBasis[b.CostBasis] = b
+		}
+
+		assert.Equal(t, int64(5), byBasis["subscription"].PromptTokens)
+		assert.Equal(t, int64(7), byBasis[""].PromptTokens)
+	})
+}

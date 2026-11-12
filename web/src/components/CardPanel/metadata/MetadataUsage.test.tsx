@@ -1,6 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { formatCost } from '../../../lib/format';
+import { cardTotalText, SUBSCRIPTION_TOOLTIP } from '../../../lib/subscription';
 import type { Card, UsageBucket } from '../../../types';
 import { MetadataUsage } from './MetadataUsage';
 
@@ -352,5 +354,79 @@ describe('MetadataUsage', () => {
     render(<MetadataUsage card={card} />);
     const total = screen.getByText('$4.99');
     expect(total).not.toHaveAttribute('title');
+  });
+
+  describe('subscription usage', () => {
+    const sub = (partial: Partial<UsageBucket> = {}) =>
+      bucket({ model: 'claude-sonnet-5-5', cost_usd: 0.5, cost_source: 'estimated', cost_basis: 'subscription', ...partial });
+
+    it('marks a subscription bucket with a trailing ≈ and the subscription tooltip, not the rate-table asterisk', () => {
+      render(<MetadataUsage card={makeCard({ usage_breakdown: [sub()] })} />);
+      const cell = screen.getByText('$0.50≈');
+      expect(cell).toHaveAttribute('title', SUBSCRIPTION_TOOLTIP);
+      expect(cell).not.toHaveTextContent('*');
+    });
+
+    it('labels an all-subscription total as API-equivalent', () => {
+      const card = makeCard({
+        token_usage: { prompt_tokens: 100, completion_tokens: 50, estimated_cost_usd: 0.5 },
+        usage_breakdown: [sub()],
+      });
+      render(<MetadataUsage card={card} />);
+      expect(screen.getByText(cardTotalText(0.5, 0.5, formatCost)!)).toHaveAttribute('title', SUBSCRIPTION_TOOLTIP);
+      expect(screen.queryByText('Total')).toBeInTheDocument();
+    });
+
+    it('splits a mixed total into the subscription estimate', () => {
+      const card = makeCard({
+        token_usage: { prompt_tokens: 100, completion_tokens: 50, estimated_cost_usd: 2.5 },
+        usage_breakdown: [bucket({ role: 'execute', cost_usd: 2 }), sub({ role: 'review' })],
+      });
+      render(<MetadataUsage card={card} />);
+      expect(screen.getByText(cardTotalText(2.5, 0.5, formatCost)!)).toHaveAttribute(
+        'title',
+        SUBSCRIPTION_TOOLTIP,
+      );
+      // The metered bucket keeps its plain amount.
+      expect(screen.getByTitle('agent-reported · actual provider cost')).toHaveTextContent(/^\$2\.00$/);
+    });
+
+    it('keeps the rate-table asterisk on a mixed total only for metered estimates', () => {
+      const card = makeCard({
+        token_usage: { prompt_tokens: 100, completion_tokens: 50, estimated_cost_usd: 2.5 },
+        usage_breakdown: [bucket({ role: 'execute', cost_usd: 2, cost_source: 'estimated' }), sub({ role: 'review' })],
+      });
+      render(<MetadataUsage card={card} />);
+      expect(screen.getByText(cardTotalText(2.5, 0.5, formatCost, '*')!)).toBeInTheDocument();
+    });
+
+    it('gives every ≈ the subscription tooltip: legend, bar, role subtotal, this card and subtask subtotals', () => {
+      const card = makeCard({
+        id: 'CMX-001',
+        token_usage: { prompt_tokens: 100, completion_tokens: 50, estimated_cost_usd: 1.5 },
+        subtask_cost_usd: 1,
+        usage_breakdown: [bucket({ role: 'execute', cost_usd: 0.5 }), sub({ role: 'execute', model: 'claude-opus-5-5', cost_usd: 1 })],
+        subtask_usage: [{ card_id: 'CMX-002', buckets: [sub({ cost_usd: 0.4 }), sub({ model: 'claude-haiku-5-5', cost_usd: 0.6 })] }],
+      });
+      render(<MetadataUsage card={card} />);
+      const marked = screen.getAllByText(/≈$/);
+      // Legend (execute, subtasks), role subtotal, this card, subtask subtotal and the three subscription rows.
+      expect(marked).toHaveLength(8);
+      for (const el of marked) expect(el).toHaveAttribute('title', SUBSCRIPTION_TOOLTIP);
+      const bar = screen.getByRole('img', { name: 'cost split by role' });
+      for (const seg of Array.from(bar.children)) expect(seg.getAttribute('title')).toContain(SUBSCRIPTION_TOOLTIP);
+    });
+
+    it('counts subtask subscription spend in the run total', () => {
+      const card = makeCard({
+        token_usage: { prompt_tokens: 100, completion_tokens: 50, estimated_cost_usd: 1 },
+        subtask_cost_usd: 0.5,
+        usage_breakdown: [bucket({ role: 'execute', cost_usd: 1 })],
+        subtask_usage: [{ card_id: 'CMX-002', buckets: [sub()] }],
+      });
+      render(<MetadataUsage card={card} />);
+      expect(screen.getByText(cardTotalText(1.5, 0.5, formatCost)!)).toBeInTheDocument();
+      expect(screen.getByText('Total incl. subtasks')).toBeInTheDocument();
+    });
   });
 });

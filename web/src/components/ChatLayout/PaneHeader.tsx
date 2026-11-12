@@ -6,6 +6,7 @@ import { useChatLiveData } from '../../hooks/useChatLiveData';
 import { useMenuDismiss } from '../../hooks/useMenuDismiss';
 import { toggleSheet, useSheetButton } from '../Blueprint/sheetButtonStore';
 import { contextPct, formatCostTooltip, modelMaxTokens, useChatModels, usageColor } from '../../utils/chatModels';
+import { SUBSCRIPTION_TOOLTIP, sessionCostText, sessionSubscriptionUSD } from '../../lib/subscription';
 import {
   PANE_SOURCE_MIME,
   CHAT_DRAG_START_EVENT,
@@ -205,12 +206,17 @@ export function PaneHeader({
  * id from the persisted session row until the first session_updated event
  * arrives. Hidden entirely when no model is known. The context window
  * denominator always comes from `GET /api/chats/models` (`useChatModels`),
- * in every source mode - config, endpoint, and openrouter alike. A blueprint
- * session shows the architect's spend from its view instead of the estimate.
+ * in every source mode (endpoint, openrouter, claude_code); a blueprint
+ * reads the architect's list (`?kind=architect`), which can be on another LLM
+ * channel mode. A blueprint session shows the architect's spend from its view
+ * instead of the estimate.
+ * A subscription share reads as an API-equivalent estimate (≈).
  */
 function PaneContextUsage({ chatId, fallbackModel, blueprint }: { chatId: string; fallbackModel?: string; blueprint: boolean }) {
   const live = useChatLiveData(chatId);
-  const { models } = useChatModels();
+  const spent = live?.blueprintSpentUsd;
+  const isBlueprint = blueprint || spent !== undefined;
+  const { models } = useChatModels(isBlueprint ? 'architect' : 'chat');
   const modelId = live?.model ?? fallbackModel;
   if (!modelId) return null;
   const m = models.find((x) => x.id === modelId);
@@ -224,10 +230,9 @@ function PaneContextUsage({ chatId, fallbackModel, blueprint }: { chatId: string
     : `Context: ${tokens.toLocaleString()} tokens`;
 
   // A blueprint shows what the architect recorded, so nothing until its view loads; never CM's token estimate.
-  const spent = live?.blueprintSpentUsd;
   const cost = spent ?? (blueprint ? undefined : live?.estimatedCostUsd);
   const showCost = cost != null && cost > 0;
-  const costTooltip = showCost
+  const tokensTooltip = showCost
     ? formatCostTooltip({
         promptTokens: live?.promptTokens,
         completionTokens: live?.completionTokens,
@@ -235,6 +240,21 @@ function PaneContextUsage({ chatId, fallbackModel, blueprint }: { chatId: string
         cacheCreationTokens: live?.cacheCreationTokens,
       })
     : '';
+  const subscription = showCost
+    ? sessionSubscriptionUSD({
+        total: cost,
+        subscription: live?.subscriptionCostUsd,
+        blueprint: isBlueprint,
+        channel: live?.llmChannel,
+      })
+    : 0;
+  const costText = showCost ? sessionCostText(cost, subscription, (v) => `$${v.toFixed(2)}`) : '';
+  // A labelled cost may be cut short, so its tooltip opens with the whole label.
+  const costTooltip =
+    subscription > 0 ? [costText, SUBSCRIPTION_TOOLTIP, tokensTooltip].filter(Boolean).join('\n') : tokensTooltip;
+  const costPrefix = spent !== undefined ? 'Spent' : 'Estimated cost';
+  const costName =
+    subscription > 0 ? `${costPrefix} ${costText}, ${SUBSCRIPTION_TOOLTIP}` : `${costPrefix} ${cost?.toFixed(2)} dollars`;
 
   return (
     <>
@@ -248,11 +268,11 @@ function PaneContextUsage({ chatId, fallbackModel, blueprint }: { chatId: string
       )}
       {showCost && (
         <span
-          className="chat-pane-cost"
+          className={`chat-pane-cost${subscription > 0 ? ' chat-pane-cost--labelled' : ''}`}
           style={{ color: 'var(--grey1)' }}
-          aria-label={spent !== undefined ? `Spent ${cost.toFixed(2)} dollars` : `Estimated cost ${cost.toFixed(2)} dollars`}
+          aria-label={costName}
           title={costTooltip || undefined}
-        >${cost.toFixed(2)}</span>
+        >{costText}</span>
       )}
     </>
   );

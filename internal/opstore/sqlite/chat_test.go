@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mhersson/contextmatrix/internal/chat"
+	"github.com/mhersson/contextmatrix/internal/sqliteutil"
 )
 
 func TestOpen_CreatesSchema(t *testing.T) {
@@ -334,7 +336,7 @@ func TestIncrementSessionCost_HappyPath(t *testing.T) {
 	sessionID := newTestSession(t, store)
 
 	// First frame: 100 prompt, 50 completion, 200 cache_read, 10 cache_creation, $0.01
-	p, c, cr, cc, cost, err := store.IncrementSessionCost(ctx, sessionID, 100, 50, 200, 10, 0.01, "claude-sonnet-4-6")
+	p, c, cr, cc, cost, _, err := store.IncrementSessionCost(ctx, sessionID, 100, 50, 200, 10, 0.01, 0, "claude-sonnet-4-6")
 	require.NoError(t, err)
 	assert.Equal(t, int64(100), p)
 	assert.Equal(t, int64(50), c)
@@ -343,7 +345,7 @@ func TestIncrementSessionCost_HappyPath(t *testing.T) {
 	assert.InDelta(t, 0.01, cost, 1e-9)
 
 	// Second frame: another 100 prompt, 50 completion - totals double.
-	p2, c2, cr2, cc2, cost2, err := store.IncrementSessionCost(ctx, sessionID, 100, 50, 0, 0, 0.01, "claude-sonnet-4-6")
+	p2, c2, cr2, cc2, cost2, _, err := store.IncrementSessionCost(ctx, sessionID, 100, 50, 0, 0, 0.01, 0, "claude-sonnet-4-6")
 	require.NoError(t, err)
 	assert.Equal(t, int64(200), p2)
 	assert.Equal(t, int64(100), c2)
@@ -366,7 +368,7 @@ func TestIncrementSessionCost_NotFound(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 
 	ctx := context.Background()
-	_, _, _, _, _, err = store.IncrementSessionCost(ctx, "nonexistent-session", 100, 50, 0, 0, 0.01, "claude-sonnet-4-6")
+	_, _, _, _, _, _, err = store.IncrementSessionCost(ctx, "nonexistent-session", 100, 50, 0, 0, 0.01, 0, "claude-sonnet-4-6")
 	require.ErrorIs(t, err, chat.ErrSessionNotFound)
 }
 
@@ -386,7 +388,7 @@ func TestIncrementSessionCost_ConcurrentIncrementsAreRaceFree(t *testing.T) {
 	var wg sync.WaitGroup
 	for range N {
 		wg.Go(func() {
-			_, _, _, _, _, err := store.IncrementSessionCost(ctx, sessionID, 1, 0, 0, 0, 0.001, "claude-sonnet-4-6")
+			_, _, _, _, _, _, err := store.IncrementSessionCost(ctx, sessionID, 1, 0, 0, 0, 0.001, 0, "claude-sonnet-4-6")
 			assert.NoError(t, err)
 		})
 	}
@@ -420,7 +422,7 @@ func TestIncrementSessionCost_EmptyModelPreservesExisting(t *testing.T) {
 	}))
 
 	// Call with empty model - existing column value must be preserved.
-	_, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, 0.001, "")
+	_, _, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, 0.001, 0, "")
 	require.NoError(t, err)
 
 	sess, err := store.GetSession(ctx, sessionID)
@@ -428,7 +430,7 @@ func TestIncrementSessionCost_EmptyModelPreservesExisting(t *testing.T) {
 	assert.Equal(t, "claude-sonnet-4-6", sess.Model, "empty model must not overwrite existing value")
 
 	// Call with a real model - column must be updated.
-	_, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, 0.001, "claude-opus-4-7")
+	_, _, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, 0.001, 0, "claude-opus-4-7")
 	require.NoError(t, err)
 
 	sess, err = store.GetSession(ctx, sessionID)
@@ -453,7 +455,7 @@ func newTestSessionAtTime(t *testing.T, store *Store, lastActive time.Time, cost
 	}))
 
 	if cost > 0 {
-		_, _, _, _, _, err := store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, cost, "claude-sonnet-4-6")
+		_, _, _, _, _, _, err := store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, cost, 0, "claude-sonnet-4-6")
 		require.NoError(t, err)
 	}
 
@@ -483,7 +485,7 @@ func TestAggregateCost_HappyPath(t *testing.T) {
 	// Session C: 20 days ago. Cost $3.00. -> series[9] (29-20)
 	newTestSessionAtTime(t, store, todayStart.Add(-20*24*time.Hour).Add(6*time.Hour), 3.00)
 
-	last30d, prior30d, series30d, err := store.AggregateCost(ctx, since, until)
+	last30d, prior30d, _, series30d, err := store.AggregateCost(ctx, since, until)
 	require.NoError(t, err)
 
 	// Total last30d = 1 + 2 + 3 = 6
@@ -523,7 +525,7 @@ func TestAggregateCost_Empty(t *testing.T) {
 	until := todayStart.Add(24 * time.Hour)
 	since := todayStart.AddDate(0, 0, -29)
 
-	last30d, prior30d, series30d, err := store.AggregateCost(ctx, since, until)
+	last30d, prior30d, _, series30d, err := store.AggregateCost(ctx, since, until)
 	require.NoError(t, err)
 
 	assert.InDelta(t, 0.0, last30d, 1e-9)
@@ -550,7 +552,7 @@ func TestAggregateCost_PriorPeriod(t *testing.T) {
 	// Session 35 days ago - in the prior window (since-30..since).
 	newTestSessionAtTime(t, store, todayStart.Add(-35*24*time.Hour).Add(6*time.Hour), 5.00)
 
-	last30d, prior30d, series30d, err := store.AggregateCost(ctx, since, until)
+	last30d, prior30d, _, series30d, err := store.AggregateCost(ctx, since, until)
 	require.NoError(t, err)
 
 	assert.InDelta(t, 0.0, last30d, 1e-9, "last30d should be 0 (session is outside window)")
@@ -585,7 +587,7 @@ func TestDeleteSession_ArchivesBehavior(t *testing.T) {
 		Model:      "claude-sonnet-4-6",
 	}))
 	// Add cost so we can assert it's preserved in the archive.
-	_, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 100, 50, 20, 10, 0.042, "claude-sonnet-4-6")
+	_, _, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 100, 50, 20, 10, 0.042, 0, "claude-sonnet-4-6")
 	require.NoError(t, err)
 
 	// Append a message so we can verify CASCADE.
@@ -681,7 +683,7 @@ func TestDeleteSession_IdempotentDoubleDelete(t *testing.T) {
 		ID: sessionID, Title: "dbl", Status: chat.StatusCold,
 		CreatedAt: now, LastActive: now, CreatedBy: "human:test",
 	}))
-	_, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, 0.01, "claude-sonnet-4-6")
+	_, _, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, 0.01, 0, "claude-sonnet-4-6")
 	require.NoError(t, err)
 
 	require.NoError(t, store.DeleteSession(ctx, sessionID))
@@ -737,7 +739,7 @@ func TestDeleteSession_ReinsertedIDPreservesArchive(t *testing.T) {
 		ID: id, Title: "reinsertion-test", Status: chat.StatusCold,
 		CreatedAt: now, LastActive: now, CreatedBy: "human:test",
 	}))
-	_, _, _, _, _, err = store.IncrementSessionCost(ctx, id, 200, 100, 0, 0, 99.99, "claude-sonnet-4-6")
+	_, _, _, _, _, _, err = store.IncrementSessionCost(ctx, id, 200, 100, 0, 0, 99.99, 0, "claude-sonnet-4-6")
 	require.NoError(t, err)
 
 	// Step 3: DeleteSession - INSERT … SELECT finds the source row AND the id
@@ -799,7 +801,7 @@ func TestAggregateCost_IncludesArchivedSessions(t *testing.T) {
 	require.NoError(t, store.DeleteSession(ctx, idToDelete))
 	require.NoError(t, store.DeleteSession(ctx, idToDeletePrior))
 
-	last30d, prior30d, series30d, err := store.AggregateCost(ctx, since, until)
+	last30d, prior30d, _, series30d, err := store.AggregateCost(ctx, since, until)
 	require.NoError(t, err)
 
 	// last30d must include live ($1) + archived ($2) = $3.
@@ -1105,7 +1107,7 @@ func TestUpdateSessionSpend_RecordsAndOverwrites(t *testing.T) {
 	sess.Kind = chat.KindArchitect
 	require.NoError(t, s.CreateSession(ctx, sess))
 
-	_, _, _, _, _, err := s.IncrementSessionCost(ctx, "S1", 1, 1, 0, 0, 0.5, "m")
+	_, _, _, _, _, _, err := s.IncrementSessionCost(ctx, "S1", 1, 1, 0, 0, 0.5, 0, "m")
 	require.NoError(t, err)
 
 	got, err := s.GetSession(ctx, "S1")
@@ -1185,7 +1187,7 @@ func TestAggregateCost_BlueprintCostIsRecordedSpend(t *testing.T) {
 	newTestBlueprintAtTime(t, store, at, 9.00, &spend)
 	newTestBlueprintAtTime(t, store, at, 7.00, nil)
 
-	last30d, _, series, err := store.AggregateCost(context.Background(), since, until)
+	last30d, _, _, series, err := store.AggregateCost(context.Background(), since, until)
 	require.NoError(t, err)
 	assert.InDelta(t, 2.50, last30d, 1e-9)
 	assert.InDelta(t, 2.50, series[29], 1e-9)
@@ -1210,7 +1212,7 @@ func TestDeleteSession_ArchivesABlueprintsRecordedSpend(t *testing.T) {
 	require.NoError(t, store.DeleteSession(ctx, bp))
 	require.NoError(t, store.DeleteSession(ctx, c))
 
-	last30d, _, _, err := store.AggregateCost(ctx, since, until)
+	last30d, _, _, _, err := store.AggregateCost(ctx, since, until)
 	require.NoError(t, err)
 	assert.InDelta(t, 2.50, last30d, 1e-9)
 
@@ -1250,4 +1252,178 @@ func TestSession_UnattendedRoundTrip(t *testing.T) {
 	chatRow, err := s.GetSession(ctx, "C1")
 	require.NoError(t, err)
 	assert.False(t, chatRow.Unattended)
+}
+
+// An older image inserts without naming llm_channel; on a database that grew
+// the column, its row reads back as an endpoint session.
+func TestChatSessions_OlderInsertStillWorks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ops.db")
+
+	s, err := Open(path)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	db, err := sql.Open("sqlite", sqliteutil.DSN(path, sqliteutil.WithForeignKeys()))
+	require.NoError(t, err)
+	_, err = db.Exec("ALTER TABLE chat_sessions DROP COLUMN llm_channel")
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	s2, err := Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s2.Close() })
+
+	assert.True(t, columnExists(t, s2.db, "chat_sessions", "llm_channel"))
+
+	var v int
+
+	require.NoError(t, s2.db.QueryRow("PRAGMA user_version").Scan(&v))
+	assert.Equal(t, schemaVersion, v)
+
+	_, err = s2.db.Exec(`INSERT INTO chat_sessions
+        (id, title, project, status, created_at, last_active, created_by, container_id, workspace, model,
+         kind, mode, cost_cap_usd, plain_language, unattended, origin_chat, origin_seq)
+        VALUES ('OLD', 'old', NULL, 'cold', 1, 1, 'human:web', NULL, '[]', 'deepseek/deepseek-v4-flash',
+         'chat', '', 0, 0, 0, '', 0)`)
+	require.NoError(t, err)
+
+	old, err := s2.GetSession(context.Background(), "OLD")
+	require.NoError(t, err)
+	assert.Equal(t, "endpoint", old.LLMChannel)
+}
+
+func TestSession_LLMChannelRoundTrip(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	cc := sessionRow("CC")
+	cc.LLMChannel = "claude_code"
+	require.NoError(t, s.CreateSession(ctx, cc))
+	require.NoError(t, s.CreateSession(ctx, sessionRow("UNSET")))
+
+	got, err := s.GetSession(ctx, "CC")
+	require.NoError(t, err)
+	assert.Equal(t, "claude_code", got.LLMChannel)
+
+	unset, err := s.GetSession(ctx, "UNSET")
+	require.NoError(t, err)
+	assert.Equal(t, "endpoint", unset.LLMChannel, "a row created without a mode is an endpoint session")
+
+	// A writer that never set the field keeps the row's mode.
+	blank := got
+	blank.LLMChannel = ""
+	blank.Status = chat.StatusActive
+	require.NoError(t, s.UpdateSession(ctx, blank))
+
+	kept, err := s.GetSession(ctx, "CC")
+	require.NoError(t, err)
+	assert.Equal(t, "claude_code", kept.LLMChannel)
+
+	kept.LLMChannel = "endpoint"
+	require.NoError(t, s.UpdateSession(ctx, kept))
+
+	switched, err := s.GetSession(ctx, "CC")
+	require.NoError(t, err)
+	assert.Equal(t, "endpoint", switched.LLMChannel)
+}
+
+func TestCountLiveSessionsByMode(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	rows := []struct {
+		id     string
+		kind   chat.SessionKind
+		status chat.Status
+		mode   string
+	}{
+		{"C1", chat.KindChat, chat.StatusActive, "claude_code"},
+		{"C2", chat.KindChat, chat.StatusWarmIdle, "claude_code"},
+		{"C3", chat.KindChat, chat.StatusCold, "claude_code"},
+		{"C4", chat.KindChat, chat.StatusActive, "endpoint"},
+		{"B1", chat.KindArchitect, chat.StatusActive, "endpoint"},
+		{"B2", chat.KindArchitect, chat.StatusWarmIdle, "endpoint"},
+		{"B3", chat.KindArchitect, chat.StatusEnding, "claude_code"},
+		{"B4", chat.KindArchitect, chat.StatusActive, "claude_code"},
+	}
+
+	for _, r := range rows {
+		sess := sessionRow(r.id)
+		sess.Kind, sess.Status, sess.LLMChannel = r.kind, r.status, r.mode
+		require.NoError(t, s.CreateSession(ctx, sess))
+	}
+
+	got, err := s.CountLiveSessionsByMode(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]map[string]int{
+		"claude_code": {"chat": 2, "architect": 1},
+		"endpoint":    {"chat": 1, "architect": 2},
+	}, got)
+
+	empty, err := openTestStore(t).CountLiveSessionsByMode(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, empty)
+}
+
+func TestIncrementSessionCost_SubscriptionCostAddsToBothColumns(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	sessionID := newTestSession(t, store)
+
+	_, _, _, _, total, sub, err := store.IncrementSessionCost(ctx, sessionID, 1, 1, 0, 0, 0.5, 0, "m")
+	require.NoError(t, err)
+	assert.InDelta(t, 0.5, total, 1e-9)
+	assert.Zero(t, sub)
+
+	_, _, _, _, total, sub, err = store.IncrementSessionCost(ctx, sessionID, 1, 1, 0, 0, 0, 0.25, "m")
+	require.NoError(t, err)
+	assert.InDelta(t, 0.75, total, 1e-9)
+	assert.InDelta(t, 0.25, sub, 1e-9)
+
+	sess, err := store.GetSession(ctx, sessionID)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.75, sess.EstimatedCostUSD, 1e-9)
+	assert.InDelta(t, 0.25, sess.SubscriptionCostUSD, 1e-9)
+}
+
+func TestAggregateCost_SubscriptionPart(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	now := time.Date(2026, 5, 22, 14, 0, 0, 0, time.UTC)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	until := todayStart.Add(24 * time.Hour)
+	since := todayStart.AddDate(0, 0, -29)
+	at := now.Add(-2 * time.Hour)
+
+	// Metered chat: no subscription part.
+	newTestSessionAtTime(t, store, at, 1.00)
+
+	// Subscription chat, deleted afterwards: its share must survive in the archive.
+	archived := newTestSessionAtTime(t, store, at, 0)
+	_, _, _, _, _, _, err = store.IncrementSessionCost(ctx, archived, 1, 1, 0, 0, 0, 0.75, "m")
+	require.NoError(t, err)
+	require.NoError(t, store.DeleteSession(ctx, archived))
+
+	// Live subscription chat.
+	live := newTestSessionAtTime(t, store, at, 0)
+	_, _, _, _, _, _, err = store.IncrementSessionCost(ctx, live, 1, 1, 0, 0, 0, 0.25, "m")
+	require.NoError(t, err)
+
+	// Blueprint whose recorded spend is below CM's own subscription estimate:
+	// the subscription part is capped at the session total.
+	spend := 0.10
+	bp := newTestBlueprintAtTime(t, store, at, 0, &spend)
+	_, _, _, _, _, _, err = store.IncrementSessionCost(ctx, bp, 1, 1, 0, 0, 0, 0.40, "m")
+	require.NoError(t, err)
+
+	last30d, _, sub30d, _, err := store.AggregateCost(ctx, since, until)
+	require.NoError(t, err)
+	assert.InDelta(t, 1.00+0.75+0.25+0.10, last30d, 1e-9, "totals still count everything")
+	assert.InDelta(t, 0.75+0.25+0.10, sub30d, 1e-9)
 }

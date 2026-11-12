@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, waitFor, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { AllProjectsDashboard } from './AllProjectsDashboard';
+import { subscriptionShareText } from '../../lib/subscription';
+import { formatUsd } from './utils';
 import { ToastContext, useToastState } from '../../hooks/useToast';
 import { SSEProvider } from '../../hooks/useSSEBus';
 import { ProjectsProvider } from '../../hooks/useProjects';
@@ -127,3 +129,83 @@ describe('AllProjectsDashboard - mount fetch count', () => {
     expect(vi.mocked(api.getAppConfig)).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('AllProjectsDashboard - subscription estimates', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // @ts-expect-error stub for tests
+    globalThis.EventSource = FakeEventSource;
+    vi.mocked(api.getAppConfig).mockResolvedValue({ theme: 'everforest', version: 'v1.0.0' });
+    vi.mocked(api.getProjects).mockResolvedValue([
+      {
+        name: 'alpha',
+        prefix: 'ALP',
+        next_id: 1,
+        states: ['todo', 'done'],
+        types: ['task'],
+        priorities: ['medium'],
+        transitions: { todo: ['done'], done: [] },
+      },
+    ]);
+    vi.mocked(api.getDashboard).mockResolvedValue({
+      state_counts: {},
+      state_counts_parents: {},
+      active_agents: [],
+      total_cost_usd: 10,
+      total_cost_usd_last_30d: 10,
+      total_cost_usd_prior_30d: 0,
+      cost_series_30d: Array(30).fill(0),
+      cards_completed_today: 0,
+      cards_completed_today_parents: 0,
+      cards_completed_last_7d: 0,
+      cards_completed_last_7d_parents: 0,
+      cards_completed_prior_7d: 0,
+      cards_completed_prior_7d_parents: 0,
+      metric_series: {
+        active_agents: [],
+        in_flight: [],
+        stalled: [],
+        shipped: [],
+        in_flight_parents: [],
+        stalled_parents: [],
+        shipped_parents: [],
+      },
+      card_costs_30d: [
+        { card_id: 'ALP-1', card_title: 'One', prompt_tokens: 1, completion_tokens: 1, estimated_cost_usd: 6, subscription_cost_usd: 4 },
+        { card_id: 'ALP-2', card_title: 'Two', prompt_tokens: 1, completion_tokens: 1, estimated_cost_usd: 4 },
+      ],
+      chat_cost_usd_last_30d: 3,
+      chat_subscription_cost_usd: 1,
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it("feeds the 30-day card rows' subscription part and the chat part into the cost tiles", async () => {
+    const { container } = render(
+      <MemoryRouter>
+        <ToastWrap>
+          <MobileSidebarProvider>
+            <SSEProvider>
+              <ProjectsProvider>
+                <ProjectSummariesProvider>
+                  <AllProjectsDashboard />
+                </ProjectSummariesProvider>
+              </ProjectsProvider>
+            </SSEProvider>
+          </MobileSidebarProvider>
+        </ToastWrap>
+      </MemoryRouter>,
+    );
+    const tile = (label: string) =>
+      Array.from(container.querySelectorAll('.apd-kpi')).find((t) => t.textContent?.startsWith(label));
+    await waitFor(() =>
+      expect(tile('Cost · 30d')?.getAttribute('title')).toContain(`${formatUsd(10)} ${subscriptionShareText(4, formatUsd)}`),
+    );
+    expect(tile('Chat cost · 30d')?.getAttribute('title')).toContain(`${formatUsd(3)} ${subscriptionShareText(1, formatUsd)}`);
+  });
+});
+

@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
 import { KpiRow } from './KpiRow';
+import { SUBSCRIPTION_TOOLTIP, subscriptionShareText } from '../../lib/subscription';
+import { formatUsd } from './utils';
 
 function renderKpiRow(overrides: Partial<Parameters<typeof KpiRow>[0]> = {}) {
   const defaults = {
@@ -127,3 +129,52 @@ describe('KpiRow - Chat cost · 30d tile', () => {
     expect(container.textContent).toContain('Chat cost · 30d');
   });
 });
+
+describe('KpiRow - subscription estimates', () => {
+  const tiles = (container: HTMLElement) => Array.from(container.querySelectorAll('.apd-kpi'));
+  const costTile = (container: HTMLElement) =>
+    tiles(container).find((t) => t.textContent?.startsWith('Cost · 30d'));
+  const chatTile = (container: HTMLElement) =>
+    tiles(container).find((t) => t.textContent?.startsWith('Chat cost · 30d'));
+
+  it('names the subscription part of each cost tile in its tooltip', () => {
+    const { container } = renderKpiRow({
+      costLast30dUsd: 10,
+      costSubscriptionUsd: 2.5,
+      chatCostLast30dUsd: 3,
+      chatCostSubscriptionUsd: 1,
+    });
+    expect(costTile(container)?.getAttribute('title')).toContain(`${formatUsd(10)} ${subscriptionShareText(2.5, formatUsd)}`);
+    expect(chatTile(container)?.getAttribute('title')).toContain(`${formatUsd(3)} ${subscriptionShareText(1, formatUsd)}`);
+  });
+
+  it('marks the chat tile with ≈ and leads both tooltips with the subscription sentence', () => {
+    const { container } = renderKpiRow({
+      costLast30dUsd: 10,
+      costSubscriptionUsd: 2.5,
+      chatCostLast30dUsd: 3,
+      chatCostSubscriptionUsd: 1,
+    });
+    expect(chatTile(container)?.querySelector('.apd-kpi-value')?.textContent).toMatch(/^\$3\.00≈/);
+    expect(chatTile(container)?.getAttribute('title')?.startsWith(SUBSCRIPTION_TOOLTIP)).toBe(true);
+    expect(costTile(container)?.getAttribute('title')?.startsWith(SUBSCRIPTION_TOOLTIP)).toBe(true);
+  });
+
+  it('marks the cost tile with ≈ for a subscription share and keeps * for other estimates', () => {
+    const value = (container: HTMLElement) => costTile(container)?.querySelector('.apd-kpi-value')?.textContent;
+    const { container, unmount } = renderKpiRow({ costLast30dUsd: 10, costHasEstimates: true, costSubscriptionUsd: 2.5 });
+    expect(value(container)).toMatch(/^\$10\.00≈/);
+    unmount();
+
+    const metered = renderKpiRow({ costLast30dUsd: 10, costHasEstimates: true });
+    expect(value(metered.container)).toMatch(/^\$10\.00\*/);
+  });
+
+  it('adds nothing without a subscription part', () => {
+    const { container } = renderKpiRow({ costLast30dUsd: 10, chatCostLast30dUsd: 3 });
+    expect(costTile(container)?.getAttribute('title')).not.toContain(SUBSCRIPTION_TOOLTIP);
+    expect(chatTile(container)?.getAttribute('title')).not.toContain(SUBSCRIPTION_TOOLTIP);
+    expect(chatTile(container)?.textContent).not.toContain('≈');
+  });
+});
+

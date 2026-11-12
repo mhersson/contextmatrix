@@ -3,6 +3,8 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, useSearchParams } from 'react-router';
 import { TopCardsPanel } from './TopCardsPanel';
 import type { CardCost, ProjectConfig } from '../../types';
+import { subscriptionShareTitle } from '../../lib/subscription';
+import { formatUsd } from './utils';
 
 const cardCosts: CardCost[] = [
   { card_id: 'ALPHA-1', card_title: 'Top card',    assigned_agent: 'agent-a', prompt_tokens: 1, completion_tokens: 1, estimated_cost_usd: 9.0 },
@@ -137,3 +139,20 @@ describe('TopCardsPanel project filter', () => {
     expect(screen.getByText('Orphan card')).toBeInTheDocument();
   });
 });
+
+describe('TopCardsPanel - subscription estimates', () => {
+  it("marks a card's subscription part with ≈ and names it in the tooltip", () => {
+    renderPanel({
+      cards: [
+        { ...cardCosts[0], has_estimates: true, subscription_cost_usd: 3 },
+        cardCosts[1],
+      ],
+    });
+    expect(screen.getByText('$9.00≈')).toHaveAttribute(
+      'title',
+      subscriptionShareTitle(3, formatUsd),
+    );
+    expect(screen.getByText('$1.00')).not.toHaveAttribute('title');
+  });
+});
+

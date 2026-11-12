@@ -17,6 +17,7 @@ import { SessionSections } from './SessionSections';
 import { UserMenu } from './UserMenu';
 import { SettingsMenu } from './SettingsMenu';
 import { RepoSection } from './RepoSection';
+import { LLMChannelRailDot, LLMChannelStrip } from './LLMChannelStrip';
 
 interface SidebarProps {
   onNewProject: () => void;
@@ -144,61 +145,64 @@ export function Sidebar({ onNewProject, onNewSession, mobileOpen = false, onMobi
   // Shared panel content used in both desktop and mobile overlay modes
   const panelContent = (
     <>
-      <div className="flex items-start justify-between gap-2 px-4 py-4 border-b" style={{ borderColor: 'var(--bg3)' }}>
-        <div className="min-w-0 flex-1">
-          <h1
-            className="truncate"
-            style={{
-              color: 'var(--fg)',
-              fontFamily: 'var(--font-sans)',
-              fontWeight: 500,
-              fontSize: '28px',
-              letterSpacing: '-0.02em',
-              lineHeight: 1.15,
-            }}
-          >
-            Context<em style={{ fontStyle: 'italic', color: 'var(--aqua)', fontWeight: 400 }}>Matrix</em>
-          </h1>
-          {version && (
-            <p
-              className="font-mono truncate"
+      <div className="relative px-4 py-4 border-b" style={{ borderColor: 'var(--bg3)' }}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <h1
+              className="truncate"
               style={{
-                color: 'var(--grey0)',
-                fontSize: '10.5px',
-                letterSpacing: '0.02em',
-                opacity: 0.75,
-                marginTop: '3px',
+                color: 'var(--fg)',
+                fontFamily: 'var(--font-sans)',
+                fontWeight: 500,
+                fontSize: '28px',
+                letterSpacing: '-0.02em',
+                lineHeight: 1.15,
               }}
-              title={formatVersionWithLocalTime(version)}
             >
-              {formatVersionWithLocalTime(version)}
-            </p>
+              Context<em style={{ fontStyle: 'italic', color: 'var(--aqua)', fontWeight: 400 }}>Matrix</em>
+            </h1>
+            {version && (
+              <p
+                className="font-mono truncate"
+                style={{
+                  color: 'var(--grey0)',
+                  fontSize: '10.5px',
+                  letterSpacing: '0.02em',
+                  opacity: 0.75,
+                  marginTop: '3px',
+                }}
+                title={formatVersionWithLocalTime(version)}
+              >
+                {formatVersionWithLocalTime(version)}
+              </p>
+            )}
+          </div>
+          {!mobileOpen && (
+            <button
+              onClick={() => setCollapsed(true)}
+              className="p-1 rounded hover:opacity-80"
+              style={{ color: 'var(--grey1)' }}
+              title="Collapse sidebar"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          )}
+          {mobileOpen && onMobileClose && (
+            <button
+              onClick={onMobileClose}
+              className="p-1 rounded hover:opacity-80"
+              style={{ color: 'var(--grey1)' }}
+              title="Close sidebar"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           )}
         </div>
-        {!mobileOpen && (
-          <button
-            onClick={() => setCollapsed(true)}
-            className="p-1 rounded hover:opacity-80"
-            style={{ color: 'var(--grey1)' }}
-            title="Collapse sidebar"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-        )}
-        {mobileOpen && onMobileClose && (
-          <button
-            onClick={onMobileClose}
-            className="p-1 rounded hover:opacity-80"
-            style={{ color: 'var(--grey1)' }}
-            title="Close sidebar"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        )}
+        <LLMChannelStrip />
       </div>
 
       <nav aria-label="Projects" className="flex-1 overflow-y-auto py-1.5">
@@ -320,6 +324,7 @@ export function Sidebar({ onNewProject, onNewSession, mobileOpen = false, onMobi
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
         </button>
+        <LLMChannelRailDot />
       </div>
     );
   }

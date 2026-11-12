@@ -33,6 +33,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/githubauth"
 	"github.com/mhersson/contextmatrix/internal/gitops"
+	"github.com/mhersson/contextmatrix/internal/llmchannel/llmchanneltest"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -1140,8 +1141,8 @@ func TestRunCard_NoProviderForProject_UsesTheInstanceProvider(t *testing.T) {
 	assert.Nil(t, receivedPayload.LLMEndpoint, "no llm_endpoint configured, so the trigger carries none")
 }
 
-// TestRunCard_LLMEndpoint_PresentWhenConfigured asserts that a configured
-// RouterConfig.LLMEndpoint is attached to every trigger payload verbatim.
+// TestRunCard_LLMEndpoint_PresentWhenConfigured asserts that the LLM channel's
+// configured endpoint is attached to every trigger payload verbatim.
 func TestRunCard_LLMEndpoint_PresentWhenConfigured(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
@@ -1169,7 +1170,7 @@ func TestRunCard_LLMEndpoint_PresentWhenConfigured(t *testing.T) {
 	router := newTestRouter(RouterConfig{
 		Service: svc, Bus: bus, Backend: backendClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
-		LLMEndpoint:     endpoint,
+		LLMChannel:      llmchanneltest.EndpointOnly(endpoint),
 	})
 
 	server := httptest.NewServer(router)
@@ -3198,7 +3199,12 @@ default_skills:
 // --- SelectionContext assembly for agent backend ---
 
 type stubCatalog struct {
-	candidates []protocol.CandidateModel
+	candidates       []protocol.CandidateModel
+	claudeCandidates []protocol.CandidateModel
+}
+
+func (s *stubCatalog) ClaudeCodeCandidates(_ context.Context) []protocol.CandidateModel {
+	return s.claudeCandidates
 }
 
 func (s *stubCatalog) Candidates(_ context.Context) []protocol.CandidateModel {

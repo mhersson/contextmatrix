@@ -1,16 +1,22 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Sparkline } from '../Sparkline/Sparkline';
+import { SUBSCRIPTION_TOOLTIP, subscriptionShareText } from '../../lib/subscription';
+import { formatUsd } from './utils';
 
 interface KpiRowProps {
   costLast30dUsd: number;
   costPrior30dUsd: number;
   costSeries30d: number[] | undefined;
   costHasEstimates?: boolean;
+  /** The part of costLast30dUsd that is a subscription estimate. */
+  costSubscriptionUsd?: number;
   stateCountsParents: Record<string, number>;
   doneTodayParents: number;
   chatCostLast30dUsd: number;
   chatCostPrior30dUsd: number;
   chatCostSeries30d: number[] | undefined;
+  /** The part of chatCostLast30dUsd that is a subscription estimate. */
+  chatCostSubscriptionUsd?: number;
 }
 
 interface KpiTileProps {
@@ -64,14 +70,14 @@ function KpiTile({ label, badge, value, accent, neutralValue, tooltip, delta, sp
   );
 }
 
-function CostValue({ amount, estimated }: { amount: number; estimated?: boolean }) {
+function CostValue({ amount, estimated, subscription }: { amount: number; estimated?: boolean; subscription?: boolean }) {
   const fixed = amount.toFixed(2);
   const [whole, frac] = fixed.split('.');
   return (
     <>
       ${whole}
       <span style={{ fontSize: '0.55em', color: 'var(--grey1)', fontWeight: 400 }}>.{frac}</span>
-      {estimated ? '*' : ''}
+      {subscription ? '≈' : estimated ? '*' : ''}
     </>
   );
 }
@@ -84,6 +90,12 @@ const COST_TOOLTIP =
 const CHAT_COST_TOOLTIP =
   "Server-wide chat session cost over the last 30 UTC days, bucketed by session last-active day. Cached server-side for 30 seconds.";
 
+/** Leads a cost tile's tooltip with its subscription part, when it has one. */
+function costTooltip(base: string, total: number, subscription: number | undefined): string {
+  if (!subscription || subscription <= 0) return base;
+  return `${SUBSCRIPTION_TOOLTIP}\n${formatUsd(total)} ${subscriptionShareText(subscription, formatUsd)}\n\n${base}`;
+}
+
 export function KpiRow({
   costLast30dUsd,
   costPrior30dUsd,
@@ -94,6 +106,8 @@ export function KpiRow({
   chatCostLast30dUsd,
   chatCostPrior30dUsd,
   chatCostSeries30d,
+  costSubscriptionUsd,
+  chatCostSubscriptionUsd,
 }: KpiRowProps) {
   const openParents = stateCountsParents['todo'] ?? 0;
   const inProgressParents = (stateCountsParents['in_progress'] ?? 0) + (stateCountsParents['review'] ?? 0);
@@ -144,20 +158,20 @@ export function KpiRow({
       <KpiTile
         label="Cost · 30d"
         badge="USD"
-        value={<CostValue amount={costLast30dUsd} estimated={costHasEstimates} />}
+        value={<CostValue amount={costLast30dUsd} estimated={costHasEstimates} subscription={(costSubscriptionUsd ?? 0) > 0} />}
         accent="green"
         neutralValue
-        tooltip={COST_TOOLTIP}
+        tooltip={costTooltip(COST_TOOLTIP, costLast30dUsd, costSubscriptionUsd)}
         delta={hasDelta ? { pct: deltaPct, up: deltaUp } : undefined}
         sparkline={costSeries30d !== undefined ? { values: costSeries30d, color: 'var(--green)' } : undefined}
       />
       <KpiTile
         label="Chat cost · 30d"
         badge="USD"
-        value={<CostValue amount={chatCostLast30dUsd} />}
+        value={<CostValue amount={chatCostLast30dUsd} subscription={(chatCostSubscriptionUsd ?? 0) > 0} />}
         accent="aqua"
         neutralValue
-        tooltip={CHAT_COST_TOOLTIP}
+        tooltip={costTooltip(CHAT_COST_TOOLTIP, chatCostLast30dUsd, chatCostSubscriptionUsd)}
         delta={hasChatDelta ? { pct: chatDeltaPct, up: chatDeltaUp } : undefined}
         sparkline={chatCostSeries30d !== undefined ? { values: chatCostSeries30d, color: 'var(--aqua)' } : undefined}
       />

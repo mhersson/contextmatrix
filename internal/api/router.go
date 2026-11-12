@@ -287,11 +287,20 @@ type RouterConfig struct {
 	// nil defaults to GitHubTokenProvider and GitHubAPIBaseURL for every
 	// project.
 	ProviderForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string /*apiBase*/, error)
-	// LLMEndpoint is the CM-provisioned inference endpoint attached to every
-	// task-backend trigger payload (single admin-managed key, rotated in one
-	// place). nil when llm_endpoint is unset; the trigger then carries no
-	// endpoint and the backend refuses the run.
-	LLMEndpoint *protocol.LLMEndpoint
+	// LLMChannel selects the card-trigger endpoint, candidates and model,
+	// and the chat model picker, by the global LLM channel mode. Required
+	// whenever cards are run or chats served: it is the only endpoint source.
+	LLMChannel LLMChannelResolver
+	// LLMChannelState, LLMChannelStore and ConfiguredBackend back
+	// /api/llm-channel; ConfiguredBackend lists the backend kinds declared
+	// under backends:. LLMChannelCards defaults to Service. The routes are
+	// registered only when LLMChannelState and LLMChannelStore are set.
+	LLMChannelState   LLMChannelState
+	LLMChannelStore   LLMChannelStore
+	LLMChannelCards   LLMChannelCards
+	ConfiguredBackend []string
+	// CardRuns records the mode each card run started in; nil skips it.
+	CardRuns CardRunRecorder
 	// BestOfN bounds the card-level best_of_n field: cardHandlers rejects
 	// any value outside 0 or 2..MaxCandidates. Zero value (MaxCandidates 0)
 	// means only 0 validates - effectively disabling best_of_n until
@@ -572,6 +581,24 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("POST /api/admin/selector/preview", selh.preview)
 	}
 
+	if cfg.LLMChannelState != nil && cfg.LLMChannelStore != nil {
+		cards := cfg.LLMChannelCards
+		if cards == nil && cfg.Service != nil {
+			cards = cfg.Service
+		}
+
+		lh := &llmChannelHandlers{
+			state:       cfg.LLMChannelState,
+			store:       cfg.LLMChannelStore,
+			cards:       cards,
+			backends:    cfg.ConfiguredBackend,
+			authEnabled: cfg.AuthService != nil,
+			now:         time.Now,
+		}
+		mux.HandleFunc("GET /api/llm-channel", lh.get)
+		mux.HandleFunc("PUT /api/admin/llm-channel", lh.put)
+	}
+
 	// Auth routes - only in multi mode.
 	if cfg.AuthService != nil {
 		authh := &authHandlers{svc: cfg.AuthService}
@@ -649,7 +676,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		taskSkillsDir:          cfg.TaskSkillsDir,
 		taskSkillsGitRemoteURL: cfg.TaskSkillsGitRemoteURL,
 		providerForProject:     cfg.ProviderForProject,
-		llmEndpoint:            cfg.LLMEndpoint,
+		llmChannel:             cfg.LLMChannel,
+		cardRuns:               cfg.CardRuns,
 		instanceTokenProvider:  cfg.GitHubTokenProvider,
 	}
 
@@ -712,6 +740,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	if cfg.ChatManager != nil && cfg.ChatHub != nil {
 		chh := newChatHandlers(cfg.ChatManager, cfg.ChatHub, cfg.ChatBackendCfg)
 		chh.blacklist = cfg.Blacklist
+		chh.llmChannel = cfg.LLMChannel
 
 		if cfg.ChatEndpointModels != nil {
 			emFn := cfg.ChatEndpointModels

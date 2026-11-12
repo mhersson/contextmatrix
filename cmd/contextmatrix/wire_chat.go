@@ -30,6 +30,8 @@ func wireChat(
 	svc *service.CardService,
 	chatStore chat.Store,
 	architectContextWindow func(ctx context.Context, model string) int,
+	llmChannel chat.LLMChannelResolver,
+	usageRecorder chat.UsageRecorder,
 ) (*chat.Manager, *chat.SSEHub, func(), string) {
 	var chatBackend chat.Backend
 
@@ -115,7 +117,8 @@ func wireChat(
 		RehydrationTimeout:              cfg.Chat.RehydrationTimeout,
 		DefaultModel:                    chatDefaultModel,
 		Pricer:                          svc,
-		LLMEndpoint:                     llmEndpointFromConfig(cfg.LLMEndpoint),
+		LLMChannel:                      llmChannel,
+		UsageRecorder:                   usageRecorder,
 		WorkerCredentialsToken:          workerCredentialsToken,
 		ArchitectBackend:                architectBackend,
 		ArchitectDefaultModel:           architectDefaultModel,

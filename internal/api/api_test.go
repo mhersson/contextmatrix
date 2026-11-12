@@ -26,6 +26,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/githubauth"
 	"github.com/mhersson/contextmatrix/internal/gitops"
+	"github.com/mhersson/contextmatrix/internal/llmchannel/llmchanneltest"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
@@ -54,10 +55,15 @@ func doGet(t *testing.T, url string) *http.Response {
 	return resp
 }
 
-// newTestRouter is NewRouter with an empty-token fake GitHub provider filled in when the config sets none.
+// newTestRouter is NewRouter with an empty-token fake GitHub provider and an
+// endpoint-only LLM channel with no endpoint filled in when the config sets none.
 func newTestRouter(cfg RouterConfig) http.Handler {
 	if cfg.GitHubTokenProvider == nil && cfg.ProviderForProject == nil {
 		cfg.GitHubTokenProvider = &fakeTokenProvider{}
+	}
+
+	if cfg.LLMChannel == nil {
+		cfg.LLMChannel = llmchanneltest.EndpointOnly(nil)
 	}
 
 	return NewRouter(cfg)

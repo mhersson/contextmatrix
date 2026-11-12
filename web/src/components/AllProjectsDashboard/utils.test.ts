@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DashboardData } from '../../types';
-import { aggregateDashboards } from './utils';
+import { aggregateDashboards, subscriptionCost30d } from './utils';
 
 function summary(overrides: Partial<DashboardData> = {}): DashboardData {
   return {
@@ -341,3 +341,50 @@ describe('aggregateDashboards chat cost picker', () => {
     expect(result.chat_cost_series_30d).toBeUndefined();
   });
 });
+
+describe('aggregateDashboards subscription estimates', () => {
+  const model = (subscription?: boolean) => ({
+    model: 'claude-sonnet-5-5',
+    prompt_tokens: 1,
+    completion_tokens: 1,
+    estimated_cost_usd: 1,
+    card_count: 1,
+    ...(subscription ? { subscription } : {}),
+  });
+
+  it('flags a folded model row when any project row includes subscription usage', () => {
+    const result = aggregateDashboards(
+      new Map([
+        ['proj-a', summary({ model_costs_30d: [model()] })],
+        ['proj-b', summary({ model_costs_30d: [model(true)] })],
+      ]),
+    );
+    expect(result.model_costs_30d![0].subscription).toBe(true);
+  });
+
+  it('carries the server-wide chat part', () => {
+    const result = aggregateDashboards(
+      new Map([
+        ['proj-a', summary({ total_cost_usd: 5, chat_cost_usd_last_30d: 3, chat_subscription_cost_usd: 1 })],
+        ['proj-b', summary({ total_cost_usd: 4, chat_cost_usd_last_30d: 3, chat_subscription_cost_usd: 1 })],
+      ]),
+    );
+    expect(result.chat_subscription_cost_usd).toBe(1);
+  });
+});
+
+describe('subscriptionCost30d', () => {
+  it('sums the subscription part of the 30-day card rows', () => {
+    const row = (cost: number, sub?: number) => ({
+      card_id: 'A-1',
+      card_title: 't',
+      prompt_tokens: 1,
+      completion_tokens: 1,
+      estimated_cost_usd: cost,
+      ...(sub !== undefined ? { subscription_cost_usd: sub } : {}),
+    });
+    expect(subscriptionCost30d([row(3, 1), row(2), row(4, 0.5)])).toBeCloseTo(1.5, 9);
+    expect(subscriptionCost30d([])).toBe(0);
+  });
+});
+

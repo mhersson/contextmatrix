@@ -93,7 +93,10 @@ type Session struct {
 	Model                  string    `json:"model,omitempty"`
 	ContextTokens          int64     `json:"context_tokens,omitempty"`
 	ContextTokensUpdatedAt time.Time `json:"context_tokens_updated_at"`
-	RehydrationActive      bool      `json:"rehydration_active,omitempty"`
+	// LLMChannel is the session's LLM channel mode (llmchannel.Mode): the
+	// current mode at creation and at every cold open, kept while live.
+	LLMChannel        string `json:"llm_channel"`
+	RehydrationActive bool   `json:"rehydration_active,omitempty"`
 	// RehydrationStartedAt is set when SetRehydrationActive(true) is called and
 	// cleared (nil) when called with false. The reaper compares this - not
 	// LastActive - against the rehydration timeout so an actively-typing user
@@ -109,6 +112,9 @@ type Session struct {
 	// accumulated from all usage frames. Precision floor is ~$0.0001; migrate
 	// to integer cents if sub-cent billing accuracy is ever required.
 	EstimatedCostUSD float64 `json:"estimated_cost_usd,omitempty"`
+	// SubscriptionCostUSD is the part of EstimatedCostUSD priced at the list
+	// rate for subscription usage, which is not billed spend.
+	SubscriptionCostUSD float64 `json:"subscription_cost_usd,omitempty"`
 
 	// AssistantWorking reports whether a turn is currently in flight for
 	// this session. In-memory only - populated by Manager.GetSession and
@@ -162,6 +168,9 @@ type LogEntry struct {
 	// Marker is set on an architect frame that renders as a stage divider or
 	// a sheet reference.
 	Marker *protocol.LogMarker
+	// UsageLimit is set on a system frame when a subscription usage limit
+	// stopped the session.
+	UsageLimit *protocol.UsageLimit
 }
 
 // TokenUsage carries per-turn (per-assistant-message) token counts reported
@@ -177,6 +186,11 @@ type TokenUsage struct {
 	CacheCreateTokens int64 `json:"cache_creation_tokens"`
 	// CostUSD is the gateway-reported cost of this turn; 0 means none reported.
 	CostUSD float64 `json:"cost_usd,omitempty"`
+	// CostBasis is protocol.CostBasisSubscription for a flat-rate subscription
+	// frame; empty for metered usage.
+	CostBasis string `json:"cost_basis,omitempty"`
+	// Subscription holds the subscription windows as last seen at this frame.
+	Subscription []protocol.SubscriptionUsage `json:"subscription,omitempty"`
 }
 
 // ResumeContext is the rehydration payload CM passes to the backend on a

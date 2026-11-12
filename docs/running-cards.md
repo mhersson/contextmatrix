@@ -151,6 +151,30 @@ after a switch-off gets the full workflow.
   inline, reads `poc` from `get_task_context` and runs one generic reviewer on
   the same bar unless the card has mob review.
 
+## Claude Code subscription
+
+When the LLM channel is on Claude Code and `agent` is in
+`claude_code.backends`, card runs execute Claude Code on the operator's
+subscription instead of calling the endpoint (see
+[Claude Code subscription mode](remote-execution.md#claude-code-subscription-mode)).
+
+- **Sticky runs.** Switching the channel never moves a running card; a rerun
+  takes the channel active at its own trigger (see
+  [sticky runs](remote-execution.md#sticky-runs)).
+- **Pins.** `model_orchestrator`, `model_coder` and `model_reviewer` hold
+  endpoint slugs, and CM stores them unchanged. On Claude Code the agent maps
+  a pin whose Claude Code model is a candidate of the run
+  (`anthropic/claude-opus-5.5` runs as `claude-opus-5-5`; without
+  `aa_api_key` the run has none) and clears any other pin for that run, with
+  one activity-log note per cleared pin; the
+  tier ladder then picks. The note comes from the agent; CM writes none.
+- **Usage limit.** A run that hits the subscription's usage limit parks (see
+  [Parked cards](#parked-cards)).
+- **Models.** Automatic picks, Best-of-N and mob seats included, draw on the
+  Claude Code catalog (see
+  [model selection](model-selection.md#the-claude-code-catalog)).
+- **Cost.** See [Cost tracking](#cost-tracking).
+
 ## PR gates
 
 With `await_ci` or `await_copilot_review` set, the run enters `pr_gates`
@@ -165,13 +189,21 @@ card completes; a merge that GitHub refuses parks the card. See [data model](dat
 `report_parked` sets `worker_status: parked`, appends a `parked` activity
 entry with the reason, and publishes `worker.parked`. The container then exits
 and its `completed` callback keeps the parked status while clearing the claim.
-The card stays in `review` at phase `pr_gates` with a `## PR Gates` body
-section, and the board shows a yellow "Parked for a human" badge. A human
-re-triggers the card once the gate can pass; the next `queued` replaces
-`parked` and the fresh container resumes at the gate.
+The board shows a yellow "Parked for a human" badge. A human re-triggers the
+card; the next `queued` replaces `parked`. A run parks when:
 
-A review loop that ends with findings remaining parks the card the same way
-through `report_parked`, leaving it in `review`.
+- **PR gates cannot pass.** The card stays in `review` at phase `pr_gates`
+  with a `## PR Gates` body section. Re-trigger it once the gate can pass; the
+  fresh container resumes at the gate.
+- **A review loop ends with findings remaining.** The card stays in `review`.
+- **A Claude Code subscription usage limit stops the run.** The run also sends
+  `resets_at` (RFC 3339, a past time is accepted) and the limited `window`
+  when the vendor reported them: the
+  card carries the reset as `park_resets_at` while parked, `worker.parked` carries it too, and the next
+  `queued` clears it. The card panel badge and the board card's hover card
+  then read "Parked - usage limit, resets Thu 14:00" (local time), and
+  "Parked - usage limit reset Thu 14:00" once that time has passed. Nothing
+  falls back to the endpoint; rerun the card after the reset.
 
 ## Worker status
 
@@ -263,6 +295,12 @@ endpoint catalog. Where it shows:
 - Dashboard: "Cost by model" and "Top cards" over 30 days.
 - `recalculate_costs` (MCP) or `POST .../recalculate-costs` re-prices
   estimated buckets after a rate change; actual costs are never touched.
+
+A Claude Code run reports with `cost_basis: subscription`. Its cost is an
+API-equivalent estimate priced from the rate table (see
+[Claude Code cost](remote-execution.md#cost)), kept in buckets of its own and
+never billed spend; the UI marks it `≈` wherever it shows (see
+[web UI](web-ui.md#board-view)).
 
 ## See also
 

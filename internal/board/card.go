@@ -111,6 +111,9 @@ type Card struct {
 	// SubtaskUsage lists each direct subtask's usage buckets. Computed on
 	// read alongside SubtaskCostUSD, never persisted.
 	SubtaskUsage []SubtaskUsage `yaml:"-" json:"subtask_usage,omitempty"`
+	// ParkResetsAt is when the usage limit that parked the run resets, read from
+	// this instance's ops.db while parked; never written to card YAML.
+	ParkResetsAt *time.Time `yaml:"-" json:"park_resets_at,omitempty"`
 	// InPlaybooks lists the IDs of playbooks holding a card entry for this
 	// card. Computed on read, never persisted.
 	InPlaybooks []string `yaml:"-" json:"in_playbooks,omitempty"`
@@ -206,6 +209,9 @@ type UsageBucket struct {
 	// collector reading real usage frames ("collector") or from the agent's own
 	// estimate (empty = self-reported). Sticky once "collector".
 	CountsSource string `yaml:"counts_source,omitempty" json:"counts_source,omitempty"`
+	// CostBasis separates flat-rate subscription usage ("subscription") from
+	// metered usage (empty). It is part of the bucket identity.
+	CostBasis string `yaml:"cost_basis,omitempty" json:"cost_basis,omitempty"`
 }
 
 // SubtaskUsage is one direct subtask's usage breakdown, attached to the

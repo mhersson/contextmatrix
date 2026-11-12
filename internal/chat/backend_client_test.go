@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -342,4 +343,37 @@ func TestBackendClient_StreamLogs_CarriesTheGatewayCost(t *testing.T) {
 	assert.InDelta(t, 0.0123, got[0].Usage.CostUSD, 1e-12)
 	require.NotNil(t, got[1].Usage)
 	assert.Zero(t, got[1].Usage.CostUSD)
+}
+
+func TestBackendClient_CopiesSubscriptionFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"ts":"2026-01-02T03:04:05Z","type":"usage","usage":{"input_tokens":10,"output_tokens":5,"cost_basis":"subscription",`+
+			`"subscription":[{"window":"five_hour","utilization":0.42,"status":"allowed","resets_at":"2026-01-02T08:00:00Z"}]}}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"ts":"2026-01-02T03:04:06Z","type":"system","content":"Usage limit reached",`+
+			`"usage_limit":{"window":"five_hour","resets_at":"2026-01-02T08:00:00Z"}}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"ts":"2026-01-02T03:04:07Z","type":"system","content":"Usage limit reached","usage_limit":{}}`+"\n\n")
+	}))
+	t.Cleanup(srv.Close)
+
+	rc := chat.NewBackendClient(chat.BackendClientConfig{BaseURL: srv.URL, HMACKey: "k"})
+
+	var got []chat.LogEntry
+
+	require.NoError(t, rc.StreamLogs(context.Background(), "S1", func(e chat.LogEntry) { got = append(got, e) }))
+	require.Len(t, got, 3)
+
+	reset := time.Date(2026, 1, 2, 8, 0, 0, 0, time.UTC)
+
+	require.NotNil(t, got[0].Usage)
+	assert.Equal(t, protocol.CostBasisSubscription, got[0].Usage.CostBasis)
+	assert.Equal(t, []protocol.SubscriptionUsage{
+		{Window: "five_hour", Utilization: 0.42, Status: "allowed", ResetsAt: reset},
+	}, got[0].Usage.Subscription)
+
+	require.NotNil(t, got[1].UsageLimit)
+	assert.Equal(t, protocol.UsageLimit{Window: "five_hour", ResetsAt: reset}, *got[1].UsageLimit)
+
+	require.NotNil(t, got[2].UsageLimit)
+	assert.True(t, got[2].UsageLimit.ResetsAt.IsZero())
 }

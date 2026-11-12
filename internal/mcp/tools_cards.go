@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -159,6 +160,59 @@ type reportUsageInput struct {
 	Phase               string   `json:"phase,omitempty" jsonschema:"FSM phase this usage belongs to (plan|execute|judge|document|review|integrate|pr_gates|done); omit to use the card's current phase; persisted on the usage bucket as its role"`
 	Step                string   `json:"step,omitempty" jsonschema:"model-call kind within the phase (main|gate|brainstorm|verify_propose|mob_seat|mob_moderator|checkpoint|judge); omit for the primary phase call"`
 	DurationMS          int64    `json:"duration_ms,omitempty" jsonschema:"wall time of the model step in milliseconds; used for latency metrics only"`
+	CostBasis           string   `json:"cost_basis,omitempty" jsonschema:"subscription when a flat-rate subscription served the calls; omit for metered usage"`
+
+	SubscriptionUsage []subscriptionUsageInput `json:"subscription_usage,omitempty" jsonschema:"last-seen subscription windows; only with cost_basis subscription"`
+}
+
+type subscriptionUsageInput struct {
+	Window      string  `json:"window" jsonschema:"required,window name, e.g. seven_day"`
+	Utilization float64 `json:"utilization" jsonschema:"required,fraction of the window used, 0.13 = 13%"`
+	Status      string  `json:"status,omitempty" jsonschema:"vendor status: allowed, allowed_warning or rejected"`
+	ResetsAt    string  `json:"resets_at" jsonschema:"required,RFC 3339 reset time"`
+}
+
+// parseSubscriptionUsage validates the report_usage subscription arguments
+// and converts the windows to protocol values.
+func parseSubscriptionUsage(cardID string, input reportUsageInput) ([]protocol.SubscriptionUsage, error) {
+	if input.CostBasis != "" && input.CostBasis != protocol.CostBasisSubscription {
+		return nil, fmt.Errorf("report usage for %s: cost_basis must be %q or empty (got %q)",
+			cardID, protocol.CostBasisSubscription, input.CostBasis)
+	}
+
+	if input.CostBasis == protocol.CostBasisSubscription && input.ActualCostUSD != nil {
+		return nil, fmt.Errorf("report usage for %s: actual_cost_usd is not allowed with cost_basis %q",
+			cardID, protocol.CostBasisSubscription)
+	}
+
+	if len(input.SubscriptionUsage) > 0 && input.CostBasis != protocol.CostBasisSubscription {
+		return nil, fmt.Errorf("report usage for %s: subscription_usage requires cost_basis %q",
+			cardID, protocol.CostBasisSubscription)
+	}
+
+	windows := make([]protocol.SubscriptionUsage, 0, len(input.SubscriptionUsage))
+
+	for i, w := range input.SubscriptionUsage {
+		if w.Window == "" {
+			return nil, fmt.Errorf("report usage for %s: subscription_usage[%d].window must not be empty", cardID, i)
+		}
+
+		if w.Utilization < 0 {
+			return nil, fmt.Errorf("report usage for %s: subscription_usage[%d].utilization must be non-negative (got %v)",
+				cardID, i, w.Utilization)
+		}
+
+		resetsAt, err := time.Parse(time.RFC3339, w.ResetsAt)
+		if err != nil {
+			return nil, fmt.Errorf("report usage for %s: subscription_usage[%d].resets_at must be RFC 3339: %w", cardID, i, err)
+		}
+
+		windows = append(windows, protocol.SubscriptionUsage{
+			Window: w.Window, Utilization: w.Utilization, Status: w.Status, ResetsAt: resetsAt,
+		})
+	}
+
+	return windows, nil
 }
 
 type recalculateCostsInput struct {
@@ -184,10 +238,12 @@ type reportPushOutput struct {
 }
 
 type reportParkedInput struct {
-	Project string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
-	CardID  string `json:"card_id" jsonschema:"required,card ID"`
-	AgentID string `json:"agent_id" jsonschema:"required,agent ID"`
-	Reason  string `json:"reason" jsonschema:"required,why the run parked the card, e.g. review parked: attempts cap exhausted without approval"`
+	Project  string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
+	CardID   string `json:"card_id" jsonschema:"required,card ID"`
+	AgentID  string `json:"agent_id" jsonschema:"required,agent ID"`
+	Reason   string `json:"reason" jsonschema:"required,why the run parked the card, e.g. review parked: attempts cap exhausted without approval"`
+	ResetsAt string `json:"resets_at,omitempty" jsonschema:"RFC 3339 time a subscription usage limit resets; set only when a usage limit parked the run"`
+	Window   string `json:"window,omitempty" jsonschema:"the subscription window whose usage limit parked the run, e.g. five_hour; send with resets_at"`
 }
 
 type reportParkedOutput struct {
@@ -717,7 +773,7 @@ func registerGetReadyTasks(server *mcp.Server, svc *service.CardService) {
 	})
 }
 
-func registerReportUsage(server *mcp.Server, svc *service.CardService) {
+func registerReportUsage(server *mcp.Server, svc *service.CardService, recorder UsageRecorder) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "report_usage",
 		Description: "Report token usage for a card. Increments running totals of prompt and completion tokens, " +
@@ -728,6 +784,7 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 			"while agent_id still satisfies the claim check, and source to mark whether the counts are " +
 			"estimated (default) or harness-measured. phase and step are persisted on the card's usage bucket " +
 			"as its role (pr_gates and integrate count as gates) and step list, besides labelling metrics. " +
+			"Subscription runs send cost_basis \"subscription\" (never actual_cost_usd) and the last-seen windows in subscription_usage. " +
 			"Call this on heartbeat and when completing a task.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input reportUsageInput) (*mcp.CallToolResult, *CardSummary, error) {
 		// Reject negative token counts at the handler boundary. The service
@@ -758,6 +815,11 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 				input.CardID, input.Source)
 		}
 
+		windows, err := parseSubscriptionUsage(input.CardID, input)
+		if err != nil {
+			return nil, nil, err
+		}
+
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
 			return nil, nil, err
@@ -776,9 +838,14 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 			Phase:               input.Phase,
 			Step:                input.Step,
 			DurationMS:          input.DurationMS,
+			CostBasis:           input.CostBasis,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("report usage for %s: %w", input.CardID, err)
+		}
+
+		if recorder != nil && len(windows) > 0 {
+			recorder.RecordUsage(ctx, windows)
 		}
 
 		return nil, summarizeCardForAgent(card, input.AgentID), nil
@@ -828,10 +895,10 @@ func registerReportPush(server *mcp.Server, svc *service.CardService) {
 
 // --- report_parked tool ---
 
-func registerReportParked(server *mcp.Server, svc *service.CardService) {
+func registerReportParked(server *mcp.Server, svc *service.CardService, recorder UsageRecorder) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "report_parked",
-		Description: "Report that this run is parking the card - review or PR gates left for a human. " +
+		Description: "Report that this run is parking the card - review or PR gates left for a human, or a subscription usage limit (pass resets_at and window). " +
 			"Sets worker_status to \"parked\" (survives the run's completed callback; the next trigger clears it) " +
 			"and records the reason in the activity log. Requires the claim: agent_id must match assigned_agent.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input reportParkedInput) (*mcp.CallToolResult, reportParkedOutput, error) {
@@ -840,9 +907,26 @@ func registerReportParked(server *mcp.Server, svc *service.CardService) {
 			return nil, reportParkedOutput{}, err
 		}
 
-		card, err := svc.ReportParked(ctx, project, input.CardID, input.AgentID, strings.TrimSpace(input.Reason))
+		var resetsAt *time.Time
+
+		if raw := strings.TrimSpace(input.ResetsAt); raw != "" {
+			t, perr := time.Parse(time.RFC3339, raw)
+			if perr != nil {
+				return nil, reportParkedOutput{}, fmt.Errorf("report parked: resets_at must be RFC 3339: %w", perr)
+			}
+
+			resetsAt = &t
+		}
+
+		card, err := svc.ReportParked(ctx, project, input.CardID, input.AgentID, strings.TrimSpace(input.Reason), resetsAt)
 		if err != nil {
 			return nil, reportParkedOutput{}, fmt.Errorf("report parked: %w", err)
+		}
+
+		if window := strings.TrimSpace(input.Window); recorder != nil && window != "" && resetsAt != nil && !resetsAt.IsZero() {
+			recorder.RecordUsage(ctx, []protocol.SubscriptionUsage{{
+				Window: window, Utilization: 1, Status: "rejected", ResetsAt: *resetsAt,
+			}})
 		}
 
 		return nil, reportParkedOutput{Card: summarizeCardForAgent(card, input.AgentID)}, nil

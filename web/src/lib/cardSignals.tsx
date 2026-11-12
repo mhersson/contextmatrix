@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { Card, WorkerStatus } from '../types';
+import { parkedResetLabel } from './subscription';
 
 /**
  * Signal metadata for the board card's header icon cluster. Lives outside the
@@ -128,8 +129,8 @@ const workerSignals: Record<WorkerStatus, Omit<CardSignal, 'key' | 'importance'>
   parked: { label: 'Parked - left for a human, see the card log', color: 'var(--yellow)', icon: circleParkingIcon },
 };
 
-/** Builds the card's signals in display order. */
-export function cardSignals(card: Card): CardSignal[] {
+/** Builds the card's signals in display order; `now` dates a usage-limit park's reset. */
+export function cardSignals(card: Card, now: number = Date.now()): CardSignal[] {
   const signals: CardSignal[] = [];
 
   if ((card.depends_on?.length ?? 0) > 0) {
@@ -172,7 +173,9 @@ export function cardSignals(card: Card): CardSignal[] {
     });
   }
   if (card.worker_status && workerSignals[card.worker_status]) {
-    signals.push({ key: 'worker', importance: 0, ...workerSignals[card.worker_status] });
+    const worker = workerSignals[card.worker_status];
+    const parkedLabel = card.worker_status === 'parked' ? parkedResetLabel(card.park_resets_at, now) : null;
+    signals.push({ key: 'worker', importance: 0, ...worker, ...(parkedLabel ? { label: parkedLabel } : {}) });
   }
   const lock = card.playbook_lock;
   const runActive = lock?.run_status === 'running' || lock?.run_status === 'waiting';

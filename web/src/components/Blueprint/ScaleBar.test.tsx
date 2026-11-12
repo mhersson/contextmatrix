@@ -2,11 +2,34 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { ScaleBar } from './ScaleBar';
 import { THREE_SLICES, ref, viewAtDesignGate, viewEndedAtSlicing, viewEndedInSlice, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
-import { stageText } from './stages';
+import { costBasis, stageText } from './stages';
+import { clearChatLiveData, setChatLiveData } from '../../hooks/useChatLiveData';
+
+const CC_BASIS = costBasis({ llm_channel: 'claude_code' });
+const EP_BASIS = costBasis({ llm_channel: 'endpoint', subscription_cost_usd: 0.1 });
 
 function tones() {
   return screen.getAllByRole('listitem').map((li) => li.getAttribute('data-tone'));
 }
+
+describe('ScaleBar step cost', () => {
+  it.each([
+    ['on Claude Code', { llmChannel: 'claude_code' }, new RegExp(`, \\$0\\.03${CC_BASIS}$`)],
+    ['back on the endpoint', { llmChannel: 'endpoint', subscriptionCostUsd: 0.1 }, new RegExp(`, \\$0\\.03${EP_BASIS}$`)],
+    ['on the endpoint only', { llmChannel: 'endpoint' }, /, \$0\.03$/],
+  ])('labels a step cost by the session record %s', (_name, live, name) => {
+    setChatLiveData('S1', live);
+    const { unmount } = render(<ScaleBar chatId="S1" view={viewAtDesignGate()} compact={false} onOpenStage={() => {}} />);
+    try {
+      const intake = screen.getAllByRole('listitem')[0];
+      expect(within(intake).getByRole('button')).toHaveAccessibleName(name);
+      expect(intake.querySelector('.bp-seg-tip small')?.textContent).toMatch(name);
+    } finally {
+      unmount();
+      clearChatLiveData('S1');
+    }
+  });
+});
 
 describe('ScaleBar', () => {
   it('draws done, folded, waiting and pending segments', () => {

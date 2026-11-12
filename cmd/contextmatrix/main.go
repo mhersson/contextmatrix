@@ -23,6 +23,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
+	"github.com/mhersson/contextmatrix-protocol/selection"
 	"github.com/mhersson/contextmatrix/internal/githubauth"
 
 	"github.com/mhersson/contextmatrix/internal/api"
@@ -37,6 +38,7 @@ import (
 	ghimport "github.com/mhersson/contextmatrix/internal/github"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/jiraimport"
+	"github.com/mhersson/contextmatrix/internal/llmchannel"
 	mcpserver "github.com/mhersson/contextmatrix/internal/mcp"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
@@ -494,6 +496,22 @@ func main() {
 
 	slog.Info("op store opened", "path", cfg.OpStore.DBPath)
 
+	svc.SetParkResetStore(opStore)
+
+	llmChannel, err := llmchannel.New(ctx, llmchannel.Config{
+		Endpoint:     llmEndpointFromConfig(cfg.LLMEndpoint),
+		OAuthToken:   cfg.ClaudeCode.OAuthToken,
+		Supported:    cfg.ClaudeCode.Backends,
+		DefaultModel: cfg.ClaudeCode.DefaultModel,
+	}, opStore, bus)
+	if err != nil {
+		slog.Error("failed to init llm channel", "error", err)
+		cancel()
+		os.Exit(1)
+	}
+
+	slog.Info("llm channel ready", "mode", string(llmChannel.Mode()), "switchable", llmChannel.Switchable())
+
 	// Model catalog builder: constructed whenever there is a rate source. The
 	// AA+agent path also yields selection candidates (routerCfg.Catalog below);
 	// the endpoint-only path (chat-only deployments) yields pricing only.
@@ -504,8 +522,14 @@ func main() {
 
 	catalogBuilder := newCatalogBuilder(cfg, agentCfg, hasAgent, chatOpenRouter)
 
-	// agentAA is needed below for the routerCfg.Catalog guard.
+	// agentAA serves both the pricing warning and the routerCfg.Catalog guard.
 	agentAA := hasAgent && agentCfg.AAAPIKey != ""
+
+	if ids := unpricedClaudeCodeIDs(cfg, agentAA); len(ids) > 0 {
+		slog.Warn("claude code model IDs have no list price source; usage is recorded at $0 unless the endpoint catalog prices them",
+			"models", ids,
+			"fix", "set backends.agent.aa_api_key or add token_costs rows for them")
+	}
 
 	if catalogBuilder != nil {
 		mode := "openrouter-catalog-only"
@@ -537,19 +561,7 @@ func main() {
 	)
 
 	if catalogBuilder != nil {
-		svc.SetCatalogRateLookup(func(model string) (service.ModelRate, bool) {
-			p, ok := catalogBuilder.Rate(ctx, model)
-			if !ok {
-				return service.ModelRate{}, false
-			}
-
-			return service.ModelRate{
-				Prompt:     p.Prompt,
-				Completion: p.Completion,
-				CacheRead:  p.CacheRead,
-				CacheWrite: p.CacheWrite,
-			}, true
-		})
+		svc.SetCatalogRateLookup(catalogRateLookup(ctx, catalogBuilder))
 
 		svc.SetModelValidator(catalogBuilder.Validate)
 
@@ -575,13 +587,13 @@ func main() {
 
 	// Chat: manager + SSE hub + idle reaper + warm-idle grace timer. The chat
 	// store is the shared operational store (opStore) opened above.
-	// ContextWindow is nil-receiver safe, so a deployment without a catalog sends no context window.
-	chatMgr, chatHub, chatCleanup, chatWorkerAPIKey := wireChat(ctx, cfg, svc, opStore, catalogBuilder.ContextWindow)
+	// ContextWindow is nil-receiver safe: a deployment without a catalog sends a window only for Claude Code IDs.
+	chatMgr, chatHub, chatCleanup, chatWorkerAPIKey := wireChat(ctx, cfg, svc, opStore, catalogBuilder.ContextWindow, llmChannel, llmChannel)
 	defer chatCleanup()
 
 	// Wire backend subsystems: client, end-session subscriber, reconcile sweep,
 	// and session-log manager.
-	backendSys := wireBackendSubsystems(ctx, cfg, svc, bus)
+	backendSys := wireBackendSubsystems(ctx, cfg, svc, bus, opStore)
 
 	// Interface fields must stay untyped-nil when the backend is disabled -
 	// a nil *backend.Client wrapped in the interface would defeat every
@@ -665,6 +677,7 @@ func main() {
 		PlaybookPlayer:      playbookPlayer,
 		ArchitectConfigured: architectConfigured,
 		Knowledge:           knowledgeReader,
+		SubscriptionUsage:   llmChannel,
 	})
 
 	mcpHandler := mcpserver.NewHandler(mcpSrv, cfg.MCPAPIKey)
@@ -764,7 +777,11 @@ func main() {
 		ChatModelPriced:        modelPricedFor(architectPriceFor(svc)),
 		AuthService:            authSvc,
 		AuthMode:               cfg.Auth.Mode,
-		LLMEndpoint:            llmEndpointFromConfig(cfg.LLMEndpoint),
+		LLMChannel:             llmChannel,
+		LLMChannelState:        llmChannel,
+		LLMChannelStore:        opStore,
+		ConfiguredBackend:      configuredBackendKinds(cfg),
+		CardRuns:               opStore,
 		BestOfN:                cfg.BestOfN,
 		Mob:                    cfg.Mob,
 		KnowledgeProviders:     cfg.Knowledge.ProviderNames(),
@@ -939,6 +956,28 @@ func dirHasGit(dir string) bool {
 	return err == nil
 }
 
+// catalogRateLookup prices a model from the served catalog, then from the
+// Claude Code catalog.
+func catalogRateLookup(ctx context.Context, b *modelcatalog.Builder) func(string) (service.ModelRate, bool) {
+	return func(model string) (service.ModelRate, bool) {
+		p, ok := b.Rate(ctx, model)
+		if !ok {
+			p, ok = b.ClaudeCodeRate(ctx, model)
+		}
+
+		if !ok {
+			return service.ModelRate{}, false
+		}
+
+		return service.ModelRate{
+			Prompt:     p.Prompt,
+			Completion: p.Completion,
+			CacheRead:  p.CacheRead,
+			CacheWrite: p.CacheWrite,
+		}, true
+	}
+}
+
 // newCatalogBuilder constructs the model catalog Builder from the current
 // configuration. Returns nil when there is no rate source (no AA key, no
 // endpoint, and no OpenRouter catalog).
@@ -962,6 +1001,10 @@ func newCatalogBuilder(cfg *config.Config, agentCfg *config.AgentBackendConfig, 
 		}
 
 		opts = append(opts, modelcatalog.WithFavorites(flattenFavorites(agentCfg.Favorites)))
+
+		if cfg.ClaudeCode.Configured() {
+			opts = append(opts, modelcatalog.WithClaudeCode())
+		}
 
 		return modelcatalog.NewBuilder(agentCfg.AAAPIKey, agentCfg.CatalogQualityFloor, agentCfg.ModelAllowlist, 0, opts...)
 
@@ -1199,4 +1242,42 @@ func (chatBackendDisabled) StreamLogs(ctx context.Context, _ string, _ func(chat
 	<-ctx.Done()
 
 	return ctx.Err()
+}
+
+// configuredBackendKinds lists the enabled backends: kinds in a fixed order.
+func configuredBackendKinds(cfg *config.Config) []string {
+	var kinds []string
+
+	if _, ok := cfg.AgentBackend(); ok {
+		kinds = append(kinds, config.BackendNameAgent)
+	}
+
+	if _, ok := cfg.ChatBackend(); ok {
+		kinds = append(kinds, config.BackendNameChat)
+	}
+
+	if _, ok := cfg.ArchitectBackend(); ok {
+		kinds = append(kinds, config.BackendNameArchitect)
+	}
+
+	return kinds
+}
+
+// unpricedClaudeCodeIDs returns the Claude Code model IDs that would be priced
+// at $0: claude_code is configured, the Artificial Analysis catalog (the list
+// price source) is not built, and token_costs has no row for the ID.
+func unpricedClaudeCodeIDs(cfg *config.Config, agentAA bool) []string {
+	if !cfg.ClaudeCode.Configured() || agentAA {
+		return nil
+	}
+
+	var ids []string
+
+	for _, m := range selection.ClaudeCodeModels() {
+		if _, ok := cfg.TokenCosts[m.ID]; !ok {
+			ids = append(ids, m.ID)
+		}
+	}
+
+	return ids
 }

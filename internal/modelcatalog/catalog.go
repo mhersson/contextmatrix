@@ -106,6 +106,13 @@ type Builder struct {
 	// failure. Guarded by mu. Gates re-attempts on a stale cache so a failing
 	// provider is retried at most once per refreshFailureCooldown.
 	lastRefreshAttempt time.Time
+
+	// claudeCode enables the Claude Code catalog; claudeCodeCached and
+	// claudeCodeCatalog are rebuilt with cached from the same AA fetch.
+	// Guarded by mu.
+	claudeCode        bool
+	claudeCodeCached  []protocol.CandidateModel
+	claudeCodeCatalog map[string]orEntry
 }
 
 // BuilderOption configures a Builder after construction.
@@ -312,10 +319,12 @@ func (b *Builder) Rate(ctx context.Context, slug string) (ModelPrice, bool) {
 // ContextWindow returns the context length in tokens of the model a name
 // resolves to, by the same lookup as Rate: the exact slug on the OpenRouter
 // leg, plus the gateway's other names on the endpoint leg. No vendor screen.
-// 0 on a nil receiver, an unknown name, or an entry without a context length.
+// A Claude Code catalog ID the served catalog lacks takes the static Claude
+// Code window. Otherwise 0 on a nil receiver, an unknown name, or an entry
+// without a context length.
 func (b *Builder) ContextWindow(ctx context.Context, name string) int {
 	if b == nil {
-		return 0
+		return claudeCodeContextWindow(name)
 	}
 
 	b.mu.Lock()
@@ -325,7 +334,7 @@ func (b *Builder) ContextWindow(ctx context.Context, name string) int {
 
 	e, found := b.entryFor(name)
 	if !found {
-		return 0
+		return claudeCodeContextWindow(name)
 	}
 
 	return e.ContextWindow
@@ -557,6 +566,8 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 
 		aa := aaCat.Models
 
+		b.refreshClaudeCode(aa)
+
 		built, exclusions, listPrices := buildEndpointCandidates(aa, ep, b.priors, b.floor, b.allowlist, b.reasoningEffort)
 
 		// The join found an AA row for each served model it could; adopt its
@@ -661,6 +672,8 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 
 	aa := aaCat.Models
 
+	b.refreshClaudeCode(aa)
+
 	cands := build(aa, or, b.floor, b.allowlist)
 
 	// OpenRouter prices every model it serves: the served catalog is the
@@ -675,6 +688,17 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 	b.stats = catalogStats(aaCat.IndexVersion, aa, orServedScored(aa, or))
 
 	return cands, nil
+}
+
+// refreshClaudeCode rebuilds the Claude Code pair from the AA rows a refresh
+// just fetched. Called with mu held, only after a successful AA fetch, so a
+// failed refresh keeps the last good pair.
+func (b *Builder) refreshClaudeCode(aa []aaModel) {
+	if !b.claudeCode {
+		return
+	}
+
+	b.claudeCodeCached, b.claudeCodeCatalog = buildClaudeCode(aa, b.floor)
 }
 
 // build is the pure transform: normalize the intelligence index against the

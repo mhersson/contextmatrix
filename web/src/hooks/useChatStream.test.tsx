@@ -390,6 +390,93 @@ describe('useChatStream', () => {
     await waitFor(() => expect(result.current.sessionUpdate?.assistant_working).toBe(false));
   });
 
+  it('parses the subscription cost from session_updated events', async () => {
+    const { result } = renderHook(() => useChatStream('S1'));
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    act(() => {
+      (instances[0] as unknown as MockES).emit('session_updated', { estimated_cost_usd: 0.9, subscription_cost_usd: 0.6 });
+    });
+    await waitFor(() => expect(result.current.sessionUpdate?.subscription_cost_usd).toBe(0.6));
+  });
+
+  describe('usage limit', () => {
+    const LIMIT = { window: 'five_hour', resets_at: '2026-11-12T13:00:00Z' };
+    let seq = 0;
+    const row = (es: MockES, role: string) =>
+      act(() => {
+        seq += 1;
+        es.onmessage?.({ data: JSON.stringify({ seq, role, content: `${role} ${seq}` }) });
+      });
+
+    async function limited(id = 'S1') {
+      seq = 0;
+      const hook = renderHook(({ sid }) => useChatStream(sid), { initialProps: { sid: id } });
+      await waitFor(() => expect(hook.result.current.connected).toBe(true));
+      expect(hook.result.current.usageLimit).toBeNull();
+      const es = instances[instances.length - 1] as unknown as MockES;
+      row(es, 'system');
+      act(() => es.emit('session_updated', { usage_limit: LIMIT }));
+      await waitFor(() => expect(hook.result.current.usageLimit).toEqual(LIMIT));
+      return { ...hook, es };
+    }
+
+    it('outlives a trailing assistant row from the stopped turn and later session updates', async () => {
+      const { result, es } = await limited();
+      row(es, 'assistant_text');
+      row(es, 'tool_call');
+      act(() => es.emit('session_updated', { assistant_working: false }));
+      await waitFor(() => expect(result.current.logs).toHaveLength(3));
+      expect(result.current.usageLimit).toEqual(LIMIT);
+      expect(result.current.sessionUpdate).not.toHaveProperty('usage_limit');
+    });
+
+    it.each(['assistant_text', 'assistant_thinking', 'tool_call'])(
+      'clears on %s after a message the person sent past the banner',
+      async (role) => {
+        const { result, es } = await limited();
+        row(es, 'user');
+        await waitFor(() => expect(result.current.logs).toHaveLength(2));
+        expect(result.current.usageLimit).toEqual(LIMIT);
+        row(es, role);
+        await waitFor(() => expect(result.current.usageLimit).toBeNull());
+      },
+    );
+
+    it('keeps the banner through rows that are not assistant output', async () => {
+      const { result, es } = await limited();
+      row(es, 'user');
+      row(es, 'system');
+      row(es, 'tool_result');
+      await waitFor(() => expect(result.current.logs).toHaveLength(4));
+      expect(result.current.usageLimit).toEqual(LIMIT);
+    });
+
+    it('resets on a session switch, and a new session needs its own message before output clears', async () => {
+      const { result, rerender } = await limited();
+      rerender({ sid: 'S2' });
+      await waitFor(() => expect(result.current.usageLimit).toBeNull());
+      await waitFor(() => expect(result.current.connected).toBe(true));
+      const es2 = instances[instances.length - 1] as unknown as MockES;
+      seq = 0;
+      row(es2, 'user');
+      act(() => es2.emit('session_updated', { usage_limit: LIMIT }));
+      await waitFor(() => expect(result.current.usageLimit).toEqual(LIMIT));
+      // The message came before this banner, so the reply to it is the stopped turn's trailing output.
+      row(es2, 'assistant_text');
+      await waitFor(() => expect(result.current.logs).toHaveLength(2));
+      expect(result.current.usageLimit).toEqual(LIMIT);
+    });
+  });
+
+  it('keeps a usage limit with no reset time', async () => {
+    const { result } = renderHook(() => useChatStream('S1'));
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    act(() => {
+      (instances[0] as unknown as MockES).emit('session_updated', { usage_limit: {} });
+    });
+    await waitFor(() => expect(result.current.usageLimit).toEqual({}));
+  });
+
   it('hands blueprint frames to their listeners and keeps them out of the transcript', async () => {
     listChatMessagesTailMock.mockResolvedValue({ messages: [makeMessage(1), makeMessage(2)] });
     const { result } = renderHook(() => useChatStream('S1'));

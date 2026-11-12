@@ -1,6 +1,7 @@
 import { useId } from 'react';
 import type { Card, ProjectConfig } from '../../../types';
 import { workerStatusStyles } from '../../../lib/chip';
+import { parkedResetLabel } from '../../../lib/subscription';
 
 interface MetadataStatusProps {
   card: Card;
@@ -28,6 +29,10 @@ export function MetadataStatus({
   const validTransitions = (config.transitions[card.state] || []).filter(
     (s) => s !== excludeStateFromPicker,
   );
+  const workerLabel =
+    card.worker_status === 'parked'
+      ? (parkedResetLabel(card.park_resets_at) ?? workerStatusStyles.parked.label)
+      : card.worker_status && workerStatusStyles[card.worker_status]?.label;
 
   return (
     <section className="bf-aside-section">
@@ -62,7 +67,7 @@ export function MetadataStatus({
             color: workerStatusStyles[card.worker_status].text,
           }}
         >
-          {workerStatusStyles[card.worker_status].label}
+          {workerLabel}
         </div>
       )}
     </section>

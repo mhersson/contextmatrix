@@ -30,6 +30,7 @@ func wireBackendSubsystems(
 	cfg *config.Config,
 	svc *service.CardService,
 	bus *events.Bus,
+	runs backend.CardRunCloser,
 ) *backendSubsystems {
 	sys := &backendSubsystems{}
 
@@ -51,6 +52,8 @@ func wireBackendSubsystems(
 
 		backend.StartEndSessionSubscriber(ctx, bus, svc, sys.Client, slog.Default())
 		slog.Info("end-session subscriber started")
+
+		backend.StartCardRunCloser(ctx, bus, runs, slog.Default())
 	}
 
 	// --- reconciliation sweep (task backend required; it is the agent

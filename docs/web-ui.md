@@ -61,9 +61,13 @@ Every view updates live from one Server-Sent Events stream per tab
   more rows, the role subtotal;
   then one block per costed subtask with its card id (click to open) and
   model rows. Colour means role and nothing else. `*` marks amounts that
-  include rate-table estimates. Roles come from the phase the agent reports
-  on `report_usage`; buckets written before roles existed, or reported with
-  no phase (chat-driven cards), show as `other`. That spend cannot be
+  include rate-table estimates; `≈` marks Claude subscription usage, an
+  API-equivalent estimate priced from the rate table, with the tooltip
+  "API-equivalent estimate at list price; billed by the Claude subscription".
+  A total that holds subscription usage reads "$X total · $Y of it
+  subscription estimate", or "≈ $Y API-equivalent" when all of it is. Roles come from the phase the
+  agent reports on `report_usage`; buckets written before roles existed, or
+  reported with no phase (chat-driven cards), show as `other`. That spend cannot be
   re-attributed, so there is no migration.
 - **Collapsing**: columns collapse to a strip, cards to a header row. Both sets
   are stored per project in `localStorage` under
@@ -113,7 +117,13 @@ Drag-to-reorder rules:
   Cost 30d, Chat cost 30d), agents on duty, cost by model for the last 30 days
   (a card is attributed to the model it used last), a projects table, an
   activity feed and a top-cards panel. With more than one boards repository the
-  projects table and the sidebar group projects by repository.
+  projects table and the sidebar group projects by repository. The totals keep
+  Claude subscription estimates in: a cost tile's tooltip names that part
+  ("$X incl. ≈ $Y subscription estimate"), and a cost tile, a model row or a
+  top-cards or projects row with a subscription part carries `≈`. On the Cost
+  tile `≈` then stands alone; without a subscription part the tile marks
+  rate-table estimates with `*`. Every `≈` carries the tooltip
+  "API-equivalent estimate at list price; billed by the Claude subscription".
 
 ## Execution console
 
@@ -138,6 +148,55 @@ signal and a disabled run button.
 The Chat tab is the run's live transcript: interactive for a HITL run, read-only
 for an autonomous run and for a card another instance claimed on a shared
 board. Promote-to-autonomous lives in that tab.
+
+## LLM channel
+
+When `claude_code.oauth_token` is set, a strip under the ContextMatrix
+wordmark in the sidebar names the active LLM channel: Claude Code, or the
+endpoint (OpenRouter for an `openrouter` endpoint, Endpoint otherwise).
+Without the token there is no strip. The collapsed sidebar shows a dot in the
+mode's colour instead. See
+[Claude Code subscription mode](remote-execution.md#claude-code-subscription-mode)
+for what the channel does.
+
+- On Claude Code the strip also shows the most-used subscription window with
+  a current reading, as "62% wk" or "40% 5h": yellow from 80 percent, and a
+  red "limit" once the vendor rejects that window. A window whose reset time
+  has passed has no current reading.
+- A line under the strip says only what needs saying, in this order: "Limit
+  reached · resets Thu 14:00" while a window is rejected on Claude Code, how
+  much live work is still on the other mode ("2 still on OpenRouter"), and on
+  Claude Code each backend not in `claude_code.backends`: "Blueprints stay on
+  OpenRouter", or with no endpoint configured "Blueprints unavailable". The
+  line's tooltip adds each backend's reason.
+- Clicking the strip opens a popover. Escape, a click outside it or moving
+  focus out of it closes it.
+  - Viewers who may switch, an admin in `multi` mode or anyone in `none`
+    mode, get a switch between the endpoint and Claude Code when both are
+    configured. Others see the active mode, with a lock (tooltip "Set by an
+    admin") when only an admin could switch it. A failed switch shows its
+    error.
+  - "N still on X" breaks the other mode's live work down into card runs
+    (worker queued or running), chats and blueprints (active or warm-idle).
+  - One meter per subscription window: "Weekly limit" or "5-hour limit" on
+    Claude Code ("Claude Code weekly" or "Claude Code 5-hour" on the
+    endpoint), the percentage, the reset time in local time and how long ago
+    the reading was seen. The bar fills aqua, orange from 80 percent and red
+    when rejected, on a light track with an outline, so each state shows in
+    every palette. A window past its reset reads "reset Thu 14:00 · no
+    reading since" over an empty bar. Readings are the newest a worker
+    reported, never live.
+  - While a window is rejected on Claude Code: "Runs park until the reset;
+    nothing falls back to" the endpoint.
+  - On Claude Code, each backend not in `claude_code.backends`, with the
+    reason: "Blueprints stay on OpenRouter: the architect is not set to run
+    Claude Code", or with no endpoint configured "Blueprints unavailable: no
+    endpoint is configured and the architect is not set to run Claude Code".
+- A switch governs new work only (see
+  [sticky runs](remote-execution.md#sticky-runs)).
+- The strip loads with the page and on every event-stream reconnect. While
+  the token is set it also refreshes on LLM channel and worker events and
+  every minute.
 
 ## Global chat
 
@@ -182,6 +241,12 @@ board. Promote-to-autonomous lives in that tab.
   `last_chat_id`. `/chat/:id` opens that session. A saved layout with blueprints
   in its panes keeps its chats and shows the most recently focused blueprint;
   the others leave the panes and stay in the sidebar.
+- When a Claude subscription usage limit stops a chat or blueprint, a red
+  banner under the pane header reads "Claude usage limit reached · resets Thu
+  14:00" in local time, or "reset time not reported" when the vendor gave
+  none. It clears once the assistant answers a message sent after it, so
+  trailing output from the stopped turn leaves it up. It is not stored, so a
+  reload drops it.
 - The message box takes up to 64 KiB on a blueprint and 8 KiB on a chat (and on
   the card Chat tab), counted in bytes. From 90 percent of the limit it shows
   the size against the limit; over it Send is disabled. Nothing is cut. Unsent
@@ -198,10 +263,13 @@ board. Promote-to-autonomous lives in that tab.
 - The New chat dialog shows two tiles, **Chat** and **Blueprint**, when an
   architect backend is configured (`architect_enabled` in app config); without
   one it creates chats only. Both kinds take an optional title. A chat picks one
-  project from a list (or Across projects, with no checkout) and a model. A
+  project from a list (or Across projects, with no checkout) and a model (the
+  Claude Code catalog while new chats start on Claude Code). A
   blueprint picks one or more target projects, one of four described modes
   (default, auto, auto + emit, yolo), a Plain language switch, an Unattended switch, a model
-  (defaulting to the architect's default, kept separate from the chat pick) and
+  (from the list for the mode new blueprints start in, which can differ from
+  the chat list's, defaulting to the architect's default and kept separate from
+  the chat pick) and
   a cost cap preset ($1, $2, $5, $10 or no cap), in that order, and runs on the
   architect backend instead of a chat worker. Plain language asks the person
   only what they want and how it should look and work; the architect makes the
@@ -235,9 +303,15 @@ board. Promote-to-autonomous lives in that tab.
   drafting-compass icon. The pane header shows a blueprint's mode and cost cap,
   and the architect's spend from the blueprint view (the figure the scale bar
   shows) where a chat's header shows its cost (the gateway's reported cost per
-  turn, else CM's estimate from token counts). Once the view loads, the
-  header's mode is the view's too, so a switch the architect refused never
-  shows there. A blueprint created in plain language shows a Plain
+  turn, else CM's estimate from token counts). A cost that includes Claude
+  subscription usage reads "≈ $Y" when all of it does and
+  "$X (≈ $Y subscription)" when mixed, with the same tooltip; a blueprint on
+  Claude Code reads its whole spend as "≈ $Y", since the architect's figure
+  carries no basis. The Sessions page and the admin Chats page follow the same
+  rule. A long cost label yields with an ellipsis before the pane title does,
+  and its tooltip holds the whole label. Once the view loads, the header's
+  mode is the view's too, so a switch
+  the architect refused never shows there. A blueprint created in plain language shows a Plain
   language badge beside the pill; once the view loads the badge follows the
   view, so an architect that does not run plain language shows none. An Unattended
   blueprint shows an Unattended badge the same way, a label and not a control.
@@ -346,9 +420,13 @@ board. Promote-to-autonomous lives in that tab.
     technical reason folded under it. Hover a segment for its persona, status
     and cost; click a finished one to open its artifact. The right end shows the
     architect's spend against the blueprint cap; the meter turns orange at 80%
-    and red at the cap. Click it (it is a button, also with no cap set) for a
-    popover with the spend, the cap, +$2 / +$5 / +$10 raises (added to the cap,
-    or to the spend with no cap), an amount field and a "No cap" choice. An
+    and red at the cap. The session's LLM channel labels that spend, each
+    step's cost, the popover's spend and the board sheet's run cost:
+    ", API-equivalent" on Claude Code, and ", includes an API-equivalent
+    estimate" on the endpoint once the blueprint ran on the subscription
+    before. Click it (it is a button, also with no cap set) for a popover with
+    the labelled spend, the cap, +$2 / +$5 / +$10 raises (added to the cap, or
+    to the spend with no cap), an amount field and a "No cap" choice. An
     amount at or below the spend is refused, as is any amount on a model CM
     cannot price (only "No cap" is offered, and only when a cap is set). Raising
     the cap continues a blueprint that stopped on its cap. The change goes to
@@ -545,7 +623,8 @@ you, in the main area like the dashboard and playbooks.
   the cost and the last activity. The cost follows the one-cost rule: a chat's
   is the gateway's reported cost per turn, else CM's estimate from token
   counts; a blueprint's is the architect's recorded spend and "-" until one is
-  recorded, never CM's estimate.
+  recorded, never CM's estimate. A Claude subscription share is labelled as in
+  the pane header.
 - Clicking a row, or its title from the keyboard, opens the session on `/chat`,
   as the sidebar does. The tick box and the pin do not open it; the
   pin pins or unpins the session.

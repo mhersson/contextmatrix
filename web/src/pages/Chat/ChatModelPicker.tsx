@@ -3,11 +3,11 @@ import { BlacklistedChip } from '../../components/BlacklistedChip';
 import { ModelCombobox } from '../../components/ModelCombobox';
 import { useTheme } from '../../hooks/useTheme';
 import { formatTokens } from '../../lib/format';
-import type { ChatModel } from '../../types';
+import type { ChatModel, ChatModelList } from '../../types';
 
 interface ChatModelPickerProps {
   /** Which picker to render - driven by GET /api/chats/models `source`. */
-  source: 'openrouter' | 'endpoint';
+  source: ChatModelList['source'];
   /** Current model value (endpoint: server model id; openrouter: OpenRouter slug). */
   model: string;
   /** Server default, used to mark the default option in endpoint mode. */
@@ -31,6 +31,8 @@ interface ChatModelPickerProps {
  *    compatible endpoint; rendered as a <select>, with blacklisted entries
  *    marked in the option text. Renders nothing when the list is empty -
  *    new chats then use the server default.
+ *  - 'claude_code': the same <select> over the Claude Code catalog, which
+ *    runs on the subscription and so shows no prices.
  */
 export function ChatModelPicker({
   source,

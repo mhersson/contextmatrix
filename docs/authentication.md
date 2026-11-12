@@ -93,9 +93,11 @@ gates only:
 | Project management   | `POST`/`PUT`/`DELETE /api/projects*`, `POST /api/projects/{project}/recalculate-costs`   |
 | Chat administration  | `GET /api/admin/chats`, `POST /api/admin/chats/{id}/end`, `DELETE /api/admin/chats/{id}` |
 | Model selection admin | `/api/admin/model-outcomes`, `/api/admin/model-blacklist`, `/api/admin/selector/*`, `GET /api/backends/{backend}/images` |
+| LLM channel          | `PUT /api/admin/llm-channel`                                                             |
 
 The UI mirrors this: the ADMIN section of the user menu (Users, Credentials,
-Chats, Model selection) and the project settings form appear for admins only.
+Chats, Model selection), the project settings form and the LLM channel switch
+in the sidebar appear for admins only.
 
 ## Private chats
 

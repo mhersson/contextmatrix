@@ -5,6 +5,10 @@ export interface ChatLiveData {
   contextTokensUpdatedAt?: string;
   model?: string;
   estimatedCostUsd?: number;
+  /** The part of the session's cost that is a subscription estimate, from CM's session record. */
+  subscriptionCostUsd?: number;
+  /** The session's LLM channel (`endpoint` | `claude_code`). */
+  llmChannel?: string;
   promptTokens?: number;
   completionTokens?: number;
   cacheReadTokens?: number;
@@ -37,6 +41,8 @@ function shallowEqualLive(a: ChatLiveData | undefined, b: ChatLiveData): boolean
     a.contextTokensUpdatedAt === b.contextTokensUpdatedAt &&
     a.model === b.model &&
     a.estimatedCostUsd === b.estimatedCostUsd &&
+    a.subscriptionCostUsd === b.subscriptionCostUsd &&
+    a.llmChannel === b.llmChannel &&
     a.promptTokens === b.promptTokens &&
     a.completionTokens === b.completionTokens &&
     a.cacheReadTokens === b.cacheReadTokens &&

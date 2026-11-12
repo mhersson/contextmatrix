@@ -26,12 +26,12 @@ func TestReportParked(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("rejects a non-owning agent", func(t *testing.T) {
-		_, err := svc.ReportParked(ctx, "test-project", card.ID, "intruder", "review parked: attempts cap exhausted without approval")
+		_, err := svc.ReportParked(ctx, "test-project", card.ID, "intruder", "review parked: attempts cap exhausted without approval", nil)
 		assert.ErrorIs(t, err, lock.ErrAgentMismatch)
 	})
 
 	t.Run("sets worker_status parked and logs the reason", func(t *testing.T) {
-		got, err := svc.ReportParked(ctx, "test-project", card.ID, "agent-1", "review parked: attempts cap exhausted without approval")
+		got, err := svc.ReportParked(ctx, "test-project", card.ID, "agent-1", "review parked: attempts cap exhausted without approval", nil)
 		require.NoError(t, err)
 		assert.Equal(t, "parked", got.WorkerStatus)
 
@@ -53,7 +53,7 @@ func TestReportParked_SurvivesCompletedCallback(t *testing.T) {
 	require.NoError(t, err)
 	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
 	require.NoError(t, err)
-	_, err = svc.ReportParked(ctx, "test-project", card.ID, "agent-1", "review parked: no reviewer model is selectable")
+	_, err = svc.ReportParked(ctx, "test-project", card.ID, "agent-1", "review parked: no reviewer model is selectable", nil)
 	require.NoError(t, err)
 
 	parkedBase := testutil.ToFloat64(metrics.CardRunsTotal.WithLabelValues("test-project", "review_parked", "normal"))

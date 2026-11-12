@@ -6,10 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"time"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
+	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 	"github.com/mhersson/contextmatrix/internal/playbookrun"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
@@ -105,6 +109,12 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 	// pin overrides are resolved agent-side.
 	model := h.backendCfg.DefaultModel
 
+	// The mode is resolved once so endpoint, catalog, favorites and model agree.
+	mode := h.llmChannel.Effective(config.BackendNameAgent)
+	if mode == llmchannel.ModeClaudeCode {
+		model = h.llmChannel.ResolveModel(mode, model, model)
+	}
+
 	// Resolve task skills: card.Skills > project.DefaultSkills > nil (mount full set).
 	var taskSkills *[]string
 
@@ -172,9 +182,18 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 
 		// Clone: the catalog returns its shared cached slice; a defensive
 		// copy keeps the payload independent of the cache's backing array.
+		candidates := h.catalog.Candidates(ctx)
+		favorites := mergeFavorites(h.backendCfg.Favorites, projectCfg.Favorites)
+
+		if mode == llmchannel.ModeClaudeCode {
+			candidates = h.catalog.ClaudeCodeCandidates(ctx)
+			favorites = claudeCodeFavorites(favorites)
+			bl = claudeCodeIDs(bl)
+		}
+
 		payload.Selection = &protocol.SelectionContext{
-			Candidates: slices.Clone(h.catalog.Candidates(ctx)),
-			Favorites:  mergeFavorites(h.backendCfg.Favorites, projectCfg.Favorites),
+			Candidates: slices.Clone(candidates),
+			Favorites:  favorites,
 			Blacklist:  bl,
 		}
 
@@ -222,7 +241,9 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 	payload.GitToken = token
 	payload.GitTokenExpiresAt = tokenExpiryString(expiresAt)
 
-	payload.LLMEndpoint = h.llmEndpoint
+	var runMode llmchannel.Mode
+
+	payload.LLMEndpoint, runMode = h.llmChannel.EndpointFor(config.BackendNameAgent, mode)
 
 	if err := h.backend.Trigger(ctx, payload); err != nil {
 		ctxlog.Logger(ctx).Error("backend webhook failed", "card_id", id, "project", project, "error", err)
@@ -239,7 +260,44 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 		return nil, launchRefused(http.StatusBadGateway, ErrCodeBackendUnavailable, "failed to trigger backend task", "")
 	}
 
+	// Best-effort: the record feeds in-flight counts and must not fail a run
+	// the backend already accepted.
+	if h.cardRuns != nil {
+		if err := h.cardRuns.OpenCardRun(ctx, project, id, string(runMode), time.Now()); err != nil {
+			ctxlog.Logger(ctx).Warn("failed to record card run mode",
+				"card_id", id, "project", project, "error", err)
+		}
+	}
+
 	return card, nil
+}
+
+// claudeCodeFavorites maps favorite slugs onto Claude Code IDs, dropping the
+// ones the catalog has no counterpart for and any rule left empty.
+func claudeCodeFavorites(rules []protocol.FavoriteRule) []protocol.FavoriteRule {
+	var out []protocol.FavoriteRule
+
+	for _, r := range rules {
+		if models := claudeCodeIDs(r.Models); len(models) > 0 {
+			r.Models = models
+			out = append(out, r)
+		}
+	}
+
+	return out
+}
+
+// claudeCodeIDs maps model slugs onto Claude Code IDs, dropping any without one.
+func claudeCodeIDs(slugs []string) []string {
+	var out []string
+
+	for _, s := range slugs {
+		if id, ok := modelcatalog.ClaudeCodeID(s); ok {
+			out = append(out, id)
+		}
+	}
+
+	return out
 }
 
 // rejectLaunchForCredentialFailure returns the fail-closed 409 refusal for a

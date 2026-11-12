@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	protocol "github.com/mhersson/contextmatrix-protocol"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/clock"
@@ -1729,6 +1732,44 @@ func TestAggregateUsage(t *testing.T) {
 	assert.Equal(t, 2, usage.CardCount)
 	// Cost: (1000*0.000003 + 500*0.000015) + (2000*0.000003 + 1000*0.000015) = 0.0105 + 0.021 = 0.0315
 	assert.InDelta(t, 0.0315, usage.EstimatedCostUSD, 0.0001)
+}
+
+func TestAggregateUsage_SubscriptionPart(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	metered, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "metered", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	sub, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "subscription", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	_, err = svc.ReportUsage(ctx, "test-project", metered.ID, ReportUsageInput{
+		AgentID: "a1", Model: "claude-sonnet-4-6", PromptTokens: 2000, CompletionTokens: 1000,
+	})
+	require.NoError(t, err)
+
+	usage, err := svc.AggregateUsage(ctx, "test-project")
+	require.NoError(t, err)
+
+	raw, err := json.Marshal(usage)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "subscription_cost_usd", "omitted without subscription usage")
+
+	_, err = svc.ReportUsage(ctx, "test-project", sub.ID, ReportUsageInput{
+		AgentID: "a2", Model: "claude-sonnet-4-6", PromptTokens: 1000, CompletionTokens: 500,
+		CostBasis: protocol.CostBasisSubscription,
+	})
+	require.NoError(t, err)
+
+	usage, err = svc.AggregateUsage(ctx, "test-project")
+	require.NoError(t, err)
+
+	// Metered 2000*3e-6 + 1000*15e-6 = 0.021; subscription 1000*3e-6 + 500*15e-6 = 0.0105.
+	assert.InDelta(t, 0.0315, usage.EstimatedCostUSD, 1e-9, "the total keeps the subscription estimate")
+	assert.InDelta(t, 0.0105, usage.SubscriptionCostUSD, 1e-9)
 }
 
 func TestGetDashboard(t *testing.T) {

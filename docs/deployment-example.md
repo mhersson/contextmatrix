@@ -435,7 +435,8 @@ are no WebSockets.
 | **Auth master key**         | Encrypts the credential pool (multi mode)             | `openssl rand -hex 32` in a 0600 file; mount and set `auth.master_key_file`                                                       |
 | **GitHub App key / PAT**    | Boards sync, task-skills, issue import, worker tokens | Lives on CM only; App tokens expire within 1h, a PAT is handed to workers as-is                                                   |
 | **LLM endpoint key**        | Model catalog + provisioned to backends               | `llm_endpoint.api_key`; forwarded in trigger and chat-start payloads                                                              |
-| **Artificial Analysis key** | Optional; live model quality data for the catalog     | `backends.agent.aa_api_key` (`CONTEXTMATRIX_BACKEND_AGENT_AA_API_KEY`)                                                            |
+| **Artificial Analysis key** | Optional; live model quality data for the catalog and Claude Code subscription cost estimates | `backends.agent.aa_api_key` (`CONTEXTMATRIX_BACKEND_AGENT_AA_API_KEY`)                                                            |
+| **Claude Code token**       | Optional; subscription token for `claude_code` mode   | `claude_code.oauth_token` (`CONTEXTMATRIX_CLAUDE_CODE_OAUTH_TOKEN`); from `claude setup-token`, valid one year; sent only in `claude_code` mode, to `claude_code.backends` |
 
 ## Security model
 

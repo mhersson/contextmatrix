@@ -9,7 +9,8 @@ import (
 // schemaVersion is the current opstore schema revision. Bump it when an older
 // binary cannot run correctly against the new schema: an image older than the
 // stamp refuses to start. A column with a default that older binaries never
-// name does not bump, so a rollback still opens the database. Every CREATE is
+// name does not bump, and neither does a new table an older binary never
+// names, so a rollback still opens the database. Every CREATE is
 // IF NOT EXISTS, so an older database grows the new table on open and is
 // stamped; a newer database is refused.
 const schemaVersion = 6
@@ -67,7 +68,8 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			origin_chat               TEXT NOT NULL DEFAULT '',
 			origin_seq                INTEGER NOT NULL DEFAULT 0,
 			pinned                    INTEGER NOT NULL DEFAULT 0,
-			spent_usd                 REAL
+			spent_usd                 REAL,
+			llm_channel               TEXT NOT NULL DEFAULT 'endpoint'
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_sessions_last_active ON chat_sessions(last_active)`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_sessions_status ON chat_sessions(status)`,
@@ -123,6 +125,34 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			headroom   REAL NOT NULL,
 			updated_at INTEGER NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS llm_channel (
+			id         INTEGER PRIMARY KEY CHECK (id = 1),
+			mode       TEXT NOT NULL,
+			updated_at INTEGER NOT NULL,
+			updated_by TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS card_run_modes (
+			project    TEXT NOT NULL,
+			card_id    TEXT NOT NULL,
+			mode       TEXT NOT NULL,
+			started_at INTEGER NOT NULL,
+			ended_at   INTEGER,
+			PRIMARY KEY (project, card_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS subscription_usage (
+			window      TEXT PRIMARY KEY,
+			utilization REAL NOT NULL,
+			status      TEXT NOT NULL DEFAULT '',
+			resets_at   INTEGER NOT NULL,
+			seen_at     INTEGER NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS card_park_resets (
+			project     TEXT NOT NULL,
+			card_id     TEXT NOT NULL,
+			resets_at   INTEGER NOT NULL,
+			recorded_at INTEGER NOT NULL,
+			PRIMARY KEY (project, card_id)
+		)`,
 		`CREATE TABLE IF NOT EXISTS jira_writeback (
 			project         TEXT NOT NULL,
 			card_id         TEXT NOT NULL,
@@ -155,10 +185,16 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		{"origin_seq", "INTEGER NOT NULL DEFAULT 0"},
 		{"pinned", "INTEGER NOT NULL DEFAULT 0"},
 		{"spent_usd", "REAL"},
+		{"llm_channel", "TEXT NOT NULL DEFAULT 'endpoint'"},
+		{"subscription_cost_usd", "REAL NOT NULL DEFAULT 0"},
 	} {
 		if err := addColumnIfMissing(ctx, db, "chat_sessions", col.name, col.decl); err != nil {
 			return err
 		}
+	}
+
+	if err := addColumnIfMissing(ctx, db, "chat_cost_archive", "subscription_cost_usd", "REAL NOT NULL DEFAULT 0"); err != nil {
+		return err
 	}
 
 	// After the column loop: an upgraded database has the columns only now.

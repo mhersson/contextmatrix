@@ -147,6 +147,7 @@ export function aggregateDashboards(
         existing.estimated_cost_usd += mc.estimated_cost_usd;
         existing.card_count += mc.card_count;
         existing.has_estimates = existing.has_estimates || mc.has_estimates;
+        existing.subscription = existing.subscription || mc.subscription;
       } else {
         modelCost30dMap.set(mc.model, { ...mc });
       }
@@ -191,7 +192,13 @@ export function aggregateDashboards(
     chat_cost_usd_last_30d: chatCostSource?.chat_cost_usd_last_30d,
     chat_cost_usd_prior_30d: chatCostSource?.chat_cost_usd_prior_30d,
     chat_cost_series_30d: chatCostSource?.chat_cost_series_30d,
+    chat_subscription_cost_usd: chatCostSource?.chat_subscription_cost_usd,
   };
+}
+
+/** The subscription part of the 30-day card cost: the 30-day card rows cover the same cards as total_cost_usd_last_30d. */
+export function subscriptionCost30d(cardCosts: CardCost[]): number {
+  return cardCosts.reduce((sum, c) => sum + (c.subscription_cost_usd ?? 0), 0);
 }
 
 function totalCardCount(counts: Record<string, number>): number {

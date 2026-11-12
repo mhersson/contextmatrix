@@ -146,6 +146,30 @@ theme: "everforest"
 #   api_key: ""
 #   reasoning_effort: medium
 
+# Claude Code subscription channel (optional). When oauth_token is set, the
+# backends listed in `backends` can run Claude Code on a subscription instead
+# of the llm_endpoint. oauth_token comes from `claude setup-token` (valid one
+# year); the token's owner drives every run on it, so only set it where that
+# is acceptable. `backends` lists the backend kinds that run Claude Code, from
+# agent, chat and architect; list only backends running a release with Claude
+# Code support. default_model is one of claude-opus-5-5, claude-sonnet-5-5,
+# claude-haiku-5-5.
+#
+# Claude Code model IDs price like any model: a token_costs row keyed on the ID
+# first, then the served catalog's rate when it knows the name, else the
+# Artificial Analysis list price when the agent backend is enabled with
+# aa_api_key (backends.agent.aa_api_key). Without that key, key token_costs
+# rows on the three Claude Code model IDs.
+#
+# Env: CONTEXTMATRIX_CLAUDE_CODE_OAUTH_TOKEN
+#      CONTEXTMATRIX_CLAUDE_CODE_BACKENDS (comma-separated)
+#      CONTEXTMATRIX_CLAUDE_CODE_DEFAULT_MODEL
+#
+# claude_code:
+#   oauth_token: ""
+#   backends: []
+#   default_model: claude-sonnet-5-5
+
 # Per-model token cost rates used for usage reporting (optional).
 # Keys are model identifiers; prompt/completion values are USD per token.
 #

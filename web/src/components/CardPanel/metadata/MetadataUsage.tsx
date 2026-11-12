@@ -1,6 +1,13 @@
 import { Fragment } from 'react';
 import type { Card, UsageBucket } from '../../../types';
 import { formatCost, formatTokens } from '../../../lib/format';
+import {
+  SUBSCRIPTION_TOOLTIP,
+  cardTotalText,
+  isSubscriptionBucket,
+  markTitle,
+  subscriptionUSD,
+} from '../../../lib/subscription';
 import { groupBucketsByRole } from '../utils';
 
 interface MetadataUsageProps {
@@ -38,7 +45,8 @@ interface Segment {
   color: string;
   cost: number;
   hatch: boolean;
-  estimated: boolean;
+  /** '≈' over subscription spend, '*' over rate-table estimates, else ''. */
+  mark: string;
 }
 
 function roleWord(role: string): string {
@@ -59,6 +67,16 @@ function bucketsCost(buckets: UsageBucket[]): number {
 
 function bucketsEstimated(buckets: UsageBucket[]): boolean {
   return buckets.some((b) => b.cost_source === 'estimated');
+}
+
+/** Rate-table estimates only: subscription buckets are estimated too, but carry their own mark. */
+function meteredEstimated(buckets: UsageBucket[]): boolean {
+  return bucketsEstimated(buckets.filter((b) => !isSubscriptionBucket(b)));
+}
+
+function costMark(buckets: UsageBucket[]): string {
+  if (buckets.some(isSubscriptionBucket)) return '≈';
+  return bucketsEstimated(buckets) ? '*' : '';
 }
 
 function share(cost: number, total: number): string {
@@ -88,15 +106,21 @@ function BucketRow({ bucket: b, indent = false }: { bucket: UsageBucket; indent?
       >
         {formatTokens(tokens)}
       </span>
-      <span
-        className="text-right tabular-nums"
-        title={`${
-          b.counts_source === 'collector' ? 'measured (collector-reported)' : 'agent-reported'
-        } · ${b.cost_source === 'actual' ? 'actual provider cost' : 'estimated from rate table'}`}
-      >
-        {formatCost(b.cost_usd)}
-        {b.cost_source === 'estimated' ? '*' : ''}
-      </span>
+      {isSubscriptionBucket(b) ? (
+        <span className="text-right tabular-nums" title={SUBSCRIPTION_TOOLTIP}>
+          {formatCost(b.cost_usd)}≈
+        </span>
+      ) : (
+        <span
+          className="text-right tabular-nums"
+          title={`${
+            b.counts_source === 'collector' ? 'measured (collector-reported)' : 'agent-reported'
+          } · ${b.cost_source === 'actual' ? 'actual provider cost' : 'estimated from rate table'}`}
+        >
+          {formatCost(b.cost_usd)}
+          {b.cost_source === 'estimated' ? '*' : ''}
+        </span>
+      )}
     </>
   );
 }
@@ -119,10 +143,20 @@ export function MetadataUsage({ card, onSubtaskClick }: MetadataUsageProps) {
     return null;
   }
 
+  const subtasks = card.subtask_usage ?? [];
+  const subtaskBuckets = subtasks.flatMap((s) => s.buckets);
+  const subtaskSubscription = subtaskCost > 0 ? subscriptionUSD(subtaskBuckets) : 0;
+  const subscription = subscriptionUSD(buckets) + subtaskSubscription;
+
+  // The server's subtask flag counts subscription buckets as estimates; the
+  // buckets themselves tell the two apart when any subtask ran on the subscription.
+  const subtaskMetered =
+    subtaskSubscription > 0 ? meteredEstimated(subtaskBuckets) : (card.subtask_cost_has_estimates ?? false);
   const hasEstimates =
-    bucketsEstimated(buckets) ||
+    meteredEstimated(buckets) ||
     (buckets.length === 0 && ownCost > 0) ||
-    (subtaskCost > 0 && (card.subtask_cost_has_estimates ?? false));
+    (subtaskCost > 0 && subtaskMetered);
+  const totalText = cardTotalText(total, subscription, formatCost, hasEstimates ? '*' : '');
 
   const groups = groupBucketsByRole(buckets);
   const segments: Segment[] = groups.map((g) => ({
@@ -131,7 +165,7 @@ export function MetadataUsage({ card, onSubtaskClick }: MetadataUsageProps) {
     color: roleColor(g.role),
     cost: g.cost,
     hatch: false,
-    estimated: bucketsEstimated(g.buckets),
+    mark: costMark(g.buckets),
   }));
   if (buckets.length === 0 && ownCost > 0) {
     segments.push({
@@ -140,7 +174,7 @@ export function MetadataUsage({ card, onSubtaskClick }: MetadataUsageProps) {
       color: OTHER_COLOR,
       cost: ownCost,
       hatch: false,
-      estimated: true,
+      mark: '*',
     });
   }
   if (subtaskCost > 0) {
@@ -150,28 +184,43 @@ export function MetadataUsage({ card, onSubtaskClick }: MetadataUsageProps) {
       color: OTHER_COLOR,
       cost: subtaskCost,
       hatch: true,
-      estimated: card.subtask_cost_has_estimates ?? false,
+      mark: subtaskSubscription > 0 ? '≈' : (card.subtask_cost_has_estimates ?? false) ? '*' : '',
     });
   }
   const showSplit = total > 0 && segments.length > 1;
-  const subtasks = card.subtask_usage ?? [];
+  const totalLabel = `Total${subtaskCost > 0 ? ' incl. subtasks' : ''}`;
 
   return (
     <section className="bf-aside-section">
       <h4>Models used</h4>
-      <div className={GRID}>
-        <span className="truncate font-semibold">
-          Total{subtaskCost > 0 ? ' incl. subtasks' : ''}
-        </span>
-        <span aria-hidden="true" />
-        <span
-          className="text-right tabular-nums font-semibold"
-          title={hasEstimates ? 'includes costs estimated from the rate table' : undefined}
-        >
-          {formatCost(total)}
-          {hasEstimates ? '*' : ''}
-        </span>
-      </div>
+      {totalText === null ? (
+        <div className={GRID}>
+          <span className="truncate font-semibold">{totalLabel}</span>
+          <span aria-hidden="true" />
+          <span
+            className="text-right tabular-nums font-semibold"
+            title={hasEstimates ? 'includes costs estimated from the rate table' : undefined}
+          >
+            {formatCost(total)}
+            {hasEstimates ? '*' : ''}
+          </span>
+        </div>
+      ) : (
+        // The labelled total is too wide for the amount column; it wraps under the label.
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-[12px] text-[var(--fg)]">
+          <span className="font-semibold">{totalLabel}</span>
+          <span
+            className="ml-auto text-right tabular-nums font-semibold"
+            title={
+              hasEstimates
+                ? `${SUBSCRIPTION_TOOLTIP}\n* includes costs estimated from the rate table`
+                : SUBSCRIPTION_TOOLTIP
+            }
+          >
+            {totalText}
+          </span>
+        </div>
+      )}
 
       {showSplit && (
         <>
@@ -181,7 +230,9 @@ export function MetadataUsage({ card, onSubtaskClick }: MetadataUsageProps) {
                 key={s.key}
                 className={`bf-usage-seg${s.hatch ? ' bf-usage-seg--hatch' : ''}`}
                 style={{ flex: `${s.cost / total} 0 0`, backgroundColor: s.hatch ? undefined : s.color }}
-                title={`${s.word} ${formatCost(s.cost)}${s.estimated ? '*' : ''} (${share(s.cost, total)})`}
+                title={[`${s.word} ${formatCost(s.cost)}${s.mark} (${share(s.cost, total)})`, markTitle(s.mark)]
+                  .filter(Boolean)
+                  .join('\n')}
               />
             ))}
           </div>
@@ -194,9 +245,9 @@ export function MetadataUsage({ card, onSubtaskClick }: MetadataUsageProps) {
                   aria-hidden="true"
                 />
                 <span className="text-[var(--grey2)]">{s.word}</span>
-                <span className="tabular-nums">
+                <span className="tabular-nums" title={markTitle(s.mark)}>
                   {formatCost(s.cost)}
-                  {s.estimated ? '*' : ''}
+                  {s.mark}
                 </span>
               </span>
             ))}
@@ -210,9 +261,9 @@ export function MetadataUsage({ card, onSubtaskClick }: MetadataUsageProps) {
             <div className="bf-usage-card bf-usage-card--own">
               <span className="bf-usage-id">{card.id}</span>
               <span className="bf-usage-kind">this card</span>
-              <span className="bf-usage-amt">
+              <span className="bf-usage-amt" title={markTitle(costMark(buckets))}>
                 {formatCost(ownCost)}
-                {bucketsEstimated(buckets) ? '*' : ''}
+                {costMark(buckets)}
               </span>
             </div>
           )}
@@ -240,9 +291,9 @@ export function MetadataUsage({ card, onSubtaskClick }: MetadataUsageProps) {
                     </span>
                     {steps.length > 0 && <span className="bf-usage-steps">{steps.join(', ')}</span>}
                     {g.buckets.length > 1 && (
-                      <span className="bf-usage-amt">
+                      <span className="bf-usage-amt" title={markTitle(costMark(g.buckets))}>
                         {formatCost(g.cost)}
-                        {bucketsEstimated(g.buckets) ? '*' : ''}
+                        {costMark(g.buckets)}
                       </span>
                     )}
                   </div>
@@ -272,9 +323,9 @@ export function MetadataUsage({ card, onSubtaskClick }: MetadataUsageProps) {
             )}
             <span className="bf-usage-kind">subtask</span>
             {s.buckets.length > 1 && (
-              <span className="bf-usage-amt">
+              <span className="bf-usage-amt" title={markTitle(costMark(s.buckets))}>
                 {formatCost(bucketsCost(s.buckets))}
-                {bucketsEstimated(s.buckets) ? '*' : ''}
+                {costMark(s.buckets)}
               </span>
             )}
           </div>

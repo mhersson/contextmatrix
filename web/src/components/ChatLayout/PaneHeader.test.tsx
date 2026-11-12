@@ -6,6 +6,7 @@ import { setChatLiveData, clearChatLiveData } from '../../hooks/useChatLiveData'
 import { PLAIN_LANGUAGE, UNATTENDED } from '../../pages/Chat/blueprintForm';
 import { useChatModels } from '../../utils/chatModels';
 import { publishSheetButton, registerSheetToggle } from '../Blueprint/sheetButtonStore';
+import { SUBSCRIPTION_TOOLTIP } from '../../lib/subscription';
 
 // Mock useChatModels so PaneContextUsage can render a model label without
 // an API call. The default return covers 'endpoint' mode (model-x, 200k tokens)
@@ -231,6 +232,56 @@ describe('PaneContextUsage cost glyph', () => {
     expect(c1.textContent).toContain('$0.10');
     expect(c1.textContent).not.toContain('$0.99');
     expect(c2.textContent).toContain('$0.99');
+  });
+});
+
+describe('PaneContextUsage subscription cost', () => {
+  it('reads an all-subscription chat as an API-equivalent estimate', () => {
+    act(() =>
+      setChatLiveData('chat-1', { model: 'model-x', estimatedCostUsd: 0.5, subscriptionCostUsd: 0.5, llmChannel: 'claude_code' }),
+    );
+    render(<PaneHeader {...baseProps} chat={activeChat()} />);
+    const cost = screen.getByText('≈ $0.50');
+    expect(cost).toHaveAttribute('title', `≈ $0.50\n${SUBSCRIPTION_TOOLTIP}`);
+    expect(cost).toHaveAccessibleName(`Estimated cost ≈ $0.50, ${SUBSCRIPTION_TOOLTIP}`);
+  });
+
+  it('splits a mixed chat into its subscription part', () => {
+    act(() =>
+      setChatLiveData('chat-1', {
+        model: 'model-x',
+        estimatedCostUsd: 1.5,
+        subscriptionCostUsd: 0.5,
+        llmChannel: 'claude_code',
+        promptTokens: 10,
+      }),
+    );
+    render(<PaneHeader {...baseProps} chat={activeChat()} />);
+    const cost = screen.getByText('$1.50 (≈ $0.50 subscription)');
+    expect(cost).toHaveAttribute('title', `$1.50 (≈ $0.50 subscription)\n${SUBSCRIPTION_TOOLTIP}\nInput: 10`);
+    // The labelled cost yields with an ellipsis instead of crowding out the title.
+    expect(cost).toHaveClass('chat-pane-cost--labelled');
+  });
+
+  it("reads a blueprint's whole spend as API-equivalent while it runs on Claude Code", () => {
+    const architect = { ...activeChat(), kind: 'architect' as const };
+    act(() => setChatLiveData('chat-1', { model: 'model-x', blueprintSpentUsd: 2, subscriptionCostUsd: 1.2, llmChannel: 'claude_code' }));
+    render(<PaneHeader {...baseProps} chat={architect} />);
+    expect(screen.getByText('≈ $2.00')).toHaveAttribute('title', `≈ $2.00\n${SUBSCRIPTION_TOOLTIP}`);
+  });
+
+  it('splits a blueprint back on the endpoint by its recorded subscription part', () => {
+    const architect = { ...activeChat(), kind: 'architect' as const };
+    act(() => setChatLiveData('chat-1', { model: 'model-x', blueprintSpentUsd: 2, subscriptionCostUsd: 0.5, llmChannel: 'endpoint' }));
+    render(<PaneHeader {...baseProps} chat={architect} />);
+    expect(screen.getByText('$2.00 (≈ $0.50 subscription)')).toBeInTheDocument();
+  });
+
+  it('leaves a metered chat as a plain amount', () => {
+    act(() => setChatLiveData('chat-1', { model: 'model-x', estimatedCostUsd: 0.5, llmChannel: 'endpoint' }));
+    render(<PaneHeader {...baseProps} chat={activeChat()} />);
+    expect(screen.getByText('$0.50')).not.toHaveAttribute('title');
+    expect(screen.getByText('$0.50')).not.toHaveClass('chat-pane-cost--labelled');
   });
 });
 
