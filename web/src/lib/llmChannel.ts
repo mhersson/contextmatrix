@@ -94,16 +94,16 @@ const exceptionBackend = { agent: 'the agent', chat: 'the chat backend', archite
 export interface ChannelException {
   /** Sub-line text: "Blueprints stay on OpenRouter" */
   text: string;
-  /** Popover line, with the reason: "Blueprints stay on OpenRouter: the architect has no Claude Code support yet" */
+  /** Popover line, with the reason: "Blueprints stay on OpenRouter: the architect is not set to run Claude Code" */
   detail: string;
 }
 
-/** Backends without Claude Code support; only worth saying while Claude Code is active. */
+/** Backends outside `claude_code.backends`; only worth saying while Claude Code is active. */
 export function channelExceptions(view: LLMChannelView): ChannelException[] {
   if (view.mode !== 'claude_code') return [];
   return view.exceptions.map((e) => {
     const feature = exceptionFeature[e.backend] ?? e.backend;
-    const reason = `${exceptionBackend[e.backend] ?? e.backend} has no Claude Code support yet`;
+    const reason = `${exceptionBackend[e.backend] ?? e.backend} is not set to run Claude Code`;
     if (e.runs_on === 'none') {
       const text = `${feature} unavailable`;
       return { text, detail: `${text}: no endpoint is configured and ${reason}` };
