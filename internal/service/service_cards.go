@@ -242,6 +242,10 @@ func dependsOnEqual(a, b []string) bool {
 // ErrFieldTooLong is returned when a user-supplied field exceeds its length limit.
 var ErrFieldTooLong = fmt.Errorf("field exceeds maximum length")
 
+// ErrReservedLogAction is returned when a caller-supplied log entry uses an
+// action that only the server writes.
+var ErrReservedLogAction = errors.New("log action is reserved for the server")
+
 // ErrInvalidModelPin indicates a model pin slug is not in the served catalog.
 var ErrInvalidModelPin = fmt.Errorf("model pin not in catalog")
 
@@ -1564,6 +1568,11 @@ func (s *CardService) addLogEntry(ctx context.Context, project, id string, entry
 
 	if len(entry.Action) > maxLogAction {
 		return nil, fmt.Errorf("action length %d exceeds limit of %d: %w", len(entry.Action), maxLogAction, ErrFieldTooLong)
+	}
+
+	switch entry.Action {
+	case board.ClaimedAction, board.ReleasedAction, board.StateChangedAction, board.MergeAction:
+		return nil, fmt.Errorf("action %q: %w", entry.Action, ErrReservedLogAction)
 	}
 
 	s.writeMu.Lock()
