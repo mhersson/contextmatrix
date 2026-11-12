@@ -167,6 +167,7 @@ func TestSubscriptionUsage_KeepsNewerReading(t *testing.T) {
 		replaces         bool
 	}{
 		{"older period", reading(0.5, "rejected", reset), reading(0.9, "allowed", reset.Add(-5*time.Hour)), false},
+		{"older period rejected", reading(0.5, "allowed", reset), reading(0.9, "rejected", reset.Add(-5*time.Hour)), false},
 		{"same period lower", reading(0.5, "rejected", reset), reading(0.4, "allowed", reset), false},
 		{"same period equal keeps rejected", reading(0.5, "rejected", reset), reading(0.5, "allowed", reset), false},
 		{"same period equal rejected over rejected", reading(0.5, "rejected", reset), reading(0.5, "rejected", reset), true},
