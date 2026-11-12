@@ -408,8 +408,10 @@ is no Claude Code catalog.
 - Candidates carry the bare Claude Code ID as `slug` and an empty `creator`,
   so the selector resolves no vendor for them and the vendor-diversity
   preference never steers a Best-of-N, mob or review-panel seat.
-- Fable is an ordinary candidate. In `claude -p` it spends paid usage credits
-  once half the weekly limit is used; operators keep it out with the model
+- Fable is an ordinary candidate. On a Pro subscription, Fable runs only on
+  paid usage credits, from the first call. On Max and Ultra, it is included up
+  to half the weekly limit; past that, in `claude -p`, it spends usage credits
+  without asking. Operators who do not want that keep it out with the model
   blacklist.
 - Accepted risk: a model AA lists before the pinned Claude Code version or the
   subscription accepts it fails its runs until the agent reports it incapable

@@ -2715,10 +2715,11 @@ Code ID then becomes the backend default, with or without a catalog.
 Model validation follows the mode the session's kind starts in. In
 `claude_code` mode `model` must map to a well-formed Claude Code ID (stored as
 that ID); once a Claude Code catalog is built it must also be in the catalog,
-except `claude_code.default_model`, which is always accepted. Otherwise it follows the active source (see `GET /api/chats/models`):
-in `endpoint` mode `model` must be in the endpoint's served list, in
-`openrouter` mode in CM's vendor-screened catalog. An unknown model is 400
-`INVALID_MODEL`, and an unfetched or failed list fails open. When both an
+except `claude_code.default_model`, which is always accepted. Otherwise it
+follows the active source (see `GET /api/chats/models`): in `endpoint` mode
+`model` must be in the endpoint's served list, in `openrouter` mode in CM's
+vendor-screened catalog. An unknown model is 400 `INVALID_MODEL`, and an
+unfetched or failed list fails open. When both an
 OpenAI-compatible endpoint and an OpenRouter chat backend are configured,
 endpoint mode wins. With neither, the value is accepted unvalidated.
 
