@@ -18,20 +18,13 @@ import (
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/llmchannel/llmchanneltest"
 	opsqlite "github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
-type memChannelStore struct{}
-
-func (memChannelStore) LLMChannel(context.Context) (string, time.Time, string, error) {
-	return "", time.Time{}, "", nil
-}
-
-func (memChannelStore) PutLLMChannel(context.Context, string, string) error { return nil }
-
-func (memChannelStore) RecordSubscriptionUsage(context.Context, []protocol.SubscriptionUsage, time.Time) error {
-	return nil
+func gatewayEndpoint() *protocol.LLMEndpoint {
+	return &protocol.LLMEndpoint{Type: config.LLMEndpointTypeOpenAI, BaseURL: "https://gw.example/v1", APIKey: "k"}
 }
 
 // channelLaunchHandlers wires a launch handler to a real holder and ops store.
@@ -46,11 +39,11 @@ func channelLaunchHandlers(t *testing.T, mode llmchannel.Mode, supported []strin
 	t.Cleanup(func() { _ = ops.Close() })
 
 	holder, err := llmchannel.New(context.Background(), llmchannel.Config{
-		Endpoint:     &protocol.LLMEndpoint{Type: config.LLMEndpointTypeOpenAI, BaseURL: "https://gw.example/v1", APIKey: "k"},
+		Endpoint:     gatewayEndpoint(),
 		OAuthToken:   "tok",
 		Supported:    supported,
 		DefaultModel: "claude-sonnet-5-5",
-	}, memChannelStore{}, events.NewBus())
+	}, llmchanneltest.Store{}, events.NewBus())
 	require.NoError(t, err)
 	require.NoError(t, holder.Set(context.Background(), mode, "human:test"))
 
@@ -60,7 +53,6 @@ func channelLaunchHandlers(t *testing.T, mode llmchannel.Mode, supported []strin
 	h.backendCfg.Favorites = map[string]board.TierFavorites{
 		"simple": {All: []string{"anthropic/claude-opus-5.5", "z-ai/glm-5.2"}},
 	}
-	h.llmEndpoint = &protocol.LLMEndpoint{Type: config.LLMEndpointTypeOpenAI, BaseURL: "https://gw.example/v1", APIKey: "k"}
 	h.llmChannel = holder
 	h.cardRuns = ops
 	h.catalog = &stubCatalog{
@@ -144,7 +136,7 @@ func TestLaunch_EndpointModeKeepsToday(t *testing.T) {
 	require.NoError(t, err)
 
 	p := cb.lastTrigger(t)
-	assert.Equal(t, h.llmEndpoint, p.LLMEndpoint)
+	assert.Equal(t, gatewayEndpoint(), p.LLMEndpoint)
 	assert.Equal(t, "openrouter/some-model", p.Model)
 	assert.Equal(t, []protocol.CandidateModel{{Slug: "z-ai/glm-5.2"}}, p.Selection.Candidates)
 	assert.Equal(t, []string{"anthropic/claude-opus-5.5", "z-ai/glm-5.2"}, p.Selection.Favorites[0].Models)
@@ -163,7 +155,7 @@ func TestLaunch_AgentUnsupported(t *testing.T) {
 	require.NoError(t, err)
 
 	p := cb.lastTrigger(t)
-	assert.Equal(t, h.llmEndpoint, p.LLMEndpoint)
+	assert.Equal(t, gatewayEndpoint(), p.LLMEndpoint)
 	assert.Equal(t, "openrouter/some-model", p.Model)
 
 	runs, err := ops.OpenCardRuns(context.Background())

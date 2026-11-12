@@ -16,6 +16,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/llmchannel/llmchanneltest"
 )
 
 const logLeakCanary = "sk-ant-oat01-LOGLEAKCANARY"
@@ -53,7 +54,7 @@ func canaryChannel(t *testing.T, supported ...string) *llmchannel.Holder {
 		OAuthToken:   logLeakCanary,
 		Supported:    supported,
 		DefaultModel: "claude-sonnet-5-5",
-	}, memChannelStore{}, events.NewBus())
+	}, llmchanneltest.Store{}, events.NewBus())
 	require.NoError(t, err)
 	require.NoError(t, h.Set(context.Background(), llmchannel.ModeClaudeCode, "human:test"))
 

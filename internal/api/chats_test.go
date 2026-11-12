@@ -26,6 +26,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/llmchannel/llmchanneltest"
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 )
 
@@ -107,8 +108,9 @@ type fixtureOpts struct {
 	// managerHub wires that hub into the manager; otherwise the manager
 	// publishes nothing to it.
 	managerHub bool
-	// llmChannel, when set, drives both the manager's starts and the
-	// handlers' model list and create-time check.
+	// llmChannel drives both the manager's starts and the handlers' model
+	// list and create-time check; unset is an endpoint-only channel with no
+	// endpoint.
 	llmChannel LLMChannelResolver
 }
 
@@ -162,6 +164,10 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 		}
 
 		archDefault = opts.architectBackendCfg.DefaultModel
+	}
+
+	if opts.llmChannel == nil {
+		opts.llmChannel = llmchanneltest.EndpointOnly(nil)
 	}
 
 	var mgrStore chat.Store = store
@@ -1357,7 +1363,8 @@ func TestListModelsEndpointSource(t *testing.T) {
 		endpointModels: func(_ context.Context) ([]chatModelEntry, error) {
 			return []chatModelEntry{{ID: "model-a", Label: "model-a", MaxTokens: 200000}}, nil
 		},
-		orDefault: "model-a",
+		orDefault:  "model-a",
+		llmChannel: llmchanneltest.EndpointOnly(nil),
 	}
 
 	rec := httptest.NewRecorder()
@@ -1996,15 +2003,16 @@ func TestListModels_ArchitectDefaultOnEveryBranch(t *testing.T) {
 
 	ok := func(context.Context) ([]chatModelEntry, error) { return []chatModelEntry{{ID: "m"}}, nil }
 	fail := func(context.Context) ([]chatModelEntry, error) { return nil, fmt.Errorf("down") }
+	ch := llmchanneltest.EndpointOnly(nil)
 
 	tests := []struct {
 		name string
 		h    *chatHandlers
 	}{
-		{"endpoint", &chatHandlers{endpointModels: ok}},
-		{"endpoint fetch error", &chatHandlers{endpointModels: fail}},
-		{"openrouter", &chatHandlers{openRouter: true}},
-		{"no backend", &chatHandlers{}},
+		{"endpoint", &chatHandlers{endpointModels: ok, llmChannel: ch}},
+		{"endpoint fetch error", &chatHandlers{endpointModels: fail, llmChannel: ch}},
+		{"openrouter", &chatHandlers{openRouter: true, llmChannel: ch}},
+		{"no backend", &chatHandlers{llmChannel: ch}},
 	}
 
 	for _, tt := range tests {
@@ -2027,6 +2035,7 @@ func TestListModels_FlagsUnpricedWithoutMutatingCache(t *testing.T) {
 	h := &chatHandlers{
 		endpointModels: func(context.Context) ([]chatModelEntry, error) { return cached, nil },
 		priced:         func(m string) bool { return m == "priced" },
+		llmChannel:     llmchanneltest.EndpointOnly(nil),
 	}
 
 	body := getModels(t, h)
@@ -2048,6 +2057,7 @@ func TestListModels_UnpricedAbsentFromWireWhenPriced(t *testing.T) {
 		openRouter:   true,
 		servedModels: func(context.Context) []chatModelEntry { return []chatModelEntry{{ID: "a"}} },
 		priced:       func(string) bool { return true },
+		llmChannel:   llmchanneltest.EndpointOnly(nil),
 	}
 
 	rec := httptest.NewRecorder()
@@ -2337,11 +2347,11 @@ func chatChannel(t *testing.T, mode llmchannel.Mode, supported ...string) *llmch
 	t.Helper()
 
 	h, err := llmchannel.New(context.Background(), llmchannel.Config{
-		Endpoint:     &protocol.LLMEndpoint{Type: config.LLMEndpointTypeOpenAI, BaseURL: "https://gw.example/v1", APIKey: "k"},
+		Endpoint:     gatewayEndpoint(),
 		OAuthToken:   "tok",
 		Supported:    supported,
 		DefaultModel: "claude-sonnet-5-5",
-	}, memChannelStore{}, events.NewBus())
+	}, llmchanneltest.Store{}, events.NewBus())
 	require.NoError(t, err)
 	require.NoError(t, h.Set(context.Background(), mode, "human:test"))
 

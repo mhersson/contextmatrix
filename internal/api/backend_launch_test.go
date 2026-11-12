@@ -16,6 +16,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/githubauth"
+	"github.com/mhersson/contextmatrix/internal/llmchannel/llmchanneltest"
 	"github.com/mhersson/contextmatrix/internal/playbookrun"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/stretchr/testify/assert"
@@ -135,6 +136,7 @@ func newLaunchHandlers(t *testing.T, svc *service.CardService, cb *captureBacken
 		providerForProject: func(context.Context, string) (githubauth.TokenGenerator, string, error) {
 			return &fakeTokenProvider{}, "", nil
 		},
+		llmChannel: llmchanneltest.EndpointOnly(nil),
 	}
 }
 

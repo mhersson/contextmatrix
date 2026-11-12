@@ -126,7 +126,7 @@ type chatHandlers struct {
 	live *blueprintLive
 	// llmChannel puts the picker on the Claude Code catalog while new chats
 	// start in claude_code mode, and checks a new session's model against it
-	// while its kind starts there; nil does neither.
+	// while its kind starts there. Required.
 	llmChannel LLMChannelResolver
 }
 
@@ -260,10 +260,6 @@ func (h *chatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
 
 // startMode is the LLM channel mode a new session of the kind starts in.
 func (h *chatHandlers) startMode(kind chat.SessionKind) llmchannel.Mode {
-	if h.llmChannel == nil {
-		return llmchannel.ModeEndpoint
-	}
-
 	return h.llmChannel.Effective(chat.ChannelKind(kind))
 }
 

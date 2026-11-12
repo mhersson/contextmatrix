@@ -31,6 +31,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/llmchannel/llmchanneltest"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
@@ -143,6 +144,10 @@ func (s *stubBackend) StreamLogs(ctx context.Context, sessionID string, onEntry 
 // consumers before the store and the directory go away.
 func newManager(t *testing.T, cfg chat.Config) *chat.Manager {
 	t.Helper()
+
+	if cfg.LLMChannel == nil {
+		cfg.LLMChannel = llmchanneltest.EndpointOnly(nil)
+	}
 
 	mgr := chat.NewManager(cfg)
 
@@ -2303,15 +2308,12 @@ func TestManager_OpenCold_PassesLLMEndpointToBackend(t *testing.T) {
 		BaseURL: "https://openrouter.ai/api/v1",
 		APIKey:  "sk-test-key",
 	}
-	ch, err := llmchannel.New(ctx, llmchannel.Config{Endpoint: endpoint}, memChannelStore{}, events.NewBus())
-	require.NoError(t, err)
-
 	mgr := newManager(t, chat.Config{
 		Store:      store,
 		Backend:    backend,
 		Clock:      clock.Real(),
 		IdleTTL:    time.Hour,
-		LLMChannel: ch,
+		LLMChannel: llmchanneltest.EndpointOnly(endpoint),
 	})
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
@@ -2334,10 +2336,11 @@ func TestManager_OpenCold_OmitsLLMEndpointWhenUnconfigured(t *testing.T) {
 
 	backend := &stubBackend{}
 	mgr := newManager(t, chat.Config{
-		Store:   store,
-		Backend: backend,
-		Clock:   clock.Real(),
-		IdleTTL: time.Hour,
+		Store:      store,
+		Backend:    backend,
+		Clock:      clock.Real(),
+		IdleTTL:    time.Hour,
+		LLMChannel: llmchanneltest.EndpointOnly(nil),
 	})
 
 	ctx := context.Background()
@@ -2350,7 +2353,7 @@ func TestManager_OpenCold_OmitsLLMEndpointWhenUnconfigured(t *testing.T) {
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 
-	assert.Nil(t, backend.lastOpts.LLMEndpoint, "a manager without an LLM channel must leave StartChatOpts nil")
+	assert.Nil(t, backend.lastOpts.LLMEndpoint, "a channel without llm_endpoint must leave StartChatOpts nil")
 }
 
 // --- per-project backend image tests ---
@@ -7479,18 +7482,6 @@ func TestManager_EveryArchitectStartCarriesUnattended(t *testing.T) {
 	assert.False(t, startUnattended(), "a blueprint created without it")
 }
 
-type memChannelStore struct{}
-
-func (memChannelStore) LLMChannel(context.Context) (string, time.Time, string, error) {
-	return "", time.Time{}, "", nil
-}
-
-func (memChannelStore) PutLLMChannel(context.Context, string, string) error { return nil }
-
-func (memChannelStore) RecordSubscriptionUsage(context.Context, []protocol.SubscriptionUsage, time.Time) error {
-	return nil
-}
-
 func channelEndpoint() *protocol.LLMEndpoint {
 	return &protocol.LLMEndpoint{Type: "openai", BaseURL: "https://gw.example/v1", APIKey: "k"}
 }
@@ -7509,7 +7500,7 @@ func newChannel(t *testing.T, mode llmchannel.Mode, supported ...string) *llmcha
 		OAuthToken:   "tok",
 		Supported:    supported,
 		DefaultModel: "claude-sonnet-5-5",
-	}, memChannelStore{}, events.NewBus())
+	}, llmchanneltest.Store{}, events.NewBus())
 	require.NoError(t, err)
 	require.NoError(t, h.Set(context.Background(), mode, "human:test"))
 

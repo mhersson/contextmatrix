@@ -121,13 +121,9 @@ type backendHandlers struct {
 	// provider. Never nil: NewRouter defaults it.
 	providerForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string, error)
 
-	// llmEndpoint is the CM-provisioned inference endpoint attached to every
-	// trigger payload. nil when llm_endpoint is unconfigured; the wire field is
-	// then omitted and the backends fail closed rather than using a local key.
-	llmEndpoint *protocol.LLMEndpoint
-
-	// llmChannel picks the endpoint, catalog and model by the global LLM
-	// channel mode. nil keeps llmEndpoint and the backend default model.
+	// llmChannel picks the trigger's endpoint, catalog and model by the global
+	// LLM channel mode. Required: it is the only source of the endpoint, which
+	// it omits when llm_endpoint is unset so the backend fails closed.
 	llmChannel LLMChannelResolver
 
 	// cardRuns records each run's mode; nil skips the record.

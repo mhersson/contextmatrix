@@ -193,9 +193,9 @@ type Config struct {
 	// frames. Optional: nil skips them.
 	UsageRecorder UsageRecorder
 
-	// LLMChannel picks each start's endpoint and model by the global LLM
-	// channel mode. nil sends no endpoint, so the backend fails closed, and
-	// keeps the stored or default model.
+	// LLMChannel picks each new session's mode and each start's endpoint and
+	// model by the global LLM channel mode. Required: it is the only endpoint
+	// source.
 	LLMChannel LLMChannelResolver
 
 	// WorkerCredentialsToken mints the per-session bearer attached to every
@@ -2001,20 +2001,12 @@ func ChannelKind(kind SessionKind) llmchannel.Kind {
 
 // effectiveMode is the mode a fresh start of the kind runs in.
 func (m *Manager) effectiveMode(kind SessionKind) llmchannel.Mode {
-	if m.llmChannel == nil {
-		return llmchannel.ModeEndpoint
-	}
-
 	return m.llmChannel.Effective(ChannelKind(kind))
 }
 
 // endpointFor returns the start payload's endpoint for a session started on
 // recorded, and the mode it belongs to.
 func (m *Manager) endpointFor(kind SessionKind, recorded llmchannel.Mode) (*protocol.LLMEndpoint, llmchannel.Mode) {
-	if m.llmChannel == nil {
-		return nil, llmchannel.ModeEndpoint
-	}
-
 	return m.llmChannel.EndpointFor(ChannelKind(kind), recorded)
 }
 
@@ -2024,7 +2016,7 @@ func (m *Manager) endpointFor(kind SessionKind, recorded llmchannel.Mode) (*prot
 // an endpoint that serves bare Claude IDs keeps them; empty takes the
 // backend's default.
 func (m *Manager) startModel(mode, recorded llmchannel.Mode, model, endpointDefault string) string {
-	if m.llmChannel != nil && mode == llmchannel.ModeClaudeCode {
+	if mode == llmchannel.ModeClaudeCode {
 		return m.llmChannel.ResolveModel(mode, model, endpointDefault)
 	}
 
@@ -2032,7 +2024,7 @@ func (m *Manager) startModel(mode, recorded llmchannel.Mode, model, endpointDefa
 		return endpointDefault
 	}
 
-	if m.llmChannel != nil && recorded == llmchannel.ModeClaudeCode {
+	if recorded == llmchannel.ModeClaudeCode {
 		return m.llmChannel.ResolveModel(mode, model, endpointDefault)
 	}
 

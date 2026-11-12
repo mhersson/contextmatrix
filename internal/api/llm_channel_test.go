@@ -19,6 +19,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/llmchannel/llmchanneltest"
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -93,7 +94,7 @@ func newLLMChannelFixture(t *testing.T, multi bool, cards fakeLLMChannelCards, m
 		OAuthToken:   llmChannelTestToken,
 		Supported:    []string{config.BackendNameAgent, config.BackendNameChat},
 		DefaultModel: "claude-sonnet-5-5",
-	}, memChannelStore{}, bus)
+	}, llmchanneltest.Store{}, bus)
 	require.NoError(t, err)
 
 	store := &fakeLLMChannelStore{}
@@ -223,7 +224,7 @@ func TestGetLLMChannel_NoTokenInBody(t *testing.T) {
 }
 
 func TestGetLLMChannel_NothingConfigured(t *testing.T) {
-	holder, err := llmchannel.New(context.Background(), llmchannel.Config{}, memChannelStore{}, events.NewBus())
+	holder, err := llmchannel.New(context.Background(), llmchannel.Config{}, llmchanneltest.Store{}, events.NewBus())
 	require.NoError(t, err)
 
 	srv := newSelectorAdminServer(t, RouterConfig{
@@ -243,7 +244,7 @@ func TestGetLLMChannel_ClaudeCodeOnlyExceptionRunsOnNone(t *testing.T) {
 	holder, err := llmchannel.New(context.Background(), llmchannel.Config{
 		OAuthToken: llmChannelTestToken,
 		Supported:  []string{config.BackendNameChat},
-	}, memChannelStore{}, events.NewBus())
+	}, llmchanneltest.Store{}, events.NewBus())
 	require.NoError(t, err)
 
 	srv := newSelectorAdminServer(t, RouterConfig{
@@ -321,7 +322,7 @@ func TestPutLLMChannel(t *testing.T) {
 	t.Run("unconfigured side is 409", func(t *testing.T) {
 		holder, err := llmchannel.New(context.Background(), llmchannel.Config{
 			Endpoint: &protocol.LLMEndpoint{Type: "openai", BaseURL: "https://x", APIKey: "k"},
-		}, memChannelStore{}, events.NewBus())
+		}, llmchanneltest.Store{}, events.NewBus())
 		require.NoError(t, err)
 
 		srv := newSelectorAdminServer(t, RouterConfig{LLMChannelState: holder, LLMChannelStore: &fakeLLMChannelStore{}}, false)

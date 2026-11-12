@@ -770,7 +770,6 @@ func main() {
 		ChatModelPriced:        modelPricedFor(architectPriceFor(svc)),
 		AuthService:            authSvc,
 		AuthMode:               cfg.Auth.Mode,
-		LLMEndpoint:            llmEndpointFromConfig(cfg.LLMEndpoint),
 		LLMChannel:             llmChannel,
 		LLMChannelState:        llmChannel,
 		LLMChannelStore:        opStore,

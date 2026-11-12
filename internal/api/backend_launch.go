@@ -109,14 +109,10 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 	// pin overrides are resolved agent-side.
 	model := h.backendCfg.DefaultModel
 
-	// The mode is resolved once so endpoint, catalog, favorites and model
-	// agree. Without a holder the configured endpoint applies unchanged.
-	mode := llmchannel.ModeEndpoint
-	if h.llmChannel != nil {
-		mode = h.llmChannel.Effective(config.BackendNameAgent)
-		if mode == llmchannel.ModeClaudeCode {
-			model = h.llmChannel.ResolveModel(mode, model, model)
-		}
+	// The mode is resolved once so endpoint, catalog, favorites and model agree.
+	mode := h.llmChannel.Effective(config.BackendNameAgent)
+	if mode == llmchannel.ModeClaudeCode {
+		model = h.llmChannel.ResolveModel(mode, model, model)
 	}
 
 	// Resolve task skills: card.Skills > project.DefaultSkills > nil (mount full set).
@@ -245,13 +241,9 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 	payload.GitToken = token
 	payload.GitTokenExpiresAt = tokenExpiryString(expiresAt)
 
-	runMode := mode
+	var runMode llmchannel.Mode
 
-	if h.llmChannel != nil {
-		payload.LLMEndpoint, runMode = h.llmChannel.EndpointFor(config.BackendNameAgent, mode)
-	} else {
-		payload.LLMEndpoint = h.llmEndpoint
-	}
+	payload.LLMEndpoint, runMode = h.llmChannel.EndpointFor(config.BackendNameAgent, mode)
 
 	if err := h.backend.Trigger(ctx, payload); err != nil {
 		ctxlog.Logger(ctx).Error("backend webhook failed", "card_id", id, "project", project, "error", err)

@@ -14,6 +14,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/llmchannel/llmchanneltest"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -63,7 +64,7 @@ func TestLaunch_ClaudeCodeTokenStaysOutOfLogs(t *testing.T) {
 		OAuthToken:   logLeakCanary,
 		Supported:    []string{config.BackendNameAgent},
 		DefaultModel: "claude-sonnet-5-5",
-	}, memChannelStore{}, events.NewBus())
+	}, llmchanneltest.Store{}, events.NewBus())
 	require.NoError(t, err)
 	require.NoError(t, holder.Set(context.Background(), llmchannel.ModeClaudeCode, "human:test"))
 
