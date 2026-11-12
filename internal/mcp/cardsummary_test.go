@@ -24,12 +24,12 @@ func jsonTagName(tag string) string {
 // TestCardSummaryMirrorsBoardCard is the drift guard for the parallel struct:
 // every JSON-visible board.Card field must exist on CardSummary with an
 // identical json tag and type, except body, activity_log, usage_breakdown,
-// subtask_usage and work_intervals, which are deliberately absent (they are the unbounded
+// and subtask_usage, which are deliberately absent (they are the unbounded
 // fields MCP results must not echo). CardSummary must carry nothing
 // board.Card does not have.
 func TestCardSummaryMirrorsBoardCard(t *testing.T) {
 	dropped := map[string]bool{
-		"body": true, "activity_log": true, "usage_breakdown": true, "subtask_usage": true, "work_intervals": true,
+		"body": true, "activity_log": true, "usage_breakdown": true, "subtask_usage": true,
 	}
 
 	cardType := reflect.TypeFor[board.Card]()
@@ -120,7 +120,7 @@ func TestSummarizeCard(t *testing.T) {
 		assert.Nil(t, summarizeCard(nil))
 	})
 
-	t.Run("keeps every field except body, activity_log, usage_breakdown, subtask_usage and work_intervals", func(t *testing.T) {
+	t.Run("keeps every field except body, activity_log, usage_breakdown, and subtask_usage", func(t *testing.T) {
 		card := &board.Card{}
 		fillNonZero(reflect.ValueOf(card).Elem(), 1)
 		require.NotEmpty(t, card.Body)
@@ -142,9 +142,8 @@ func TestSummarizeCard(t *testing.T) {
 		delete(fullMap, "activity_log")
 		delete(fullMap, "usage_breakdown")
 		delete(fullMap, "subtask_usage")
-		delete(fullMap, "work_intervals")
 		assert.Equal(t, fullMap, slimMap,
-			"summarizeCard must copy every field except body, activity_log, usage_breakdown, subtask_usage and work_intervals")
+			"summarizeCard must copy every field except body, activity_log, usage_breakdown, and subtask_usage")
 	})
 }
 

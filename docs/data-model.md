@@ -86,8 +86,8 @@ live in [architecture](architecture.md); the HTTP surface in the
    (not when the holder re-claims) and `released` under the holder's name
    when it ends: release, force release, takeover, stall, `not_planned`, a
    terminal worker status and the merge resolver's `not_planned` repair.
-   These two are kept outside the cap, so [card timing](#card-timing) stays
-   derivable. On a shared repo the merge resolver in
+   These two are kept outside the cap, so the board can derive card
+   timing from them. On a shared repo the merge resolver in
    `internal/boardmerge` also writes entries with `agent: system`, action
    `merge` and message `<rule>: <detail> (instance <id>)` for an overridden
    field, a re-minted card, a dangling reference an invariant repair dropped,
@@ -376,11 +376,6 @@ type Card struct {
     SubtaskUsage            []SubtaskUsage    `yaml:"-"                               json:"subtask_usage,omitempty"`
     ParkResetsAt            *time.Time        `yaml:"-"                               json:"park_resets_at,omitempty"`
     InPlaybooks             []string          `yaml:"-"                             json:"in_playbooks,omitempty"`
-    StateSince              time.Time         `yaml:"-"                             json:"state_since,omitzero"`
-    WorkingSince            *time.Time        `yaml:"-"                             json:"working_since,omitempty"`
-    UnclaimedSince          *time.Time        `yaml:"-"                             json:"unclaimed_since,omitempty"`
-    WorkedSeconds           *float64          `yaml:"-"                             json:"worked_seconds,omitempty"`
-    WorkIntervals           []WorkInterval    `yaml:"-"                             json:"work_intervals,omitempty"`
     PlaybookLock            *CardPlaybookLock `yaml:"-"                             json:"playbook_lock,omitempty"`
     Created                 time.Time         `yaml:"created"                       json:"created"`
     Updated                 time.Time         `yaml:"updated"                         json:"updated"`
@@ -599,9 +594,7 @@ entries winning per tier. `json:"-"`: no REST path writes it; hand-edit
 `last_heartbeat`, `claimed_via`, `claimed_at`, `claim_epoch`, `activity_log`,
 `worker_status`, `review_attempts`, `token_usage`,
 `usage_breakdown`, `dependencies_met`, `blocked_by`, `subtask_cost_usd`,
-`subtask_cost_has_estimates`, `subtask_usage`, `in_playbooks`, `playbook_lock`,
-`state_since`, `working_since`, `unclaimed_since`, `worked_seconds`,
-`work_intervals`.
+`subtask_cost_has_estimates`, `subtask_usage`, `in_playbooks`, `playbook_lock`.
 
 `branch_name` is predicted by CM at create as `<lowercase-id>/<title-slug>`
 (a Jira import keeps its key uppercase: `<lowercase-id>/<KEY>-<slug of the rest of the title>`)
@@ -631,26 +624,6 @@ again or parks without one.
 run_status}` of the runnable playbook that owns the card's `autonomous`,
 `create_pr`, `await_ci`, `merge_pr`, `base_branch`; `run_status` set only
 while that run is `running` or `waiting`.
-
-### Card timing
-
-Every card read and mutation result derives these from the activity log
-(`board.Card.ComputeTiming`); they are never written to frontmatter:
-
-- `state_since` - the last transition into the current state, else `created`.
-- `working_since` - start of the claim the card is held under, else
-  `claimed_at`; absent when nobody holds the card, and on a private board for
-  a claim made before claims were recorded.
-- `unclaimed_since` - the last release, else `state_since`; only on cards
-  nobody holds.
-- `work_intervals` - one `{agent, from, to}` per recorded claim, oldest first;
-  `to` is `null` for the claim still held.
-- `worked_seconds` - the summed intervals, the held one counting up to now.
-  Absent when the log cannot account for every claim (a claim made before
-  claims were recorded): unknown, not zero.
-
-A same-holder re-claim is liveness and starts no interval. MCP card
-summaries carry the scalar fields but not `work_intervals`.
 
 **Agent-managed field** `phase`: the orchestrator's position within a run,
 one of `plan`, `execute`, `judge`, `document`, `review`, `integrate`,
@@ -1160,8 +1133,7 @@ switched off locally.
 ### `unclaimed_warning_seconds` (optional, `int`)
 
 Off when absent or `0`. When set, the board marks an `in_progress` or
-`review` card that no agent has held for that many seconds (see
-`unclaimed_since` under [card timing](#card-timing)). Negative values fail
+`review` card that no agent has held for that many seconds. Negative values fail
 validation. Hand-edited in `.board.yaml`; no REST or MCP field sets it, and
 updates preserve it. On a shared boards repo a one-sided change survives the
 three-way merge, as with `poc`.

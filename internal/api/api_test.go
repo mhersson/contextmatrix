@@ -1516,8 +1516,6 @@ func TestFullCardLifecycle(t *testing.T) {
 	assert.Equal(t, "in_progress -> done", final.ActivityLog[3].Message)
 	assert.Equal(t, board.ReleasedAction, final.ActivityLog[4].Action)
 	assert.Equal(t, agentID, final.ActivityLog[4].Agent)
-	require.Len(t, final.WorkIntervals, 1)
-	assert.NotNil(t, final.WorkIntervals[0].To)
 	assert.Equal(t, []string{"integration"}, final.Labels)
 	assert.Contains(t, final.Body, "## Plan")
 }

@@ -6,8 +6,8 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 )
 
-// CardSummary is board.Card without Body, ActivityLog, UsageBreakdown,
-// SubtaskUsage and WorkIntervals - the unbounded fields. Mutation and list tools return it
+// CardSummary is board.Card without Body, ActivityLog, UsageBreakdown, and
+// SubtaskUsage - the unbounded fields. Mutation and list tools return it
 // instead of the full card so agent contexts do not re-absorb the whole spec
 // (or an ever-growing per-(agent, model, role) usage ledger) on every call;
 // get_card and
@@ -33,10 +33,6 @@ type CardSummary struct {
 	DependsOn               []string            `json:"depends_on,omitempty"`
 	DependenciesMet         *bool               `json:"dependencies_met,omitempty"`
 	BlockedBy               []string            `json:"blocked_by,omitempty"`
-	StateSince              time.Time           `json:"state_since,omitzero"`
-	WorkingSince            *time.Time          `json:"working_since,omitempty"`
-	UnclaimedSince          *time.Time          `json:"unclaimed_since,omitempty"`
-	WorkedSeconds           *float64            `json:"worked_seconds,omitempty"`
 	Context                 []string            `json:"context,omitempty"`
 	Labels                  []string            `json:"labels,omitempty"`
 	Skills                  *[]string           `json:"skills,omitempty"`
@@ -101,10 +97,6 @@ func summarizeCard(c *board.Card) *CardSummary {
 		DependsOn:               c.DependsOn,
 		DependenciesMet:         c.DependenciesMet,
 		BlockedBy:               c.BlockedBy,
-		StateSince:              c.StateSince,
-		WorkingSince:            c.WorkingSince,
-		UnclaimedSince:          c.UnclaimedSince,
-		WorkedSeconds:           c.WorkedSeconds,
 		Context:                 c.Context,
 		Labels:                  c.Labels,
 		Skills:                  c.Skills,

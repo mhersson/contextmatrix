@@ -118,14 +118,6 @@ type Card struct {
 	// InPlaybooks lists the IDs of playbooks holding a card entry for this
 	// card. Computed on read, never persisted.
 	InPlaybooks []string `yaml:"-" json:"in_playbooks,omitempty"`
-	// StateSince, WorkingSince, UnclaimedSince, WorkedSeconds and
-	// WorkIntervals are the card's timing, derived from the activity log by
-	// ComputeTiming. Computed on read, never persisted.
-	StateSince     time.Time      `yaml:"-" json:"state_since,omitzero"`
-	WorkingSince   *time.Time     `yaml:"-" json:"working_since,omitempty"`
-	UnclaimedSince *time.Time     `yaml:"-" json:"unclaimed_since,omitempty"`
-	WorkedSeconds  *float64       `yaml:"-" json:"worked_seconds,omitempty"`
-	WorkIntervals  []WorkInterval `yaml:"-" json:"work_intervals,omitempty"`
 	// PlaybookLock names the runnable playbook that owns this card's
 	// autonomous, create_pr, await_ci, merge_pr and base_branch settings.
 	// RunStatus is that playbook's run status while a run is active, else

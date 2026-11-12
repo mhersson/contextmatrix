@@ -12,7 +12,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCardTiming_ClaimsAndReleases(t *testing.T) {
+// actionsOf returns the card's entries with the given action.
+func actionsOf(c *board.Card, action string) []board.ActivityEntry {
+	var out []board.ActivityEntry
+
+	for _, e := range c.ActivityLog {
+		if e.Action == action {
+			out = append(out, e)
+		}
+	}
+
+	return out
+}
+
+func TestClaimRecording_ClaimsAndReleases(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -20,30 +33,30 @@ func TestCardTiming_ClaimsAndReleases(t *testing.T) {
 
 	c, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "Timing", Type: "task", Priority: "medium"})
 	require.NoError(t, err)
-	assert.Nil(t, c.WorkedSeconds, "never claimed")
+	assert.Empty(t, actionsOf(c, board.ClaimedAction), "never claimed")
 
 	_, err = svc.ClaimCard(ctx, c.Project, c.ID, "worker-a")
 	require.NoError(t, err)
-	// The holder's re-claim is liveness, not a second interval.
+	// The holder's re-claim is liveness, not a second claim.
 	_, err = svc.ClaimCard(ctx, c.Project, c.ID, "worker-a")
 	require.NoError(t, err)
 
 	c, err = svc.GetCard(ctx, c.Project, c.ID)
 	require.NoError(t, err)
-	require.Len(t, c.WorkIntervals, 1)
-	require.NotNil(t, c.WorkingSince)
-	assert.NotNil(t, c.WorkedSeconds)
-	assert.Nil(t, c.UnclaimedSince)
+
+	claimed := actionsOf(c, board.ClaimedAction)
+	require.Len(t, claimed, 1)
+	assert.Equal(t, "worker-a", claimed[0].Agent)
 
 	_, err = svc.ReleaseCard(ctx, c.Project, c.ID, "worker-a")
 	require.NoError(t, err)
 
 	c, err = svc.GetCard(ctx, c.Project, c.ID)
 	require.NoError(t, err)
-	require.Len(t, c.WorkIntervals, 1)
-	require.NotNil(t, c.WorkIntervals[0].To)
-	assert.Nil(t, c.WorkingSince)
-	assert.NotNil(t, c.UnclaimedSince)
+
+	released := actionsOf(c, board.ReleasedAction)
+	require.Len(t, released, 1)
+	assert.Equal(t, "worker-a", released[0].Agent)
 
 	// A terminal worker status ends the next claim too.
 	_, err = svc.ClaimCard(ctx, c.Project, c.ID, "worker-b")
@@ -53,12 +66,15 @@ func TestCardTiming_ClaimsAndReleases(t *testing.T) {
 
 	c, err = svc.GetCard(ctx, c.Project, c.ID)
 	require.NoError(t, err)
-	require.Len(t, c.WorkIntervals, 2)
-	assert.NotNil(t, c.WorkIntervals[1].To)
 	assert.Empty(t, c.AssignedAgent)
+	require.Len(t, actionsOf(c, board.ClaimedAction), 2)
+
+	released = actionsOf(c, board.ReleasedAction)
+	require.Len(t, released, 2)
+	assert.Equal(t, "worker-b", released[1].Agent)
 }
 
-func TestCardTiming_EveryWayAClaimEndsIsRecorded(t *testing.T) {
+func TestClaimRecording_EveryWayAClaimEndsIsRecorded(t *testing.T) {
 	tests := []struct {
 		name string
 		end  func(t *testing.T, svc *CardService, c *board.Card) error
@@ -114,10 +130,9 @@ func TestCardTiming_EveryWayAClaimEndsIsRecorded(t *testing.T) {
 			c, err = svc.GetCard(ctx, c.Project, c.ID)
 			require.NoError(t, err)
 			assert.Empty(t, c.AssignedAgent)
-			require.Len(t, c.WorkIntervals, 1)
-			assert.Equal(t, "worker", c.WorkIntervals[0].Agent)
-			assert.NotNil(t, c.WorkIntervals[0].To)
-			assert.NotNil(t, c.WorkedSeconds)
+			released := actionsOf(c, board.ReleasedAction)
+			require.Len(t, released, 1)
+			assert.Equal(t, "worker", released[0].Agent)
 		})
 	}
 }
@@ -138,10 +153,5 @@ func TestUndoClaimWrite_DropsTheClaimEntry(t *testing.T) {
 	got, err := svc.GetCard(ctx, snapshot.Project, snapshot.ID)
 	require.NoError(t, err)
 	assert.Empty(t, got.AssignedAgent)
-	assert.Nil(t, got.WorkedSeconds)
-	assert.Empty(t, got.WorkIntervals)
-
-	for _, e := range got.ActivityLog {
-		assert.NotEqual(t, board.ClaimedAction, e.Action)
-	}
+	assert.Empty(t, actionsOf(got, board.ClaimedAction))
 }

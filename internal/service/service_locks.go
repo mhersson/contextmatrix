@@ -136,7 +136,6 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 		Agent:     agentID,
 		Timestamp: s.clk.Now(),
 	})
-	s.overlayLiveness(card)
 
 	return card, nil
 }
@@ -345,7 +344,6 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 		Agent:     agentID,
 		Timestamp: s.clk.Now(),
 	})
-	s.overlayLiveness(card)
 
 	return card, nil
 }
@@ -411,7 +409,6 @@ func (s *CardService) ForceReleaseCard(ctx context.Context, project, id, humanID
 			"forced":         true,
 		},
 	})
-	s.overlayLiveness(card)
 
 	return card, nil
 }
@@ -559,8 +556,6 @@ func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID st
 	if err := s.awaitCommit(r, commitDone, notify); err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
-
-	s.overlayLiveness(card)
 
 	return card, nil
 }
