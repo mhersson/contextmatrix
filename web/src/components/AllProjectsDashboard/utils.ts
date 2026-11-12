@@ -95,7 +95,6 @@ export function aggregateDashboards(
   const stateCounts: Record<string, number> = {};
   const stateCountsParents: Record<string, number> = {};
   let totalCost = 0;
-  let totalSubscriptionCost = 0;
   let totalCostHasEstimates = false;
   let totalCostHasEstimatesLast30d = false;
   let costLast30d = 0;
@@ -120,7 +119,6 @@ export function aggregateDashboards(
       stateCountsParents[state] = (stateCountsParents[state] ?? 0) + count;
     }
     totalCost += data.total_cost_usd;
-    totalSubscriptionCost += data.total_subscription_cost_usd ?? 0;
     totalCostHasEstimates = totalCostHasEstimates || Boolean(data.total_cost_has_estimates);
     totalCostHasEstimatesLast30d =
       totalCostHasEstimatesLast30d || Boolean(data.total_cost_has_estimates_last_30d);
@@ -169,7 +167,6 @@ export function aggregateDashboards(
     state_counts_parents: stateCountsParents,
     active_agents: allAgents,
     total_cost_usd: totalCost,
-    total_subscription_cost_usd: totalSubscriptionCost,
     total_cost_has_estimates: totalCostHasEstimates,
     total_cost_has_estimates_last_30d: totalCostHasEstimatesLast30d,
     total_cost_usd_last_30d: costLast30d,

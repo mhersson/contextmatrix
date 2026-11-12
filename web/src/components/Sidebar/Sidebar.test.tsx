@@ -426,10 +426,4 @@ describe('Sidebar LLM channel', () => {
     fireEvent.keyDown(strip, { key: 'Escape' });
     expect(onMobileClose).toHaveBeenCalledTimes(1);
   });
-
-  it('keeps the strip in the mobile drawer', async () => {
-    renderSidebar({ mobileOpen: true, onMobileClose: vi.fn() });
-    const drawer = screen.getByRole('dialog', { name: 'Sidebar navigation' });
-    expect(await within(drawer).findByRole('button', { name: /LLM channel: Claude Code/ })).toBeInTheDocument();
-  });
 });

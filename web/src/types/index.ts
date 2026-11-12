@@ -860,7 +860,7 @@ export interface LLMChannelView {
   claude_code: boolean;
   /** Live work per mode; runs keep the mode they started with. */
   in_flight: Record<LLMChannel, LLMChannelCounts>;
-  /** Backends with no Claude Code support: they stay on the endpoint, or with none configured (`none`) cannot run. */
+  /** Backends not listed in `claude_code.backends`: they stay on the endpoint, or with none configured (`none`) cannot run. */
   exceptions: { backend: 'agent' | 'chat' | 'architect'; runs_on: 'endpoint' | 'none' }[];
   usage: LLMChannelUsage[];
   updated_at?: string;
@@ -1353,8 +1353,6 @@ export interface ChatSessionUpdate {
   assistant_working?: boolean;
   /** RFC3339 UTC start of the in-flight turn. Absent when not working. */
   assistant_working_since?: string;
-  /** A subscription usage limit stopped the session. */
-  usage_limit?: ChatUsageLimit;
 }
 
 /** A subscription usage limit that stopped a chat or blueprint session. */

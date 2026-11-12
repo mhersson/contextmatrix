@@ -206,7 +206,7 @@ export function PaneHeader({
  * id from the persisted session row until the first session_updated event
  * arrives. Hidden entirely when no model is known. The context window
  * denominator always comes from `GET /api/chats/models` (`useChatModels`),
- * in every source mode - config, endpoint, and openrouter alike; a blueprint
+ * in every source mode (endpoint, openrouter, claude_code); a blueprint
  * reads the architect's list (`?kind=architect`), which can be on another LLM
  * channel mode. A blueprint session shows the architect's spend from its view
  * instead of the estimate.

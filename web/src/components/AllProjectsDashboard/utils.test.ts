@@ -362,14 +362,13 @@ describe('aggregateDashboards subscription estimates', () => {
     expect(result.model_costs_30d![0].subscription).toBe(true);
   });
 
-  it('sums the all-time subscription part and carries the server-wide chat part', () => {
+  it('carries the server-wide chat part', () => {
     const result = aggregateDashboards(
       new Map([
-        ['proj-a', summary({ total_cost_usd: 5, total_subscription_cost_usd: 2, chat_cost_usd_last_30d: 3, chat_subscription_cost_usd: 1 })],
-        ['proj-b', summary({ total_cost_usd: 4, total_subscription_cost_usd: 0.5, chat_cost_usd_last_30d: 3, chat_subscription_cost_usd: 1 })],
+        ['proj-a', summary({ total_cost_usd: 5, chat_cost_usd_last_30d: 3, chat_subscription_cost_usd: 1 })],
+        ['proj-b', summary({ total_cost_usd: 4, chat_cost_usd_last_30d: 3, chat_subscription_cost_usd: 1 })],
       ]),
     );
-    expect(result.total_subscription_cost_usd).toBeCloseTo(2.5, 9);
     expect(result.chat_subscription_cost_usd).toBe(1);
   });
 });
