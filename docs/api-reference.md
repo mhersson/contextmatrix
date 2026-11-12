@@ -915,9 +915,18 @@ The inputs the preview feeds the selector: the cached candidate catalog
 quality floor, and when the catalog snapshot was built. Project favorites are
 not included - they are per `.board.yaml` and merged at trigger time.
 
+`catalog` names the catalog a card run would select from now, as the trigger
+does: `claude_code` while the LLM channel is `claude_code` and the agent is in
+`claude_code.backends`, else `endpoint`. For `claude_code` the candidates are
+the Claude Code catalog (catalog IDs, empty `creator`), the favorites and the
+blacklist are mapped to Claude Code IDs (a slug without one is dropped, and so
+is a favorite rule left empty), the stats count Claude Code IDs as served, and
+`reasoning_effort` is empty.
+
 `price_source` says where the candidate's price came from (`gateway`, `aa`,
 `token_costs`, `none`); `scored_from` is the AA slug an automatic join scored
-the priors from, empty for a `model_priors` entry and on the OpenRouter leg;
+the priors from, empty for a `model_priors` entry and for a served candidate on
+the OpenRouter leg;
 `prior_source` is `aa` when the priors are AA scores and `model_priors` when
 an operator entry supplies them; `reasoning_effort` echoes
 `llm_endpoint.reasoning_effort`, empty when unset.
@@ -935,6 +944,7 @@ the catalog holds no AA data.
 
 ```json
 {
+  "catalog": "endpoint",
   "candidates": [
     {
       "slug": "z-ai/glm-5.3",
@@ -967,7 +977,9 @@ refresh, or when no candidate catalog is configured (no `aa_api_key`).
 ### POST /api/admin/selector/preview
 
 What the shared selector would pick under the given ladders, against the
-current catalog, favorites and blacklist. Validated like `PUT`, never stored.
+current catalog, favorites and blacklist, chosen and mapped as for `GET
+/api/admin/selector/candidates`; `catalog` names which. Validated like `PUT`,
+never stored.
 `headroom` is optional: absent or `0` uses the stored headroom (the built-in
 1.5 when none is stored); a value below 1 is `422 VALIDATION_ERROR`. For
 every tier: the coder pick, the reviewer pick, and the three-seat review
@@ -981,6 +993,7 @@ the models that coded.
 
 ```json
 {
+  "catalog": "endpoint",
   "tiers": {
     "complex": {
       "coder": {

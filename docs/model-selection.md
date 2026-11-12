@@ -420,9 +420,11 @@ subscription bills nothing per token, but the price band still runs on the AA
 list prices: a model's list price stands in for how much of the usage limit
 it consumes, so the band keeps a frontier model off a `simple` task to save
 usage rather than money. Card pins resolve agent-side (see
-[running cards](running-cards.md#claude-code-subscription)). The ladders page
-charts and previews the served catalog only; its ladders and headroom apply
-to Claude Code runs all the same.
+[running cards](running-cards.md#claude-code-subscription)). While card runs
+start on Claude Code (the channel is `claude_code` and the agent is in
+`claude_code.backends`), the ladders page charts and previews the Claude Code
+catalog, with the favorites and blacklist mapped the same way; otherwise it
+shows the served catalog. Its ladders and headroom are one setting for both.
 
 ## What the trigger carries
 
