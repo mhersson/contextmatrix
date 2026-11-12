@@ -433,8 +433,8 @@ worker endpoint.
 { "session_id": "01K8ZQH7R3VYJE9XPK4MBWN5T2" }
 ```
 
-Closes the container's stdin and stops it. A session the backend no longer
-tracks answers `404 not_found`.
+Closes the container's stdin and stops it, answering `202`. The call is
+idempotent: a session the backend does not track answers `200`.
 
 #### POST {chat_url}/message
 
@@ -564,6 +564,11 @@ browser never calls it directly. Signed GET, empty body.
 | ------------ | --------------------------------------------------- |
 | `project`    | Filter to one project. Omit to receive everything.  |
 | `session_id` | Filter to one chat session (the chat log bridge).   |
+| `nonce`      | Random per request; the backend ignores it.         |
+
+The session-log manager adds `nonce` to every connect: pumps of one project
+share the URI, and two connects signed in one second would otherwise carry the
+same `(timestamp, signature)` pair, which the replay cache refuses.
 
 ```json
 {
