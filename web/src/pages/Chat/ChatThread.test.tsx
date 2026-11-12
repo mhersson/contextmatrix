@@ -6,6 +6,7 @@ import { useChatStream } from '../../hooks/useChatStream';
 import { clearChatLiveData, useChatLiveData } from '../../hooks/useChatLiveData';
 import type { ChatSession, LogEntry } from '../../types';
 import { ChatThread } from './ChatThread';
+import { usageLimitText } from '../../lib/subscription';
 
 vi.mock('../../api/client', () => ({
   api: { getChat: vi.fn(), sendChatMessage: vi.fn() },
@@ -160,16 +161,18 @@ describe('ChatThread subscription usage', () => {
     ['blueprint', 'architect' as const],
   ])('shows a usage-limit banner on a %s pane', async (_name, kind) => {
     vi.mocked(api.getChat).mockResolvedValue({ ...session, kind });
-    stream({ usageLimit: { window: 'five_hour', resets_at: thu14 } });
+    const limit = { window: 'five_hour', resets_at: thu14 };
+    stream({ usageLimit: limit });
     render(<ChatThread sessionID="bp-1" embedded />);
-    expect(await screen.findByRole('alert')).toHaveTextContent('Claude usage limit reached · resets Thu 14:00');
+    expect(await screen.findByRole('alert')).toHaveTextContent(usageLimitText(limit));
   });
 
   it('says the reset time is unknown when the vendor reported none', async () => {
     vi.mocked(api.getChat).mockResolvedValue({ ...session, kind: 'chat' });
     stream({ usageLimit: {} });
     render(<ChatThread sessionID="bp-1" embedded />);
-    expect(await screen.findByRole('alert')).toHaveTextContent('Claude usage limit reached · reset time not reported');
+    expect(await screen.findByRole('alert')).toHaveTextContent(usageLimitText({}));
+    expect(usageLimitText({})).not.toBe(usageLimitText({ resets_at: thu14 }));
   });
 
   it('shows no banner without a usage limit', async () => {

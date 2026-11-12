@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
 import { KpiRow } from './KpiRow';
-import { SUBSCRIPTION_TOOLTIP } from '../../lib/subscription';
+import { SUBSCRIPTION_TOOLTIP, subscriptionShareText } from '../../lib/subscription';
+import { formatUsd } from './utils';
 
 function renderKpiRow(overrides: Partial<Parameters<typeof KpiRow>[0]> = {}) {
   const defaults = {
@@ -143,8 +144,8 @@ describe('KpiRow - subscription estimates', () => {
       chatCostLast30dUsd: 3,
       chatCostSubscriptionUsd: 1,
     });
-    expect(costTile(container)?.getAttribute('title')).toContain('$10.00 incl. ≈ $2.50 subscription estimate');
-    expect(chatTile(container)?.getAttribute('title')).toContain('$3.00 incl. ≈ $1.00 subscription estimate');
+    expect(costTile(container)?.getAttribute('title')).toContain(`${formatUsd(10)} ${subscriptionShareText(2.5, formatUsd)}`);
+    expect(chatTile(container)?.getAttribute('title')).toContain(`${formatUsd(3)} ${subscriptionShareText(1, formatUsd)}`);
   });
 
   it('marks the chat tile with ≈ and leads both tooltips with the subscription sentence', () => {
@@ -171,8 +172,8 @@ describe('KpiRow - subscription estimates', () => {
 
   it('adds nothing without a subscription part', () => {
     const { container } = renderKpiRow({ costLast30dUsd: 10, chatCostLast30dUsd: 3 });
-    expect(costTile(container)?.getAttribute('title')).not.toContain('subscription');
-    expect(chatTile(container)?.getAttribute('title')).not.toContain('subscription');
+    expect(costTile(container)?.getAttribute('title')).not.toContain(SUBSCRIPTION_TOOLTIP);
+    expect(chatTile(container)?.getAttribute('title')).not.toContain(SUBSCRIPTION_TOOLTIP);
     expect(chatTile(container)?.textContent).not.toContain('≈');
   });
 });

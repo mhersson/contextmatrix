@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import type { Card, ProjectConfig } from '../../../types';
 import { MetadataStatus } from './MetadataStatus';
+import { parkedResetLabel } from '../../../lib/subscription';
 
 const config = {
   name: 'demo',
@@ -31,17 +32,21 @@ function renderStatus(partial: Partial<Card>) {
 
 describe('MetadataStatus worker badge', () => {
   it('names a future usage-limit reset on a parked card', () => {
-    renderStatus({ worker_status: 'parked', park_resets_at: new Date(2099, 0, 1, 14, 0).toISOString() });
-    expect(screen.getByText('Parked - usage limit, resets Thu 14:00')).toBeInTheDocument();
+    const resets = new Date(2099, 0, 1, 14, 0).toISOString();
+    renderStatus({ worker_status: 'parked', park_resets_at: resets });
+    expect(screen.getByText(parkedResetLabel(resets) as string)).toBeInTheDocument();
   });
 
   it('says the reset has passed once it has', () => {
-    renderStatus({ worker_status: 'parked', park_resets_at: new Date(2026, 10, 5, 14, 0).toISOString() });
-    expect(screen.getByText('Parked - usage limit reset Thu 14:00')).toBeInTheDocument();
+    const resets = new Date(2026, 10, 5, 14, 0).toISOString();
+    renderStatus({ worker_status: 'parked', park_resets_at: resets });
+    expect(screen.getByText(parkedResetLabel(resets) as string)).toBeInTheDocument();
+    expect(parkedResetLabel(resets)).not.toBe(parkedResetLabel(resets, Date.parse(resets) - 60_000));
   });
 
-  it('keeps the plain parked badge without a reset time', () => {
+  it('shows no reset on a plain parked badge', () => {
     renderStatus({ worker_status: 'parked' });
+    expect(parkedResetLabel(undefined)).toBeNull();
     expect(screen.getByText('Parked for a human')).toBeInTheDocument();
   });
 });

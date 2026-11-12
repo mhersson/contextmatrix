@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, waitFor, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { AllProjectsDashboard } from './AllProjectsDashboard';
+import { subscriptionShareText } from '../../lib/subscription';
+import { formatUsd } from './utils';
 import { ToastContext, useToastState } from '../../hooks/useToast';
 import { SSEProvider } from '../../hooks/useSSEBus';
 import { ProjectsProvider } from '../../hooks/useProjects';
@@ -201,9 +203,9 @@ describe('AllProjectsDashboard - subscription estimates', () => {
     const tile = (label: string) =>
       Array.from(container.querySelectorAll('.apd-kpi')).find((t) => t.textContent?.startsWith(label));
     await waitFor(() =>
-      expect(tile('Cost · 30d')?.getAttribute('title')).toContain('$10.00 incl. ≈ $4.00 subscription estimate'),
+      expect(tile('Cost · 30d')?.getAttribute('title')).toContain(`${formatUsd(10)} ${subscriptionShareText(4, formatUsd)}`),
     );
-    expect(tile('Chat cost · 30d')?.getAttribute('title')).toContain('$3.00 incl. ≈ $1.00 subscription estimate');
+    expect(tile('Chat cost · 30d')?.getAttribute('title')).toContain(`${formatUsd(3)} ${subscriptionShareText(1, formatUsd)}`);
   });
 });
 

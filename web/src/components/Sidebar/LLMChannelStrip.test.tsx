@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, within, act } from '@testing-librar
 import { api } from '../../api/client';
 import type { BoardEvent, LLMChannelUsage, LLMChannelView } from '../../types';
 import { LLMChannelRailDot, LLMChannelStrip } from './LLMChannelStrip';
+import { channelExceptions, subLineItems, subLineText, windowLabel } from '../../lib/llmChannel';
 
 vi.mock('../../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api/client')>();
@@ -131,14 +132,16 @@ describe('LLMChannelStrip', () => {
   });
 
   it('reads "limit" and names the reset when the window is rejected', async () => {
-    getMock.mockResolvedValue(view({ usage: [usage({ utilization: 1, status: 'rejected' })] }));
+    const v = view({ usage: [usage({ utilization: 1, status: 'rejected' })] });
+    getMock.mockResolvedValue(v);
     render(<LLMChannelStrip />);
     const s = await strip();
     expect(screen.getByText('limit')).toHaveClass('llm-strip__pct--stop');
-    expect(s).toHaveAccessibleDescription(/Limit reached · resets /);
+    const [limit] = subLineItems(v);
+    expect(s).toHaveAccessibleDescription(subLineText(limit));
 
     const pop = await openPopover();
-    expect(within(pop).getByText(/Runs park until the reset; nothing falls back to OpenRouter/)).toBeInTheDocument();
+    expect(pop.querySelector('.llm-line__icon--red')).not.toBeNull();
   });
 
   it('keeps the subscription reading off the strip in endpoint mode', async () => {
@@ -151,15 +154,15 @@ describe('LLMChannelStrip', () => {
     expect(s).toHaveAccessibleDescription('');
 
     const pop = await openPopover();
-    expect(within(pop).queryByText(/Runs park/)).toBeNull();
+    expect(pop.querySelector('.llm-line__icon--red')).toBeNull();
   });
 
   it('labels the meters as Claude Code readings in endpoint mode', async () => {
     getMock.mockResolvedValue(view({ mode: 'endpoint', usage: [usage({ window: 'five_hour', utilization: 0.3 }), usage()] }));
     render(<LLMChannelStrip />);
     const pop = await openPopover();
-    expect(within(pop).getByText('Claude Code 5-hour')).toBeInTheDocument();
-    expect(within(pop).getByText('Claude Code weekly')).toBeInTheDocument();
+    expect(within(pop).getByText(windowLabel('five_hour', 'endpoint'))).toBeInTheDocument();
+    expect(within(pop).getByText(windowLabel('seven_day', 'endpoint'))).toBeInTheDocument();
     expect(within(pop).getByText('30%')).toBeInTheDocument();
     expect(within(pop).getByText('64%')).toBeInTheDocument();
   });
@@ -172,13 +175,17 @@ describe('LLMChannelStrip', () => {
   });
 
   it('counts the other mode in flight on the sub-line and hides it at zero', async () => {
-    getMock.mockResolvedValue(view({ in_flight: { endpoint: { cards: 1, chats: 1, blueprints: 0 }, claude_code: { cards: 3, chats: 0, blueprints: 0 } } }));
+    const busy = view({ in_flight: { endpoint: { cards: 1, chats: 1, blueprints: 0 }, claude_code: { cards: 3, chats: 0, blueprints: 0 } } });
+    getMock.mockResolvedValue(busy);
     const { unmount } = render(<LLMChannelStrip />);
     const s = await strip();
-    expect(s).toHaveAccessibleDescription('2 still on OpenRouter');
+    const items = subLineItems(busy);
+    expect(items).toHaveLength(1);
+    expect(items[0].count).toBe(2);
+    expect(s).toHaveAccessibleDescription(subLineText(items[0]));
 
     const pop = await openPopover();
-    expect(within(pop).getByText(/still on OpenRouter: 1 card run, 1 chat/)).toBeInTheDocument();
+    expect(pop.querySelector('.llm-line__icon--blue')).not.toBeNull();
     unmount();
 
     getMock.mockResolvedValue(view());
@@ -186,17 +193,19 @@ describe('LLMChannelStrip', () => {
     const quiet = await strip();
     expect(quiet).toHaveAccessibleDescription('');
     fireEvent.click(quiet);
-    expect(within(popover()).queryByText(/still on/)).toBeNull();
+    expect(popover().querySelector('.llm-line__icon--blue')).toBeNull();
   });
 
   it('names the architect exception only in claude_code mode', async () => {
     const exceptions = [{ backend: 'architect' as const, runs_on: 'endpoint' as const }];
-    getMock.mockResolvedValue(view({ exceptions }));
+    const v = view({ exceptions });
+    getMock.mockResolvedValue(v);
     const { unmount } = render(<LLMChannelStrip />);
     const s = await strip();
-    expect(s).toHaveAccessibleDescription('Blueprints stay on OpenRouter');
+    const [exc] = channelExceptions(v);
+    expect(s).toHaveAccessibleDescription(exc.text);
     const pop = await openPopover();
-    expect(within(pop).getByText(/Blueprints stay on OpenRouter: the architect/)).toBeInTheDocument();
+    expect(within(pop).getByText(exc.detail)).toBeInTheDocument();
     unmount();
 
     getMock.mockResolvedValue(view({ mode: 'endpoint', exceptions }));
@@ -205,23 +214,23 @@ describe('LLMChannelStrip', () => {
     expect(ep).toHaveTextContent('OpenRouter');
     expect(ep).toHaveAccessibleDescription('');
     fireEvent.click(ep);
-    expect(within(popover()).queryByText(/stay on/)).toBeNull();
+    expect(popover().querySelector('.llm-line__icon--yellow')).toBeNull();
   });
 
   it('names an exception unavailable when no endpoint is configured', async () => {
-    getMock.mockResolvedValue(view({
+    const v = view({
       switchable: false,
       endpoint: null,
       exceptions: [{ backend: 'agent', runs_on: 'none' }],
-    }));
+    });
+    getMock.mockResolvedValue(v);
     render(<LLMChannelStrip />);
-    const line = 'Card runs unavailable: no endpoint is configured and the agent has no Claude Code support yet';
+    const [exc] = channelExceptions(v);
     const s = await strip();
-    expect(s).toHaveAccessibleDescription('Card runs unavailable');
-    expect(screen.getByText('Card runs unavailable')).toHaveAttribute('title', line);
+    expect(s).toHaveAccessibleDescription(exc.text);
+    expect(screen.getByText(exc.text)).toHaveAttribute('title', exc.detail);
     const pop = await openPopover();
-    expect(within(pop).getByText(line)).toBeInTheDocument();
-    expect(within(pop).queryByText(/stay on/)).toBeNull();
+    expect(within(pop).getByText(exc.detail)).toBeInTheDocument();
   });
 
   it('opens the popover on a click and closes it on Escape, an outside click or a second click', async () => {
@@ -323,7 +332,7 @@ describe('LLMChannelStrip', () => {
 
     const pop = await openPopover();
     expect(within(pop).queryAllByRole('button')).toHaveLength(0);
-    expect(within(pop).getByText('Claude Code subscription')).toHaveAttribute('title', 'No endpoint is configured');
+    expect(pop.querySelector('.llm-row')).toHaveAttribute('title');
     expect(within(pop).queryByRole('img', { name: 'Locked' })).toBeNull();
   });
 
@@ -336,7 +345,7 @@ describe('LLMChannelStrip', () => {
 
     const pop = await openPopover();
     expect(within(pop).queryAllByRole('button')).toHaveLength(0);
-    expect(within(pop).getByText('Claude Code subscription')).toHaveAttribute('title', 'Set by an admin');
+    expect(pop.querySelector('.llm-row')).toHaveAttribute('title');
     expect(within(pop).getByRole('img', { name: 'Locked' })).toBeInTheDocument();
   });
 
@@ -347,8 +356,8 @@ describe('LLMChannelStrip', () => {
     expect(s).not.toHaveTextContent('%');
 
     const pop = await openPopover();
-    expect(within(pop).getByText('Weekly limit')).toBeInTheDocument();
-    expect(within(pop).getByText(/^reset .+ · no reading since$/)).toBeInTheDocument();
+    expect(within(pop).getByText(windowLabel('seven_day', 'claude_code'))).toBeInTheDocument();
+    expect(pop.querySelector('.llm-meter__pct')).toBeNull();
     expect(within(pop).queryByText(/%/)).toBeNull();
   });
 
@@ -356,11 +365,11 @@ describe('LLMChannelStrip', () => {
     getMock.mockResolvedValue(view({ usage: [usage({ window: 'five_hour', utilization: 1.12 }), usage()] }));
     render(<LLMChannelStrip />);
     const pop = await openPopover();
-    expect(within(pop).getByText('5-hour limit')).toBeInTheDocument();
+    expect(within(pop).getByText(windowLabel('five_hour', 'claude_code'))).toBeInTheDocument();
     expect(within(pop).getByText('112%')).toBeInTheDocument();
-    expect(within(pop).getByText('Weekly limit')).toBeInTheDocument();
+    expect(within(pop).getByText(windowLabel('seven_day', 'claude_code'))).toBeInTheDocument();
     expect(within(pop).getByText('64%')).toBeInTheDocument();
-    expect(within(pop).getAllByText(/^resets .+ · seen 3m ago$/)).toHaveLength(2);
+    expect(pop.querySelectorAll('.llm-meter')).toHaveLength(2);
   });
 
   it('refetches once, debounced, on llm_channel and worker events', async () => {

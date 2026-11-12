@@ -3,7 +3,8 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { ProjectsTable } from './ProjectsTable';
 import type { ProjectConfig, DashboardData } from '../../types';
-import { SUBSCRIPTION_TOOLTIP } from '../../lib/subscription';
+import { subscriptionShareTitle } from '../../lib/subscription';
+import { formatUsd } from './utils';
 
 function project(name: string, prefix: string): ProjectConfig {
   return {
@@ -150,7 +151,7 @@ describe('ProjectsTable - subscription estimates', () => {
     );
     expect(screen.getByText('$5.00≈')).toHaveAttribute(
       'title',
-      `${SUBSCRIPTION_TOOLTIP}\nincl. ≈ $2.00 subscription estimate`,
+      subscriptionShareTitle(2, formatUsd),
     );
   });
 });

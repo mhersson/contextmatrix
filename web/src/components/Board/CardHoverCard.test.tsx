@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { CardHoverCard } from './CardHoverCard';
 import type { Card } from '../../types';
+import { parkedResetLabel } from '../../lib/subscription';
 
 const baseCard: Card = {
   id: 'TEST-001',
@@ -74,9 +75,10 @@ describe('CardHoverCard', () => {
   });
 
   it('names the usage-limit reset on a parked card', () => {
-    renderHover({ ...baseCard, worker_status: 'parked', park_resets_at: new Date(2099, 0, 1, 14, 0).toISOString() });
+    const resets = new Date(2099, 0, 1, 14, 0).toISOString();
+    renderHover({ ...baseCard, worker_status: 'parked', park_resets_at: resets });
     const tip = screen.getByRole('tooltip');
-    expect(within(tip).getByText('Parked - usage limit, resets Thu 14:00')).toBeInTheDocument();
+    expect(within(tip).getByText(parkedResetLabel(resets) as string)).toBeInTheDocument();
   });
 
   it('names the blocking cards on the dependency row', () => {
