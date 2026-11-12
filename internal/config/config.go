@@ -54,7 +54,7 @@ type ClaudeCodeConfig struct {
 	// Backends are the backend kinds that run Claude Code, a subset of
 	// BackendNameAgent, BackendNameChat and BackendNameArchitect.
 	Backends     []string `yaml:"backends"`
-	DefaultModel string   `yaml:"default_model"` // one of selection.ClaudeCodeModels()
+	DefaultModel string   `yaml:"default_model"` // a Claude Code model ID, e.g. claude-sonnet-5-5
 }
 
 // Configured reports whether a Claude Code token is set.
@@ -80,26 +80,14 @@ func (c ClaudeCodeConfig) validate() error {
 		return fmt.Errorf("claude_code.oauth_token is required when claude_code.backends is set")
 	}
 
+	// The catalog is derived at runtime, so config checks only the form of the ID.
 	if c.DefaultModel != "" {
-		ids := claudeCodeModelIDs()
-		if !slices.Contains(ids, c.DefaultModel) {
-			return fmt.Errorf("claude_code.default_model must be one of %s, got %q",
-				strings.Join(ids, ", "), c.DefaultModel)
+		if id, ok := selection.ClaudeCodeModelID(c.DefaultModel); !ok || id != c.DefaultModel {
+			return fmt.Errorf("claude_code.default_model must be a Claude Code model ID, got %q", c.DefaultModel)
 		}
 	}
 
 	return nil
-}
-
-func claudeCodeModelIDs() []string {
-	models := selection.ClaudeCodeModels()
-	ids := make([]string, len(models))
-
-	for i, m := range models {
-		ids[i] = m.ID
-	}
-
-	return ids
 }
 
 func applyClaudeCodeDefaults(cfg *Config) {

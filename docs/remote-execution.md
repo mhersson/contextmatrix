@@ -981,12 +981,13 @@ the token only where everyone who can start work is its owner.
    to every listed backend. A backend left out keeps the endpoint while the
    mode is `claude_code`, or fails closed when no endpoint is configured, and
    the UI names it as an exception.
-4. Optionally set `claude_code.default_model`: `claude-sonnet-5-5` (the
-   default), `claude-opus-5-5` or `claude-haiku-5-5`.
+4. Optionally set `claude_code.default_model`: a Claude Code model ID such as
+   `claude-sonnet-5-5` (the default).
 
 Startup fails on a `backends` entry outside the three kinds, a kind listed
-twice, `backends` without a token, or a `default_model` outside the three
-IDs. The block is read once at startup.
+twice, `backends` without a token, or a `default_model` that is not a Claude
+Code model ID (for example `anthropic/claude-opus-5.5` or `claude-opus-5.5`).
+The block is read once at startup.
 
 | Configured                         | Mode                                                                                                  |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------- |

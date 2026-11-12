@@ -4382,8 +4382,13 @@ func TestClaudeCodeConfig_Validate(t *testing.T) {
 		{name: "unknown backend", cfg: ClaudeCodeConfig{OAuthToken: "tok", Backends: []string{"runner"}}, wantErr: "claude_code.backends"},
 		{name: "duplicate backend", cfg: ClaudeCodeConfig{OAuthToken: "tok", Backends: []string{"chat", "chat"}}, wantErr: "claude_code.backends"},
 		{name: "backends without token", cfg: ClaudeCodeConfig{Backends: []string{"chat"}}, wantErr: "claude_code.oauth_token"},
-		{name: "unknown default model", cfg: ClaudeCodeConfig{DefaultModel: "claude-fable-5-2"}, wantErr: "claude_code.default_model"},
 		{name: "known default model", cfg: ClaudeCodeConfig{DefaultModel: "claude-haiku-5-5"}},
+		{name: "default model outside the static catalog", cfg: ClaudeCodeConfig{DefaultModel: "claude-fable-5-2"}},
+		{name: "future default model", cfg: ClaudeCodeConfig{DefaultModel: "claude-opus-6"}},
+		{name: "openrouter slug default model", cfg: ClaudeCodeConfig{DefaultModel: "anthropic/claude-opus-5.5"}, wantErr: "claude_code.default_model"},
+		{name: "non-claude default model", cfg: ClaudeCodeConfig{DefaultModel: "gpt-5"}, wantErr: "claude_code.default_model"},
+		{name: "bare prefix default model", cfg: ClaudeCodeConfig{DefaultModel: "claude-"}, wantErr: "claude_code.default_model"},
+		{name: "dotted default model", cfg: ClaudeCodeConfig{DefaultModel: "claude-opus-5.5"}, wantErr: "claude_code.default_model"},
 	}
 
 	for _, tt := range tests {
