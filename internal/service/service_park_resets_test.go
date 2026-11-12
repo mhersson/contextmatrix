@@ -240,3 +240,38 @@ func TestReportParked_NoResetTimeDropsStaleRow(t *testing.T) {
 	assert.Equal(t, "parked", fetched.WorkerStatus)
 	assert.Nil(t, fetched.ParkResetsAt)
 }
+
+func TestParkResets_OnlyParkedCardsEnriched(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	fake := newFakeParkResets()
+	svc.SetParkResetStore(fake)
+
+	parkedID := claimedCard(t, svc)
+	resets := time.Date(2026, 11, 11, 18, 0, 0, 0, time.UTC)
+
+	_, err := svc.ReportParked(ctx, "test-project", parkedID, "agent-1", "usage limit", &resets)
+	require.NoError(t, err)
+
+	other, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "other", Type: "task", Priority: "low"})
+	require.NoError(t, err)
+	require.NoError(t, fake.PutParkReset(ctx, "test-project", other.ID, resets))
+
+	got, err := svc.GetCard(ctx, "test-project", other.ID)
+	require.NoError(t, err)
+	assert.Nil(t, got.ParkResetsAt)
+
+	listed, err := svc.ListCards(ctx, "test-project", storage.CardFilter{})
+	require.NoError(t, err)
+	require.Len(t, listed, 2)
+
+	for _, c := range listed {
+		if c.ID == parkedID {
+			require.NotNil(t, c.ParkResetsAt)
+		} else {
+			assert.Nil(t, c.ParkResetsAt)
+		}
+	}
+}
