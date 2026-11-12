@@ -90,7 +90,13 @@ func TestBuilder_ClaudeCodeCandidates(t *testing.T) {
 		got[c.Slug] = c.CoderPrior
 
 		assert.Empty(t, c.Creator)
-		assert.Equal(t, 1_000_000, c.ContextWindow)
+		// The served opus entry (200k) sizes its ID; the rest default to 1M.
+		want := 1_000_000
+		if c.Slug == "claude-opus-5-5" {
+			want = 200_000
+		}
+
+		assert.Equal(t, want, c.ContextWindow)
 		assert.InDelta(t, c.CoderPrior, c.ReviewerPrior, 1e-12)
 	}
 
@@ -175,8 +181,8 @@ func TestBuilder_ClaudeCodeRate(t *testing.T) {
 	})
 }
 
-// A Claude Code catalog ID the served catalog lacks takes its window from the
-// static Claude Code list; a served entry wins, and other names resolve nothing.
+// A well-formed Claude Code ID the served catalog lacks takes the default
+// window; a served entry wins, and other names resolve nothing.
 func TestContextWindow_FallsBackToClaudeCodeList(t *testing.T) {
 	t.Parallel()
 
@@ -203,7 +209,8 @@ func TestContextWindow_FallsBackToClaudeCodeList(t *testing.T) {
 		{"served catalog lacks the id", served, "claude-sonnet-5-5", 1_000_000},
 		{"served entry wins", served, "claude-haiku-5-5", 200000},
 		{"served non-claude model", served, "z-ai/glm-5.2", 131072},
-		{"claude id outside the list", served, "claude-fable-5-5", 0},
+		{"well-formed id the catalog never lists", served, "claude-fable-5-5", 1_000_000},
+		{"dotted anthropic slug is not an id", served, "anthropic/claude-opus-5.5", 0},
 	}
 
 	for _, tt := range tests {
@@ -346,4 +353,62 @@ func TestBuilder_ClaudeCodeProvenanceAndStats(t *testing.T) {
 		assert.Empty(t, b.ClaudeCodeProvenance(ctx))
 		assert.Equal(t, CatalogStats{}, b.ClaudeCodeStats(ctx))
 	})
+}
+
+func aaRow(slug, creator string, intel float64, in, out float64) aaModel {
+	return aaModel{Slug: slug, Creator: creator, IntelIndex: &intel, PromptPrice: in / 1e6, CompletionPrice: out / 1e6}
+}
+
+// The catalog is the distinct family keys of the AA rows that are well-formed
+// Claude Code IDs; the floor drops old versions and the window comes from the
+// served entry when it has one.
+func TestBuildClaudeCode_DerivesIDsFromAA(t *testing.T) {
+	t.Parallel()
+
+	aa := []aaModel{
+		aaRow("claude-opus-5-5", "anthropic", 60, 5, 25),
+		aaRow("claude-opus-5-5-thinking", "anthropic", 60, 5, 25),
+		aaRow("claude-sonnet-5-5-high", "anthropic", 48, 3, 15),
+		aaRow("claude-sonnet-5-5-non-reasoning", "anthropic", 48, 3, 15),
+		aaRow("claude-haiku-5-5-20260101", "anthropic", 36, 1, 5),
+		aaRow("claude-fable-5-5", "anthropic", 55, 10, 50),
+		aaRow("claude-3-opus", "anthropic", 10, 15, 75),
+		aaRow("gpt-5-4", "openai", 58, 2, 10),
+		aaRow("deepseek-v4-flash", "deepseek", 40, 1, 2),
+	}
+
+	served := map[string]orEntry{
+		"anthropic/claude-sonnet-5.5": {ContextWindow: 200_000},
+		"claude-fable-5-5":            {ContextWindow: 400_000},
+	}
+
+	cands, catalog, _, _ := buildClaudeCode(aa, served, 0.5)
+
+	got := map[string]int{}
+	for _, c := range cands {
+		got[c.Slug] = c.ContextWindow
+
+		assert.Empty(t, c.Creator)
+	}
+
+	assert.Equal(t, map[string]int{
+		"claude-opus-5-5":   1_000_000,
+		"claude-sonnet-5-5": 200_000,
+		"claude-haiku-5-5":  1_000_000,
+		"claude-fable-5-5":  400_000,
+	}, got)
+
+	assert.NotContains(t, catalog, "gpt-5-4")
+	assert.NotContains(t, catalog, "claude-opus-5-5-thinking")
+	assert.InDelta(t, 10.0/1e6, catalog["claude-fable-5-5"].PromptPrice, 1e-15)
+}
+
+func TestClaudeCodeRate_PricesDerivedID(t *testing.T) {
+	t.Parallel()
+
+	b, _ := claudeCodeBuilder(t, "aa-key", WithClaudeCode())
+
+	p, ok := b.ClaudeCodeRate(context.Background(), "claude-haiku-5-5")
+	require.True(t, ok)
+	assert.InDelta(t, 1.0/1e6, p.Prompt, 1e-15)
 }

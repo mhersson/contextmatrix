@@ -26,13 +26,53 @@ func ClaudeCodeID(name string) (string, bool) {
 	return id, true
 }
 
-// claudeCodeContextWindow is the static window of a Claude Code catalog ID, 0
-// for any other name. Only exact IDs match: a window lookup resolves no names.
+// defaultClaudeCodeWindow is the window of a Claude Code ID the served catalog
+// does not size.
+const defaultClaudeCodeWindow = 1_000_000
+
+// claudeCodeContextWindow is the window of a well-formed Claude Code ID, 0 for
+// any other name. Only exact IDs match: a window lookup resolves no names.
 func claudeCodeContextWindow(name string) int {
-	for _, m := range selection.ClaudeCodeModels() {
-		if m.ID == name {
-			return m.ContextWindow
+	if id, ok := selection.ClaudeCodeModelID(name); ok && id == name {
+		return defaultClaudeCodeWindow
+	}
+
+	return 0
+}
+
+// claudeCodeIDs is the distinct Claude Code IDs among the AA rows: each row's
+// family key, kept when it is itself a well-formed ID.
+func claudeCodeIDs(aa []aaModel) []string {
+	seen := map[string]bool{}
+
+	var ids []string
+
+	for _, row := range aa {
+		key, _, _ := familyKeyParts(row.Slug)
+
+		if id, ok := selection.ClaudeCodeModelID(key); ok && id == key && !seen[key] {
+			seen[key] = true
+
+			ids = append(ids, key)
 		}
+	}
+
+	return ids
+}
+
+// servedWindow is the context window the served catalog carries for a Claude
+// Code ID, resolved like entryFor (exact, bare name, snapshot key); 0 if none.
+func servedWindow(served map[string]orEntry, names, snapshots map[string]string, id string) int {
+	if e, ok := served[id]; ok {
+		return e.ContextWindow
+	}
+
+	if slug, ok := names[id]; ok {
+		return served[slug].ContextWindow
+	}
+
+	if slug, ok := snapshots[snapshotKey(id)]; ok {
+		return served[slug].ContextWindow
 	}
 
 	return 0
@@ -58,13 +98,21 @@ func WithCatalogURLs(aaURL, orURL string) BuilderOption {
 	}
 }
 
-// buildClaudeCode scores the protocol Claude Code catalog against the AA rows.
-// It returns the candidates (Creator blanked), the priced catalog, each
+// buildClaudeCode derives the Claude Code catalog from the AA rows and scores
+// it. A served entry with a window sizes its ID. It returns the candidates (Creator blanked), the priced catalog, each
 // candidate's provenance and how many catalog IDs joined a scored AA row.
-func buildClaudeCode(aa []aaModel, floor float64) ([]protocol.CandidateModel, map[string]orEntry, map[string]CandidateProvenance, int) {
-	static := make(map[string]orEntry, len(selection.ClaudeCodeModels()))
-	for _, m := range selection.ClaudeCodeModels() {
-		static[m.ID] = orEntry{ContextWindow: m.ContextWindow, Tools: true}
+func buildClaudeCode(aa []aaModel, served map[string]orEntry, floor float64) ([]protocol.CandidateModel, map[string]orEntry, map[string]CandidateProvenance, int) {
+	names, snapshots := indexCatalogNames(served)
+	ids := claudeCodeIDs(aa)
+	static := make(map[string]orEntry, len(ids))
+
+	for _, id := range ids {
+		window := servedWindow(served, names, snapshots, id)
+		if window <= 0 {
+			window = defaultClaudeCodeWindow
+		}
+
+		static[id] = orEntry{ContextWindow: window, Tools: true}
 	}
 
 	scored, exclusions, listPrices := buildEndpointCandidates(aa, static, nil, floor, nil, "")

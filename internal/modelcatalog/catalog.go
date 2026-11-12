@@ -320,8 +320,8 @@ func (b *Builder) Rate(ctx context.Context, slug string) (ModelPrice, bool) {
 // ContextWindow returns the context length in tokens of the model a name
 // resolves to, by the same lookup as Rate: the exact slug on the OpenRouter
 // leg, plus the gateway's other names on the endpoint leg. No vendor screen.
-// A Claude Code catalog ID the served catalog lacks takes the static Claude
-// Code window. Otherwise 0 on a nil receiver, an unknown name, or an entry
+// A well-formed Claude Code ID the served catalog lacks takes the default
+// Claude Code window. Otherwise 0 on a nil receiver, an unknown name, or an entry
 // without a context length.
 func (b *Builder) ContextWindow(ctx context.Context, name string) int {
 	if b == nil {
@@ -567,7 +567,7 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 
 		aa := aaCat.Models
 
-		b.refreshClaudeCode(aa)
+		b.refreshClaudeCode(aa, ep)
 
 		built, exclusions, listPrices := buildEndpointCandidates(aa, ep, b.priors, b.floor, b.allowlist, b.reasoningEffort)
 
@@ -663,7 +663,7 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 
 	aa := aaCat.Models
 
-	b.refreshClaudeCode(aa)
+	b.refreshClaudeCode(aa, or)
 
 	cands := build(aa, or, b.floor, b.allowlist)
 
@@ -684,12 +684,12 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 // refreshClaudeCode rebuilds the Claude Code pair from the AA rows a refresh
 // just fetched. Called with mu held, only after a successful AA fetch, so a
 // failed refresh keeps the last good pair.
-func (b *Builder) refreshClaudeCode(aa []aaModel) {
+func (b *Builder) refreshClaudeCode(aa []aaModel, served map[string]orEntry) {
 	if !b.claudeCode {
 		return
 	}
 
-	b.claudeCodeCached, b.claudeCodeCatalog, b.claudeCodeProvenance, b.claudeCodeServedScored = buildClaudeCode(aa, b.floor)
+	b.claudeCodeCached, b.claudeCodeCatalog, b.claudeCodeProvenance, b.claudeCodeServedScored = buildClaudeCode(aa, served, b.floor)
 }
 
 // scoredProvenance is the provenance of each scored candidate, keyed by slug.

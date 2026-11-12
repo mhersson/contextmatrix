@@ -388,21 +388,32 @@ Auto-selection requires the key.
 ### The Claude Code catalog
 
 With `claude_code.oauth_token` set and the Builder in `aa+candidates` mode,
-the Builder also keeps a Claude Code catalog of three models:
-`claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-5-5`, each with a
-static 1,000,000-token context window. It is derived from the same AA fetch as
-the served catalog, refreshed with it, and keeps its last good set when a
-refresh fails. In any other Builder mode there is no Claude Code catalog.
+the Builder also keeps a Claude Code catalog. There is no static list: it is
+derived from the same AA fetch as the served catalog, refreshed with it, and
+keeps its last good set when a refresh fails. In any other Builder mode there
+is no Claude Code catalog.
 
-- Each model joins its AA row the way the `openai` leg joins a served model.
+- The IDs are the distinct family keys of the AA rows (lowercased, vendor
+  prefix dropped, dots turned into hyphens, effort and date suffixes
+  stripped) that are well-formed Claude Code IDs, such as `claude-opus-5-5`.
+  Effort variants and dated rows of one model collapse onto one ID; non-Claude
+  rows are not IDs. A new Anthropic model joins once AA lists it.
+- Each ID joins its AA family the way the `openai` leg joins a served model.
   Its priors are its intelligence index over the best AA score, and its
-  candidate price is the AA list price. The quality floor applies; the
-  allowlist and `model_priors` do not.
+  candidate price is the AA list price. The quality floor applies, which drops
+  old versions; the allowlist and `model_priors` do not.
+- The context window is the served catalog's entry for the ID when it carries
+  one (matched by exact id, bare name or snapshot key, as for any served
+  model), else 1,000,000 tokens.
 - Candidates carry the bare Claude Code ID as `slug` and an empty `creator`,
   so the selector resolves no vendor for them and the vendor-diversity
   preference never steers a Best-of-N, mob or review-panel seat.
-- Fable is excluded: the catalog lists no Fable model, so a Fable slug maps
-  to nothing.
+- Fable is an ordinary candidate. In `claude -p` it spends paid usage credits
+  once half the weekly limit is used; operators keep it out with the model
+  blacklist.
+- Accepted risk: a model AA lists before the pinned Claude Code version or the
+  subscription accepts it fails its runs until the agent reports it incapable
+  and it is blacklisted.
 
 A trigger whose agent runs in `claude_code` mode (see
 [remote execution](remote-execution.md#claude-code-subscription-mode))
