@@ -197,6 +197,25 @@ func TestEndpointFor_Sticky(t *testing.T) {
 	assert.Equal(t, endpoint(), ep)
 }
 
+func TestEndpointFor_CarriesEffortOnClaudeCodeOnly(t *testing.T) {
+	for _, effort := range []string{"", "xhigh"} {
+		t.Run("effort "+effort, func(t *testing.T) {
+			h, err := New(context.Background(),
+				Config{Endpoint: endpoint(), OAuthToken: testToken, Supported: []Kind{"chat"}, Effort: effort},
+				&fakeStore{}, &fakeBus{})
+			require.NoError(t, err)
+
+			ep, m := h.EndpointFor("chat", ModeClaudeCode)
+			require.Equal(t, ModeClaudeCode, m)
+			assert.Equal(t, effort, ep.Effort)
+
+			ep, m = h.EndpointFor("agent", ModeClaudeCode)
+			require.Equal(t, ModeEndpoint, m)
+			assert.Empty(t, ep.Effort, "the endpoint side never carries the Claude Code effort")
+		})
+	}
+}
+
 func TestEndpointFor_RecordedUnusableFallsBack(t *testing.T) {
 	h, err := New(context.Background(),
 		Config{Endpoint: endpoint(), Supported: []Kind{"chat"}}, &fakeStore{}, &fakeBus{})

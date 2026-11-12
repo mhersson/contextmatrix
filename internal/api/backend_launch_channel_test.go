@@ -129,6 +129,34 @@ func TestLaunch_BlacklistFollowsMode(t *testing.T) {
 	}
 }
 
+func TestLaunch_ClaudeCodeTriggerCarriesEffort(t *testing.T) {
+	for _, effort := range []string{"", "max"} {
+		t.Run("effort "+effort, func(t *testing.T) {
+			h, svc, cb, _ := channelLaunchHandlers(t, llmchannel.ModeClaudeCode, []string{config.BackendNameAgent})
+
+			holder, err := llmchannel.New(context.Background(), llmchannel.Config{
+				Endpoint:     gatewayEndpoint(),
+				OAuthToken:   "tok",
+				Supported:    []string{config.BackendNameAgent},
+				DefaultModel: "claude-sonnet-5-5",
+				Effort:       effort,
+			}, llmchanneltest.Store{}, events.NewBus())
+			require.NoError(t, err)
+			require.NoError(t, holder.Set(context.Background(), llmchannel.ModeClaudeCode, "human:test"))
+			h.llmChannel = holder
+
+			card := createRunnable(t, svc, service.CreateCardInput{})
+			_, err = h.launch(context.Background(), "test-project", card.ID, launchOptions{})
+			require.NoError(t, err)
+
+			p := cb.lastTrigger(t)
+			require.NotNil(t, p.LLMEndpoint)
+			assert.Equal(t, protocol.LLMEndpointTypeClaudeCode, p.LLMEndpoint.Type)
+			assert.Equal(t, effort, p.LLMEndpoint.Effort)
+		})
+	}
+}
+
 func TestLaunch_ClaudeCodeModelAndFavoritesFollowCatalog(t *testing.T) {
 	tests := []struct {
 		name      string

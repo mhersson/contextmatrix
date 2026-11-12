@@ -108,6 +108,7 @@ with `.` replaced by `_`:
 | `claude_code.oauth_token`               | `CONTEXTMATRIX_CLAUDE_CODE_OAUTH_TOKEN`             |
 | `claude_code.backends`                  | `CONTEXTMATRIX_CLAUDE_CODE_BACKENDS`                |
 | `claude_code.default_model`             | `CONTEXTMATRIX_CLAUDE_CODE_DEFAULT_MODEL`           |
+| `claude_code.effort`                    | `CONTEXTMATRIX_CLAUDE_CODE_EFFORT`                  |
 | `instance.id`                           | `CONTEXTMATRIX_INSTANCE_ID`                         |
 | `knowledge.log_path`                    | `CONTEXTMATRIX_KNOWLEDGE_LOG_PATH`                  |
 

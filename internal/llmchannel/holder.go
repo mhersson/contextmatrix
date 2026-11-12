@@ -55,6 +55,7 @@ type Config struct {
 	OAuthToken   string                // "" when claude_code is unset
 	Supported    []Kind                // claude_code.backends
 	DefaultModel string                // claude_code.default_model
+	Effort       string                // claude_code.effort; "" sends no --effort
 	Catalog      ClaudeCodeCatalog     // nil, or a catalog that is not built, checks IDs by form only
 }
 
@@ -245,6 +246,7 @@ func (h *Holder) EndpointFor(kind Kind, recorded Mode) (*protocol.LLMEndpoint, M
 		return &protocol.LLMEndpoint{
 			Type:       protocol.LLMEndpointTypeClaudeCode,
 			OAuthToken: h.cfg.OAuthToken,
+			Effort:     h.cfg.Effort,
 		}, m
 	}
 
