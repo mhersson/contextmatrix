@@ -522,11 +522,11 @@ func main() {
 
 	catalogBuilder := newCatalogBuilder(cfg, agentCfg, hasAgent, chatOpenRouter)
 
-	// agentAA is needed below for the routerCfg.Catalog guard.
+	// agentAA serves both the pricing warning and the routerCfg.Catalog guard.
 	agentAA := hasAgent && agentCfg.AAAPIKey != ""
 
 	if ids := unpricedClaudeCodeIDs(cfg, agentAA); len(ids) > 0 {
-		slog.Warn("claude code usage is priced at $0: no list price source for these model IDs",
+		slog.Warn("claude code model IDs have no list price source; usage is recorded at $0 unless the endpoint catalog prices them",
 			"models", ids,
 			"fix", "set backends.agent.aa_api_key or add token_costs rows for them")
 	}
