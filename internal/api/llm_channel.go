@@ -236,10 +236,6 @@ func (h *llmChannelHandlers) inFlight(ctx context.Context) (map[string]llmChanne
 	}
 
 	for mode, kinds := range sessions {
-		if mode == "" {
-			mode = string(llmchannel.ModeEndpoint)
-		}
-
 		c, ok := out[mode]
 		if !ok {
 			continue

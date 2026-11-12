@@ -122,8 +122,8 @@ type backendHandlers struct {
 	providerForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string, error)
 
 	// llmChannel picks the trigger's endpoint, catalog and model by the global
-	// LLM channel mode. Required: it is the only source of the endpoint, which
-	// it omits when llm_endpoint is unset so the backend fails closed.
+	// LLM channel mode. Required: it is the only source of the endpoint, and
+	// the backend fails closed when the resolved mode has none.
 	llmChannel LLMChannelResolver
 
 	// cardRuns records each run's mode; nil skips the record.
