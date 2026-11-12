@@ -10,8 +10,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/mhersson/contextmatrix/internal/config"
 )
 
 func TestClaudeCodeID(t *testing.T) {
@@ -41,19 +39,6 @@ func TestClaudeCodeID(t *testing.T) {
 			assert.Equal(t, tt.wantID, id)
 		})
 	}
-}
-
-func TestClaudeCodeModels_MatchConfigList(t *testing.T) {
-	t.Parallel()
-
-	var ids []string
-
-	for _, m := range ClaudeCodeModels() {
-		ids = append(ids, m.ID)
-		assert.Equal(t, 1_000_000, m.ContextWindow)
-	}
-
-	assert.ElementsMatch(t, config.ClaudeCodeModels, ids)
 }
 
 const aaClaudeCodePage = `{"data":[

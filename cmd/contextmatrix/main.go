@@ -23,6 +23,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
+	"github.com/mhersson/contextmatrix-protocol/selection"
 	"github.com/mhersson/contextmatrix/internal/githubauth"
 
 	"github.com/mhersson/contextmatrix/internal/api"
@@ -1272,9 +1273,9 @@ func unpricedClaudeCodeIDs(cfg *config.Config, agentAA bool) []string {
 
 	var ids []string
 
-	for _, id := range config.ClaudeCodeModels {
-		if _, ok := cfg.TokenCosts[id]; !ok {
-			ids = append(ids, id)
+	for _, m := range selection.ClaudeCodeModels() {
+		if _, ok := cfg.TokenCosts[m.ID]; !ok {
+			ids = append(ids, m.ID)
 		}
 	}
 

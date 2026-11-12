@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mhersson/contextmatrix-protocol/selection"
+
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 )
@@ -176,7 +178,11 @@ func TestCatalogRateLookup_ClaudeCode(t *testing.T) {
 
 func TestUnpricedClaudeCodeIDs(t *testing.T) {
 	configured := config.ClaudeCodeConfig{OAuthToken: "tok"}
-	all := config.ClaudeCodeModels
+
+	var all []string
+	for _, m := range selection.ClaudeCodeModels() {
+		all = append(all, m.ID)
+	}
 
 	rates := func(ids ...string) map[string]config.ModelRate {
 		m := make(map[string]config.ModelRate, len(ids))

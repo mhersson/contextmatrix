@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mhersson/contextmatrix-protocol/selection"
 	"gopkg.in/yaml.v3"
 
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -53,12 +54,8 @@ type ClaudeCodeConfig struct {
 	// Backends are the backend kinds that run Claude Code, a subset of
 	// BackendNameAgent, BackendNameChat and BackendNameArchitect.
 	Backends     []string `yaml:"backends"`
-	DefaultModel string   `yaml:"default_model"` // one of ClaudeCodeModels
+	DefaultModel string   `yaml:"default_model"` // one of selection.ClaudeCodeModels()
 }
-
-// ClaudeCodeModels are the model IDs claude_code.default_model accepts. A test
-// in modelcatalog pins this list to the catalog's Claude Code models.
-var ClaudeCodeModels = []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"}
 
 // Configured reports whether a Claude Code token is set.
 func (c ClaudeCodeConfig) Configured() bool { return c.OAuthToken != "" }
@@ -83,12 +80,26 @@ func (c ClaudeCodeConfig) validate() error {
 		return fmt.Errorf("claude_code.oauth_token is required when claude_code.backends is set")
 	}
 
-	if c.DefaultModel != "" && !slices.Contains(ClaudeCodeModels, c.DefaultModel) {
-		return fmt.Errorf("claude_code.default_model must be one of %s, got %q",
-			strings.Join(ClaudeCodeModels, ", "), c.DefaultModel)
+	if c.DefaultModel != "" {
+		ids := claudeCodeModelIDs()
+		if !slices.Contains(ids, c.DefaultModel) {
+			return fmt.Errorf("claude_code.default_model must be one of %s, got %q",
+				strings.Join(ids, ", "), c.DefaultModel)
+		}
 	}
 
 	return nil
+}
+
+func claudeCodeModelIDs() []string {
+	models := selection.ClaudeCodeModels()
+	ids := make([]string, len(models))
+
+	for i, m := range models {
+		ids[i] = m.ID
+	}
+
+	return ids
 }
 
 func applyClaudeCodeDefaults(cfg *Config) {

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
+	"github.com/mhersson/contextmatrix-protocol/selection"
 
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/config"
@@ -435,7 +436,7 @@ func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.startMode(kind) == llmchannel.ModeClaudeCode {
-		cc := modelcatalog.ClaudeCodeModels()
+		cc := selection.ClaudeCodeModels()
 		models := make([]chatModelEntry, len(cc))
 
 		for i, m := range cc {
