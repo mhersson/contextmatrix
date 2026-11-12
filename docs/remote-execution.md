@@ -433,8 +433,8 @@ worker endpoint.
 { "session_id": "01K8ZQH7R3VYJE9XPK4MBWN5T2" }
 ```
 
-Closes the container's stdin and stops it. A session the backend no longer
-tracks answers `404 not_found`.
+Closes the container's stdin and stops it, answering `202`. The call is
+idempotent: a session the backend does not track answers `200`.
 
 #### POST {chat_url}/message
 
