@@ -321,8 +321,9 @@ func (b *Builder) Rate(ctx context.Context, slug string) (ModelPrice, bool) {
 // resolves to, by the same lookup as Rate: the exact slug on the OpenRouter
 // leg, plus the gateway's other names on the endpoint leg. No vendor screen.
 // A Claude Code ID the served catalog lacks takes the window the Claude Code
-// catalog sized it with, else the default Claude Code window if well-formed. Otherwise 0 on a nil receiver, an unknown name, or an
-// entry without a context length.
+// catalog sized it with, else the default Claude Code window if well-formed.
+// Otherwise 0 on a nil receiver, an unknown name, or an entry without a
+// context length.
 func (b *Builder) ContextWindow(ctx context.Context, name string) int {
 	if b == nil {
 		return claudeCodeContextWindow(name)
