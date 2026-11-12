@@ -524,6 +524,12 @@ func main() {
 	// agentAA is needed below for the routerCfg.Catalog guard.
 	agentAA := hasAgent && agentCfg.AAAPIKey != ""
 
+	if ids := unpricedClaudeCodeIDs(cfg, agentAA); len(ids) > 0 {
+		slog.Warn("claude code usage is priced at $0: no list price source for these model IDs",
+			"models", ids,
+			"fix", "set backends.agent.aa_api_key or add token_costs rows for them")
+	}
+
 	if catalogBuilder != nil {
 		mode := "openrouter-catalog-only"
 
@@ -1254,4 +1260,23 @@ func configuredBackendKinds(cfg *config.Config) []string {
 	}
 
 	return kinds
+}
+
+// unpricedClaudeCodeIDs returns the Claude Code model IDs that would be priced
+// at $0: claude_code is configured, the Artificial Analysis catalog (the list
+// price source) is not built, and token_costs has no row for the ID.
+func unpricedClaudeCodeIDs(cfg *config.Config, agentAA bool) []string {
+	if !cfg.ClaudeCode.Configured() || agentAA {
+		return nil
+	}
+
+	var ids []string
+
+	for _, id := range config.ClaudeCodeModels {
+		if _, ok := cfg.TokenCosts[id]; !ok {
+			ids = append(ids, id)
+		}
+	}
+
+	return ids
 }

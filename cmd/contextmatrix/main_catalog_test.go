@@ -173,3 +173,39 @@ func TestCatalogRateLookup_ClaudeCode(t *testing.T) {
 	_, ok = catalogRateLookup(t.Context(), b)("claude-unknown-5-5")
 	assert.False(t, ok)
 }
+
+func TestUnpricedClaudeCodeIDs(t *testing.T) {
+	configured := config.ClaudeCodeConfig{OAuthToken: "tok"}
+	all := config.ClaudeCodeModels
+
+	rates := func(ids ...string) map[string]config.ModelRate {
+		m := make(map[string]config.ModelRate, len(ids))
+		for _, id := range ids {
+			m[id] = config.ModelRate{}
+		}
+
+		return m
+	}
+
+	tests := []struct {
+		name    string
+		cc      config.ClaudeCodeConfig
+		costs   map[string]config.ModelRate
+		agentAA bool
+		want    []string
+	}{
+		{"not configured", config.ClaudeCodeConfig{}, nil, false, nil},
+		{"AA catalog built", configured, nil, true, nil},
+		{"no token_costs rows", configured, nil, false, all},
+		{"some rows", configured, rates(all[0]), false, all[1:]},
+		{"all rows", configured, rates(all...), false, nil},
+		{"unrelated rows only", configured, rates("other/model"), false, all},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{ClaudeCode: tt.cc, TokenCosts: tt.costs}
+			assert.Equal(t, tt.want, unpricedClaudeCodeIDs(cfg, tt.agentAA))
+		})
+	}
+}
