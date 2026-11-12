@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, within, act } from '@testing-librar
 import { api } from '../../api/client';
 import type { BoardEvent, LLMChannelUsage, LLMChannelView } from '../../types';
 import { LLMChannelRailDot, LLMChannelStrip } from './LLMChannelStrip';
-import { channelExceptions, subLineItems, subLineText, windowLabel } from '../../lib/llmChannel';
+import { channelExceptions, lockedRowTitle, subLineItems, subLineText, windowLabel } from '../../lib/llmChannel';
 
 vi.mock('../../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api/client')>();
@@ -325,27 +325,30 @@ describe('LLMChannelStrip', () => {
 
   it('shows a static row without a lock when only claude_code is configured', async () => {
     setAuth('multi', true);
-    getMock.mockResolvedValue(view({ switchable: false, endpoint: null }));
+    const v = view({ switchable: false, endpoint: null });
+    getMock.mockResolvedValue(v);
     render(<LLMChannelStrip />);
     const s = await strip();
     expect(s).toHaveClass('llm-strip--ro');
 
     const pop = await openPopover();
     expect(within(pop).queryAllByRole('button')).toHaveLength(0);
-    expect(pop.querySelector('.llm-row')).toHaveAttribute('title');
+    expect(pop.querySelector('.llm-row')).toHaveAttribute('title', lockedRowTitle(v));
     expect(within(pop).queryByRole('img', { name: 'Locked' })).toBeNull();
   });
 
   it('gives a non-admin a dashed strip, no buttons and the lock', async () => {
     setAuth('multi', false);
-    getMock.mockResolvedValue(view());
+    const v = view();
+    getMock.mockResolvedValue(v);
     render(<LLMChannelStrip />);
     const s = await strip();
     expect(s).toHaveClass('llm-strip--ro');
 
     const pop = await openPopover();
     expect(within(pop).queryAllByRole('button')).toHaveLength(0);
-    expect(pop.querySelector('.llm-row')).toHaveAttribute('title');
+    expect(pop.querySelector('.llm-row')).toHaveAttribute('title', lockedRowTitle(v));
+    expect(lockedRowTitle(v)).not.toBe(lockedRowTitle(view({ switchable: false })));
     expect(within(pop).getByRole('img', { name: 'Locked' })).toBeInTheDocument();
   });
 

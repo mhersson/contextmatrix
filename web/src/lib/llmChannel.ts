@@ -4,6 +4,11 @@ export function channelLabel(view: LLMChannelView, mode: LLMChannel): string {
   return mode === 'claude_code' ? 'Claude Code' : view.endpoint?.label ?? 'Endpoint';
 }
 
+/** Tooltip of the static (non-switchable) mode row: why the channel cannot be changed here. */
+export function lockedRowTitle(view: LLMChannelView): string {
+  return view.switchable ? 'Set by an admin' : 'No endpoint is configured';
+}
+
 export function otherMode(mode: LLMChannel): LLMChannel {
   return mode === 'claude_code' ? 'endpoint' : 'claude_code';
 }

@@ -3,6 +3,7 @@ import {
   channelExceptions,
   channelLabel,
   formatReset,
+  lockedRowTitle,
   inFlightBreakdown,
   inFlightTotal,
   otherMode,
@@ -118,7 +119,7 @@ export function LLMChannelDetails({ view, canSwitch, onSwitch, error }: LLMChann
           ))}
         </div>
       ) : (
-        <div className="llm-row" title={view.switchable ? 'Set by an admin' : 'No endpoint is configured'}>
+        <div className="llm-row" title={lockedRowTitle(view)}>
           <span className={`llm-dot llm-dot--${view.mode}`} aria-hidden="true" />
           {view.mode === 'claude_code' ? 'Claude Code subscription' : endpointLabel}
           {view.switchable && (
