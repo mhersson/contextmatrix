@@ -938,7 +938,7 @@ any worker implementation, including custom worker images:
 - On a Claude Code subscription run pass `cost_basis: "subscription"`, never
   `actual_cost_usd`, and the last-seen windows in `subscription_usage` (see
   [Claude Code cost](#cost)).
-- Pass `model` as the gateway's vendor-prefixed slug. A slug neither source
+- Pass `model` as the gateway's vendor-prefixed slug, or the bare Claude Code ID (`claude-sonnet-5-5`) on a subscription run. A slug neither source
   can price costs $0, logs a warning, and increments
   `contextmatrix_report_usage_unknown_model_total`.
 
@@ -1017,8 +1017,8 @@ Each backend's executor module names the Claude Code version it was tested
 against. Container images install exactly that version. A host install, such
 as an architect run as a host service, uses whatever `claude` the user
 installed; no ContextMatrix tool installs, pins or changes it. At start each
-backend logs the version it found and warns on a mismatch; it does not
-refuse to run.
+backend logs the version it found and warns on a mismatch and runs anyway. A
+missing or unrunnable `claude` fails each `claude_code` start on that backend.
 
 ### Token exposure
 
@@ -1049,7 +1049,7 @@ contextmatrix-agent; CM implements and enforces none of them:
 A subscription usage limit parks work and never falls back to the endpoint.
 
 - A card run parks through `report_parked` with the limit's `resets_at` and
-  `window`; see [parked cards](running-cards.md#parked-cards). Rerunning it is
+  `window` when known; see [parked cards](running-cards.md#parked-cards). Rerunning it is
   a human action.
 - A chat or blueprint turn ends with a `usage_limit` frame (see
   [`GET /logs`](#get-backend_urllogs)), and the pane shows a banner with the

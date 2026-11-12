@@ -223,13 +223,14 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 	return card, nil
 }
 
-// ReportParked records that the agent parked the card's run - review or PR
-// gates left for a human - by setting worker_status to "parked" with the
-// reason in the activity log. Called by the worker right before its container
-// exits; a non-zero resetsAt is the time the usage limit that parked the run
-// resets, kept in the park-reset store; the "completed" callback that follows preserves the park (see
-// UpdateWorkerStatus), and the next trigger's "queued" replaces it. Returns
-// lock.ErrAgentMismatch when the caller does not hold the claim.
+// ReportParked records that the agent parked the card's run (review or PR
+// gates left for a human, or a subscription usage limit) by setting
+// worker_status to "parked" with the reason in the activity log. Called by the
+// worker right before its container exits. A non-nil, non-zero resetsAt goes
+// to the park-reset store; nil or zero clears it. The "completed" callback that
+// follows preserves the park (see UpdateWorkerStatus), and the next trigger's
+// "queued" replaces it. Returns lock.ErrAgentMismatch when the caller does not
+// hold the claim.
 func (s *CardService) ReportParked(ctx context.Context, project, id, agentID, reason string, resetsAt *time.Time) (*board.Card, error) {
 	id = strings.ToUpper(id)
 	r := s.repoOf(project)

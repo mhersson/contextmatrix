@@ -6,7 +6,8 @@ ContextMatrix is a kanban-style task coordination system for AI agents and
 humans. Cards are markdown files with YAML frontmatter, stored in a git
 repository. It exposes a REST API, an MCP server, and a web UI for managing
 tasks across projects. Cards are executed by `contextmatrix-agent`, a
-multi-model Go harness - driving OpenRouter or any OpenAI-compatible gateway -
+multi-model Go harness - driving OpenRouter or any OpenAI-compatible gateway,
+or Claude Code on a subscription token -
 that claims a card, works it in a separate project repo, and reports progress
 back to the board over MCP. The global chat panel is served by
 `contextmatrix-chat`, a sister backend that runs a worker container per chat
@@ -30,7 +31,7 @@ Read the relevant one before working in its area:
 | `docs/data-model.md`           | Card parsing, state machine, API validation - full domain rules and Go type definitions.                                                          |
 | `docs/api-reference.md`        | REST endpoints, agent identification, error format, response codes.                                                                               |
 | `docs/gotchas.md`              | YAML, go-git, SSE, MCP, Vite, stdlib quirks. Skim before your first commit each session.                                                          |
-| `docs/remote-execution.md`     | Agent and chat backends, webhook protocol, worker lifecycle, MCP auth.                                                                            |
+| `docs/remote-execution.md`     | Agent and chat backends, webhook protocol, worker lifecycle, MCP auth, Claude Code subscription mode.                                           |
 | `docs/model-selection.md`      | Model catalog pipeline, AA rating, tier bars, pins/favorites/blacklist, Best-of-N outcomes.                                                       |
 | `docs/configuration.md`        | Config discovery, `CONTEXTMATRIX_*` override rules, CLI subcommands, state-dir stores, troubleshooting.                                           |
 | `docs/authentication.md`       | `auth.mode` on the wire: bootstrap, invites, admin gate, credential pool, escape hatches, security posture.                                       |
@@ -100,7 +101,7 @@ internal/backend/          → task-backend webhook client + reconcile sweep + e
 internal/chat/             → chat session manager (dispatches by session kind: chat, architect), SSE hub, chat-backend log bridge (persists via opstore)
 internal/opstore/          → ops.db (SQLite): chat sessions/messages, model outcomes, blacklist, cost archive, selector ladders and headroom, Jira writeback outbox, LLM channel mode and subscription usage
 internal/llmchannel/       → global LLM channel mode (endpoint or claude_code): per-start endpoint and model, subscription usage readings
-internal/modelcatalog/     → cached model catalog + candidate rating (Artificial Analysis + OpenRouter or OpenAI-compatible endpoint)
+internal/modelcatalog/     → cached model catalog + candidate rating (Artificial Analysis + OpenRouter or OpenAI-compatible endpoint) + the Claude Code catalog
 internal/auth/             → sessions, users, one-time tokens, credential-pool crypto, master key
 internal/authstore/        → auth.db (SQLite): users, sessions, tokens, credentials
 internal/images/           → content-hashed image store: images.db plus <project>/images/ files in shared boards repos

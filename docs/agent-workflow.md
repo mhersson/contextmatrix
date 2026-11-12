@@ -806,7 +806,7 @@ session transcript and calls `report_usage` is the natural shape.
   stays `"collector"` even if later reports omit `source`.
 
 The agent backend's own contract (disjoint cache buckets, vendor-prefixed
-slugs) is in [remote execution](remote-execution.md#usage-reporting).
+slugs, bare Claude Code IDs on subscription runs) is in [remote execution](remote-execution.md#usage-reporting).
 
 ## Model Allocation
 

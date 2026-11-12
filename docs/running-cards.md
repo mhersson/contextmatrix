@@ -163,9 +163,10 @@ subscription instead of calling the endpoint (see
   [sticky runs](remote-execution.md#sticky-runs)).
 - **Pins.** `model_orchestrator`, `model_coder` and `model_reviewer` hold
   endpoint slugs, and CM stores them unchanged. On Claude Code the agent maps
-  an `anthropic/claude-*` pin to its Claude Code model
-  (`anthropic/claude-opus-5.5` runs as `claude-opus-5-5`) and clears any
-  other pin for that run, with one activity-log note per cleared pin; the
+  a pin whose Claude Code model is a candidate of the run
+  (`anthropic/claude-opus-5.5` runs as `claude-opus-5-5`; without
+  `aa_api_key` the run has none) and clears any other pin for that run, with
+  one activity-log note per cleared pin; the
   tier ladder then picks. The note comes from the agent; CM writes none.
 - **Usage limit.** A run that hits the subscription's usage limit parks (see
   [Parked cards](#parked-cards)).
@@ -196,7 +197,8 @@ card; the next `queued` replaces `parked`. A run parks when:
   fresh container resumes at the gate.
 - **A review loop ends with findings remaining.** The card stays in `review`.
 - **A Claude Code subscription usage limit stops the run.** The run also sends
-  `resets_at` (RFC 3339, a past time is accepted) and the limited `window`: the
+  `resets_at` (RFC 3339, a past time is accepted) and the limited `window`
+  when the vendor reported them: the
   card carries the reset as `park_resets_at` while parked, `worker.parked` carries it too, and the next
   `queued` clears it. The card panel badge and the board card's hover card
   then read "Parked - usage limit, resets Thu 14:00" (local time), and

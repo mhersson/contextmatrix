@@ -898,7 +898,7 @@ func registerReportPush(server *mcp.Server, svc *service.CardService) {
 func registerReportParked(server *mcp.Server, svc *service.CardService, recorder UsageRecorder) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "report_parked",
-		Description: "Report that this run is parking the card - review or PR gates left for a human. " +
+		Description: "Report that this run is parking the card - review or PR gates left for a human, or a subscription usage limit (pass resets_at and window). " +
 			"Sets worker_status to \"parked\" (survives the run's completed callback; the next trigger clears it) " +
 			"and records the reason in the activity log. Requires the claim: agent_id must match assigned_agent.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input reportParkedInput) (*mcp.CallToolResult, reportParkedOutput, error) {
