@@ -13,6 +13,10 @@ describe('isPalette', () => {
     expect(isPalette('ayu')).toBe(true);
   });
 
+  it('accepts the copper palette', () => {
+    expect(isPalette('copper')).toBe(true);
+  });
+
   it('rejects the removed radix palette and arbitrary strings', () => {
     expect(isPalette('radix')).toBe(false);
     expect(isPalette('')).toBe(false);

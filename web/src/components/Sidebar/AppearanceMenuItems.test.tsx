@@ -40,11 +40,11 @@ describe('AppearanceMenuItems', () => {
     expect(themeState.setPalette).not.toHaveBeenCalled();
   });
 
-  it('offers everforest, catppuccin, github and ayu, and no longer radix', () => {
+  it('offers everforest, catppuccin, github, ayu and copper, and no longer radix', () => {
     render(<AppearanceMenuItems />);
     const palette = screen.getByRole('group', { name: 'Palette' });
     const names = within(palette).getAllByRole('button').map((el) => el.textContent?.replace('✓', '').trim());
-    expect(names).toEqual(['Everforest', 'Catppuccin', 'GitHub', 'Ayu']);
+    expect(names).toEqual(['Everforest', 'Catppuccin', 'GitHub', 'Ayu', 'Copper']);
     expect(screen.queryByRole('button', { name: 'Radix' })).toBeNull();
   });
 

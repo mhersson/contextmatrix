@@ -187,7 +187,7 @@ type RouterConfig struct {
 	// for the app-config payload, so the UI can group projects and offer
 	// the repo at creation time.
 	BoardsRepos []BoardsRepoInfo
-	Theme       string             // active color palette ("everforest", "catppuccin", "github", or "ayu")
+	Theme       string             // active color palette ("everforest", "catppuccin", "github", "ayu", or "copper")
 	Version     string             // build version string for display
 	Build       protocol.BuildInfo // this binary's build: the contextmatrix entry of GET /api/about
 	MCPHandler  http.Handler       // optional; registered at POST/GET/DELETE /mcp when set

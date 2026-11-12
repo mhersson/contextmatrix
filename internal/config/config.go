@@ -1248,10 +1248,10 @@ func (c *Config) Validate() error {
 
 	// Keep in sync with PALETTES in web/src/lib/palettes.ts.
 	switch c.Theme {
-	case "everforest", "catppuccin", "github", "ayu":
+	case "everforest", "catppuccin", "github", "ayu", "copper":
 		// valid
 	default:
-		return fmt.Errorf("invalid theme %q: must be one of \"everforest\", \"catppuccin\", \"github\", \"ayu\"", c.Theme)
+		return fmt.Errorf("invalid theme %q: must be one of \"everforest\", \"catppuccin\", \"github\", \"ayu\", \"copper\"", c.Theme)
 	}
 
 	if c.LogFormat == "" {

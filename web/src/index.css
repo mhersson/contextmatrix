@@ -332,6 +332,81 @@
   --purple: #a37acc; /* syntax.constant */
 }
 
+/* Copper - dark palette. Cool neutral greys with a copper accent; the state
+   colors (red, yellow, green, blue, purple) keep their usual meaning. */
+[data-palette="copper"] {
+  /* Backgrounds */
+  --bg-dim: #17161b; /* deepest background */
+  --bg0: #211f27; /* default background */
+  --bg1: #2c2833; /* raised surfaces: cards, panels */
+  --bg2: #35303e; /* popups, modals, dropdowns */
+  --bg3: #403b49; /* borders, dividers */
+  --bg4: #514a5b; /* subtle UI elements, disabled states */
+  --bg5: #62596e; /* hover states on muted elements */
+
+  /* Semantic backgrounds */
+  --bg-red: #432831;
+  --bg-yellow: #403425;
+  --bg-green: #24392e;
+  --bg-blue: #29334c;
+  --bg-purple: #392d46;
+  --bg-aqua: #3e2a24;
+  --bg-orange: #3d2a14;
+  --bg-visual: #3e2a24; /* copper tint - selection/drag highlight */
+
+  /* Foreground - every grey clears WCAG AA 4.5:1 on --bg-dim..--bg2 */
+  --fg: #f1eef5;
+  --grey0: #b2aaba;
+  --grey1: #bdb5c5;
+  --grey2: #c9c1d0;
+
+  /* Accent colors - --aqua is the copper accent (links, focus rings) */
+  --red: #ffb0bc;
+  --orange: #f57f0a;
+  --yellow: #f2cf8f;
+  --green: #a7dfbb;
+  --aqua: #f2a17e;
+  --blue: #b3c4ff;
+  --purple: #d2b9ed;
+}
+
+/* Copper - light palette */
+[data-palette="copper"][data-theme="light"] {
+  /* Backgrounds */
+  --bg-dim: #f5f4f7; /* deepest background */
+  --bg0: #ffffff; /* default background */
+  --bg1: #f0eef3; /* raised surfaces: cards, panels */
+  --bg2: #e9e6ed; /* popups, modals, dropdowns */
+  --bg3: #dedbe3; /* borders, dividers */
+  --bg4: #ccc6d3; /* subtle UI elements, disabled states */
+  --bg5: #b2aaba; /* hover states on muted elements */
+
+  /* Semantic backgrounds */
+  --bg-red: #fcebf0;
+  --bg-yellow: #fff3dd;
+  --bg-green: #e8f4ed;
+  --bg-blue: #eaf0ff;
+  --bg-purple: #f1eaf8;
+  --bg-aqua: #fbeee7;
+  --bg-orange: #f8ecdf;
+  --bg-visual: #fbeee7; /* copper tint - selection/drag highlight */
+
+  /* Foreground - every grey clears WCAG AA 4.5:1 on --bg-dim..--bg2 */
+  --fg: #25232b;
+  --grey0: #68636f;
+  --grey1: #625b6b;
+  --grey2: #574f60;
+
+  /* Accent colors - --aqua is the copper accent (links, focus rings) */
+  --red: #a42a3b;
+  --orange: #793809;
+  --yellow: #855313;
+  --green: #216346;
+  --aqua: #a83d17;
+  --blue: #3452a3;
+  --purple: #725096;
+}
+
 /* Chat bubbles on the --bg-dim transcript - every palette. Light palettes put
    --bg2 and --bg-blue within a few shades of --bg-dim, so light mode lifts the
    assistant bubble to --bg0 and rings both: assistant with an --fg tint, user

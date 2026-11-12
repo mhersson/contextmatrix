@@ -1346,7 +1346,7 @@ func TestValidate_Theme_InvalidValue(t *testing.T) {
 }
 
 func TestValidate_Theme_ValidValues(t *testing.T) {
-	for _, theme := range []string{"everforest", "catppuccin", "github", "ayu"} {
+	for _, theme := range []string{"everforest", "catppuccin", "github", "ayu", "copper"} {
 		t.Run(theme, func(t *testing.T) {
 			cfg := &Config{
 				Boards:           Boards{{Dir: "/some/path"}},
