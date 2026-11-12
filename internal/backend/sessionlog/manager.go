@@ -3,6 +3,7 @@ package sessionlog
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -811,10 +812,15 @@ func (m *Manager) runUpstream(ctx context.Context, key, project string, sess *ac
 // retry-attempt counter so transient disconnects after successful frames
 // do not accumulate toward the permanent-failure threshold.
 func (m *Manager) readUpstreamStream(ctx context.Context, key, project string, sess *activeSession, cfg runUpstreamConfig) (bool, error) {
-	upstreamURL := m.backendURL + "/logs"
+	// Pumps of one project share this URI; a random nonce keeps two connects
+	// in one second from signing alike, which the backend's replay cache
+	// would refuse.
+	q := url.Values{"nonce": {rand.Text()}}
 	if project != "" {
-		upstreamURL += "?project=" + url.QueryEscape(project)
+		q.Set("project", project)
 	}
+
+	upstreamURL := m.backendURL + "/logs?" + q.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upstreamURL, nil)
 	if err != nil {

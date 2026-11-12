@@ -562,6 +562,11 @@ browser never calls it directly. Signed GET, empty body.
 | ------------ | --------------------------------------------------- |
 | `project`    | Filter to one project. Omit to receive everything.  |
 | `session_id` | Filter to one chat session (the chat log bridge).   |
+| `nonce`      | Random per request; the backend ignores it.         |
+
+The session-log manager adds `nonce` to every connect: pumps of one project
+share the URI, and two connects signed in one second would otherwise carry the
+same `(timestamp, signature)` pair, which the replay cache refuses.
 
 ```json
 {

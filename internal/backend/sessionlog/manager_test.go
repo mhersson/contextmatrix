@@ -2477,3 +2477,75 @@ func TestSignSSERequestMatchesProtocolSigner(t *testing.T) {
 		})
 	}
 }
+
+// replaySet is the backend's replay cache: a (timestamp, signature) pair is
+// accepted once.
+type replaySet struct {
+	mu   sync.Mutex
+	seen map[string]bool
+}
+
+func (r *replaySet) CheckAndInsert(timestamp, signature string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.seen == nil {
+		r.seen = map[string]bool{}
+	}
+
+	k := timestamp + "|" + signature
+	dup := r.seen[k]
+	r.seen[k] = true
+
+	return dup
+}
+
+// TestSameSecondPumpsOfOneProjectSignApart: two card pumps of one project
+// subscribe to the same /logs?project= stream, and a backend that verifies
+// like the webhook kit must accept both even when they sign in one second.
+func TestSameSecondPumpsOfOneProjectSignApart(t *testing.T) {
+	const apiKey = "replay-key"
+
+	var (
+		replay             replaySet
+		accepted, rejected atomic.Int32
+		projects           sync.Map
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sig := strings.TrimPrefix(r.Header.Get(protocol.SignatureHeader), "sha256=")
+		if !protocol.VerifySignatureWithTimestamp(apiKey, r.Method, r.URL.RequestURI(), sig,
+			r.Header.Get(protocol.TimestampHeader), nil, time.Minute, &replay) {
+			rejected.Add(1)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+
+			return
+		}
+
+		accepted.Add(1)
+		projects.Store(r.URL.Query().Get("project"), true)
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(w, ": connected\n\n")
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	m := NewManager(WithBackendConfig(srv.URL, apiKey))
+
+	defer func() { _ = m.Close(context.Background()) }()
+
+	// Both connects must land in one second for a shared pair to collide.
+	time.Sleep(time.Until(time.Now().Truncate(time.Second).Add(time.Second)))
+
+	require.NoError(t, m.Start(context.Background(), "C-1", "alpha"))
+	require.NoError(t, m.Start(context.Background(), "C-2", "alpha"))
+
+	require.Eventually(t, func() bool { return accepted.Load() == 2 }, 5*time.Second, 10*time.Millisecond)
+	assert.Zero(t, rejected.Load(), "no connect was refused as a replay")
+
+	_, ok := projects.Load("alpha")
+	assert.True(t, ok, "the project filter still reaches the backend")
+}
