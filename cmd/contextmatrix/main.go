@@ -512,6 +512,7 @@ func main() {
 		OAuthToken:   cfg.ClaudeCode.OAuthToken,
 		Supported:    cfg.ClaudeCode.Backends,
 		DefaultModel: cfg.ClaudeCode.DefaultModel,
+		Effort:       cfg.ClaudeCode.Effort,
 		Catalog:      catalogBuilder,
 	}, opStore, bus)
 	if err != nil {

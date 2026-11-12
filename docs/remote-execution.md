@@ -182,7 +182,7 @@ Sent when a human clicks Run Auto or Run HITL on a `todo` card, calls the
 | `poc`                  | The project's `poc` flag, read at every launch; present only when `true`. See [POC projects](running-cards.md#poc-projects).                                                                                                                                                                                               |
 | `git_token`            | Minted from the project's `github_credential` binding, or the instance `github.*` credential when unbound. A broken binding, or a token that cannot be minted for the project repo (the App is not installed on it, or `repo` is not an owner/repo remote), rejects the run with `409` before any webhook is sent, reverts `worker_status` to `failed`, and appends a `run-rejected` activity entry. The agent fails closed without a token.               |
 | `git_token_expires_at` | RFC3339; absent for PAT-backed credentials, which need no refresh. App tokens live about an hour; see [GitHub token refresh](#github-token-refresh).                                                                                                                                                                       |
-| `llm_endpoint`         | The LLM channel's endpoint for the agent. On `endpoint`, CM's `llm_endpoint` block (`type`, `base_url`, `api_key`), sent whenever `type` is set, even with an empty key, and omitted only when the whole block is unset; the agent then rejects the run (fail closed, no local fallback). In `claude_code` mode, `{"type": "claude_code", "oauth_token": "..."}`. See [Claude Code subscription mode](#claude-code-subscription-mode). |
+| `llm_endpoint`         | The LLM channel's endpoint for the agent. On `endpoint`, CM's `llm_endpoint` block (`type`, `base_url`, `api_key`), sent whenever `type` is set, even with an empty key, and omitted only when the whole block is unset; the agent then rejects the run (fail closed, no local fallback). In `claude_code` mode, `{"type": "claude_code", "oauth_token": "...", "effort": "..."}`, with `effort` omitted when `claude_code.effort` is empty. See [Claude Code subscription mode](#claude-code-subscription-mode). |
 
 Standalone and parent cards carry a predicted `branch_name` at create; no
 git ref is created merely by generating the field. The worker derives the
@@ -415,7 +415,7 @@ chat backend's own `image_list_filters`.
 | `mcp_api_key`           | Forwarded as `CM_MCP_API_KEY`; may be empty when CM's MCP listener has no auth.                                                                                                                                                                                                       |
 | `model`                 | Always set: the session row's model, else `backends.chat.default_model` (`claude_code.default_model` in `claude_code` mode). A `claude_code` start maps it onto the Claude Code catalog; an endpoint start of a session that last ran on `claude_code` swaps a bare Claude Code ID for the default. The chat backend has no server-side default. |
 | `resume`                | The rehydration payload built from the persisted transcript on every cold open (nil when there is none). The backend writes it to `/run/cm-chat/resume.jsonl` and sets `CM_CHAT_RESUME=1` so the worker restores context before the first user turn.                                  |
-| `llm_endpoint`          | The session's LLM channel endpoint: on the endpoint, the same block as `/trigger`; in `claude_code` mode, `{"type": "claude_code", "oauth_token": "..."}`. A cold open takes the current mode. The chat backend rejects a start without it. |
+| `llm_endpoint`          | The session's LLM channel endpoint: on the endpoint, the same block as `/trigger`; in `claude_code` mode, `{"type": "claude_code", "oauth_token": "...", "effort": "..."}` (`effort` omitted when empty). A cold open takes the current mode. The chat backend rejects a start without it. |
 | `git_credentials_token` | A deterministic per-session bearer, `<session_id>.<base64url HMAC-SHA256(chat api_key, session_id)>`. CM never persists it; it re-derives and compares. The worker presents it to `GET /api/worker/git-credentials` for per-repo credentials on demand. The chat backend rejects a start without it. |
 
 The success body is `{"ok": true, "container_id": "..."}`; CM records the
@@ -983,10 +983,16 @@ the token only where everyone who can start work is its owner.
    the UI names it as an exception.
 4. Optionally set `claude_code.default_model`: a Claude Code model ID such as
    `claude-sonnet-5-5` (the default).
+5. Optionally set `claude_code.effort` (`CONTEXTMATRIX_CLAUDE_CODE_EFFORT`):
+   Claude Code's `--effort` level, one of `low`, `medium`, `high`, `xhigh` or
+   `max`. CM sends it as `llm_endpoint.effort` on every `claude_code` start;
+   empty (the default) sends none, so Claude Code uses its own default. A
+   backend's own `reasoning_effort` applies only on the endpoint side.
 
 Startup fails on a `backends` entry outside the three kinds, a kind listed
-twice, `backends` without a token, or a `default_model` that is not a Claude
-Code model ID (for example `anthropic/claude-opus-5.5` or `claude-opus-5.5`).
+twice, `backends` without a token, a `default_model` that is not a Claude
+Code model ID (for example `anthropic/claude-opus-5.5` or `claude-opus-5.5`),
+or an `effort` outside the five levels.
 The block is read once at startup.
 
 | Configured                         | Mode                                                                                                  |
@@ -1296,6 +1302,7 @@ name, a leftover `runner` entry, or an unknown per-entry key fails startup.
 | `claude_code.oauth_token`              | global                 | unset       | Claude Code subscription token from `claude setup-token`; sent only in `claude_code` mode. See [Claude Code subscription mode](#claude-code-subscription-mode). |
 | `claude_code.backends`                 | global                 | `[]`        | Backend kinds (`agent`, `chat`, `architect`) that run Claude Code in `claude_code` mode; needs the token.                                |
 | `claude_code.default_model`            | global                 | `claude-sonnet-5-5` | The model of a `claude_code` start whose own model maps to no Claude Code ID, or to one outside a built Claude Code catalog.     |
+| `claude_code.effort`                   | global                 | unset       | Claude Code's `--effort` level (`low`, `medium`, `high`, `xhigh`, `max`), sent as `llm_endpoint.effort` on every `claude_code` start; unset sends none. |
 | `best_of_n.max_candidates`             | global                 | `5`         | Hard cap on a card's race size.                                                                                                          |
 | `best_of_n.default_candidates`         | global                 | `3`         | Race size the UI suggests.                                                                                                               |
 | `mob.*`                                | global                 | see example | Participant and round caps, budget factor, checkpoint flags, guest registry.                                                             |
@@ -1322,7 +1329,7 @@ can be configured through env alone. Unknown suffixes fail startup.
 
 The related globals have their own names: `CONTEXTMATRIX_MCP_API_KEY`,
 `CONTEXTMATRIX_LLM_ENDPOINT_{TYPE,BASE_URL,API_KEY}`,
-`CONTEXTMATRIX_CLAUDE_CODE_{OAUTH_TOKEN,BACKENDS,DEFAULT_MODEL}`,
+`CONTEXTMATRIX_CLAUDE_CODE_{OAUTH_TOKEN,BACKENDS,DEFAULT_MODEL,EFFORT}`,
 `CONTEXTMATRIX_OP_STORE_DB_PATH`, `CONTEXTMATRIX_CHAT_IDLE_TTL`,
 `CONTEXTMATRIX_CHAT_MAX_CONCURRENT`, `CONTEXTMATRIX_BEST_OF_N_*`, and
 `CONTEXTMATRIX_MOB_*` (the guest registry is file-only because tokens are

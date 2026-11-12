@@ -154,7 +154,10 @@ theme: "everforest"
 # agent, chat and architect; list only backends running a release with Claude
 # Code support. default_model is a Claude Code model ID such as
 # claude-sonnet-5-5, checked for its form at startup; a model Claude Code does
-# not serve fails its runs.
+# not serve fails its runs. effort is Claude Code's --effort level for every
+# claude_code start: low, medium, high, xhigh or max; empty (the default) sends
+# none, so Claude Code uses its own default. A backend's own reasoning_effort
+# applies only on the endpoint side.
 #
 # Claude Code model IDs price like any model: a token_costs row keyed on the ID
 # first, then the served catalog's rate when it knows the name, else the
@@ -165,11 +168,13 @@ theme: "everforest"
 # Env: CONTEXTMATRIX_CLAUDE_CODE_OAUTH_TOKEN
 #      CONTEXTMATRIX_CLAUDE_CODE_BACKENDS (comma-separated)
 #      CONTEXTMATRIX_CLAUDE_CODE_DEFAULT_MODEL
+#      CONTEXTMATRIX_CLAUDE_CODE_EFFORT
 #
 # claude_code:
 #   oauth_token: ""
 #   backends: []
 #   default_model: claude-sonnet-5-5
+#   effort: ""
 
 # Per-model token cost rates used for usage reporting (optional).
 # Keys are model identifiers; prompt/completion values are USD per token.
