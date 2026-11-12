@@ -529,6 +529,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 	}
 
 	s.enrichDependenciesMet(ctx, card)
+	s.overlayLiveness(card)
 
 	return card, nil
 }
@@ -669,6 +670,7 @@ func (s *CardService) createCardVerified(ctx context.Context, project string, in
 	}
 
 	s.enrichDependenciesMet(ctx, card)
+	s.overlayLiveness(card)
 
 	return card, nil
 }
@@ -835,6 +837,8 @@ func (s *CardService) buildNewCardFromInput(
 		}
 	}
 
+	s.overlayLiveness(card)
+
 	return card, nil
 }
 
@@ -875,6 +879,7 @@ func (s *CardService) applyDedupGuard(
 				"state", sub.State,
 			)
 			s.enrichDependenciesMet(ctx, sub)
+			s.overlayLiveness(sub)
 
 			return sub, true, nil
 		}
@@ -915,6 +920,8 @@ func (s *CardService) cardBySource(ctx context.Context, project string, input Cr
 			"external_id", src.ExternalID,
 			"state", c.State,
 		)
+
+		s.overlayLiveness(c)
 
 		return c, nil
 	}
@@ -960,6 +967,8 @@ func (s *CardService) commitNewCardWithNextID(
 
 		r.notifyCommit()
 	}
+
+	s.overlayLiveness(card)
 
 	return card, nil
 }
@@ -1626,6 +1635,7 @@ func (s *CardService) addLogEntry(ctx context.Context, project, id string, entry
 	})
 
 	s.enrichDependenciesMet(ctx, card)
+	s.overlayLiveness(card)
 
 	return card, nil
 }
@@ -1804,6 +1814,7 @@ func (s *CardService) applyCardMutation(
 	s.publishStateOrUpdate(project, id, card, opts.commitAgentID, oldState, stateChanged)
 
 	s.enrichDependenciesMet(ctx, card)
+	s.overlayLiveness(card)
 
 	return card, nil
 }
@@ -1916,6 +1927,8 @@ func (s *CardService) commitAndRollbackOrReturn(
 
 		return nil, rollbackErr
 	}
+
+	s.overlayLiveness(card)
 
 	return card, nil
 }

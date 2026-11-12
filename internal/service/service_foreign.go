@@ -89,6 +89,7 @@ func (s *CardService) stallForeignVerified(ctx context.Context, r *BoardsRepo, p
 			previousState := card.State
 
 			card.State = board.StateStalled
+			card.RecordRelease(s.clk.Now())
 			card.ClearClaim()
 			card.ClaimEpoch++
 

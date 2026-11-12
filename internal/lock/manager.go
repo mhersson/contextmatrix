@@ -103,6 +103,10 @@ func (m *Manager) Claim(ctx context.Context, project, cardID, agentID string) (*
 			return nil, fmt.Errorf("%w: currently held by %s", ErrAlreadyClaimed, card.AssignedAgent)
 		}
 
+		if card.AssignedAgent == "" {
+			card.RecordClaim(agentID, now)
+		}
+
 		card.AssignedAgent = agentID
 		card.LastHeartbeat = &now
 		card.Updated = now
@@ -128,6 +132,10 @@ func (m *Manager) Claim(ctx context.Context, project, cardID, agentID string) (*
 	default:
 		return nil, fmt.Errorf("%w: currently held by %s", ErrAlreadyClaimed, card.AssignedAgent)
 	}
+
+	// A takeover of an expired lease ends the previous holder's claim.
+	card.RecordRelease(now)
+	card.RecordClaim(agentID, now)
 
 	card.AssignedAgent = agentID
 	card.ClaimedVia = m.instance
@@ -189,6 +197,7 @@ func (m *Manager) ForceRelease(ctx context.Context, project, cardID string) (*bo
 // dropClaim clears the tuple, bumps the epoch on a shared board, and forgets
 // the live beat. It is the one place a claim ends.
 func (m *Manager) dropClaim(card *board.Card, project, cardID string) {
+	card.RecordRelease(m.clk.Now())
 	card.ClearClaim()
 	card.Updated = m.clk.Now()
 

@@ -85,6 +85,8 @@ func resolveProject(in Input, project string, _ Context) (Output, error) {
 	out.Favorites = pickDeep(base.Favorites, ours.Favorites, theirs.Favorites, theirsWins, "favorites")
 	out.CardDefaults = pickDeep(base.CardDefaults, ours.CardDefaults, theirs.CardDefaults, theirsWins, "card_defaults")
 	out.POC = pickDeep(base.POC, ours.POC, theirs.POC, theirsWins, "poc")
+	out.UnclaimedWarningSeconds = pickDeep(base.UnclaimedWarningSeconds, ours.UnclaimedWarningSeconds,
+		theirs.UnclaimedWarningSeconds, theirsWins, "unclaimed_warning_seconds")
 	out.KnowledgeProvider = pickStr(base.KnowledgeProvider, ours.KnowledgeProvider, theirs.KnowledgeProvider, theirsWins, "knowledge_provider")
 	out.KnowledgeScope = pickStr(base.KnowledgeScope, ours.KnowledgeScope, theirs.KnowledgeScope, theirsWins, "knowledge_scope")
 

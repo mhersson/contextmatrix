@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -114,6 +115,14 @@ type Card struct {
 	// InPlaybooks lists the IDs of playbooks holding a card entry for this
 	// card. Computed on read, never persisted.
 	InPlaybooks []string `yaml:"-" json:"in_playbooks,omitempty"`
+	// StateSince, WorkingSince, UnclaimedSince, WorkedSeconds and
+	// WorkIntervals are the card's timing, derived from the activity log by
+	// ComputeTiming. Computed on read, never persisted.
+	StateSince     time.Time      `yaml:"-" json:"state_since,omitzero"`
+	WorkingSince   *time.Time     `yaml:"-" json:"working_since,omitempty"`
+	UnclaimedSince *time.Time     `yaml:"-" json:"unclaimed_since,omitempty"`
+	WorkedSeconds  *float64       `yaml:"-" json:"worked_seconds,omitempty"`
+	WorkIntervals  []WorkInterval `yaml:"-" json:"work_intervals,omitempty"`
 	// PlaybookLock names the runnable playbook that owns this card's
 	// autonomous, create_pr, await_ci, merge_pr and base_branch settings.
 	// RunStatus is that playbook's run status while a run is active, else
@@ -264,28 +273,41 @@ var (
 const maxCardSize = 2 * 1024 * 1024
 
 const (
-	// MaxActivityLogEntries caps a card's activity log. Older entries are
-	// dropped but preserved in git history.
+	// MaxActivityLogEntries caps a card's activity log, claim and release
+	// entries aside. Older entries are dropped but preserved in git history.
 	MaxActivityLogEntries = 50
 	// StateChangedAction is the activity action written on every transition.
 	StateChangedAction = "state_changed"
+	// ClaimedAction and ReleasedAction bracket one claim. They are kept
+	// outside the cap so a card's worked time stays derivable from its log.
+	ClaimedAction  = "claimed"
+	ReleasedAction = "released"
 	// MergeAction is the activity action written by the sync resolver when a
 	// three-way merge overrode, re-minted or dropped something.
 	MergeAction = "merge"
 )
 
-// TrimActivityLog enforces MaxActivityLogEntries, dropping non-transition
-// entries oldest-first and only then the oldest transitions.
+// TrimActivityLog enforces MaxActivityLogEntries on the entries other than
+// claims and releases, dropping non-transition entries oldest-first and only
+// then the oldest transitions. Claim and release entries are always kept.
 func TrimActivityLog(log []ActivityEntry) []ActivityEntry {
-	if len(log) <= MaxActivityLogEntries {
+	capped := 0
+
+	for _, e := range log {
+		if !isClaimEntry(e) {
+			capped++
+		}
+	}
+
+	if capped <= MaxActivityLogEntries {
 		return log
 	}
 
-	excess := len(log) - MaxActivityLogEntries
+	excess := capped - MaxActivityLogEntries
 	out := make([]ActivityEntry, 0, len(log))
 
 	for _, e := range log {
-		if excess > 0 && e.Action != StateChangedAction {
+		if excess > 0 && e.Action != StateChangedAction && !isClaimEntry(e) {
 			excess--
 
 			continue
@@ -294,11 +316,22 @@ func TrimActivityLog(log []ActivityEntry) []ActivityEntry {
 		out = append(out, e)
 	}
 
-	if len(out) > MaxActivityLogEntries {
-		out = out[len(out)-MaxActivityLogEntries:]
-	}
+	// Still over the cap: only transitions are left to drop, oldest first.
+	out = slices.DeleteFunc(out, func(e ActivityEntry) bool {
+		if excess > 0 && !isClaimEntry(e) {
+			excess--
+
+			return true
+		}
+
+		return false
+	})
 
 	return out
+}
+
+func isClaimEntry(e ActivityEntry) bool {
+	return e.Action == ClaimedAction || e.Action == ReleasedAction
 }
 
 // ValidPhase reports whether p is a recognized orchestrator phase. Empty

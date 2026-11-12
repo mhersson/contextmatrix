@@ -239,13 +239,16 @@ func (s *CardService) ClaimedElsewhere(card *board.Card) bool {
 // its repo's lock manager when that is newer. Every read path calls it so
 // the UI, the health tool and the dashboard see the same liveness the stall
 // checker does. A no-op for cards in a private repo: no live beat is ever
-// recorded there, so the file value is already authoritative.
+// recorded there, so the file value is already authoritative. It also
+// derives the card's timing fields, so read and mutation results carry them.
 func (s *CardService) overlayLiveness(cards ...*board.Card) {
 	for _, c := range cards {
 		r := s.repoOf(c.Project)
 		if r.sharedClaims() {
 			c.LastHeartbeat = r.Lock.LastBeat(c)
 		}
+
+		c.ComputeTiming(s.clk.Now())
 	}
 }
 
@@ -357,6 +360,7 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 
 	if card.State == targetState {
 		s.enrichDependenciesMet(ctx, card)
+		s.overlayLiveness(card)
 
 		return card, nil
 	}
@@ -380,6 +384,7 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 
 	s.maybeTransitionParent(ctx, card)
 	s.enrichDependenciesMet(ctx, card)
+	s.overlayLiveness(card)
 
 	return card, nil
 }

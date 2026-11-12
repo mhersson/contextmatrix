@@ -31,6 +31,7 @@ func applyInvariants(card, theirs *board.Card, project string, c Context) (*boar
 	// agent taking finished work.
 	if card.State == board.StateNotPlanned && (card.AssignedAgent != "" || card.LastHeartbeat != nil ||
 		card.ClaimedVia != "" || card.ClaimedAt != nil) {
+		card.RecordRelease(c.Now())
 		card.ClearClaim()
 
 		repair("not_planned clears the agent claim")

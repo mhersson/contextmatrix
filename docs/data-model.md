@@ -82,7 +82,12 @@ live in [architecture](architecture.md); the HTTP surface in the
 
 6. **Activity log is append-only, capped at 50 entries.** Agents append via
    the `add_log` MCP tool; entries past 50 drop from the file (oldest first)
-   but stay in git history. On a shared repo the merge resolver in
+   but stay in git history. The server writes `claimed` when a claim starts
+   (not when the holder re-claims) and `released` under the holder's name
+   when it ends: release, force release, takeover, stall, `not_planned`, a
+   terminal worker status and the merge resolver's `not_planned` repair.
+   These two are kept outside the cap, so [card timing](#card-timing) stays
+   derivable. On a shared repo the merge resolver in
    `internal/boardmerge` also writes entries with `agent: system`, action
    `merge` and message `<rule>: <detail> (instance <id>)` for an overridden
    field, a re-minted card, a dangling reference an invariant repair dropped,
@@ -370,6 +375,11 @@ type Card struct {
     SubtaskCostHasEstimates bool              `yaml:"-"                               json:"subtask_cost_has_estimates,omitempty"`
     SubtaskUsage            []SubtaskUsage    `yaml:"-"                               json:"subtask_usage,omitempty"`
     InPlaybooks             []string          `yaml:"-"                             json:"in_playbooks,omitempty"`
+    StateSince              time.Time         `yaml:"-"                             json:"state_since,omitzero"`
+    WorkingSince            *time.Time        `yaml:"-"                             json:"working_since,omitempty"`
+    UnclaimedSince          *time.Time        `yaml:"-"                             json:"unclaimed_since,omitempty"`
+    WorkedSeconds           *float64          `yaml:"-"                             json:"worked_seconds,omitempty"`
+    WorkIntervals           []WorkInterval    `yaml:"-"                             json:"work_intervals,omitempty"`
     PlaybookLock            *CardPlaybookLock `yaml:"-"                             json:"playbook_lock,omitempty"`
     Created                 time.Time         `yaml:"created"                       json:"created"`
     Updated                 time.Time         `yaml:"updated"                         json:"updated"`
@@ -530,6 +540,7 @@ type ProjectConfig struct {
     Verify           *VerifyConfig            `yaml:"verify,omitempty"            json:"verify,omitempty"`
     CardDefaults     *CardDefaults            `yaml:"card_defaults,omitempty"     json:"card_defaults,omitempty"`
     POC              bool                     `yaml:"poc,omitempty"               json:"poc,omitempty"`
+    UnclaimedWarningSeconds int               `yaml:"unclaimed_warning_seconds,omitempty" json:"unclaimed_warning_seconds,omitempty"`
     KnowledgeProvider string                  `yaml:"knowledge_provider,omitempty" json:"knowledge_provider,omitempty"`
     KnowledgeScope    string                  `yaml:"knowledge_scope,omitempty"    json:"knowledge_scope,omitempty"`
     Favorites        map[string]TierFavorites `yaml:"favorites,omitempty"         json:"-"`
@@ -578,7 +589,9 @@ entries winning per tier. `json:"-"`: no REST path writes it; hand-edit
 `last_heartbeat`, `claimed_via`, `claimed_at`, `claim_epoch`, `activity_log`,
 `worker_status`, `review_attempts`, `token_usage`,
 `usage_breakdown`, `dependencies_met`, `blocked_by`, `subtask_cost_usd`,
-`subtask_cost_has_estimates`, `subtask_usage`, `in_playbooks`, `playbook_lock`.
+`subtask_cost_has_estimates`, `subtask_usage`, `in_playbooks`, `playbook_lock`,
+`state_since`, `working_since`, `unclaimed_since`, `worked_seconds`,
+`work_intervals`.
 
 `branch_name` is predicted by CM at create as `<lowercase-id>/<title-slug>`
 (a Jira import keeps its key uppercase: `<lowercase-id>/<KEY>-<slug of the rest of the title>`)
@@ -603,6 +616,26 @@ it empty rather than failing the read.
 run_status}` of the runnable playbook that owns the card's `autonomous`,
 `create_pr`, `await_ci`, `merge_pr`, `base_branch`; `run_status` set only
 while that run is `running` or `waiting`.
+
+### Card timing
+
+Every card read and mutation result derives these from the activity log
+(`board.Card.ComputeTiming`); they are never written to frontmatter:
+
+- `state_since` - the last transition into the current state, else `created`.
+- `working_since` - start of the claim the card is held under, else
+  `claimed_at`; absent when nobody holds the card, and on a private board for
+  a claim made before claims were recorded.
+- `unclaimed_since` - the last release, else `state_since`; only on cards
+  nobody holds.
+- `work_intervals` - one `{agent, from, to}` per recorded claim, oldest first;
+  `to` is `null` for the claim still held.
+- `worked_seconds` - the summed intervals, the held one counting up to now.
+  Absent when the log cannot account for every claim (a claim made before
+  claims were recorded): unknown, not zero.
+
+A same-holder re-claim is liveness and starts no interval. MCP card
+summaries carry the scalar fields but not `work_intervals`.
 
 **Agent-managed field** `phase`: the orchestrator's position within a run,
 one of `plan`, `execute`, `judge`, `document`, `review`, `integrate`,
@@ -1035,6 +1068,7 @@ Top-level `.board.yaml` fields (full reference in
 | `verify`            | Project verify gate; see the card-level `verify` field.                          |
 | `card_defaults`     | Create-time defaults for the card automation fields; see below.                  |
 | `poc`               | Proof-of-concept flag; see below.                                                |
+| `unclaimed_warning_seconds` | Board warning for an unheld `in_progress` / `review` card; see below.    |
 | `knowledge_provider` | Name of a `knowledge.providers` entry; see below.                               |
 | `knowledge_scope`   | The product's name at that provider; see below.                                  |
 | `favorites`         | Per-tier model preferences, hand-edited only; see the `Favorites` note.          |
@@ -1107,6 +1141,15 @@ Settings, Execution tab); MCP `update_project` preserves it. On a shared
 boards repo the three-way merge keeps a change made on one side only, so a
 remote `next_id` bump neither drops a local switch-on nor brings back a flag
 switched off locally.
+
+### `unclaimed_warning_seconds` (optional, `int`)
+
+Off when absent or `0`. When set, the board marks an `in_progress` or
+`review` card that no agent has held for that many seconds (see
+`unclaimed_since` under [card timing](#card-timing)). Negative values fail
+validation. Hand-edited in `.board.yaml`; no REST or MCP field sets it, and
+updates preserve it. On a shared boards repo a one-sided change survives the
+three-way merge, as with `poc`.
 
 ### `knowledge_provider` / `knowledge_scope` (optional, `string`)
 

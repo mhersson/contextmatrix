@@ -219,6 +219,7 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 			"pr_url": prURL,
 		},
 	})
+	s.overlayLiveness(card)
 
 	return card, nil
 }
@@ -295,6 +296,7 @@ func (s *CardService) ReportParked(ctx context.Context, project, id, agentID, re
 		Timestamp: s.clk.Now(),
 		Data:      map[string]any{"worker_status": "parked", "reason": reason},
 	})
+	s.overlayLiveness(card)
 
 	return card, nil
 }
@@ -368,6 +370,7 @@ func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, 
 			"review_attempts": card.ReviewAttempts,
 		},
 	})
+	s.overlayLiveness(card)
 
 	return card, nil
 }
@@ -485,6 +488,7 @@ func (s *CardService) updateWorkerStatus(
 
 		ctxlog.Logger(ctx).Info("worker status ignored: card claimed via another instance",
 			"card_id", cardID, "project", project, "claimed_via", card.ClaimedVia, "status", status)
+		s.overlayLiveness(card)
 
 		return card, nil
 	}
@@ -498,6 +502,7 @@ func (s *CardService) updateWorkerStatus(
 
 		ctxlog.Logger(ctx).Info("worker status ignored: report on a killed worker",
 			"card_id", cardID, "project", project, "status", status)
+		s.overlayLiveness(card)
 
 		return card, nil
 	}
@@ -550,6 +555,7 @@ func (s *CardService) updateWorkerStatus(
 
 	// Clear agent claim on terminal worker statuses.
 	if status == "failed" || status == "killed" || status == "completed" {
+		card.RecordRelease(s.clk.Now())
 		card.ClearClaim()
 
 		if hadAgent && r.sharedClaims() {
@@ -634,6 +640,7 @@ func (s *CardService) updateWorkerStatus(
 		Timestamp: s.clk.Now(),
 		Data:      map[string]any{"worker_status": status},
 	})
+	s.overlayLiveness(card)
 
 	return card, nil
 }
@@ -716,6 +723,7 @@ func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, 
 	if card.Autonomous {
 		s.writeMu.Unlock()
 		s.enrichDependenciesMet(ctx, card)
+		s.overlayLiveness(card)
 
 		return card, nil
 	}
@@ -772,6 +780,7 @@ func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, 
 	})
 
 	s.enrichDependenciesMet(ctx, card)
+	s.overlayLiveness(card)
 
 	return card, nil
 }

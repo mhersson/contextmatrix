@@ -123,7 +123,25 @@ func TestApplyInvariants_TrimsLogWhenProjectConfigFails(t *testing.T) {
 	assert.Nil(t, got.LastHeartbeat)
 	require.NotEmpty(t, res)
 	assert.Equal(t, RuleInvariantRepair, res[0].Rule)
-	assert.LessOrEqual(t, len(got.ActivityLog), board.MaxActivityLogEntries)
+
+	// The repair ends the claim in the log too, outside the cap.
+	var released []board.ActivityEntry
+
+	capped := 0
+
+	for _, e := range got.ActivityLog {
+		if e.Action == board.ReleasedAction {
+			released = append(released, e)
+
+			continue
+		}
+
+		capped++
+	}
+
+	require.Len(t, released, 1)
+	assert.Equal(t, "x", released[0].Agent)
+	assert.LessOrEqual(t, capped, board.MaxActivityLogEntries)
 }
 
 func TestApplyInvariants_FallbackCopiesTheirsActivityLog(t *testing.T) {

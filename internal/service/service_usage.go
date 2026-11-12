@@ -360,6 +360,7 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 	})
 
 	s.enrichDependenciesMet(ctx, card)
+	s.overlayLiveness(card)
 
 	return card, nil
 }
