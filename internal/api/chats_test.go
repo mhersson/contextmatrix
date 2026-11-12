@@ -221,6 +221,9 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 		}
 
 		chh.live = newBlueprintLive(chh.architect, hub)
+
+		t.Cleanup(func() { stopRelays(chh.live) })
+
 		if opts.liveLinger > 0 {
 			chh.live.linger = opts.liveLinger
 		}
