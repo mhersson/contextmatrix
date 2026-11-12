@@ -939,3 +939,42 @@ func TestDeleteCard_RefusesWhileAWorkerIsLive(t *testing.T) {
 		})
 	}
 }
+
+func TestAddLogEntry_ReservedActions(t *testing.T) {
+	ctx := context.Background()
+
+	for _, action := range []string{board.ClaimedAction, board.ReleasedAction, board.StateChangedAction, board.MergeAction} {
+		t.Run(action, func(t *testing.T) {
+			svc, _, cleanup := setupTest(t)
+			defer cleanup()
+
+			card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+				Title: "t", Type: "task", Priority: "low",
+			})
+			require.NoError(t, err)
+
+			before := len(card.ActivityLog)
+
+			_, err = svc.AddLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{Agent: "human:alice", Action: action, Message: "forged"})
+			require.ErrorIs(t, err, ErrReservedLogAction)
+
+			got, err := svc.GetCard(ctx, "test-project", card.ID)
+			require.NoError(t, err)
+			assert.Len(t, got.ActivityLog, before)
+		})
+	}
+
+	t.Run("ordinary action accepted", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "t", Type: "task", Priority: "low",
+		})
+		require.NoError(t, err)
+
+		got, err := svc.AddLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{Agent: "human:alice", Action: "note", Message: "ok"})
+		require.NoError(t, err)
+		assert.Equal(t, "note", got.ActivityLog[len(got.ActivityLog)-1].Action)
+	})
+}

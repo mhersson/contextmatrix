@@ -160,11 +160,29 @@ describe('CardPanelMetadata - section order', () => {
       'Assignee',
       'Agent',
       'Status',
+      'Timing',
       'Depends on',
       'Source',
       'Skills',
       'Models used',
     ]);
+  });
+
+  it('moves Timing directly above Models used on a finished card', () => {
+    authState.current = { mode: 'multi' };
+    usersState.current = [{ username: 'alice', display_name: 'Alice' }];
+    const doneCard: Card = {
+      ...baseCard,
+      state: 'done',
+      usage_breakdown: [
+        { agent: 'cmx-agent-test-001', model: 'openai/model-1', prompt_tokens: 100, completion_tokens: 50, cost_usd: 0.01, cost_source: 'actual' },
+      ],
+    };
+    render(<CardPanelMetadata {...defaultProps} card={doneCard} editedCard={doneCard} assignee="alice" />);
+
+    const headings = screen.getAllByRole('heading', { level: 4 }).map((h) => h.textContent);
+    expect(headings.slice(-2)).toEqual(['Timing', 'Models used']);
+    expect(headings.indexOf('Timing')).toBeGreaterThan(headings.indexOf('Status') + 1);
   });
 });
 

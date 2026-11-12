@@ -101,7 +101,7 @@ Cards:
   guests): union, with a removal on either side honored.
 - Body: three-way text merge; when unclean, the later `updated` wins and the
   overridden text stays in the losing commit, named in the audit entry.
-- Activity logs union, then trim to 50.
+- Activity logs union, then trim to 50 (`claimed` and `released` entries exempt).
 - Both sides created the same card path: the remote keeps the ID and the
   local card is re-minted under a fresh ID with references renamed, unless
   both imported the same external issue, which dedupes to one card.

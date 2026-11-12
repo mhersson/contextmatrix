@@ -572,6 +572,7 @@ func (s *CardService) updateWorkerStatus(
 
 	// Clear agent claim on terminal worker statuses.
 	if status == "failed" || status == "killed" || status == "completed" {
+		card.RecordRelease(s.clk.Now())
 		card.ClearClaim()
 
 		if hadAgent && r.sharedClaims() {

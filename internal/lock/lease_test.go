@@ -78,6 +78,9 @@ func TestClaim_Shared(t *testing.T) {
 		}, "agent-TEST-001", nil, func(t *testing.T, c *board.Card, _ *clock.FakeClock) {
 			assert.Equal(t, "lap-a", c.ClaimedVia)
 			assert.Equal(t, 3, c.ClaimEpoch)
+			require.GreaterOrEqual(t, len(c.ActivityLog), 2)
+			assert.Equal(t, board.ReleasedAction, c.ActivityLog[len(c.ActivityLog)-2].Action)
+			assert.Equal(t, board.ClaimedAction, c.ActivityLog[len(c.ActivityLog)-1].Action)
 		}},
 	}
 	for _, tt := range tests {

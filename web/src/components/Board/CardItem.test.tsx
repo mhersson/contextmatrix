@@ -1,7 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { CardItem } from './CardItem';
 import type { Card } from '../../types';
+import { shortDuration } from '../../lib/cardTiming';
 
 // @dnd-kit requires a DndContext - provide a minimal mock. Passes through the
 // `attributes` option the component supplies, defaulting to dnd-kit's real
@@ -464,5 +465,58 @@ describe('CardItem - hovercard', () => {
     );
     expect(screen.getByRole('img', { name: 'Priority: medium' })).not.toHaveAttribute('title');
     expect(screen.getByLabelText('Type: task')).not.toHaveAttribute('title');
+  });
+});
+
+describe('CardItem - clock', () => {
+  const T0 = Date.parse('2026-01-01T12:00:00Z');
+  const iso = (offsetMin: number) => new Date(T0 + offsetMin * 60_000).toISOString();
+  const workedCard: Card = {
+    ...baseCard,
+    state: 'in_progress',
+    created: iso(-300),
+    assigned_agent: 'worker-1',
+    activity_log: [
+      { agent: 'human:alice', ts: iso(-134), action: 'state_changed', message: 'todo -> in_progress' },
+      { agent: 'worker-1', ts: iso(-20), action: 'claimed', message: 'card claimed' },
+    ],
+  };
+  const clock = () => screen.queryByTestId('card-clock');
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('shows the time in the current state while an agent works on the card, and ticks', () => {
+    render(<CardItem card={workedCard} />);
+    expect(clock()).toHaveTextContent(shortDuration(134 * 60));
+    act(() => { vi.advanceTimersByTime(30 * 60_000); });
+    expect(clock()).toHaveTextContent(shortDuration(164 * 60));
+  });
+
+  it('reads the current time when a card it was not ticking for gets worked on', () => {
+    const { rerender } = render(<CardItem card={{ ...workedCard, assigned_agent: undefined }} />);
+    act(() => { vi.advanceTimersByTime(60 * 60_000); });
+    rerender(<CardItem card={workedCard} />);
+    expect(clock()).toHaveTextContent(shortDuration(194 * 60));
+  });
+
+  it('shows the clock on a collapsed row too', () => {
+    render(<CardItem card={workedCard} isCollapsed onToggleCollapse={() => {}} />);
+    expect(clock()).toHaveTextContent(shortDuration(134 * 60));
+  });
+
+  const unworked: [string, Partial<Card>][] = [
+    ['nobody holds it', { assigned_agent: undefined }],
+    ...['todo', 'blocked', 'stalled', 'done', 'not_planned'].map((state): [string, Partial<Card>] => [`the card is ${state}`, { state }]),
+  ];
+
+  it.each(unworked)('shows no clock when %s', (_name, patch) => {
+    render(<CardItem card={{ ...workedCard, ...patch }} />);
+    expect(clock()).not.toBeInTheDocument();
   });
 });

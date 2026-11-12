@@ -69,6 +69,14 @@ Every view updates live from one Server-Sent Events stream per tab
   agent reports on `report_usage`; buckets written before roles existed, or
   reported with no phase (chat-driven cards), show as `other`. That spend cannot be
   re-attributed, so there is no migration.
+- **Card timers**: while an agent holds a card in a state where work happens
+  (not todo, blocked, stalled, done or not planned), its expanded and
+  collapsed tiles show a clock icon and the time in the current state. The
+  Info tab's Timing section, after Status (above Models used on a finished
+  card), shows the state and how long, or when a finished card got there,
+  then every recorded claim with the total. Both are derived in the browser
+  from the activity log's `claimed`, `released` and `state_changed` entries
+  and tick without requests.
 - **Collapsing**: columns collapse to a strip, cards to a header row. Both sets
   are stored per project in `localStorage` under
   `contextmatrix-collapsed-columns-<project>` and

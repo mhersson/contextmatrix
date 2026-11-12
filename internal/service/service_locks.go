@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"time"
 
@@ -236,6 +237,7 @@ func (s *CardService) undoClaimWrite(ctx context.Context, project, id string, wr
 
 	cur.AssignedAgent, cur.ClaimedVia, cur.ClaimedAt, cur.LastHeartbeat = snapshot.AssignedAgent, snapshot.ClaimedVia, snapshot.ClaimedAt, snapshot.LastHeartbeat
 	cur.State, cur.WorkerStatus, cur.Phase, cur.ClaimEpoch = snapshot.State, snapshot.WorkerStatus, snapshot.Phase, snapshot.ClaimEpoch
+	cur.ActivityLog = withoutAddedClaimEntries(cur.ActivityLog, snapshot, written)
 	cur.Updated = s.clk.Now()
 	cur.ActivityLog = board.TrimActivityLog(append(cur.ActivityLog,
 		board.ActivityEntry{Agent: "system", Action: "sync", Timestamp: cur.Updated, Message: reason}))
@@ -247,6 +249,32 @@ func (s *CardService) undoClaimWrite(ctx context.Context, project, id string, wr
 	s.repoOf(project).Lock.ClearBeat(project, id)
 
 	return s.commitNow(ctx, []string{s.cardPath(project, id)}, commitMessage("", id, reason))
+}
+
+// withoutAddedClaimEntries drops from log the claim and release entries that
+// written added over snapshot. Timestamps compare in canonical form, since a
+// disk round trip drops the monotonic reading and the zone.
+func withoutAddedClaimEntries(log []board.ActivityEntry, snapshot, written *board.Card) []board.ActivityEntry {
+	key := func(e board.ActivityEntry) board.ActivityEntry {
+		e.Timestamp = e.Timestamp.Round(0).UTC()
+
+		return e
+	}
+
+	before := make(map[board.ActivityEntry]bool, len(snapshot.ActivityLog))
+	for _, e := range snapshot.ActivityLog {
+		before[key(e)] = true
+	}
+
+	added := make(map[board.ActivityEntry]bool)
+
+	for _, e := range written.ActivityLog {
+		if (e.Action == board.ClaimedAction || e.Action == board.ReleasedAction) && !before[key(e)] {
+			added[key(e)] = true
+		}
+	}
+
+	return slices.DeleteFunc(log, func(e board.ActivityEntry) bool { return added[key(e)] })
 }
 
 // ReleaseCard removes an agent's claim on a card.
@@ -835,6 +863,7 @@ func (s *CardService) stallCardLocked(ctx context.Context, project string, card 
 	previousState := card.State
 
 	card.State = board.StateStalled
+	card.RecordRelease(s.clk.Now())
 	card.ClearClaim()
 
 	if r.sharedClaims() {

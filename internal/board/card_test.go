@@ -1180,6 +1180,22 @@ func TestTrimActivityLog(t *testing.T) {
 		assert.Equal(t, "10", out[0].Message)
 		assert.Equal(t, "59", out[len(out)-1].Message)
 	})
+	t.Run("keeps claim and release entries outside the cap", func(t *testing.T) {
+		in := append(mk(2, ClaimedAction), mk(60, "log")...)
+		in = append(in, mk(2, ReleasedAction)...)
+		out := TrimActivityLog(in)
+		require.Len(t, out, MaxActivityLogEntries+4)
+		assert.Equal(t, ClaimedAction, out[0].Action)
+		assert.Equal(t, "10", out[2].Message, "the oldest plain entries go first")
+		assert.Equal(t, ReleasedAction, out[len(out)-1].Action)
+	})
+	t.Run("drops transitions before claims when only those are left over the cap", func(t *testing.T) {
+		in := append(mk(3, ClaimedAction), mk(55, StateChangedAction)...)
+		out := TrimActivityLog(in)
+		require.Len(t, out, MaxActivityLogEntries+3)
+		assert.Equal(t, ClaimedAction, out[2].Action)
+		assert.Equal(t, "5", out[3].Message)
+	})
 }
 
 func TestCard_PlaybookSettings(t *testing.T) {

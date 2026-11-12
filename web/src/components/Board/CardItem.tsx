@@ -11,6 +11,7 @@ import { SubtaskStrip, SubtaskPeekList } from './SubtaskStrip';
 import { CardHoverCard } from './CardHoverCard';
 import { hasUnmetDeps } from '../../lib/chip';
 import { lastInputWasKeyboard } from '../../lib/inputModality';
+import { CardClock } from '../CardTiming/CardClock';
 
 interface CardItemProps {
   card: Card;
@@ -238,6 +239,7 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
           <span className="flex-shrink-0" style={cardIdStyle}>{card.id}</span>
           <CardChipRow card={card} compact />
           <span className="text-[13px] leading-[1.33] text-[var(--fg)] truncate min-w-0 flex-1">{card.title}</span>
+          <CardClock card={card} />
           {collapseButton}
         </div>
         {peekList}
@@ -321,8 +323,11 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
       {/* Subtask phase strip: one segment per subtask, click to peek */}
       {strip}
 
-      {/* Footer: assignee circle only. */}
-      <CardChipRow card={card} />
+      {/* Footer: assignee circle, and the clock while an agent works on the card. */}
+      <div className="flex items-center gap-2">
+        <CardChipRow card={card} />
+        <span className="ml-auto"><CardClock card={card} /></span>
+      </div>
 
       {peekList}
 

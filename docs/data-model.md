@@ -82,7 +82,12 @@ live in [architecture](architecture.md); the HTTP surface in the
 
 6. **Activity log is append-only, capped at 50 entries.** Agents append via
    the `add_log` MCP tool; entries past 50 drop from the file (oldest first)
-   but stay in git history. On a shared repo the merge resolver in
+   but stay in git history. The server writes `claimed` when a claim starts
+   (not when the holder re-claims) and `released` under the holder's name
+   when it ends: release, force release, takeover, stall, `not_planned`, a
+   terminal worker status and the merge resolver's `not_planned` repair.
+   These two are kept outside the cap, so the board can derive card
+   timing from them. On a shared repo the merge resolver in
    `internal/boardmerge` also writes entries with `agent: system`, action
    `merge` and message `<rule>: <detail> (instance <id>)` for an overridden
    field, a re-minted card, a dangling reference an invariant repair dropped,

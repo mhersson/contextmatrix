@@ -146,7 +146,7 @@ func registerHeartbeat(server *mcp.Server, svc *service.CardService) {
 func registerAddLog(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_log",
-		Description: "Append an activity log entry to a card. The log is capped at 50 entries (oldest dropped). Use action types like 'status_update', 'note', 'blocker', 'decision'. Requires an active claim by the caller: unclaimed cards are rejected so attacker-supplied agent_ids cannot land in the activity log. Returns a card summary; the result does not echo the log.",
+		Description: "Append an activity log entry to a card. The log is capped at 50 entries (oldest dropped). Use action types like 'status_update', 'note', 'blocker', 'decision'. Requires an active claim by the caller: unclaimed cards are rejected so attacker-supplied agent_ids cannot land in the activity log. Returns a card summary; the result does not echo the log. The actions 'claimed', 'released', 'state_changed' and 'merge' are reserved for the server.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input addLogInput) (*mcp.CallToolResult, *CardSummary, error) {
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {

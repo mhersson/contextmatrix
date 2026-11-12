@@ -221,7 +221,9 @@ Full detail and examples: `docs/data-model.md`.
    worker status. Updates, state changes and log entries on an unclaimed
    card commit immediately; on a non-shared auto-commit repo, startup
    commits any dirty paths a previous process left behind.
-6. **Activity log** - append-only, capped at 50 entries per card.
+6. **Activity log** - append-only, capped at 50 entries per card; `claimed`
+   and `released` entries are kept outside the cap, so the board can derive
+   card timing from them.
 7. **Heartbeat timeout** - default 30 min; the service sets the card to
    `stalled` and clears the agent. `stalled` is system-managed.
 8. **`not_planned`** - manual-only; built-in but follows normal transition rules

@@ -70,6 +70,10 @@ func (s *CardService) applyTerminalInvariants(project string, card *board.Card, 
 	r := s.repoOf(project)
 	stateChanged := card.State != from
 
+	if stateChanged && card.State == board.StateNotPlanned {
+		card.RecordRelease(s.clk.Now())
+	}
+
 	enforceTerminalStateInvariants(card, stateChanged, r.sharedClaims())
 
 	if stateChanged && from == board.StateDone {

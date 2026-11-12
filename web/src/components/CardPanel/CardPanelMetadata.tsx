@@ -1,5 +1,7 @@
 import type { Card, ProjectConfig } from '../../types';
+import { isTerminalState } from '../../lib/cardState';
 import { MetadataStatus } from './metadata/MetadataStatus';
+import { MetadataTiming } from './metadata/MetadataTiming';
 import { MetadataAssignee } from './metadata/MetadataAssignee';
 import { MetadataAgent } from './metadata/MetadataAgent';
 import { MetadataRelated } from './metadata/MetadataRelated';
@@ -40,6 +42,9 @@ interface CardPanelMetadataProps {
  *   6. MetadataSkills   - three-state skills selector
  *   7. MetadataUsage    - cost total, role split, per-role model rows, subtask blocks
  *
+ * MetadataTiming follows MetadataStatus; on a finished card (done /
+ * not_planned) it sits directly above MetadataUsage instead.
+ *
  * This wrapper just composes them and renders the Created/Updated footer.
  */
 export function CardPanelMetadata({
@@ -61,6 +66,9 @@ export function CardPanelMetadata({
   onAssigneeChange,
   onDependsOnChange,
 }: CardPanelMetadataProps) {
+  const finished = isTerminalState(card.state);
+  const timing = <MetadataTiming card={card} />;
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
       <MetadataAssignee
@@ -85,6 +93,8 @@ export function CardPanelMetadata({
         onStateChange={onStateChange}
         excludeStateFromPicker={excludeStateFromPicker}
       />
+
+      {!finished && timing}
 
       <MetadataRelated
         card={card}
@@ -112,6 +122,8 @@ export function CardPanelMetadata({
             : `Skills can only be edited in todo · current state: ${card.state.replace(/_/g, ' ')}`
         }
       />
+
+      {finished && timing}
 
       <MetadataUsage card={card} onSubtaskClick={onSubtaskClick} />
 

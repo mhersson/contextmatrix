@@ -1440,8 +1440,10 @@ func TestFullCardLifecycle(t *testing.T) {
 		Message: "Starting implementation",
 	})
 	require.NoError(t, err)
-	require.Len(t, logged.ActivityLog, 1)
-	assert.Equal(t, "Starting implementation", logged.ActivityLog[0].Message)
+	require.Len(t, logged.ActivityLog, 2)
+	assert.Equal(t, board.ClaimedAction, logged.ActivityLog[0].Action)
+	assert.Equal(t, agentID, logged.ActivityLog[0].Agent)
+	assert.Equal(t, "Starting implementation", logged.ActivityLog[1].Message)
 
 	// Step 4: Transition todo → in_progress
 	newState := "in_progress"
@@ -1504,14 +1506,16 @@ func TestFullCardLifecycle(t *testing.T) {
 	assert.Equal(t, "done", final.State)
 	assert.Empty(t, final.AssignedAgent)
 	assert.Nil(t, final.LastHeartbeat)
-	// One log entry from AddLogEntry plus state_changed entries for
-	// todo -> in_progress and in_progress -> done.
-	require.Len(t, final.ActivityLog, 3)
-	assert.Equal(t, "Starting implementation", final.ActivityLog[0].Message)
-	assert.Equal(t, "state_changed", final.ActivityLog[1].Action)
-	assert.Equal(t, "todo -> in_progress", final.ActivityLog[1].Message)
+	// Claim/release bracket the note and the two state transitions.
+	require.Len(t, final.ActivityLog, 5)
+	assert.Equal(t, board.ClaimedAction, final.ActivityLog[0].Action)
+	assert.Equal(t, "Starting implementation", final.ActivityLog[1].Message)
 	assert.Equal(t, "state_changed", final.ActivityLog[2].Action)
-	assert.Equal(t, "in_progress -> done", final.ActivityLog[2].Message)
+	assert.Equal(t, "todo -> in_progress", final.ActivityLog[2].Message)
+	assert.Equal(t, "state_changed", final.ActivityLog[3].Action)
+	assert.Equal(t, "in_progress -> done", final.ActivityLog[3].Message)
+	assert.Equal(t, board.ReleasedAction, final.ActivityLog[4].Action)
+	assert.Equal(t, agentID, final.ActivityLog[4].Agent)
 	assert.Equal(t, []string{"integration"}, final.Labels)
 	assert.Contains(t, final.Body, "## Plan")
 }
