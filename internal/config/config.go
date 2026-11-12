@@ -55,7 +55,13 @@ type ClaudeCodeConfig struct {
 	// BackendNameAgent, BackendNameChat and BackendNameArchitect.
 	Backends     []string `yaml:"backends"`
 	DefaultModel string   `yaml:"default_model"` // a Claude Code model ID, e.g. claude-sonnet-5-5
+	// Effort is Claude Code's --effort level for every claude_code start;
+	// empty sends none, so Claude Code uses its own default.
+	Effort string `yaml:"effort"`
 }
+
+// ClaudeCodeEfforts are the --effort levels Claude Code accepts.
+var ClaudeCodeEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 
 // Configured reports whether a Claude Code token is set.
 func (c ClaudeCodeConfig) Configured() bool { return c.OAuthToken != "" }
@@ -85,6 +91,11 @@ func (c ClaudeCodeConfig) validate() error {
 		if id, ok := selection.ClaudeCodeModelID(c.DefaultModel); !ok || id != c.DefaultModel {
 			return fmt.Errorf("claude_code.default_model must be a Claude Code model ID, got %q", c.DefaultModel)
 		}
+	}
+
+	if c.Effort != "" && !slices.Contains(ClaudeCodeEfforts, c.Effort) {
+		return fmt.Errorf("claude_code.effort must be empty or one of %s, got %q",
+			strings.Join(ClaudeCodeEfforts, ", "), c.Effort)
 	}
 
 	return nil
@@ -2208,6 +2219,10 @@ func applyEnvOverrides(cfg *Config) error {
 
 	if v := os.Getenv("CONTEXTMATRIX_CLAUDE_CODE_DEFAULT_MODEL"); v != "" {
 		cfg.ClaudeCode.DefaultModel = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_CLAUDE_CODE_EFFORT"); v != "" {
+		cfg.ClaudeCode.Effort = v
 	}
 
 	// The outcome-bias mechanism was retired. A stale YAML outcome_floor key

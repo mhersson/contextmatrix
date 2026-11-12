@@ -4389,6 +4389,15 @@ func TestClaudeCodeConfig_Validate(t *testing.T) {
 		{name: "non-claude default model", cfg: ClaudeCodeConfig{DefaultModel: "gpt-5"}, wantErr: "claude_code.default_model"},
 		{name: "bare prefix default model", cfg: ClaudeCodeConfig{DefaultModel: "claude-"}, wantErr: "claude_code.default_model"},
 		{name: "dotted default model", cfg: ClaudeCodeConfig{DefaultModel: "claude-opus-5.5"}, wantErr: "claude_code.default_model"},
+		{name: "empty effort", cfg: ClaudeCodeConfig{Effort: ""}},
+		{name: "effort low", cfg: ClaudeCodeConfig{Effort: "low"}},
+		{name: "effort medium", cfg: ClaudeCodeConfig{Effort: "medium"}},
+		{name: "effort high", cfg: ClaudeCodeConfig{Effort: "high"}},
+		{name: "effort xhigh", cfg: ClaudeCodeConfig{Effort: "xhigh"}},
+		{name: "effort max", cfg: ClaudeCodeConfig{Effort: "max"}},
+		{name: "effort upper case", cfg: ClaudeCodeConfig{Effort: "HIGH"}, wantErr: "claude_code.effort"},
+		{name: "effort minimal", cfg: ClaudeCodeConfig{Effort: "minimal"}, wantErr: "claude_code.effort"},
+		{name: "effort unknown", cfg: ClaudeCodeConfig{Effort: "ultra"}, wantErr: "claude_code.effort"},
 	}
 
 	for _, tt := range tests {
@@ -4428,6 +4437,7 @@ claude_code:
   oauth_token: yaml-token
   backends: [agent]
   default_model: claude-opus-5-5
+  effort: high
 `)
 
 	t.Run("yaml only", func(t *testing.T) {
@@ -4435,7 +4445,7 @@ claude_code:
 		require.NoError(t, err)
 
 		assert.Equal(t, ClaudeCodeConfig{
-			OAuthToken: "yaml-token", Backends: []string{"agent"}, DefaultModel: "claude-opus-5-5",
+			OAuthToken: "yaml-token", Backends: []string{"agent"}, DefaultModel: "claude-opus-5-5", Effort: "high",
 		}, cfg.ClaudeCode)
 	})
 
@@ -4443,6 +4453,7 @@ claude_code:
 		t.Setenv("CONTEXTMATRIX_CLAUDE_CODE_OAUTH_TOKEN", "env-token")
 		t.Setenv("CONTEXTMATRIX_CLAUDE_CODE_BACKENDS", " chat , architect")
 		t.Setenv("CONTEXTMATRIX_CLAUDE_CODE_DEFAULT_MODEL", "claude-haiku-5-5")
+		t.Setenv("CONTEXTMATRIX_CLAUDE_CODE_EFFORT", "max")
 
 		cfg, err := Load(path)
 		require.NoError(t, err)
@@ -4450,6 +4461,16 @@ claude_code:
 		assert.Equal(t, "env-token", cfg.ClaudeCode.OAuthToken)
 		assert.Equal(t, []string{"chat", "architect"}, cfg.ClaudeCode.Backends)
 		assert.Equal(t, "claude-haiku-5-5", cfg.ClaudeCode.DefaultModel)
+		assert.Equal(t, "max", cfg.ClaudeCode.Effort)
+	})
+
+	t.Run("invalid env effort fails startup", func(t *testing.T) {
+		t.Setenv("CONTEXTMATRIX_CLAUDE_CODE_EFFORT", "ultra")
+
+		_, err := Load(path)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "claude_code.effort")
+		assert.NotContains(t, err.Error(), "yaml-token")
 	})
 
 	t.Run("empty env keeps yaml", func(t *testing.T) {
