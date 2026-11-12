@@ -84,6 +84,19 @@ func (u *liveUpstream) route() map[string]http.HandlerFunc {
 	}
 }
 
+// stopRelays ends every relay of b. A relay outlives its subscribers by the
+// linger and may redial meanwhile, reaching a later test's server on a reused
+// port.
+func stopRelays(b *blueprintLive) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for id, r := range b.relays {
+		r.cancel()
+		delete(b.relays, id)
+	}
+}
+
 // at returns s[i], the last element past the end, or the zero value.
 func at[T any](s []T, i int) T {
 	var zero T
@@ -365,6 +378,7 @@ func TestBlueprintLive_ChatSessionsNeverOpenAnUpstream(t *testing.T) {
 
 func TestRouter_WiresTheBlueprintRelay(t *testing.T) {
 	u := newLiveUpstream([]string{liveSnap})
+	u.status = []int{0, http.StatusNotFound}
 	u.end = []bool{true}
 	fa := newFakeArchitect(t, u.route())
 	opts := blueprintFixtureOpts(fa.URL)
@@ -378,6 +392,10 @@ func TestRouter_WiresTheBlueprintRelay(t *testing.T) {
 
 	r, _ := openChatStream(t, srv.URL, bp.ID)
 	assert.JSONEq(t, liveSnap, nextBlueprint(t, r))
+
+	// stopRelays cannot reach the router's relay; the 404 stops it before fa
+	// closes, so it never redials a port a later test reuses.
+	assert.Eventually(t, func() bool { return u.openedCount() == 2 }, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestReadLiveFrames(t *testing.T) {
