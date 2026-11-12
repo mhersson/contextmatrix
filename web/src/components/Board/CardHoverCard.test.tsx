@@ -129,4 +129,16 @@ describe('CardHoverCard', () => {
     // innerHeight - height - gap: 900 - 100 - 8
     expect(tip.style.top).toBe('792px');
   });
+
+  it('lists the signals the card tile passes in, such as the unclaimed warning', () => {
+    render(
+      <CardHoverCard
+        card={baseCard}
+        anchorRef={{ current: null }}
+        id="hover-TEST-001"
+        signals={[{ key: 'unclaimed', label: 'No agent has held it for over 1h', color: 'var(--yellow)', icon: null, importance: 0 }]}
+      />,
+    );
+    expect(screen.getByRole('tooltip')).toHaveTextContent('No agent has held it for over 1h');
+  });
 });

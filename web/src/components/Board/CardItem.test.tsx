@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { CardItem } from './CardItem';
 import type { Card } from '../../types';
@@ -464,5 +464,96 @@ describe('CardItem - hovercard', () => {
     );
     expect(screen.getByRole('img', { name: 'Priority: medium' })).not.toHaveAttribute('title');
     expect(screen.getByLabelText('Type: task')).not.toHaveAttribute('title');
+  });
+});
+
+describe('CardItem - timing', () => {
+  const T0 = Date.parse('2026-01-01T12:00:00Z');
+  const iso = (offsetMin: number) => new Date(T0 + offsetMin * 60_000).toISOString();
+  const workedCard: Card = {
+    ...baseCard,
+    state: 'in_progress',
+    state_since: iso(-134),
+    assigned_agent: 'worker-1',
+    working_since: iso(-20),
+    last_heartbeat: iso(0),
+    worked_seconds: 0,
+    work_intervals: [{ agent: 'worker-1', from: iso(-20), to: null }],
+  };
+  const unheldCard: Card = {
+    ...baseCard,
+    state: 'review',
+    state_since: iso(-200),
+    unclaimed_since: iso(-50),
+    worked_seconds: 600,
+    work_intervals: [{ agent: 'worker-1', from: iso(-60), to: iso(-50) }],
+  };
+  const tile = () => screen.getByRole('button', { name: 'Card TEST-001: Test card title' });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('shows a clock with the time in the current state while an agent works on the card', () => {
+    render(<CardItem card={workedCard} />);
+    expect(screen.getByRole('button', { name: 'In Progress for 2h 14m, worker-1 working' })).toHaveTextContent('2h 14m');
+  });
+
+  it('shows the clock on a collapsed row too', () => {
+    render(<CardItem card={workedCard} isCollapsed onToggleCollapse={() => {}} />);
+    expect(screen.getByRole('button', { name: /^In Progress for 2h 14m/ })).toBeInTheDocument();
+  });
+
+  it('leaves the drag overlay copy without a clock', () => {
+    render(<CardItem card={workedCard} dragOverlay />);
+    expect(screen.queryByRole('button', { name: /^In Progress for/ })).not.toBeInTheDocument();
+  });
+
+  it('adds nothing to a card nobody holds while the board has no unclaimed limit', () => {
+    render(<CardItem card={{ ...unheldCard, unclaimed_since: iso(-5000) }} />);
+    expect(screen.queryByRole('button', { name: /for \d/ })).not.toBeInTheDocument();
+    expect(tile().className).not.toContain('border-l-[var(--yellow)]');
+    expect(screen.queryByRole('img', { name: /^No agent has held it/ })).not.toBeInTheDocument();
+  });
+
+  it('opening the timing box does not open the card or its summary hovercard', () => {
+    const onClick = vi.fn();
+    render(<CardItem card={workedCard} onClick={onClick} />);
+    const clockButton = screen.getByRole('button', { name: /^In Progress for 2h 14m/ });
+    fireEvent.mouseEnter(clockButton);
+    fireEvent.click(clockButton);
+    const tips = screen.getAllByRole('tooltip');
+    expect(tips).toHaveLength(1);
+    expect(tips[0]).toHaveTextContent('worker-1 working for 20m 0s');
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it('marks a card nobody has held past the board limit with the yellow edge and a signal, once the limit passes', () => {
+    // Unclaimed for 50 minutes against a one-hour limit.
+    render(<CardItem card={unheldCard} unclaimedWarningSeconds={3600} />);
+    expect(tile().className).not.toContain('border-l-[var(--yellow)]');
+    expect(screen.queryByRole('img', { name: /^No agent has held it/ })).not.toBeInTheDocument();
+    act(() => { vi.advanceTimersByTime(10 * 60_000); });
+    expect(tile().className).toContain('border-l-[var(--yellow)]');
+    expect(screen.getByRole('img', { name: 'No agent has held it for over 1h' })).toBeInTheDocument();
+  });
+
+  it('leaves held cards and other states alone under the limit', () => {
+    const { unmount } = render(<CardItem card={{ ...workedCard, state_since: iso(-500) }} unclaimedWarningSeconds={60} />);
+    expect(screen.queryByRole('img', { name: /^No agent has held it/ })).not.toBeInTheDocument();
+    expect(tile().className).not.toContain('border-l-[var(--yellow)]');
+    unmount();
+    render(<CardItem card={{ ...unheldCard, state: 'todo' }} unclaimedWarningSeconds={60} />);
+    expect(screen.queryByRole('img', { name: /^No agent has held it/ })).not.toBeInTheDocument();
+  });
+
+  it('names the unclaimed warning in the card summary hovercard', () => {
+    render(<CardItem card={unheldCard} unclaimedWarningSeconds={1800} />);
+    fireEvent.mouseEnter(screen.getByText('task').parentElement!);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('No agent has held it for over 30m');
   });
 });

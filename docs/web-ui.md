@@ -65,6 +65,22 @@ Every view updates live from one Server-Sent Events stream per tab
   on `report_usage`; buckets written before roles existed, or reported with
   no phase (chat-driven cards), show as `other`. That spend cannot be
   re-attributed, so there is no migration.
+- **Card timers**: while an agent holds a card in a state where work happens
+  (not todo, blocked, stalled, done or not planned), its expanded and
+  collapsed tiles show a clock icon and the time in the current state. Other
+  cards look as before. Hovering the clock, focusing it with the keyboard or
+  tapping it opens a timing box in the hovercard's panel (`role="tooltip"`,
+  referenced by `aria-describedby`): the state and how long, the holder and
+  since when, the last heartbeat, the total worked time and the newest five
+  claims. The pointer can rest on the box; Escape, blur, leaving, a press
+  elsewhere, scrolling and resizing close it, and a press inside it neither
+  opens nor drags the card. The Info tab's Timing section, after Status (above
+  Models used on a finished card), shows the same rows with every claim and
+  how long nobody has held an open card. Times tick in the browser, without
+  requests. Cards claimed before claims were recorded read "Worked: unknown".
+  With `unclaimed_warning_seconds` set in `.board.yaml` (off by default), an
+  `in_progress` or `review` card no agent has held that long takes the
+  parked yellow edge plus an hourglass signal, named in its hovercard.
 - **Collapsing**: columns collapse to a strip, cards to a header row. Both sets
   are stored per project in `localStorage` under
   `contextmatrix-collapsed-columns-<project>` and

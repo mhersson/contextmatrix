@@ -13,6 +13,12 @@ export interface ActivityEntry {
   message: string;
 }
 
+export interface WorkInterval {
+  agent: string;
+  from: string;
+  to: string | null;
+}
+
 export interface Card {
   id: string;
   title: string;
@@ -74,6 +80,16 @@ export interface Card {
   subtask_usage?: SubtaskUsage[];
   /** IDs of playbooks holding a card entry for this card. Computed on read. */
   in_playbooks?: string[];
+  /** Card timing, derived from the activity log on read (docs/data-model.md#card-timing). */
+  state_since?: string;
+  /** Start of the claim the card is held under; absent when nobody holds it. */
+  working_since?: string;
+  /** Last release (else state_since); only on cards nobody holds. */
+  unclaimed_since?: string;
+  /** Summed held time of every recorded claim; absent when unknown. */
+  worked_seconds?: number;
+  /** One entry per recorded claim, oldest first; `to` is null while held. */
+  work_intervals?: WorkInterval[];
   /** Computed on read: the runnable playbook that owns this card's settings. */
   playbook_lock?: CardPlaybookLock;
   body: string;
@@ -186,6 +202,8 @@ export interface ProjectConfig {
   knowledge_scope?: string;
   /** Proof-of-concept project: agent runs get one generic reviewer and main-behaviour tests. Absent = false. */
   poc?: boolean;
+  /** Marks in_progress/review cards no agent has held this long, in seconds. Absent or 0 = off. */
+  unclaimed_warning_seconds?: number;
 }
 
 export type SortMode = 'recent' | 'id-asc' | 'id-desc' | 'priority' | 'type' | 'manual';

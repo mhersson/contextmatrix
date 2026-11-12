@@ -11,9 +11,14 @@ import { SubtaskStrip, SubtaskPeekList } from './SubtaskStrip';
 import { CardHoverCard } from './CardHoverCard';
 import { hasUnmetDeps } from '../../lib/chip';
 import { lastInputWasKeyboard } from '../../lib/inputModality';
+import { unclaimedWarningAt } from '../../lib/cardTiming';
+import { useDeadlinePassed } from '../../hooks/useNow';
+import { CardClock } from '../CardTiming/CardClock';
 
 interface CardItemProps {
   card: Card;
+  /** The board's `unclaimed_warning_seconds`; absent or 0 turns the warning off. */
+  unclaimedWarningSeconds?: number;
   onClick?: () => void;
   flashCardId?: string | null;
   isCollapsed?: boolean;
@@ -37,7 +42,7 @@ const cardIdStyle: React.CSSProperties = {
   color: 'var(--grey1)',
 };
 
-function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollapse, onParentClick, subtasks, dragOverlay }: CardItemProps) {
+function CardItemImpl({ card, unclaimedWarningSeconds, onClick, flashCardId, isCollapsed, onToggleCollapse, onParentClick, subtasks, dragOverlay }: CardItemProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
     data: { card },
@@ -121,7 +126,11 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
   const isAgentActive = card.assigned_agent && card.state !== 'stalled';
   const isStalled = card.state === 'stalled';
   const isWorkerFailed = card.worker_status === 'failed';
-  const isParked = card.worker_status === 'parked';
+  // An unheld in_progress/review card past the board's opt-in limit takes the
+  // parked yellow, with its own header signal naming why.
+  const unclaimedTooLong = useDeadlinePassed(unclaimedWarningAt(card, unclaimedWarningSeconds));
+  const signals = cardSignals(card, unclaimedTooLong ? { unclaimedOverSeconds: unclaimedWarningSeconds } : {});
+  const isParked = card.worker_status === 'parked' || unclaimedTooLong;
   const isNotPlanned = card.state === 'not_planned';
 
   // Status red (stalled or failed worker) wins over parked yellow, which
@@ -238,6 +247,7 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
           <span className="flex-shrink-0" style={cardIdStyle}>{card.id}</span>
           <CardChipRow card={card} compact />
           <span className="text-[13px] leading-[1.33] text-[var(--fg)] truncate min-w-0 flex-1">{card.title}</span>
+          {!dragOverlay && <CardClock card={card} />}
           {collapseButton}
         </div>
         {peekList}
@@ -279,7 +289,7 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
             onMouseEnter={hoverEnabled ? openHover : undefined}
             onMouseLeave={closeHover}
           >
-            {cardSignals(card).length >= HEADER_SIGNAL_CAP ? (
+            {signals.length >= HEADER_SIGNAL_CAP ? (
               <span
                 className="chip-pill"
                 style={chipTint(typeColors[card.type] || 'var(--grey1)')}
@@ -292,7 +302,7 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
                 {card.type}
               </span>
             )}
-            <CardSignalIcons card={card} />
+            <CardSignalIcons card={card} signals={signals} />
             {sourceIcon(card.source?.system)}
             {card.source && !card.vetted && (
               <span className="chip-pill flex-shrink-0" style={chipTint('var(--yellow)')}>
@@ -321,13 +331,17 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
       {/* Subtask phase strip: one segment per subtask, click to peek */}
       {strip}
 
-      {/* Footer: assignee circle only. */}
-      <CardChipRow card={card} />
+      {/* Footer: assignee circle, and the clock while an agent works on the
+          card. Both render nothing otherwise, so other cards keep their height. */}
+      <div className="flex items-center gap-2">
+        <CardChipRow card={card} />
+        {!dragOverlay && <span className="ml-auto"><CardClock card={card} /></span>}
+      </div>
 
       {peekList}
 
       {hoverEnabled && hoverOpen && (
-        <CardHoverCard card={card} anchorRef={cardRef} id={hoverId} />
+        <CardHoverCard card={card} anchorRef={cardRef} id={hoverId} signals={signals} />
       )}
     </div>
   );

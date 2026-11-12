@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { Card, WorkerStatus } from '../types';
+import { limitDuration } from './cardTiming';
 
 /**
  * Signal metadata for the board card's header icon cluster. Lives outside the
@@ -87,6 +88,15 @@ const circleParkingIcon = (
   </svg>
 );
 
+const hourglassIcon = (
+  <svg {...signalSvgProps}>
+    <path d="M5 22h14" />
+    <path d="M5 2h14" />
+    <path d="M17 22v-4.17a2 2 0 0 0-.59-1.42L12 12l-4.41 4.41A2 2 0 0 0 7 17.83V22" />
+    <path d="M7 2v4.17a2 2 0 0 0 .59 1.42L12 12l4.41-4.41A2 2 0 0 0 17 6.17V2" />
+  </svg>
+);
+
 const bookOpenIcon = (
   <svg {...signalSvgProps}>
     <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
@@ -128,8 +138,17 @@ const workerSignals: Record<WorkerStatus, Omit<CardSignal, 'key' | 'importance'>
   parked: { label: 'Parked - left for a human, see the card log', color: 'var(--yellow)', icon: circleParkingIcon },
 };
 
+export interface CardSignalOptions {
+  /**
+   * The board's `unclaimed_warning_seconds`, set once an unheld
+   * in_progress/review card has gone that long without an agent. The signal
+   * is the non-colour cue next to the tile's yellow edge.
+   */
+  unclaimedOverSeconds?: number;
+}
+
 /** Builds the card's signals in display order. */
-export function cardSignals(card: Card): CardSignal[] {
+export function cardSignals(card: Card, options: CardSignalOptions = {}): CardSignal[] {
   const signals: CardSignal[] = [];
 
   if ((card.depends_on?.length ?? 0) > 0) {
@@ -173,6 +192,15 @@ export function cardSignals(card: Card): CardSignal[] {
   }
   if (card.worker_status && workerSignals[card.worker_status]) {
     signals.push({ key: 'worker', importance: 0, ...workerSignals[card.worker_status] });
+  }
+  if (options.unclaimedOverSeconds != null) {
+    signals.push({
+      key: 'unclaimed',
+      label: `No agent has held it for over ${limitDuration(options.unclaimedOverSeconds)}`,
+      color: 'var(--yellow)',
+      icon: hourglassIcon,
+      importance: 0,
+    });
   }
   const lock = card.playbook_lock;
   const runActive = lock?.run_status === 'running' || lock?.run_status === 'waiting';
@@ -219,3 +247,12 @@ export function splitCardSignals(signals: CardSignal[]): { visible: CardSignal[]
     hidden: signals.filter((_, i) => !keep.has(i)),
   };
 }
+
+/** Signal icons other card surfaces reuse, so they match the header cluster. */
+export const signalIcons = {
+  bot: botIcon,
+  activity: activityIcon,
+  alert: alertTriangleIcon,
+  clock: clockIcon,
+  hourglass: hourglassIcon,
+} as const;

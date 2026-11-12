@@ -1,11 +1,10 @@
-import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
-import { createPortal } from 'react-dom';
+import type { RefObject } from 'react';
 import type { Card } from '../../types';
 import { chipTint, priorityColors, typeColors } from '../../lib/chip';
-import { cardSignals, signalSvgProps } from '../../lib/cardSignals';
+import { cardSignals, signalSvgProps, type CardSignal } from '../../lib/cardSignals';
+import { HoverPanel } from './HoverPanel';
 
 const HOVER_CARD_WIDTH = 240;
-const GAP = 8;
 
 const userIcon = (
   <svg {...signalSvgProps}>
@@ -27,47 +26,22 @@ interface CardHoverCardProps {
   anchorRef: RefObject<HTMLElement | null>;
   /** DOM id the anchor references via aria-describedby. */
   id: string;
+  /** The card's signals when the caller already built them (time-based ones included). */
+  signals?: CardSignal[];
 }
 
 /**
  * Floating summary shown when a board card is hovered or focused: header
  * with id, type and priority; one row per signal (uncapped, so the "+N"
  * overflow becomes readable); HITL when the card is not autonomous; and the
- * card's labels as pills. Rendered through a portal so column scroll
- * containers cannot clip it.
+ * card's labels as pills. Floats in the board's HoverPanel.
  */
-export function CardHoverCard({ card, anchorRef, id }: CardHoverCardProps) {
-  const panelRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
-
-  // Layout effect: the (0,0) first render is measured and moved before paint.
-  useLayoutEffect(() => {
-    const anchor = anchorRef.current;
-    if (!anchor || !panelRef.current) return;
-    const rect = anchor.getBoundingClientRect();
-    const height = panelRef.current.offsetHeight;
-    const fitsRight = rect.right + GAP + HOVER_CARD_WIDTH <= window.innerWidth;
-    const left = fitsRight ? rect.right + GAP : Math.max(GAP, rect.left - GAP - HOVER_CARD_WIDTH);
-    const top = Math.max(GAP, Math.min(rect.top, window.innerHeight - height - GAP));
-    setPos({ top, left });
-  }, [anchorRef]);
-
-  const signals = cardSignals(card);
+export function CardHoverCard({ card, anchorRef, id, signals = cardSignals(card) }: CardHoverCardProps) {
   const labels = card.labels ?? [];
   const mobPhases = card.mob_phases ?? [];
 
-  const panel = (
-    <div
-      ref={panelRef}
-      id={id}
-      role="tooltip"
-      className="card-hover"
-      style={{
-        width: HOVER_CARD_WIDTH,
-        top: pos?.top ?? 0,
-        left: pos?.left ?? 0,
-      }}
-    >
+  return (
+    <HoverPanel id={id} anchorRef={anchorRef} width={HOVER_CARD_WIDTH}>
       <div className="card-hover__head" data-testid="hover-head">
         <span className="card-hover__id">{card.id}</span>
         <span className="chip-pill" style={chipTint(typeColors[card.type] || 'var(--grey1)')}>
@@ -113,8 +87,6 @@ export function CardHoverCard({ card, anchorRef, id }: CardHoverCardProps) {
           </li>
         )}
       </ul>
-    </div>
+    </HoverPanel>
   );
-
-  return createPortal(panel, document.body);
 }
