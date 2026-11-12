@@ -2710,14 +2710,16 @@ may be empty for cross-project chats; `model` defaults to
 start in `claude_code` mode) and is forwarded to the container on every cold
 open. A `claude_code` open maps it onto the Claude Code catalog; an endpoint
 open maps it only when the session last ran on `claude_code`, so a bare Claude
-Code ID then becomes the backend default.
+Code ID then becomes the backend default, with or without a catalog.
 
 Model validation follows the mode the session's kind starts in. In
-`claude_code` mode `model` must map to a Claude Code catalog ID (stored as
-that ID). Otherwise it follows the active source (see `GET /api/chats/models`):
-in `endpoint` mode `model` must be in the endpoint's served list, in
-`openrouter` mode in CM's vendor-screened catalog. An unknown model is 400
-`INVALID_MODEL`, and an unfetched or failed list fails open. When both an
+`claude_code` mode `model` must map to a well-formed Claude Code ID (stored as
+that ID); once a Claude Code catalog is built it must also be in the catalog,
+except `claude_code.default_model`, which is always accepted. Otherwise it
+follows the active source (see `GET /api/chats/models`): in `endpoint` mode
+`model` must be in the endpoint's served list, in `openrouter` mode in CM's
+vendor-screened catalog. An unknown model is 400 `INVALID_MODEL`, and an
+unfetched or failed list fails open. When both an
 OpenAI-compatible endpoint and an OpenRouter chat backend are configured,
 endpoint mode wins. With neither, the value is accepted unvalidated.
 
@@ -2787,9 +2789,11 @@ other value is a 400.
 - `"claude_code"`: new sessions of the kind asked for start in `claude_code`
   mode (the LLM channel is `claude_code` and the kind's backend is in
   `claude_code.backends`). `models` is the
-  Claude Code catalog (`claude-opus-5-5`, `claude-sonnet-5-5`,
-  `claude-haiku-5-5`) and `default` is `claude_code.default_model`, as is
-  `architect_default` when the architect runs in `claude_code` mode too.
+  Claude Code catalog plus `claude_code.default_model` when the catalog lacks
+  it, or `claude_code.default_model` alone while there is no catalog (no
+  `backends.agent.aa_api_key`, or before the first refresh). `default` is
+  `claude_code.default_model`, as is `architect_default` when the architect
+  runs in `claude_code` mode too.
 
 `architect_default` is always present: `backends.architect.default_model` when
 the architect backend is configured (`claude_code.default_model` under the

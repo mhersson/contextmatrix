@@ -9,11 +9,11 @@ import (
 	"time"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
+	"github.com/mhersson/contextmatrix-protocol/selection"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
-	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 	"github.com/mhersson/contextmatrix/internal/playbookrun"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
@@ -112,6 +112,12 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 	// The mode is resolved once so endpoint, catalog, favorites and model agree.
 	mode := h.llmChannel.Effective(config.BackendNameAgent)
 	if mode == llmchannel.ModeClaudeCode {
+		// ResolveModel reads the built catalog without refreshing it, so warm
+		// it first or the first launch after a restart skips the fallback.
+		if h.catalog != nil {
+			_ = h.catalog.ClaudeCodeCandidates(ctx)
+		}
+
 		model = h.llmChannel.ResolveModel(mode, model, model)
 	}
 
@@ -299,7 +305,7 @@ func claudeCodeIDs(slugs []string) []string {
 	var out []string
 
 	for _, s := range slugs {
-		if id, ok := modelcatalog.ClaudeCodeID(s); ok {
+		if id, ok := selection.ClaudeCodeModelID(s); ok {
 			out = append(out, id)
 		}
 	}

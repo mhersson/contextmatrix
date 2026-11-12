@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,7 +21,6 @@ import (
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
-	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 )
 
 const (
@@ -129,6 +129,9 @@ type chatHandlers struct {
 	// start in claude_code mode, and checks a new session's model against it
 	// while its kind starts there. Required.
 	llmChannel LLMChannelResolver
+	// claudeCatalog lists the Claude Code picker and gates chat start once a
+	// catalog is built; nil or unbuilt means form-only checks.
+	claudeCatalog ClaudeCodeCatalog
 }
 
 func newChatHandlers(mgr *chat.Manager, hub *chat.SSEHub, chatBackendCfg *config.ChatBackendConfig) *chatHandlers {
@@ -310,7 +313,7 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if model != "" && !h.isArchitectDefault(kind, model) {
-			if _, ok := modelcatalog.ClaudeCodeID(model); !ok {
+			if !h.claudeCodeModelAllowed(model) {
 				writeError(w, http.StatusBadRequest, ErrCodeInvalidModel, "model not in catalog", model)
 
 				return
@@ -436,14 +439,8 @@ func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.startMode(kind) == llmchannel.ModeClaudeCode {
-		cc := selection.ClaudeCodeModels()
-		models := make([]chatModelEntry, len(cc))
-
-		for i, m := range cc {
-			models[i] = chatModelEntry{ID: m.ID, Label: m.ID, MaxTokens: int64(m.ContextWindow)}
-		}
-
 		def := h.llmChannel.ResolveModel(llmchannel.ModeClaudeCode, "", "")
+		models := h.claudeCodeModels(r.Context(), def)
 
 		// A blueprint with no model of its own starts on the default of the
 		// mode its architect runs in.
@@ -513,6 +510,51 @@ func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response{
 		Source: "endpoint", Models: []chatModelEntry{}, Default: "", ArchitectDefault: h.architectDefault,
 	})
+}
+
+// claudeCodeModelAllowed is the chat-start check for a claude_code model: a
+// well-formed ID, and a member of the catalog once one is built.
+func (h *chatHandlers) claudeCodeModelAllowed(model string) bool {
+	id, ok := selection.ClaudeCodeModelID(model)
+	if !ok {
+		return false
+	}
+
+	if h.claudeCatalog == nil {
+		return true
+	}
+
+	// The configured default is always a valid choice.
+	if id == h.llmChannel.ResolveModel(llmchannel.ModeClaudeCode, "", "") {
+		return true
+	}
+
+	known, built := h.claudeCatalog.ClaudeCodeKnown(id)
+
+	return known || !built
+}
+
+// claudeCodeModels is the claude_code picker: the catalog plus def, or def
+// alone while there is no catalog.
+func (h *chatHandlers) claudeCodeModels(ctx context.Context, def string) []chatModelEntry {
+	var models []chatModelEntry
+
+	if h.claudeCatalog != nil {
+		for _, c := range h.claudeCatalog.ClaudeCodeCandidates(ctx) {
+			models = append(models, chatModelEntry{ID: c.Slug, Label: c.Slug, MaxTokens: int64(c.ContextWindow)})
+		}
+	}
+
+	if !slices.ContainsFunc(models, func(m chatModelEntry) bool { return m.ID == def }) {
+		entry := chatModelEntry{ID: def, Label: def}
+		if h.claudeCatalog != nil {
+			entry.MaxTokens = int64(h.claudeCatalog.ContextWindow(ctx, def))
+		}
+
+		models = append(models, entry)
+	}
+
+	return models
 }
 
 // annotateModels returns the picker list with Blacklisted set on entries in

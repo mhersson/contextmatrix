@@ -23,7 +23,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
-	"github.com/mhersson/contextmatrix-protocol/selection"
 	"github.com/mhersson/contextmatrix/internal/githubauth"
 
 	"github.com/mhersson/contextmatrix/internal/api"
@@ -498,20 +497,6 @@ func main() {
 
 	svc.SetParkResetStore(opStore)
 
-	llmChannel, err := llmchannel.New(ctx, llmchannel.Config{
-		Endpoint:     llmEndpointFromConfig(cfg.LLMEndpoint),
-		OAuthToken:   cfg.ClaudeCode.OAuthToken,
-		Supported:    cfg.ClaudeCode.Backends,
-		DefaultModel: cfg.ClaudeCode.DefaultModel,
-	}, opStore, bus)
-	if err != nil {
-		slog.Error("failed to init llm channel", "error", err)
-		cancel()
-		os.Exit(1)
-	}
-
-	slog.Info("llm channel ready", "mode", string(llmChannel.Mode()), "switchable", llmChannel.Switchable())
-
 	// Model catalog builder: constructed whenever there is a rate source. The
 	// AA+agent path also yields selection candidates (routerCfg.Catalog below);
 	// the endpoint-only path (chat-only deployments) yields pricing only.
@@ -522,13 +507,28 @@ func main() {
 
 	catalogBuilder := newCatalogBuilder(cfg, agentCfg, hasAgent, chatOpenRouter)
 
+	llmChannel, err := llmchannel.New(ctx, llmchannel.Config{
+		Endpoint:     llmEndpointFromConfig(cfg.LLMEndpoint),
+		OAuthToken:   cfg.ClaudeCode.OAuthToken,
+		Supported:    cfg.ClaudeCode.Backends,
+		DefaultModel: cfg.ClaudeCode.DefaultModel,
+		Catalog:      catalogBuilder,
+	}, opStore, bus)
+	if err != nil {
+		slog.Error("failed to init llm channel", "error", err)
+		cancel()
+		os.Exit(1)
+	}
+
+	slog.Info("llm channel ready", "mode", string(llmChannel.Mode()), "switchable", llmChannel.Switchable())
+
 	// agentAA serves both the pricing warning and the routerCfg.Catalog guard.
 	agentAA := hasAgent && agentCfg.AAAPIKey != ""
 
-	if ids := unpricedClaudeCodeIDs(cfg, agentAA); len(ids) > 0 {
-		slog.Warn("claude code model IDs have no list price source; usage is recorded at $0 unless the endpoint catalog prices them",
-			"models", ids,
-			"fix", "set backends.agent.aa_api_key or add token_costs rows for them")
+	if id := unpricedClaudeCodeDefault(cfg, agentAA); id != "" {
+		slog.Warn("claude code models have no list price source; usage is recorded at $0 unless the endpoint catalog prices them",
+			"default_model", id,
+			"fix", "set backends.agent.aa_api_key or add token_costs rows for the models you use")
 	}
 
 	if catalogBuilder != nil {
@@ -774,6 +774,7 @@ func main() {
 		ServedModels:           servedModelsFn,      // nil when catalogBuilder == nil
 		ServedModelsSource:     servedModelsSource,  // "" when catalogBuilder == nil
 		ValidateChatModel:      validateChatModelFn, // nil when catalogBuilder == nil
+		ClaudeCodeCatalog:      catalogBuilder,      // a nil builder is "no catalog"
 		ChatModelPriced:        modelPricedFor(architectPriceFor(svc)),
 		AuthService:            authSvc,
 		AuthMode:               cfg.Auth.Mode,
@@ -1263,21 +1264,18 @@ func configuredBackendKinds(cfg *config.Config) []string {
 	return kinds
 }
 
-// unpricedClaudeCodeIDs returns the Claude Code model IDs that would be priced
-// at $0: claude_code is configured, the Artificial Analysis catalog (the list
-// price source) is not built, and token_costs has no row for the ID.
-func unpricedClaudeCodeIDs(cfg *config.Config, agentAA bool) []string {
+// unpricedClaudeCodeDefault returns claude_code.default_model when it would be
+// priced at $0: claude_code is configured, the Artificial Analysis catalog (the
+// list price source) is not built, and token_costs has no row for it. Other
+// Claude Code models need rows too; "" otherwise.
+func unpricedClaudeCodeDefault(cfg *config.Config, agentAA bool) string {
 	if !cfg.ClaudeCode.Configured() || agentAA {
-		return nil
+		return ""
 	}
 
-	var ids []string
-
-	for _, m := range selection.ClaudeCodeModels() {
-		if _, ok := cfg.TokenCosts[m.ID]; !ok {
-			ids = append(ids, m.ID)
-		}
+	if _, ok := cfg.TokenCosts[cfg.ClaudeCode.DefaultModel]; ok {
+		return ""
 	}
 
-	return ids
+	return cfg.ClaudeCode.DefaultModel
 }

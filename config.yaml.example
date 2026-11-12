@@ -152,14 +152,15 @@ theme: "everforest"
 # year); the token's owner drives every run on it, so only set it where that
 # is acceptable. `backends` lists the backend kinds that run Claude Code, from
 # agent, chat and architect; list only backends running a release with Claude
-# Code support. default_model is one of claude-opus-5-5, claude-sonnet-5-5,
-# claude-haiku-5-5.
+# Code support. default_model is a Claude Code model ID such as
+# claude-sonnet-5-5, checked for its form at startup; a model Claude Code does
+# not serve fails its runs.
 #
 # Claude Code model IDs price like any model: a token_costs row keyed on the ID
 # first, then the served catalog's rate when it knows the name, else the
 # Artificial Analysis list price when the agent backend is enabled with
-# aa_api_key (backends.agent.aa_api_key). Without that key, key token_costs
-# rows on the three Claude Code model IDs.
+# aa_api_key (backends.agent.aa_api_key). Without that key, the Claude Code
+# model IDs you run need token_costs rows.
 #
 # Env: CONTEXTMATRIX_CLAUDE_CODE_OAUTH_TOKEN
 #      CONTEXTMATRIX_CLAUDE_CODE_BACKENDS (comma-separated)

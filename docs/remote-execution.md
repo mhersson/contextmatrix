@@ -172,7 +172,7 @@ Sent when a human clicks Run Auto or Run HITL on a `todo` card, calls the
 | `base_branch_from`     | Source of that branch: the playbook's `base_branch`, empty for the repo default.                                                                                                                                                                                                                                           |
 | `worker_image`         | The project's `remote_execution.worker_image`; omitted when unset, and the backend uses its own `base_image`. This is the language-toolchain seam for card runs. See [Worker image split](#worker-image-split).                                                                                                             |
 | `interactive`          | `true` for Run HITL. Forced `false` for autonomous cards server-side, whatever the client sent.                                                                                                                                                                                                                             |
-| `model`                | `backends.agent.default_model`; empty when unset, and the agent resolves its own default. In `claude_code` mode it is mapped to its Claude Code ID, else `claude_code.default_model`, so it is always set. Per-card pins are applied agent-side.                                                                                                                                                                                            |
+| `model`                | `backends.agent.default_model`; empty when unset, and the agent resolves its own default. In `claude_code` mode it is mapped to its Claude Code ID, else `claude_code.default_model` (also when a built catalog lacks the ID), so it is always set. Per-card pins are applied agent-side.                                                                                                                                                                                            |
 | `best_of_n`            | Present only when the card's value is `>= 2`, clamped to `best_of_n.max_candidates` (a card can hold a larger value if the cap was lowered after it was set). See [Best-of-N run](#best-of-n-run).                                                                                                                       |
 | `max_capability`       | Mirrors the card flag; present only when `true`. The agent honors it for every automatic pick (see [model selection](model-selection.md#the-decision-order)).                                                                                                                                                              |
 | `mob`                  | Present only when `mob_participants >= 2`. See [Mob sessions](#mob-sessions) for the assembly rules.                                                                                                                                                                                                                       |
@@ -469,7 +469,7 @@ Differences from a chat start:
 | `model`                                         | The session row's model, else `backends.architect.default_model` (`claude_code.default_model` in `claude_code` mode), mapped as for chat. |
 | `llm_endpoint`, `mcp_api_key`                   | As for chat: the session's LLM channel endpoint and CM's `mcp_api_key`. A start re-sent to an architect that lost an active or warm-idle blueprint keeps the mode the blueprint started in while that mode is still usable; otherwise it takes the architect's current mode, and the session row records that mode and model. |
 | `git_credentials_token`                         | Minted over the architect entry's `api_key`, in the same `<session_id>.<mac>` form as for chat. `GET /api/worker/git-credentials` verifies it and refuses it once the session ends.                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `architect`                                     | `{"projects": ["alpha", "beta"], "mode": "default", "cost_cap_usd": 3, "context_window": 200000, "price": {"prompt_usd_per_mtok": 3, "completion_usd_per_mtok": 15, "cache_read_usd_per_mtok": 0.3, "cache_write_usd_per_mtok": 3.75}}`. `mode` is `default`, `auto`, `auto+emit` or `yolo`. `mode` and `cost_cap_usd` are the session row's, so every start carries the values last changed through `/api/chats/{id}/mode` and `/api/chats/{id}/cap`; the architect takes them only when it creates the blueprint and otherwise keeps its own. `plain_language`, `true` for a blueprint created in plain language and omitted otherwise, is the row's too and is taken the same way. `unattended`, `true` for a blueprint created Unattended and omitted otherwise, is also the row's and is taken the same way. `price` is the model's resolved per-token rate from CM's `token_costs` and catalog lookup, in USD per million tokens with the cache defaults applied; it is omitted when CM has no price for the model, or prices neither its prompt nor its completion tokens, and the architect then refuses to run a capped blueprint. `context_window` is the model's context length in tokens from CM's model catalog, looked up by the same catalog lookup as `price`; a Claude Code catalog ID the catalog does not list takes its static Claude Code window. It is omitted when neither gives a length, and the architect then sizes compaction by its own default. `research`, `{"provider": "brave", "api_key": "..."}`, is present only when `backends.architect.research` is `search`; the architect then gives its interviewing stages web search and fetch. |
+| `architect`                                     | `{"projects": ["alpha", "beta"], "mode": "default", "cost_cap_usd": 3, "context_window": 200000, "price": {"prompt_usd_per_mtok": 3, "completion_usd_per_mtok": 15, "cache_read_usd_per_mtok": 0.3, "cache_write_usd_per_mtok": 3.75}}`. `mode` is `default`, `auto`, `auto+emit` or `yolo`. `mode` and `cost_cap_usd` are the session row's, so every start carries the values last changed through `/api/chats/{id}/mode` and `/api/chats/{id}/cap`; the architect takes them only when it creates the blueprint and otherwise keeps its own. `plain_language`, `true` for a blueprint created in plain language and omitted otherwise, is the row's too and is taken the same way. `unattended`, `true` for a blueprint created Unattended and omitted otherwise, is also the row's and is taken the same way. `price` is the model's resolved per-token rate from CM's `token_costs` and catalog lookup, in USD per million tokens with the cache defaults applied; it is omitted when CM has no price for the model, or prices neither its prompt nor its completion tokens, and the architect then refuses to run a capped blueprint. `context_window` is the model's context length in tokens from CM's model catalog, looked up by the same catalog lookup as `price`; a well-formed Claude Code ID the catalog does not list takes the default Claude Code window. It is omitted when neither gives a length, and the architect then sizes compaction by its own default. `research`, `{"provider": "brave", "api_key": "..."}`, is present only when `backends.architect.research` is `search`; the architect then gives its interviewing stages web search and fetch. |
 
 `/chat/end` ends the session on the architect; reopening it sends a new
 `/chat/start` for the same session id. Architect sessions do not count toward
@@ -981,12 +981,13 @@ the token only where everyone who can start work is its owner.
    to every listed backend. A backend left out keeps the endpoint while the
    mode is `claude_code`, or fails closed when no endpoint is configured, and
    the UI names it as an exception.
-4. Optionally set `claude_code.default_model`: `claude-sonnet-5-5` (the
-   default), `claude-opus-5-5` or `claude-haiku-5-5`.
+4. Optionally set `claude_code.default_model`: a Claude Code model ID such as
+   `claude-sonnet-5-5` (the default).
 
 Startup fails on a `backends` entry outside the three kinds, a kind listed
-twice, `backends` without a token, or a `default_model` outside the three
-IDs. The block is read once at startup.
+twice, `backends` without a token, or a `default_model` that is not a Claude
+Code model ID (for example `anthropic/claude-opus-5.5` or `claude-opus-5.5`).
+The block is read once at startup.
 
 | Configured                         | Mode                                                                                                  |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------- |
@@ -1002,7 +1003,8 @@ in the log; the saved value is kept.
 
 A `claude_code` start of a backend in `claude_code.backends` carries the
 token in `llm_endpoint`, with no `base_url` or `api_key`, and takes its
-model, and on `/trigger` its `selection`, from the Claude Code catalog. The
+model, and on `/trigger` its `selection`, from the Claude Code catalog (the
+model is mapped by form alone while there is none). The
 [`/trigger`](#post-agent_urltrigger) and
 [`/chat/start`](#post-chat_urlchatstart) field tables give each field;
 [model selection](model-selection.md#the-claude-code-catalog) describes the
@@ -1085,7 +1087,7 @@ A subscription usage limit parks work and never falls back to the endpoint.
   served catalog's rate when it knows the name, else the Claude Code
   catalog's Artificial Analysis list price, which needs
   `backends.agent.aa_api_key` on an enabled agent entry. Without that key,
-  key `token_costs` rows on the three IDs.
+  key `token_costs` rows on the Claude Code IDs you run.
 - Card usage lands in buckets of its own (see
   [data model](data-model.md#usage-breakdown)) and a chat keeps its
   subscription part in `subscription_cost_usd`. The UI labels both as
@@ -1293,7 +1295,7 @@ name, a leftover `runner` entry, or an unknown per-entry key fails startup.
 | `llm_endpoint.reasoning_effort`        | global                 | unset       | CM-side only: the effort the gateway pins for its OpenAI models, used to pick the AA row on the `openai` leg. Not forwarded.             |
 | `claude_code.oauth_token`              | global                 | unset       | Claude Code subscription token from `claude setup-token`; sent only in `claude_code` mode. See [Claude Code subscription mode](#claude-code-subscription-mode). |
 | `claude_code.backends`                 | global                 | `[]`        | Backend kinds (`agent`, `chat`, `architect`) that run Claude Code in `claude_code` mode; needs the token.                                |
-| `claude_code.default_model`            | global                 | `claude-sonnet-5-5` | The model of a `claude_code` start whose own model maps to no Claude Code ID.                                                     |
+| `claude_code.default_model`            | global                 | `claude-sonnet-5-5` | The model of a `claude_code` start whose own model maps to no Claude Code ID, or to one outside a built Claude Code catalog.     |
 | `best_of_n.max_candidates`             | global                 | `5`         | Hard cap on a card's race size.                                                                                                          |
 | `best_of_n.default_candidates`         | global                 | `3`         | Race size the UI suggests.                                                                                                               |
 | `mob.*`                                | global                 | see example | Participant and round caps, budget factor, checkpoint flags, guest registry.                                                             |

@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +17,7 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 
 	"github.com/mhersson/contextmatrix/internal/events"
+	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 )
 
 const testToken = "sk-ant-oat-secret"
@@ -213,28 +217,50 @@ func TestEndpointFor_NoEndpointConfigured(t *testing.T) {
 	assert.Equal(t, ModeEndpoint, m)
 }
 
+// stubCatalog is a ClaudeCodeCatalog over a fixed ID set.
+type stubCatalog struct {
+	built bool
+	ids   []string
+}
+
+func (c stubCatalog) ClaudeCodeKnown(id string) (known, built bool) {
+	return slices.Contains(c.ids, id), c.built
+}
+
 func TestResolveModel(t *testing.T) {
-	h, err := New(context.Background(),
-		Config{Endpoint: endpoint(), OAuthToken: testToken, DefaultModel: "claude-sonnet-5-5"},
-		&fakeStore{}, &fakeBus{})
-	require.NoError(t, err)
+	built := stubCatalog{built: true, ids: []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-2"}}
 
 	tests := []struct {
-		name  string
-		mode  Mode
-		model string
-		want  string
+		name    string
+		catalog ClaudeCodeCatalog
+		mode    Mode
+		model   string
+		want    string
 	}{
-		{"cc known id", ModeClaudeCode, "claude-opus-5-5", "claude-opus-5-5"},
-		{"cc unknown model", ModeClaudeCode, "openai/gpt-x", "claude-sonnet-5-5"},
-		{"cc empty model", ModeClaudeCode, "", "claude-sonnet-5-5"},
-		{"endpoint bare cc id", ModeEndpoint, "claude-haiku-5-5", "fallback/model"},
-		{"endpoint slugged anthropic", ModeEndpoint, "anthropic/claude-haiku-5-5", "anthropic/claude-haiku-5-5"},
-		{"endpoint other model", ModeEndpoint, "openai/gpt-x", "openai/gpt-x"},
+		{"cc catalog id", built, ModeClaudeCode, "claude-opus-5-5", "claude-opus-5-5"},
+		{"cc slug in catalog", built, ModeClaudeCode, "anthropic/claude-opus-5.5", "claude-opus-5-5"},
+		{"cc catalog fable", built, ModeClaudeCode, "anthropic/claude-fable-5.2", "claude-fable-5-2"},
+		{"cc stale slug outside catalog", built, ModeClaudeCode, "anthropic/claude-3-opus", "claude-sonnet-5-5"},
+		{"cc unmappable", built, ModeClaudeCode, "openai/gpt-x", "claude-sonnet-5-5"},
+		{"cc empty", built, ModeClaudeCode, "", "claude-sonnet-5-5"},
+		{"cc no catalog stale slug maps", stubCatalog{}, ModeClaudeCode, "anthropic/claude-3-opus", "claude-3-opus"},
+		{"cc nil catalog maps by form", nil, ModeClaudeCode, "anthropic/claude-3-opus", "claude-3-opus"},
+		{"cc typed nil catalog maps by form", (*modelcatalog.Builder)(nil), ModeClaudeCode, "claude-opus-5-5", "claude-opus-5-5"},
+		{"cc no catalog unmappable", stubCatalog{}, ModeClaudeCode, "openai/gpt-x", "claude-sonnet-5-5"},
+		{"endpoint bare catalog id", built, ModeEndpoint, "claude-opus-5-5", "fallback/model"},
+		{"endpoint bare claude id outside catalog", built, ModeEndpoint, "claude-3-opus", "fallback/model"},
+		{"endpoint bare claude id without catalog", stubCatalog{}, ModeEndpoint, "claude-opus-5-5", "fallback/model"},
+		{"endpoint slugged anthropic", built, ModeEndpoint, "anthropic/claude-opus-5-5", "anthropic/claude-opus-5-5"},
+		{"endpoint other model", built, ModeEndpoint, "openai/gpt-x", "openai/gpt-x"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			h, err := New(context.Background(),
+				Config{Endpoint: endpoint(), OAuthToken: testToken, DefaultModel: "claude-sonnet-5-5", Catalog: tt.catalog},
+				&fakeStore{}, &fakeBus{})
+			require.NoError(t, err)
+
 			assert.Equal(t, tt.want, h.ResolveModel(tt.mode, tt.model, "fallback/model"))
 		})
 	}
@@ -357,4 +383,37 @@ func TestSet_ConcurrentCallsStayConsistent(t *testing.T) {
 
 	require.Len(t, bus.events, 40)
 	assert.Equal(t, string(h.Mode()), bus.events[39].Data["mode"], "last event matches the final mode")
+}
+
+// A stale default with a below-floor AA row falls back to the configured
+// default through a real Builder.
+func TestResolveModel_RealBuilderBelowFloor(t *testing.T) {
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"slug":"claude-opus-5-5","model_creator":{"name":"Anthropic"},
+			 "evaluations":{"artificial_analysis_intelligence_index":60,"artificial_analysis_coding_index":null},
+			 "pricing":{"price_1m_input_tokens":5,"price_1m_output_tokens":25,"price_1m_cache_hit_tokens":0.5,"price_1m_cache_write_tokens":6.25}},
+			{"slug":"claude-3-opus","model_creator":{"name":"Anthropic"},
+			 "evaluations":{"artificial_analysis_intelligence_index":6,"artificial_analysis_coding_index":null},
+			 "pricing":{"price_1m_input_tokens":15,"price_1m_output_tokens":75,"price_1m_cache_hit_tokens":1.5,"price_1m_cache_write_tokens":18.75}}
+		],"tier":"free","intelligence_index_version":5,"pagination":{"page":1,"page_size":200,"total_pages":1,"has_more":false}}`))
+	}))
+	t.Cleanup(aaSrv.Close)
+
+	orSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	t.Cleanup(orSrv.Close)
+
+	b := modelcatalog.NewBuilder("aa-key", 0.5, nil, time.Hour, modelcatalog.WithClaudeCode(),
+		modelcatalog.WithCatalogURLs(aaSrv.URL, orSrv.URL))
+	require.Len(t, b.ClaudeCodeCandidates(context.Background()), 1)
+
+	h, err := New(context.Background(),
+		Config{Endpoint: endpoint(), OAuthToken: testToken, DefaultModel: "claude-sonnet-5-5", Catalog: b},
+		&fakeStore{}, &fakeBus{})
+	require.NoError(t, err)
+
+	assert.Equal(t, "claude-sonnet-5-5", h.ResolveModel(ModeClaudeCode, "anthropic/claude-3-opus", ""))
+	assert.Equal(t, "claude-opus-5-5", h.ResolveModel(ModeClaudeCode, "anthropic/claude-opus-5.5", ""))
 }

@@ -264,7 +264,8 @@ for what the channel does.
   architect backend is configured (`architect_enabled` in app config); without
   one it creates chats only. Both kinds take an optional title. A chat picks one
   project from a list (or Across projects, with no checkout) and a model (the
-  Claude Code catalog while new chats start on Claude Code). A
+  Claude Code catalog while new chats start on Claude Code, or the default
+  model alone while there is none). A
   blueprint picks one or more target projects, one of four described modes
   (default, auto, auto + emit, yolo), a Plain language switch, an Unattended switch, a model
   (from the list for the mode new blueprints start in, which can differ from

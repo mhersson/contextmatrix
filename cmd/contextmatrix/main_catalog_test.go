@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mhersson/contextmatrix-protocol/selection"
-
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 )
@@ -176,42 +174,27 @@ func TestCatalogRateLookup_ClaudeCode(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func TestUnpricedClaudeCodeIDs(t *testing.T) {
-	configured := config.ClaudeCodeConfig{OAuthToken: "tok"}
-
-	var all []string
-	for _, m := range selection.ClaudeCodeModels() {
-		all = append(all, m.ID)
-	}
-
-	rates := func(ids ...string) map[string]config.ModelRate {
-		m := make(map[string]config.ModelRate, len(ids))
-		for _, id := range ids {
-			m[id] = config.ModelRate{}
-		}
-
-		return m
-	}
+func TestUnpricedClaudeCodeDefault(t *testing.T) {
+	configured := config.ClaudeCodeConfig{OAuthToken: "tok", DefaultModel: "claude-sonnet-5-5"}
 
 	tests := []struct {
 		name    string
 		cc      config.ClaudeCodeConfig
 		costs   map[string]config.ModelRate
 		agentAA bool
-		want    []string
+		want    string
 	}{
-		{"not configured", config.ClaudeCodeConfig{}, nil, false, nil},
-		{"AA catalog built", configured, nil, true, nil},
-		{"no token_costs rows", configured, nil, false, all},
-		{"some rows", configured, rates(all[0]), false, all[1:]},
-		{"all rows", configured, rates(all...), false, nil},
-		{"unrelated rows only", configured, rates("other/model"), false, all},
+		{"not configured", config.ClaudeCodeConfig{}, nil, false, ""},
+		{"AA catalog built", configured, nil, true, ""},
+		{"no token_costs rows", configured, nil, false, "claude-sonnet-5-5"},
+		{"default has a row", configured, map[string]config.ModelRate{"claude-sonnet-5-5": {}}, false, ""},
+		{"unrelated rows only", configured, map[string]config.ModelRate{"other/model": {}}, false, "claude-sonnet-5-5"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &config.Config{ClaudeCode: tt.cc, TokenCosts: tt.costs}
-			assert.Equal(t, tt.want, unpricedClaudeCodeIDs(cfg, tt.agentAA))
+			assert.Equal(t, tt.want, unpricedClaudeCodeDefault(cfg, tt.agentAA))
 		})
 	}
 }
