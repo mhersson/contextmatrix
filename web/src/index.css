@@ -351,7 +351,7 @@
   --bg-blue: #29334c;
   --bg-purple: #392d46;
   --bg-aqua: #3e2a24;
-  --bg-orange: #3e2a24;
+  --bg-orange: #3d2a14;
   --bg-visual: #3e2a24; /* copper tint - selection/drag highlight */
 
   /* Foreground - every grey clears WCAG AA 4.5:1 on --bg-dim..--bg2 */
@@ -362,7 +362,7 @@
 
   /* Accent colors - --aqua is the copper accent (links, focus rings) */
   --red: #ffb0bc;
-  --orange: #f2a17e;
+  --orange: #f57f0a;
   --yellow: #f2cf8f;
   --green: #a7dfbb;
   --aqua: #f2a17e;
@@ -388,18 +388,18 @@
   --bg-blue: #eaf0ff;
   --bg-purple: #f1eaf8;
   --bg-aqua: #fbeee7;
-  --bg-orange: #fbeee7;
+  --bg-orange: #f8ecdf;
   --bg-visual: #fbeee7; /* copper tint - selection/drag highlight */
 
   /* Foreground - every grey clears WCAG AA 4.5:1 on --bg-dim..--bg2 */
   --fg: #25232b;
   --grey0: #68636f;
   --grey1: #625b6b;
-  --grey2: #625b6b;
+  --grey2: #574f60;
 
   /* Accent colors - --aqua is the copper accent (links, focus rings) */
   --red: #a42a3b;
-  --orange: #a83d17;
+  --orange: #793809;
   --yellow: #855313;
   --green: #216346;
   --aqua: #a83d17;
