@@ -19,6 +19,8 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/chat/transcript"
 	"github.com/mhersson/contextmatrix/internal/clock"
+	"github.com/mhersson/contextmatrix/internal/config"
+	"github.com/mhersson/contextmatrix/internal/llmchannel"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
@@ -107,11 +109,10 @@ type StartChatOpts struct {
 	WorkerImage string
 	Model       string
 	Resume      *ResumeContext
-	// LLMEndpoint is the CM-provisioned inference endpoint configuration
-	// forwarded to the chat backend verbatim. Nil means "the backend falls
-	// back to its own local llm_endpoint config" (pre-multi-user behavior).
-	// Treat as a secret carrier: never log this value or the opts struct
-	// as a whole - LLMEndpoint.APIKey rides along.
+	// LLMEndpoint is the endpoint the LLM channel resolved for this start,
+	// forwarded verbatim; nil omits the wire field. Treat as a secret
+	// carrier: never log this value or the opts struct as a whole - its
+	// APIKey or OAuthToken rides along.
 	LLMEndpoint *protocol.LLMEndpoint
 	// GitCredentialsToken is the per-session bearer the worker presents to
 	// CM's GET /api/worker/git-credentials endpoint to fetch per-repo git
@@ -131,6 +132,20 @@ type StartChatOpts struct {
 type ProjectExecInfo struct {
 	RepoURL     string
 	WorkerImage string
+}
+
+// UsageRecorder is the slice of the LLM channel holder that stores
+// subscription window state reported on usage frames.
+type UsageRecorder interface {
+	RecordUsage(ctx context.Context, windows []protocol.SubscriptionUsage)
+}
+
+// LLMChannelResolver is the slice of the LLM channel holder that session
+// starts use. Implemented by *llmchannel.Holder.
+type LLMChannelResolver interface {
+	Effective(kind llmchannel.Kind) llmchannel.Mode
+	EndpointFor(kind llmchannel.Kind, recorded llmchannel.Mode) (*protocol.LLMEndpoint, llmchannel.Mode)
+	ResolveModel(mode llmchannel.Mode, model, endpointDefault string) string
 }
 
 // Config carries Manager dependencies.
@@ -165,21 +180,23 @@ type Config struct {
 	// wires this to chat.rehydration_timeout from config.
 	RehydrationTimeout time.Duration
 
-	// DefaultModel is used when a session row's model column is empty
-	// (legacy rows, or callers that didn't pass a model on creation).
-	// Production wires this to chat.default_model from config.
+	// DefaultModel is used on an endpoint start when a session row's model
+	// column is empty (legacy rows, or callers that didn't pass a model on
+	// creation); a claude_code start uses claude_code.default_model.
+	// Production wires this to backends.chat.default_model from config.
 	DefaultModel string
 
 	// Pricer is used to compute token costs for chat sessions. Optional:
 	// nil means cost computation is skipped.
 	Pricer Pricer
+	// UsageRecorder receives the subscription windows of subscription usage
+	// frames. Optional: nil skips them.
+	UsageRecorder UsageRecorder
 
-	// LLMEndpoint is the CM-provisioned inference endpoint configuration
-	// attached to every chat-start payload. Nil when llm_endpoint is
-	// unconfigured; the wire field is then omitted and the chat backend fails
-	// closed rather than using a local key. Production wires this from
-	// config.LLMEndpoint in cmd/contextmatrix/main.go's wireChat.
-	LLMEndpoint *protocol.LLMEndpoint
+	// LLMChannel picks each new session's mode and each start's endpoint and
+	// model by the global LLM channel mode. Required: it is the only endpoint
+	// source.
+	LLMChannel LLMChannelResolver
 
 	// WorkerCredentialsToken mints the per-session bearer attached to every
 	// chat-start payload as StartChatOpts.GitCredentialsToken. nil means "do
@@ -194,8 +211,9 @@ type Config struct {
 	// ArchitectBackend serves architect-kind sessions. nil means no
 	// architect backend is configured: CreateSession refuses the kind.
 	ArchitectBackend Backend
-	// ArchitectDefaultModel is the cold-open fallback for architect sessions
-	// with an empty model, from backends.architect.default_model.
+	// ArchitectDefaultModel is the endpoint start's fallback for architect
+	// sessions with an empty model, from backends.architect.default_model; a
+	// claude_code start uses claude_code.default_model.
 	ArchitectDefaultModel string
 	// ArchitectWorkerCredentialsToken mints the per-session git-credentials
 	// bearer for architect sessions, over the architect entry's api_key.
@@ -238,10 +256,10 @@ type Manager struct {
 	rehydrationTimeout time.Duration
 	defaultModel       string
 	pricer             Pricer
-	// llmEndpoint is the CM-provisioned inference endpoint configuration
-	// forwarded to every chat-start payload. Treat as a secret carrier:
-	// never log this value - llmEndpoint.APIKey rides along.
-	llmEndpoint *protocol.LLMEndpoint
+	usageRecorder      UsageRecorder
+	// llmChannel resolves every start's endpoint, a secret carrier: never
+	// log what it returns.
+	llmChannel LLMChannelResolver
 	// workerCredentialsToken mints the per-session bearer attached to every
 	// chat-start payload as StartChatOpts.GitCredentialsToken. nil means "no
 	// token" (no chat-backend api_key configured, or tests that don't
@@ -358,7 +376,8 @@ func NewManager(cfg Config) *Manager {
 		rehydrationTimeout:     cfg.RehydrationTimeout,
 		defaultModel:           cfg.DefaultModel,
 		pricer:                 cfg.Pricer,
-		llmEndpoint:            cfg.LLMEndpoint,
+		usageRecorder:          cfg.UsageRecorder,
+		llmChannel:             cfg.LLMChannel,
 		workerCredentialsToken: cfg.WorkerCredentialsToken,
 
 		architectBackend:                cfg.ArchitectBackend,
@@ -644,7 +663,14 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fall
 
 	// The gateway's reported cost wins; the rate table prices only frames
 	// without one, so the unknown-model signal counts table-priced frames.
+	// A subscription frame has no billed cost: any producer figure is dropped
+	// so it can only take the API-equivalent estimate priced from the rate table.
+	subscription := e.Usage.CostBasis == protocol.CostBasisSubscription
+
 	cost := e.Usage.CostUSD
+	if subscription {
+		cost = 0
+	}
 	// The protocol says cost is never negative; a bad frame must not lower the total.
 	if cost < 0 {
 		cost = 0
@@ -671,7 +697,14 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fall
 		rowModel = ""
 	}
 
-	newPrompt, newCompletion, newCacheRead, newCacheCreation, newCost, err := m.store.IncrementSessionCost(ctx, sessionID, prompt, completion, cacheRead, cacheCreate, cost, rowModel)
+	// Subscription usage is kept out of billed spend: its estimate is the
+	// subscription share and the billed delta is zero.
+	var subscriptionCost float64
+	if subscription {
+		subscriptionCost, cost = cost, 0
+	}
+
+	newPrompt, newCompletion, newCacheRead, newCacheCreation, newCost, newSubscriptionCost, err := m.store.IncrementSessionCost(ctx, sessionID, prompt, completion, cacheRead, cacheCreate, cost, subscriptionCost, rowModel)
 	if err != nil {
 		m.logger.Debug("chat: handleUsageEntry: increment session cost failed",
 			"session_id", sessionID, "error", err)
@@ -681,7 +714,15 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fall
 
 	// Cost may be $0 (unknown model) - added anyway, matching the persisted
 	// value; tokens skip zero kinds so no empty series appear.
-	metrics.ChatCostUSDTotal.WithLabelValues(project, model).Add(cost)
+	if subscription {
+		metrics.ChatSubscriptionCostUSDTotal.WithLabelValues(project, model).Add(subscriptionCost)
+
+		if m.usageRecorder != nil {
+			m.usageRecorder.RecordUsage(ctx, e.Usage.Subscription)
+		}
+	} else {
+		metrics.ChatCostUSDTotal.WithLabelValues(project, model).Add(cost)
+	}
 
 	kinds := []struct {
 		kind   string
@@ -704,12 +745,34 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fall
 			ContextTokensUpdatedAt: updatedAt,
 			Model:                  model,
 			EstimatedCostUSD:       newCost,
+			SubscriptionCostUSD:    newSubscriptionCost,
 			PromptTokens:           newPrompt,
 			CompletionTokens:       newCompletion,
 			CacheReadTokens:        newCacheRead,
 			CacheCreationTokens:    newCacheCreation,
 		})
 	}
+}
+
+// recordUsageLimit stores the limited window as rejected: a window at its limit
+// is fully used. A limit naming no window or reset time cannot be stored.
+func (m *Manager) recordUsageLimit(ctx context.Context, limit *protocol.UsageLimit) {
+	if m.usageRecorder == nil || limit.Window == "" || limit.ResetsAt.IsZero() {
+		return
+	}
+
+	m.usageRecorder.RecordUsage(ctx, []protocol.SubscriptionUsage{{
+		Window: limit.Window, Utilization: 1, Status: "rejected", ResetsAt: limit.ResetsAt,
+	}})
+}
+
+// publishUsageLimit tells open UIs that a subscription usage limit stopped the session.
+func (m *Manager) publishUsageLimit(sessionID string, limit *protocol.UsageLimit) {
+	if m.hub == nil {
+		return
+	}
+
+	m.hub.PublishSessionUpdate(sessionID, SessionUpdate{UsageLimit: limit})
 }
 
 // startConsumer ensures a goroutine is bridging backend /logs for sessionID
@@ -792,6 +855,13 @@ func (m *Manager) startConsumer(sessionID string, restart bool) {
 			role := roleFromLogType(e.Type)
 			if role == "" {
 				return
+			}
+
+			if e.UsageLimit != nil {
+				m.recordUsageLimit(ctx, e.UsageLimit)
+
+				// Publish after the system row below, so an open UI sees the row first.
+				defer m.publishUsageLimit(sessionID, e.UsageLimit)
 			}
 
 			// Waits out an architect send in flight: what the architect
@@ -1127,6 +1197,7 @@ func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, e
 		Model:         in.Model,
 		OriginChat:    in.OriginChat,
 		OriginSeq:     in.OriginSeq,
+		LLMChannel:    string(m.effectiveMode(kind)),
 	}
 	if err := m.store.CreateSession(ctx, sess); err != nil {
 		return Session{}, fmt.Errorf("chat: CreateSession: %w", err)
@@ -1582,7 +1653,10 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 		m.openLimitMu.Unlock()
 	}
 
-	opts, err := m.coldPrep(ctx, sess)
+	// A cold open adopts the current mode; the row keeps it while live.
+	mode := m.effectiveMode(sess.Kind)
+
+	opts, mode, err := m.coldPrep(ctx, sess, mode)
 	if err != nil {
 		return Session{}, err
 	}
@@ -1623,6 +1697,7 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 		fresh.Status = StatusActive
 		fresh.ContainerID = containerID
 		fresh.Model = opts.Model
+		fresh.LLMChannel = string(mode)
 		fresh.LastActive = m.clk.Now().UTC().Truncate(time.Second)
 
 		if fresh.Project != "" && !slices.Contains(fresh.Workspace, fresh.Project) {
@@ -1730,11 +1805,11 @@ func (m *Manager) waitPastSecond(ctx context.Context, t time.Time) error {
 }
 
 // restartArchitect re-sends /chat/start for an active or warm-idle architect
-// session the architect lost. It sends the plain cold-open inputs, never a
-// resume, and does not write the row; the architect no-ops a start for a
-// session it holds. A row that is not a live architect session returns
-// errArchitectNotLive. The status lock keeps the start from landing after
-// EndSession's EndChat.
+// session the architect lost. It sends the plain cold-open inputs on the
+// session's recorded LLM channel mode, never a resume, and does not write the
+// row; the architect no-ops a start for a session it holds. A row that is not
+// a live architect session returns errArchitectNotLive. The status lock keeps
+// the start from landing after EndSession's EndChat.
 func (m *Manager) restartArchitect(ctx context.Context, sessionID string) error {
 	_, err, _ := m.restartGroup.Do(sessionID, func() (any, error) {
 		if err := m.withStatusLock(sessionID, func() error {
@@ -1747,7 +1822,9 @@ func (m *Manager) restartArchitect(ctx context.Context, sessionID string) error 
 				return errArchitectNotLive
 			}
 
-			opts, err := m.coldPrep(ctx, sess)
+			recorded := llmchannel.Mode(sess.LLMChannel)
+
+			opts, mode, err := m.coldPrep(ctx, sess, recorded)
 			if err != nil {
 				return fmt.Errorf("chat: restart architect: %w", err)
 			}
@@ -1762,6 +1839,10 @@ func (m *Manager) restartArchitect(ctx context.Context, sessionID string) error 
 			}
 
 			m.logger.Info("chat: architect session restarted in place", "session_id", sessionID)
+
+			if mode != recorded {
+				m.recordRestartMode(ctx, sessionID, mode, opts.Model)
+			}
 
 			return nil
 		}); err != nil {
@@ -1779,6 +1860,22 @@ func (m *Manager) restartArchitect(ctx context.Context, sessionID string) error 
 	})
 
 	return err
+}
+
+// recordRestartMode stores the fallback mode and model a restart ran on when
+// the recorded mode was no longer usable, so in-flight counts and labels match.
+// The start already succeeded, so a failed write is logged, not returned.
+func (m *Manager) recordRestartMode(ctx context.Context, sessionID string, mode llmchannel.Mode, model string) {
+	sess, err := m.store.GetSession(ctx, sessionID)
+	if err == nil {
+		sess.LLMChannel, sess.Model = string(mode), model
+		err = m.store.UpdateSession(ctx, sess)
+	}
+
+	if err != nil {
+		m.logger.Warn("chat: record restarted blueprint's llm channel failed",
+			"session_id", sessionID, "llm_channel", string(mode), "error", err)
+	}
 }
 
 // wakeConsumer cuts the session's consumer backoff short. Only the send path
@@ -1800,14 +1897,14 @@ func (m *Manager) wakeConsumer(sessionID string) {
 	}
 }
 
-// coldPrep gathers the inputs needed by Backend.StartChat for a cold open.
-// Returns the options struct and an error if any preparatory step failed.
-func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, error) {
+// coldPrep gathers the inputs needed by Backend.StartChat for a cold open on
+// mode, which falls back to the kind's effective mode when no longer usable,
+// and returns the resolved mode. The stored model maps onto its catalog.
+func (m *Manager) coldPrep(ctx context.Context, sess Session, mode llmchannel.Mode) (StartChatOpts, llmchannel.Mode, error) {
+	endpoint, mode := m.endpointFor(sess.Kind, mode)
+
 	if sess.Kind == KindArchitect {
-		model := sess.Model
-		if model == "" {
-			model = m.architectDefaultModel
-		}
+		model := m.startModel(mode, llmchannel.Mode(sess.LLMChannel), sess.Model, m.architectDefaultModel)
 
 		var token string
 		if m.architectWorkerCredentialsToken != nil {
@@ -1816,12 +1913,12 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 
 		m.logger.Info("chat: opening cold blueprint session",
 			"session_id", sess.ID, "projects", sess.Workspace, "mode", sess.Mode, "plain_language", sess.PlainLanguage, "unattended", sess.Unattended, "model", model,
-			"research", m.architectResearch != nil)
+			"llm_channel", string(mode), "research", m.architectResearch != nil)
 
 		start := StartChatOpts{
 			SessionID:           sess.ID,
 			Model:               model,
-			LLMEndpoint:         m.llmEndpoint,
+			LLMEndpoint:         endpoint,
 			GitCredentialsToken: token,
 			Architect: &protocol.ArchitectStart{
 				Projects:      sess.Workspace,
@@ -1846,7 +1943,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 			start.Architect.ContextWindow = m.architectContextWindow(ctx, model)
 		}
 
-		return start, nil
+		return start, mode, nil
 	}
 
 	var execInfo ProjectExecInfo
@@ -1856,7 +1953,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 
 		execInfo, err = m.resolveProjectExec(ctx, sess.Project)
 		if err != nil {
-			return StartChatOpts{}, fmt.Errorf("chat: resolve project exec for %q: %w", sess.Project, err)
+			return StartChatOpts{}, "", fmt.Errorf("chat: resolve project exec for %q: %w", sess.Project, err)
 		}
 	}
 
@@ -1865,10 +1962,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 	// never block the user from opening the chat.
 	resume := m.buildResume(ctx, sess.ID)
 
-	model := sess.Model
-	if model == "" {
-		model = m.defaultModel
-	}
+	model := m.startModel(mode, llmchannel.Mode(sess.LLMChannel), sess.Model, m.defaultModel)
 
 	// Mint the worker git-credentials bearer for this cold open. nil
 	// workerCredentialsToken (no chat-backend api_key configured) leaves the
@@ -1881,7 +1975,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 	m.logger.Info("chat: opening cold session",
 		"session_id", sess.ID, "project", sess.Project, "repo_url", execInfo.RepoURL,
 		"worker_image", execInfo.WorkerImage,
-		"model", model, "has_resume", resume != nil,
+		"model", model, "llm_channel", string(mode), "has_resume", resume != nil,
 		"resume_turn_count", resumeTurnCount(resume))
 
 	return StartChatOpts{
@@ -1891,9 +1985,50 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 		WorkerImage:         execInfo.WorkerImage,
 		Model:               model,
 		Resume:              resume,
-		LLMEndpoint:         m.llmEndpoint,
+		LLMEndpoint:         endpoint,
 		GitCredentialsToken: gitCredentialsToken,
-	}, nil
+	}, mode, nil
+}
+
+// ChannelKind is the backend kind the LLM channel knows a session kind by.
+func ChannelKind(kind SessionKind) llmchannel.Kind {
+	if kind == KindArchitect {
+		return config.BackendNameArchitect
+	}
+
+	return config.BackendNameChat
+}
+
+// effectiveMode is the mode a fresh start of the kind runs in.
+func (m *Manager) effectiveMode(kind SessionKind) llmchannel.Mode {
+	return m.llmChannel.Effective(ChannelKind(kind))
+}
+
+// endpointFor returns the start payload's endpoint for a session started on
+// recorded, and the mode it belongs to.
+func (m *Manager) endpointFor(kind SessionKind, recorded llmchannel.Mode) (*protocol.LLMEndpoint, llmchannel.Mode) {
+	return m.llmChannel.EndpointFor(ChannelKind(kind), recorded)
+}
+
+// startModel picks a start's model from the stored one. A claude_code start
+// maps it onto the Claude Code catalog, empty taking claude_code.default_model.
+// An endpoint start maps it only when the session last ran on claude_code, so
+// an endpoint that serves bare Claude IDs keeps them; empty takes the
+// backend's default.
+func (m *Manager) startModel(mode, recorded llmchannel.Mode, model, endpointDefault string) string {
+	if mode == llmchannel.ModeClaudeCode {
+		return m.llmChannel.ResolveModel(mode, model, endpointDefault)
+	}
+
+	if model == "" {
+		return endpointDefault
+	}
+
+	if recorded == llmchannel.ModeClaudeCode {
+		return m.llmChannel.ResolveModel(mode, model, endpointDefault)
+	}
+
+	return model
 }
 
 // rollbackContainer ends the worker container started during a cold open and
@@ -2981,6 +3116,7 @@ const chatCostCacheTTL = 30 * time.Second
 type chatCostCache struct {
 	last30d    float64
 	prior30d   float64
+	subLast30d float64
 	series30d  []float64
 	computedAt time.Time
 }
@@ -2992,7 +3128,7 @@ type chatCostCache struct {
 // Errors are not cached: a transient store error causes the next caller to
 // retry immediately. The returned values are zero on error; callers should
 // log the error and emit a metric but continue rendering the dashboard.
-func (m *Manager) GetChatCostSummary(ctx context.Context) (last30d, prior30d float64, series30d []float64, err error) {
+func (m *Manager) GetChatCostSummary(ctx context.Context) (last30d, prior30d, subscriptionLast30d float64, series30d []float64, err error) {
 	now := m.clk.Now().UTC()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	until := todayStart.Add(24 * time.Hour)
@@ -3006,20 +3142,21 @@ func (m *Manager) GetChatCostSummary(ctx context.Context) (last30d, prior30d flo
 	if !cached.computedAt.IsZero() && now.Sub(cached.computedAt) < chatCostCacheTTL {
 		// Return a defensive copy so the caller cannot mutate the cached backing
 		// array. The cache entry itself is never exposed - copy-on-read.
-		return cached.last30d, cached.prior30d, append([]float64(nil), cached.series30d...), nil
+		return cached.last30d, cached.prior30d, cached.subLast30d, append([]float64(nil), cached.series30d...), nil
 	}
 
 	// Cache miss or expiry: re-compute.
-	last30d, prior30d, series30d, err = m.store.AggregateCost(ctx, since, until)
+	last30d, prior30d, subscriptionLast30d, series30d, err = m.store.AggregateCost(ctx, since, until)
 	if err != nil {
 		// Do NOT cache errors: next caller should retry immediately.
-		return 0, 0, nil, fmt.Errorf("chat: GetChatCostSummary: %w", err)
+		return 0, 0, 0, nil, fmt.Errorf("chat: GetChatCostSummary: %w", err)
 	}
 
 	m.mu.Lock()
 	m.costCache = chatCostCache{
 		last30d:    last30d,
 		prior30d:   prior30d,
+		subLast30d: subscriptionLast30d,
 		series30d:  series30d,
 		computedAt: now,
 	}
@@ -3028,5 +3165,5 @@ func (m *Manager) GetChatCostSummary(ctx context.Context) (last30d, prior30d flo
 	// Return a defensive copy here too: the value returned to this first caller
 	// must not share backing array with the freshly-cached entry. Copy-on-read
 	// is the chosen invariant - the cache entry is always private to the cache.
-	return last30d, prior30d, append([]float64(nil), series30d...), nil
+	return last30d, prior30d, subscriptionLast30d, append([]float64(nil), series30d...), nil
 }

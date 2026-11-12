@@ -1,10 +1,13 @@
 import { BodyMarkdown } from '../BodyMarkdown';
 import { httpUrl, parseBoard } from '../artifactData';
-import { money } from '../stages';
+import { SUBSCRIPTION_TOOLTIP } from '../../../lib/subscription';
+import { costBasis, money } from '../stages';
+import { useCostSession } from '../useCostSession';
 import { Callout, TextList } from './parts';
 import type { RendererProps } from './types';
 
-export function BoardSheet({ artifact }: RendererProps) {
+export function BoardSheet({ chatId, artifact }: RendererProps) {
+  const basis = costBasis(useCostSession(chatId));
   const data = parseBoard(artifact.data);
   if (!data) return <BodyMarkdown body={artifact.body} mode="plain" version={artifact.version} />;
   const compares = data.repos.flatMap((r) => {
@@ -58,9 +61,10 @@ export function BoardSheet({ artifact }: RendererProps) {
       <Callout tone="steps" title="Setup steps" items={data.steps} />
       <Callout tone="notices" title="Notices" items={data.notices} />
       {data.costUsd !== null && (
-        <p className="bp-sub">
+        <p className="bp-sub" title={basis ? SUBSCRIPTION_TOOLTIP : undefined}>
           The architect&apos;s runs cost {money(data.costUsd)}
-          {data.priced ? '' : ', some runs unpriced'}.
+          {data.priced ? '' : ', some runs unpriced'}
+          {basis}.
         </p>
       )}
     </>

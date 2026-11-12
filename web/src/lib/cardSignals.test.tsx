@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Card } from '../types';
 import { cardSignals } from './cardSignals';
+import { parkedResetLabel } from './subscription';
 
 function baseCard(overrides: Partial<Card> = {}): Card {
   return {
@@ -17,7 +18,28 @@ function baseCard(overrides: Partial<Card> = {}): Card {
   };
 }
 
+const thu14 = new Date(2026, 10, 12, 14, 0).toISOString();
+
 describe('cardSignals', () => {
+  it('names the usage-limit reset on a parked card, and says when it has passed', () => {
+    const card = baseCard({ worker_status: 'parked', park_resets_at: thu14 });
+    const at = (now: number) => cardSignals(card, { now }).find((s) => s.key === 'worker')?.label;
+    const before = Date.parse(thu14) - 60_000;
+    const after = Date.parse(thu14) + 60_000;
+    expect(at(before)).toBe(parkedResetLabel(thu14, before));
+    expect(at(after)).toBe(parkedResetLabel(thu14, after));
+    expect(at(before)).not.toBe(at(after));
+  });
+
+  it('shows no reset on a plain parked card', () => {
+    const signals = cardSignals(baseCard({ worker_status: 'parked' }));
+    const label = signals.find((s) => s.key === 'worker')?.label;
+    expect(parkedResetLabel(undefined)).toBeNull();
+    expect(label).toBeTruthy();
+    expect(label).not.toBe(parkedResetLabel(thu14, 0));
+    expect(label).not.toBe(parkedResetLabel(thu14, Date.parse(thu14) * 2));
+  });
+
   it('replaces the membership signal with a queued-in-playbook signal while the run is active', () => {
     const card = baseCard({ in_playbooks: ['roll'], playbook_lock: { id: 'roll', title: 'Roll', run_status: 'running' } });
     const signals = cardSignals(card);

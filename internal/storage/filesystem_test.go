@@ -1465,3 +1465,28 @@ func TestFilesystemStore_GetCard_DiskFallbackRefusesIDMismatch(t *testing.T) {
 	_, err = store.GetCard(context.Background(), "test-project", "test-042")
 	require.ErrorIs(t, err, ErrCardNotFound)
 }
+
+func TestFilesystemStore_SubscriptionBucketRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	card := testCard("TEST-001", "todo")
+	card.UsageBreakdown = []board.UsageBucket{
+		{Agent: "a", Model: "claude-opus-5-5", CostSource: "estimated", CostBasis: "subscription", CostUSD: 1.5},
+		{Agent: "a", Model: "claude-opus-5-5", CostSource: "estimated", CostUSD: 0.5},
+	}
+	require.NoError(t, store.CreateCard(context.Background(), "test-project", card))
+
+	// A fresh store re-parses the card from disk.
+	reopened, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	loaded, err := reopened.GetCard(context.Background(), "test-project", "TEST-001")
+	require.NoError(t, err)
+	require.Len(t, loaded.UsageBreakdown, 2)
+	assert.Equal(t, "subscription", loaded.UsageBreakdown[0].CostBasis)
+	assert.Empty(t, loaded.UsageBreakdown[1].CostBasis)
+}

@@ -4367,3 +4367,158 @@ func TestKnowledgeConfigValidation(t *testing.T) {
 		})
 	}
 }
+
+// ---------- ClaudeCodeConfig tests ----------
+
+func TestClaudeCodeConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     ClaudeCodeConfig
+		wantErr string
+	}{
+		{name: "empty is valid", cfg: ClaudeCodeConfig{}},
+		{name: "token and backends", cfg: ClaudeCodeConfig{OAuthToken: "tok", Backends: []string{"chat", "agent"}}},
+		{name: "token without backends", cfg: ClaudeCodeConfig{OAuthToken: "tok"}},
+		{name: "unknown backend", cfg: ClaudeCodeConfig{OAuthToken: "tok", Backends: []string{"runner"}}, wantErr: "claude_code.backends"},
+		{name: "duplicate backend", cfg: ClaudeCodeConfig{OAuthToken: "tok", Backends: []string{"chat", "chat"}}, wantErr: "claude_code.backends"},
+		{name: "backends without token", cfg: ClaudeCodeConfig{Backends: []string{"chat"}}, wantErr: "claude_code.oauth_token"},
+		{name: "known default model", cfg: ClaudeCodeConfig{DefaultModel: "claude-haiku-5-5"}},
+		{name: "default model outside the static catalog", cfg: ClaudeCodeConfig{DefaultModel: "claude-fable-5-2"}},
+		{name: "future default model", cfg: ClaudeCodeConfig{DefaultModel: "claude-opus-6"}},
+		{name: "openrouter slug default model", cfg: ClaudeCodeConfig{DefaultModel: "anthropic/claude-opus-5.5"}, wantErr: "claude_code.default_model"},
+		{name: "non-claude default model", cfg: ClaudeCodeConfig{DefaultModel: "gpt-5"}, wantErr: "claude_code.default_model"},
+		{name: "bare prefix default model", cfg: ClaudeCodeConfig{DefaultModel: "claude-"}, wantErr: "claude_code.default_model"},
+		{name: "dotted default model", cfg: ClaudeCodeConfig{DefaultModel: "claude-opus-5.5"}, wantErr: "claude_code.default_model"},
+		{name: "empty effort", cfg: ClaudeCodeConfig{Effort: ""}},
+		{name: "effort low", cfg: ClaudeCodeConfig{Effort: "low"}},
+		{name: "effort medium", cfg: ClaudeCodeConfig{Effort: "medium"}},
+		{name: "effort high", cfg: ClaudeCodeConfig{Effort: "high"}},
+		{name: "effort xhigh", cfg: ClaudeCodeConfig{Effort: "xhigh"}},
+		{name: "effort max", cfg: ClaudeCodeConfig{Effort: "max"}},
+		{name: "effort upper case", cfg: ClaudeCodeConfig{Effort: "HIGH"}, wantErr: "claude_code.effort"},
+		{name: "effort minimal", cfg: ClaudeCodeConfig{Effort: "minimal"}, wantErr: "claude_code.effort"},
+		{name: "effort unknown", cfg: ClaudeCodeConfig{Effort: "ultra"}, wantErr: "claude_code.effort"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.validate()
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+			assert.NotContains(t, err.Error(), "tok\"")
+		})
+	}
+}
+
+func TestClaudeCodeConfig_Configured(t *testing.T) {
+	assert.False(t, ClaudeCodeConfig{}.Configured())
+	assert.True(t, ClaudeCodeConfig{OAuthToken: "tok"}.Configured())
+}
+
+func TestLoad_ClaudeCodeEnvOverrides(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards:
+  dir: `+boardsDir+`
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
+claude_code:
+  oauth_token: yaml-token
+  backends: [agent]
+  default_model: claude-opus-5-5
+  effort: high
+`)
+
+	t.Run("yaml only", func(t *testing.T) {
+		cfg, err := Load(path)
+		require.NoError(t, err)
+
+		assert.Equal(t, ClaudeCodeConfig{
+			OAuthToken: "yaml-token", Backends: []string{"agent"}, DefaultModel: "claude-opus-5-5", Effort: "high",
+		}, cfg.ClaudeCode)
+	})
+
+	t.Run("env overrides", func(t *testing.T) {
+		t.Setenv("CONTEXTMATRIX_CLAUDE_CODE_OAUTH_TOKEN", "env-token")
+		t.Setenv("CONTEXTMATRIX_CLAUDE_CODE_BACKENDS", " chat , architect")
+		t.Setenv("CONTEXTMATRIX_CLAUDE_CODE_DEFAULT_MODEL", "claude-haiku-5-5")
+		t.Setenv("CONTEXTMATRIX_CLAUDE_CODE_EFFORT", "max")
+
+		cfg, err := Load(path)
+		require.NoError(t, err)
+
+		assert.Equal(t, "env-token", cfg.ClaudeCode.OAuthToken)
+		assert.Equal(t, []string{"chat", "architect"}, cfg.ClaudeCode.Backends)
+		assert.Equal(t, "claude-haiku-5-5", cfg.ClaudeCode.DefaultModel)
+		assert.Equal(t, "max", cfg.ClaudeCode.Effort)
+	})
+
+	t.Run("invalid env effort fails startup", func(t *testing.T) {
+		t.Setenv("CONTEXTMATRIX_CLAUDE_CODE_EFFORT", "ultra")
+
+		_, err := Load(path)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "claude_code.effort")
+		assert.NotContains(t, err.Error(), "yaml-token")
+	})
+
+	t.Run("empty env keeps yaml", func(t *testing.T) {
+		t.Setenv("CONTEXTMATRIX_CLAUDE_CODE_BACKENDS", "")
+
+		cfg, err := Load(path)
+		require.NoError(t, err)
+
+		assert.Equal(t, []string{"agent"}, cfg.ClaudeCode.Backends)
+	})
+
+	for name, v := range map[string]string{"commas only": ",", "whitespace only": " "} {
+		t.Run(name+" env keeps yaml", func(t *testing.T) {
+			t.Setenv("CONTEXTMATRIX_CLAUDE_CODE_BACKENDS", v)
+
+			cfg, err := Load(path)
+			require.NoError(t, err)
+
+			assert.Equal(t, []string{"agent"}, cfg.ClaudeCode.Backends)
+		})
+	}
+}
+
+func TestLoad_ClaudeCodeInvalidDoesNotLeakToken(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards:
+  dir: `+boardsDir+`
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
+claude_code:
+  oauth_token: super-secret-token
+  backends: [runner]
+`)
+
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "claude_code.backends")
+	assert.NotContains(t, err.Error(), "super-secret-token")
+}
+
+func TestDefaults_ClaudeCode(t *testing.T) {
+	assert.Equal(t,
+		ClaudeCodeConfig{OAuthToken: "", Backends: []string{}, DefaultModel: "claude-sonnet-5-5"},
+		Defaults().ClaudeCode)
+}

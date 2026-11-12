@@ -2,12 +2,12 @@ import type { SelectorCandidate, SelectorPick, SelectorPickReport, SelectorPrevi
 
 export const DEFAULT_BARS: TierBars = { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.9 };
 
-function cand(slug: string, coder: number, reviewer: number, price: number): SelectorCandidate {
+export function candidate(slug: string, coder: number, reviewer: number, price: number): SelectorCandidate {
   return { slug, creator: slug.split('/')[0], coder_prior: coder, reviewer_prior: reviewer, prompt_price_per_tok: price / 2, completion_price_per_tok: price / 2, context_window: 200000, price_source: 'gateway', scored_from: '', prior_source: 'aa' };
 }
 
 /** The same four models and blended prices as the Go preview fixture. */
-export const CANDIDATES: SelectorCandidate[] = [cand('a/cheap', 0.9, 0.85, 2e-6), cand('a/mid', 0.8, 0.86, 4e-6), cand('b/pricey', 0.83, 0.84, 2e-5), cand('c/weak', 0.7, 0.7, 1e-6)];
+export const CANDIDATES: SelectorCandidate[] = [candidate('a/cheap', 0.9, 0.85, 2e-6), candidate('a/mid', 0.8, 0.86, 4e-6), candidate('b/pricey', 0.83, 0.84, 2e-5), candidate('c/weak', 0.7, 0.7, 1e-6)];
 
 export function pick(model: string, role: 'coder' | 'reviewer', requested: SelectorTier, met: SelectorTier | '', price: number, extra: Partial<SelectorPick> = {}): SelectorPickReport {
   return {
@@ -28,5 +28,5 @@ export function previewFixture(): SelectorPreview {
   }
   tiers.critical.reviewer = pick('a/cheap', 'reviewer', 'critical', 'complex', 2e-6);
   tiers.critical.panel = [];
-  return { tiers };
+  return { catalog: 'endpoint', tiers };
 }

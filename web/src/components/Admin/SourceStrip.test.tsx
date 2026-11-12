@@ -6,6 +6,7 @@ import { SourceStrip } from './SourceStrip';
 function catalog(over: Partial<SelectorCandidatesResponse> = {}): SelectorCandidatesResponse {
   const c = { slug: 'a/x', creator: 'a', coder_prior: 0.9, reviewer_prior: 0.9, prompt_price_per_tok: 1e-6, completion_price_per_tok: 1e-6, context_window: 1, price_source: 'gateway' as const, scored_from: '', prior_source: 'aa' as const };
   return {
+    catalog: 'endpoint',
     candidates: [c, { ...c, slug: 'a/y' }, { ...c, slug: 'a/z' }],
     favorites: [],
     blacklist: [],

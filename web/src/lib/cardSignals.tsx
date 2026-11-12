@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { Card, WorkerStatus } from '../types';
 import { limitDuration } from './cardTiming';
+import { parkedResetLabel } from './subscription';
 
 /**
  * Signal metadata for the board card's header icon cluster. Lives outside the
@@ -139,6 +140,8 @@ const workerSignals: Record<WorkerStatus, Omit<CardSignal, 'key' | 'importance'>
 };
 
 export interface CardSignalOptions {
+  /** Dates a usage-limit park's reset. */
+  now?: number;
   /**
    * The board's `unclaimed_warning_seconds`, set once an unheld
    * in_progress/review card has gone that long without an agent. The signal
@@ -148,7 +151,10 @@ export interface CardSignalOptions {
 }
 
 /** Builds the card's signals in display order. */
-export function cardSignals(card: Card, options: CardSignalOptions = {}): CardSignal[] {
+export function cardSignals(
+  card: Card,
+  { now = Date.now(), unclaimedOverSeconds }: CardSignalOptions = {},
+): CardSignal[] {
   const signals: CardSignal[] = [];
 
   if ((card.depends_on?.length ?? 0) > 0) {
@@ -191,12 +197,14 @@ export function cardSignals(card: Card, options: CardSignalOptions = {}): CardSi
     });
   }
   if (card.worker_status && workerSignals[card.worker_status]) {
-    signals.push({ key: 'worker', importance: 0, ...workerSignals[card.worker_status] });
+    const worker = workerSignals[card.worker_status];
+    const parkedLabel = card.worker_status === 'parked' ? parkedResetLabel(card.park_resets_at, now) : null;
+    signals.push({ key: 'worker', importance: 0, ...worker, ...(parkedLabel ? { label: parkedLabel } : {}) });
   }
-  if (options.unclaimedOverSeconds != null) {
+  if (unclaimedOverSeconds != null) {
     signals.push({
       key: 'unclaimed',
-      label: `No agent has held it for over ${limitDuration(options.unclaimedOverSeconds)}`,
+      label: `No agent has held it for over ${limitDuration(unclaimedOverSeconds)}`,
       color: 'var(--yellow)',
       icon: hourglassIcon,
       importance: 0,

@@ -224,13 +224,15 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 	return card, nil
 }
 
-// ReportParked records that the agent parked the card's run - review or PR
-// gates left for a human - by setting worker_status to "parked" with the
-// reason in the activity log. Called by the worker right before its container
-// exits; the "completed" callback that follows preserves the park (see
-// UpdateWorkerStatus), and the next trigger's "queued" replaces it. Returns
-// lock.ErrAgentMismatch when the caller does not hold the claim.
-func (s *CardService) ReportParked(ctx context.Context, project, id, agentID, reason string) (*board.Card, error) {
+// ReportParked records that the agent parked the card's run (review or PR
+// gates left for a human, or a subscription usage limit) by setting
+// worker_status to "parked" with the reason in the activity log. Called by the
+// worker right before its container exits. A non-nil, non-zero resetsAt goes
+// to the park-reset store; nil or zero clears it. The "completed" callback that
+// follows preserves the park (see UpdateWorkerStatus), and the next trigger's
+// "queued" replaces it. Returns lock.ErrAgentMismatch when the caller does not
+// hold the claim.
+func (s *CardService) ReportParked(ctx context.Context, project, id, agentID, reason string, resetsAt *time.Time) (*board.Card, error) {
 	id = strings.ToUpper(id)
 	r := s.repoOf(project)
 
@@ -288,13 +290,33 @@ func (s *CardService) ReportParked(ctx context.Context, project, id, agentID, re
 		return nil, rollbackErr
 	}
 
+	data := map[string]any{"worker_status": "parked", "reason": reason}
+
+	if s.parkResets != nil {
+		if resetsAt != nil && !resetsAt.IsZero() {
+			if err := s.parkResets.PutParkReset(ctx, project, id, *resetsAt); err != nil {
+				ctxlog.Logger(ctx).Warn("record park reset failed", "card_id", id, "project", project, "error", err)
+			} else {
+				at := *resetsAt
+				card.ParkResetsAt = &at
+			}
+		} else if err := s.parkResets.ClearParkReset(ctx, project, id); err != nil {
+			// A row left by an earlier park must not read as this park's reset.
+			ctxlog.Logger(ctx).Warn("clear park reset failed", "card_id", id, "project", project, "error", err)
+		}
+	}
+
+	if resetsAt != nil && !resetsAt.IsZero() {
+		data["resets_at"] = resetsAt.UTC().Format(time.RFC3339)
+	}
+
 	s.bus.Publish(events.Event{
 		Type:      events.WorkerParked,
 		Project:   project,
 		CardID:    id,
 		Agent:     agentID,
 		Timestamp: s.clk.Now(),
-		Data:      map[string]any{"worker_status": "parked", "reason": reason},
+		Data:      data,
 	})
 	s.overlayLiveness(card)
 
@@ -604,6 +626,12 @@ func (s *CardService) updateWorkerStatus(
 		s.writeMu.Unlock()
 
 		return nil, rollbackErr
+	}
+
+	if status == "queued" && s.parkResets != nil {
+		if err := s.parkResets.ClearParkReset(ctx, project, cardID); err != nil {
+			ctxlog.Logger(ctx).Warn("clear park reset failed", "card_id", cardID, "project", project, "error", err)
+		}
 	}
 
 	// Two terminal paths bypass ReleaseCard: a hard worker crash (failed or

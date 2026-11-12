@@ -268,6 +268,7 @@ func (s *CardService) ListCards(ctx context.Context, project string, filter stor
 	}
 
 	s.enrichPlaybookMembership(ctx, project, cards...)
+	s.enrichParkResets(ctx, project, cards...)
 
 	return cards, nil
 }
@@ -451,6 +452,7 @@ func (s *CardService) ListCardsPage(
 	}
 
 	s.enrichPlaybookMembership(ctx, project, result.Items...)
+	s.enrichParkResets(ctx, project, result.Items...)
 
 	// Populate Total only on the first page. Derived from the UN-filtered
 	// project size so it survives filter changes between pages; also lets
@@ -480,6 +482,7 @@ func (s *CardService) GetCard(ctx context.Context, project, id string) (*board.C
 	s.enrichDependenciesMet(ctx, card)
 	s.enrichSubtaskCost(ctx, card)
 	s.enrichPlaybookMembership(ctx, project, card)
+	s.enrichParkResets(ctx, project, card)
 
 	return card, nil
 }

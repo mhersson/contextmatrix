@@ -308,11 +308,26 @@ func TestAdminSelectorLadders_MultiMode(t *testing.T) {
 }
 
 type stubSelectorCatalog struct {
-	candidates  []protocol.CandidateModel
-	provenance  map[string]modelcatalog.CandidateProvenance
-	floor       float64
-	refreshedAt time.Time
-	stats       modelcatalog.CatalogStats
+	candidates       []protocol.CandidateModel
+	provenance       map[string]modelcatalog.CandidateProvenance
+	floor            float64
+	refreshedAt      time.Time
+	stats            modelcatalog.CatalogStats
+	claudeCandidates []protocol.CandidateModel
+	claudeProvenance map[string]modelcatalog.CandidateProvenance
+	claudeStats      modelcatalog.CatalogStats
+}
+
+func (s *stubSelectorCatalog) ClaudeCodeCandidates(context.Context) []protocol.CandidateModel {
+	return s.claudeCandidates
+}
+
+func (s *stubSelectorCatalog) ClaudeCodeProvenance(context.Context) map[string]modelcatalog.CandidateProvenance {
+	return s.claudeProvenance
+}
+
+func (s *stubSelectorCatalog) ClaudeCodeStats(context.Context) modelcatalog.CatalogStats {
+	return s.claudeStats
 }
 
 func (s *stubSelectorCatalog) Candidates(context.Context) []protocol.CandidateModel {

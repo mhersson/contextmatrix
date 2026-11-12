@@ -67,6 +67,8 @@ export interface Card {
   pr_url?: string;
   review_attempts?: number;
   worker_status?: 'queued' | 'running' | 'failed' | 'killed' | 'parked';
+  /** RFC 3339 reset time of the usage limit that parked the run; present only while parked. */
+  park_resets_at?: string;
   created: string;
   updated: string;
   activity_log?: ActivityEntry[];
@@ -127,6 +129,8 @@ export interface UsageBucket {
   cost_usd: number;
   cost_source: 'actual' | 'estimated';
   counts_source?: 'collector' | 'self';
+  /** "subscription" for flat-rate Claude subscription usage, an API-equivalent estimate priced from the rate table; absent for metered usage. */
+  cost_basis?: 'subscription';
 }
 
 export interface SubtaskUsage {
@@ -255,7 +259,8 @@ export type EventType =
   | 'playbook.updated'
   | 'playbook.deleted'
   | 'jira_import.progress'
-  | 'jira_import.done';
+  | 'jira_import.done'
+  | 'llm_channel.changed';
 
 export interface SyncResolution {
   path: string;
@@ -390,6 +395,8 @@ export interface ModelCost {
   card_count: number;
   /** True when any card folded into this row carries a rate-table-estimated cost. */
   has_estimates?: boolean;
+  /** True when the row includes subscription usage (an API-equivalent estimate); a row can mix both bases. */
+  subscription?: boolean;
 }
 
 export interface CardCost {
@@ -401,6 +408,8 @@ export interface CardCost {
   estimated_cost_usd: number;
   /** True when this card, or any subtask folded into it, carries a rate-table-estimated cost. */
   has_estimates?: boolean;
+  /** The part of estimated_cost_usd that is a subscription estimate. */
+  subscription_cost_usd?: number;
 }
 
 export interface MetricSeries {
@@ -418,6 +427,8 @@ export interface DashboardData {
   state_counts_parents: Record<string, number>;
   active_agents: ActiveAgent[];
   total_cost_usd: number;
+  /** The part of total_cost_usd that is a subscription estimate, not billed spend. */
+  total_subscription_cost_usd?: number;
   /** True when any card contributing to total_cost_usd carries a rate-table-estimated cost. */
   total_cost_has_estimates?: boolean;
   total_cost_usd_last_30d?: number;
@@ -439,6 +450,8 @@ export interface DashboardData {
   chat_cost_usd_last_30d?: number;
   chat_cost_usd_prior_30d?: number;
   chat_cost_series_30d?: number[];
+  /** The part of chat_cost_usd_last_30d that is a subscription estimate. */
+  chat_subscription_cost_usd?: number;
 }
 
 export interface ActivityFeedEntry {
@@ -832,6 +845,46 @@ export interface SelectorLaddersResponse {
   updated_at?: string;
 }
 
+/** Global LLM channel: the configured endpoint, or the Claude Code subscription. */
+export type LLMChannel = 'endpoint' | 'claude_code';
+
+export interface LLMChannelCounts {
+  cards: number;
+  chats: number;
+  blueprints: number;
+}
+
+/** One subscription limit window: the newest reading a Claude Code run reported. */
+export interface LLMChannelUsage {
+  /** Vendor window name, e.g. "seven_day" or "five_hour". */
+  window: string;
+  /** Fraction used: 0.64 is 64%; above 1 during overage. */
+  utilization: number;
+  /** "allowed", "allowed_warning" or "rejected". */
+  status: string;
+  resets_at: string;
+  seen_at: string;
+  /** The window has reset since this reading. */
+  stale: boolean;
+}
+
+/** Shape of GET /api/llm-channel and PUT /api/admin/llm-channel. */
+export interface LLMChannelView {
+  mode: LLMChannel;
+  /** Both sides are configured. */
+  switchable: boolean;
+  endpoint: { type: string; label: string } | null;
+  /** A Claude Code token is configured. */
+  claude_code: boolean;
+  /** Live work per mode; runs keep the mode they started with. */
+  in_flight: Record<LLMChannel, LLMChannelCounts>;
+  /** Backends not listed in `claude_code.backends`: they stay on the endpoint, or with none configured (`none`) cannot run. */
+  exceptions: { backend: 'agent' | 'chat' | 'architect'; runs_on: 'endpoint' | 'none' }[];
+  usage: LLMChannelUsage[];
+  updated_at?: string;
+  updated_by?: string;
+}
+
 /** Where a candidate's price came from; `aa` is the Artificial Analysis list price, shown when the gateway publishes none. */
 export type SelectorPriceSource = 'gateway' | 'aa' | 'token_costs' | 'none' | '';
 
@@ -847,7 +900,7 @@ export interface SelectorCandidate {
   completion_price_per_tok: number;
   context_window: number;
   price_source: SelectorPriceSource;
-  /** The AA slug an automatic join scored the priors from; empty for a model_priors entry and on the OpenRouter leg. */
+  /** The AA slug an automatic join scored the priors from; empty for a model_priors entry and for a served candidate on the OpenRouter leg. */
   scored_from: string;
   prior_source: SelectorPriorSource;
 }
@@ -858,7 +911,11 @@ export interface SelectorFavoriteRule {
   models: string[];
 }
 
+/** The LLM channel mode whose catalog a selector response came from: the Claude Code catalog while card runs start on Claude Code, else the served one. */
+export type SelectorCatalog = 'claude_code' | 'endpoint';
+
 export interface SelectorCandidatesResponse {
+  catalog: SelectorCatalog;
   candidates: SelectorCandidate[];
   favorites: SelectorFavoriteRule[];
   blacklist: string[];
@@ -870,7 +927,7 @@ export interface SelectorCandidatesResponse {
   intelligence_index_version: string;
   /** AA rows with an intelligence index. */
   aa_scored_models: number;
-  /** Gateway models with tool use joined to a scored AA row, before the allowlist and the floor; model_priors entries are not counted. */
+  /** Gateway models with tool use (Claude Code catalog IDs for the claude_code catalog) joined to a scored AA row, before the allowlist and the floor; model_priors entries are not counted. */
   served_scored_models: number;
   /** The best AA score, the normalizer behind prior 1.00; 0 when there is none. */
   best_aa_score: number;
@@ -930,6 +987,7 @@ export interface SelectorTierPreview {
 }
 
 export interface SelectorPreview {
+  catalog: SelectorCatalog;
   tiers: Record<SelectorTier, SelectorTierPreview>;
 }
 
@@ -971,6 +1029,10 @@ export interface ChatSession {
   cache_creation_tokens?: number;
   /** Running total in USD. Precision floor ~$0.0001. */
   estimated_cost_usd?: number;
+  /** The part of estimated_cost_usd that is a subscription estimate. */
+  subscription_cost_usd?: number;
+  /** The LLM channel the session runs on: set at creation and at every cold open, kept while live. */
+  llm_channel?: LLMChannel;
   /** Pinned sessions stay in the sidebar; omitted when false. */
   pinned?: boolean;
   /** Architect sessions only: the spend CM recorded from the architect; absent until recorded (0 is a recorded 0). */
@@ -1011,7 +1073,9 @@ export interface ChatModelList {
   //  - 'endpoint': server-provided list from the configured OpenAI-compatible
   //    endpoint; rendered as a <select> over the server models[]. The
   //    no-backend fallback is an empty endpoint list.
-  source: 'openrouter' | 'endpoint';
+  //  - 'claude_code': new chats start on the Claude subscription; `models` is
+  //    the Claude Code catalog, which carries no prices.
+  source: 'openrouter' | 'endpoint' | 'claude_code';
   models: ChatModel[];
   default: string;
   /** The architect backend's default model; "" when no architect backend is configured. */
@@ -1303,6 +1367,7 @@ export interface ChatSessionUpdate {
   status?: ChatStatus;
   // Cost and token counters - new running totals after each usage frame.
   estimated_cost_usd?: number;
+  subscription_cost_usd?: number;
   prompt_tokens?: number;
   completion_tokens?: number;
   cache_read_tokens?: number;
@@ -1311,6 +1376,14 @@ export interface ChatSessionUpdate {
   assistant_working?: boolean;
   /** RFC3339 UTC start of the in-flight turn. Absent when not working. */
   assistant_working_since?: string;
+}
+
+/** A subscription usage limit that stopped a chat or blueprint session. */
+export interface ChatUsageLimit {
+  /** The vendor window that hit its limit, e.g. "five_hour"; absent when none was named. */
+  window?: string;
+  /** RFC 3339; absent when the vendor reported no reset time. */
+  resets_at?: string;
 }
 
 // Blueprint sessions: the architect's view of one blueprint, proxied by CM

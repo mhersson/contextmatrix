@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { CostByModel } from './CostByModel';
 import type { ModelCost } from '../../types';
+import { SUBSCRIPTION_TOOLTIP } from '../../lib/subscription';
 
 function mc(model: string, cost: number): ModelCost {
   return {
@@ -41,5 +42,18 @@ describe('CostByModel', () => {
   it('renders an empty state when no costs are reported', () => {
     render(<CostByModel modelCosts={[]} />);
     expect(screen.getByText(/No cost in the last 30 days/i)).toBeInTheDocument();
+  });
+
+  it('marks a model row that includes subscription usage with ≈ and the subscription tooltip', () => {
+    render(
+      <CostByModel
+        modelCosts={[
+          { ...mc('claude-sonnet-5-5', 2.5), has_estimates: true, subscription: true },
+          mc('openai/model-1', 1),
+        ]}
+      />,
+    );
+    expect(screen.getByText('$2.50≈')).toHaveAttribute('title', SUBSCRIPTION_TOOLTIP);
+    expect(screen.getByText('$1.00')).not.toHaveAttribute('title');
   });
 });

@@ -34,6 +34,25 @@ describe('formatSessionCost', () => {
   });
 });
 
+describe('formatSessionCost subscription share', () => {
+  it('follows the chat rule for a chat', () => {
+    expect(formatSessionCost(sess({ estimated_cost_usd: 0.5, subscription_cost_usd: 0.5, llm_channel: 'claude_code' }))).toBe('≈ $0.50');
+    expect(formatSessionCost(sess({ estimated_cost_usd: 1.5, subscription_cost_usd: 0.5, llm_channel: 'endpoint' }))).toBe(
+      '$1.50 (≈ $0.50 subscription)',
+    );
+    expect(formatSessionCost(sess({ estimated_cost_usd: 1.5, llm_channel: 'endpoint' }))).toBe('$1.50');
+  });
+
+  it("reads a blueprint's spend on Claude Code as all API-equivalent", () => {
+    expect(
+      formatSessionCost(sess({ kind: 'architect', spent_usd: 2, subscription_cost_usd: 1.2, llm_channel: 'claude_code' })),
+    ).toBe('≈ $2.00');
+    expect(
+      formatSessionCost(sess({ kind: 'architect', spent_usd: 2, subscription_cost_usd: 0.5, llm_channel: 'endpoint' })),
+    ).toBe('$2.00 (≈ $0.50 subscription)');
+  });
+});
+
 describe('sessionKind', () => {
   it('treats an absent kind as chat', () => {
     expect(sessionKind(sess())).toBe('chat');

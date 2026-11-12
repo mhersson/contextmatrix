@@ -8,16 +8,19 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
+	"github.com/mhersson/contextmatrix-protocol/selection"
 
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
+	"github.com/mhersson/contextmatrix/internal/llmchannel"
 )
 
 const (
@@ -122,6 +125,13 @@ type chatHandlers struct {
 	// live multiplexes the architect's live blueprint stream onto the chat
 	// SSE of architect sessions; nil when no architect is configured.
 	live *blueprintLive
+	// llmChannel puts the picker on the Claude Code catalog while new chats
+	// start in claude_code mode, and checks a new session's model against it
+	// while its kind starts there. Required.
+	llmChannel LLMChannelResolver
+	// claudeCatalog lists the Claude Code picker and gates chat start once a
+	// catalog is built; nil or unbuilt means form-only checks.
+	claudeCatalog ClaudeCodeCatalog
 }
 
 func newChatHandlers(mgr *chat.Manager, hub *chat.SSEHub, chatBackendCfg *config.ChatBackendConfig) *chatHandlers {
@@ -252,6 +262,11 @@ func (h *chatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sessions)
 }
 
+// startMode is the LLM channel mode a new session of the kind starts in.
+func (h *chatHandlers) startMode(kind chat.SessionKind) llmchannel.Mode {
+	return h.llmChannel.Effective(chat.ChannelKind(kind))
+}
+
 // isArchitectDefault reports whether model is the architect backend's own
 // default, which the picker seeds and the backend already accepts, so it skips
 // catalog validation exactly as an omitted model does.
@@ -292,6 +307,20 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 	applyDefault := kind != chat.KindArchitect
 
 	switch {
+	case h.startMode(kind) == llmchannel.ModeClaudeCode:
+		if model == "" && applyDefault {
+			model = h.llmChannel.ResolveModel(llmchannel.ModeClaudeCode, "", "")
+		}
+
+		if model != "" && !h.isArchitectDefault(kind, model) {
+			if !h.claudeCodeModelAllowed(model) {
+				writeError(w, http.StatusBadRequest, ErrCodeInvalidModel, "model not in catalog", model)
+
+				return
+			}
+
+			model = h.llmChannel.ResolveModel(llmchannel.ModeClaudeCode, model, "")
+		}
 	case h.endpointModels != nil:
 		if model == "" && applyDefault {
 			model = h.orDefault
@@ -383,6 +412,11 @@ func containsModelID(models []chatModelEntry, id string) bool {
 //     backends.chat.default_model. Also returned (with an empty list) when
 //     no chat backend is configured - the picker renders nothing and new
 //     chats fall back to the server default.
+//   - "claude_code": new chats start in claude_code mode; Models is the
+//     Claude Code catalog and Default is claude_code.default_model.
+//
+// ?kind=architect answers for the mode new blueprints start in instead, so
+// the blueprint picker offers what createChat accepts for that kind.
 func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 	type response struct {
 		Source           string           `json:"source"`
@@ -390,6 +424,39 @@ func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 		Default          string           `json:"default"`
 		ArchitectDefault string           `json:"architect_default"`
 		FetchError       string           `json:"fetch_error,omitempty"`
+	}
+
+	kind := chat.KindChat
+
+	switch q := r.URL.Query().Get("kind"); q {
+	case "", string(chat.KindChat):
+	case string(chat.KindArchitect):
+		kind = chat.KindArchitect
+	default:
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid kind", q)
+
+		return
+	}
+
+	if h.startMode(kind) == llmchannel.ModeClaudeCode {
+		def := h.llmChannel.ResolveModel(llmchannel.ModeClaudeCode, "", "")
+		models := h.claudeCodeModels(r.Context(), def)
+
+		// A blueprint with no model of its own starts on the default of the
+		// mode its architect runs in.
+		archDefault := h.architectDefault
+		if archDefault != "" && h.startMode(chat.KindArchitect) == llmchannel.ModeClaudeCode {
+			archDefault = def
+		}
+
+		writeJSON(w, http.StatusOK, response{
+			Source:           string(llmchannel.ModeClaudeCode),
+			Models:           h.annotateModels(r.Context(), models),
+			Default:          def,
+			ArchitectDefault: archDefault,
+		})
+
+		return
 	}
 
 	if h.endpointModels != nil {
@@ -443,6 +510,51 @@ func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response{
 		Source: "endpoint", Models: []chatModelEntry{}, Default: "", ArchitectDefault: h.architectDefault,
 	})
+}
+
+// claudeCodeModelAllowed is the chat-start check for a claude_code model: a
+// well-formed ID, and a member of the catalog once one is built.
+func (h *chatHandlers) claudeCodeModelAllowed(model string) bool {
+	id, ok := selection.ClaudeCodeModelID(model)
+	if !ok {
+		return false
+	}
+
+	if h.claudeCatalog == nil {
+		return true
+	}
+
+	// The configured default is always a valid choice.
+	if id == h.llmChannel.ResolveModel(llmchannel.ModeClaudeCode, "", "") {
+		return true
+	}
+
+	known, built := h.claudeCatalog.ClaudeCodeKnown(id)
+
+	return known || !built
+}
+
+// claudeCodeModels is the claude_code picker: the catalog plus def, or def
+// alone while there is no catalog.
+func (h *chatHandlers) claudeCodeModels(ctx context.Context, def string) []chatModelEntry {
+	var models []chatModelEntry
+
+	if h.claudeCatalog != nil {
+		for _, c := range h.claudeCatalog.ClaudeCodeCandidates(ctx) {
+			models = append(models, chatModelEntry{ID: c.Slug, Label: c.Slug, MaxTokens: int64(c.ContextWindow)})
+		}
+	}
+
+	if !slices.ContainsFunc(models, func(m chatModelEntry) bool { return m.ID == def }) {
+		entry := chatModelEntry{ID: def, Label: def}
+		if h.claudeCatalog != nil {
+			entry.MaxTokens = int64(h.claudeCatalog.ContextWindow(ctx, def))
+		}
+
+		models = append(models, entry)
+	}
+
+	return models
 }
 
 // annotateModels returns the picker list with Blacklisted set on entries in

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +25,9 @@ import (
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/config"
+	"github.com/mhersson/contextmatrix/internal/events"
+	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/llmchannel/llmchanneltest"
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 )
 
@@ -105,6 +109,12 @@ type fixtureOpts struct {
 	// managerHub wires that hub into the manager; otherwise the manager
 	// publishes nothing to it.
 	managerHub bool
+	// llmChannel drives both the manager's starts and the handlers' model
+	// list and create-time check; unset is an endpoint-only channel with no
+	// endpoint.
+	llmChannel LLMChannelResolver
+	// claudeCatalog, when non-nil, is wired as the handlers' Claude Code catalog.
+	claudeCatalog ClaudeCodeCatalog
 }
 
 // defaultFixtureOpts is the no-backend topology: no chat backend configured
@@ -159,6 +169,10 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 		archDefault = opts.architectBackendCfg.DefaultModel
 	}
 
+	if opts.llmChannel == nil {
+		opts.llmChannel = llmchanneltest.EndpointOnly(nil)
+	}
+
 	var mgrStore chat.Store = store
 	if opts.wrapStore != nil {
 		mgrStore = opts.wrapStore(store)
@@ -184,6 +198,7 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 		DefaultModel:          defaultModel,
 		ArchitectBackend:      archBackend,
 		ArchitectDefaultModel: archDefault,
+		LLMChannel:            opts.llmChannel,
 		ResolveProjectExec: func(_ context.Context, project string) (chat.ProjectExecInfo, error) {
 			if project != "alpha" && project != "beta" {
 				return chat.ProjectExecInfo{}, errors.New("no such project")
@@ -201,6 +216,8 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 
 	chh := newChatHandlers(mgr, hub, opts.chatBackendCfg)
 	chh.architectDefault = archDefault
+	chh.llmChannel = opts.llmChannel
+	chh.claudeCatalog = opts.claudeCatalog
 
 	if opts.endpointModels != nil {
 		chh.endpointModels = newCachedEndpointFetcher(opts.endpointModels, endpointModelCacheTTL)
@@ -1353,7 +1370,8 @@ func TestListModelsEndpointSource(t *testing.T) {
 		endpointModels: func(_ context.Context) ([]chatModelEntry, error) {
 			return []chatModelEntry{{ID: "model-a", Label: "model-a", MaxTokens: 200000}}, nil
 		},
-		orDefault: "model-a",
+		orDefault:  "model-a",
+		llmChannel: llmchanneltest.EndpointOnly(nil),
 	}
 
 	rec := httptest.NewRecorder()
@@ -1992,15 +2010,16 @@ func TestListModels_ArchitectDefaultOnEveryBranch(t *testing.T) {
 
 	ok := func(context.Context) ([]chatModelEntry, error) { return []chatModelEntry{{ID: "m"}}, nil }
 	fail := func(context.Context) ([]chatModelEntry, error) { return nil, fmt.Errorf("down") }
+	ch := llmchanneltest.EndpointOnly(nil)
 
 	tests := []struct {
 		name string
 		h    *chatHandlers
 	}{
-		{"endpoint", &chatHandlers{endpointModels: ok}},
-		{"endpoint fetch error", &chatHandlers{endpointModels: fail}},
-		{"openrouter", &chatHandlers{openRouter: true}},
-		{"no backend", &chatHandlers{}},
+		{"endpoint", &chatHandlers{endpointModels: ok, llmChannel: ch}},
+		{"endpoint fetch error", &chatHandlers{endpointModels: fail, llmChannel: ch}},
+		{"openrouter", &chatHandlers{openRouter: true, llmChannel: ch}},
+		{"no backend", &chatHandlers{llmChannel: ch}},
 	}
 
 	for _, tt := range tests {
@@ -2023,6 +2042,7 @@ func TestListModels_FlagsUnpricedWithoutMutatingCache(t *testing.T) {
 	h := &chatHandlers{
 		endpointModels: func(context.Context) ([]chatModelEntry, error) { return cached, nil },
 		priced:         func(m string) bool { return m == "priced" },
+		llmChannel:     llmchanneltest.EndpointOnly(nil),
 	}
 
 	body := getModels(t, h)
@@ -2044,6 +2064,7 @@ func TestListModels_UnpricedAbsentFromWireWhenPriced(t *testing.T) {
 		openRouter:   true,
 		servedModels: func(context.Context) []chatModelEntry { return []chatModelEntry{{ID: "a"}} },
 		priced:       func(string) bool { return true },
+		llmChannel:   llmchanneltest.EndpointOnly(nil),
 	}
 
 	rec := httptest.NewRecorder()
@@ -2323,6 +2344,407 @@ func TestCreateChat_Unattended(t *testing.T) {
 			var sess chat.Session
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sess))
 			assert.Equal(t, tc.want, sess.Unattended)
+		})
+	}
+}
+
+// chatChannel builds an LLM channel with both sides configured, switched to
+// mode, that runs claude_code for the supported backend kinds.
+func chatChannel(t *testing.T, mode llmchannel.Mode, supported ...string) *llmchannel.Holder {
+	t.Helper()
+
+	return chatChannelWith(t, nil, mode, supported...)
+}
+
+// chatChannelWith is chatChannel over a Claude Code catalog.
+func chatChannelWith(t *testing.T, cat llmchannel.ClaudeCodeCatalog, mode llmchannel.Mode, supported ...string) *llmchannel.Holder {
+	t.Helper()
+
+	h, err := llmchannel.New(context.Background(), llmchannel.Config{
+		Endpoint:     gatewayEndpoint(),
+		OAuthToken:   "tok",
+		Supported:    supported,
+		DefaultModel: "claude-sonnet-5-5",
+		Catalog:      cat,
+	}, llmchanneltest.Store{}, events.NewBus())
+	require.NoError(t, err)
+	require.NoError(t, h.Set(context.Background(), mode, "human:test"))
+
+	return h
+}
+
+// stubClaudeCatalog is a Claude Code catalog over fixed windows; built false
+// models a deployment with no catalog.
+type stubClaudeCatalog struct {
+	built   bool
+	windows map[string]int
+}
+
+func (c stubClaudeCatalog) ClaudeCodeKnown(id string) (known, built bool) {
+	_, known = c.windows[id]
+
+	return known, c.built
+}
+
+func (c stubClaudeCatalog) ClaudeCodeCandidates(context.Context) []protocol.CandidateModel {
+	if !c.built {
+		return nil
+	}
+
+	ids := make([]string, 0, len(c.windows))
+	for id := range c.windows {
+		ids = append(ids, id)
+	}
+
+	slices.Sort(ids)
+
+	out := make([]protocol.CandidateModel, len(ids))
+	for i, id := range ids {
+		out[i] = protocol.CandidateModel{Slug: id, ContextWindow: c.windows[id]}
+	}
+
+	return out
+}
+
+func (c stubClaudeCatalog) ContextWindow(_ context.Context, name string) int {
+	// Deliberately unlike the candidates' own windows: the picker must size a
+	// catalog entry from its candidate.
+	return 1_000_000
+}
+
+// noDefaultCatalog is built but lacks the configured default model.
+var noDefaultCatalog = stubClaudeCatalog{built: true, windows: map[string]int{
+	"claude-opus-5-5": 1_000_000,
+}}
+
+var fableCatalog = stubClaudeCatalog{built: true, windows: map[string]int{
+	"claude-opus-5-5":   1_000_000,
+	"claude-sonnet-5-5": 200_000,
+	"claude-fable-5-2":  400_000,
+}}
+
+func TestChatsModels_ClaudeCodeSource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		supported       []string
+		wantSource      string
+		wantDefault     string
+		wantArchDefault string
+	}{
+		{
+			name: "chat and architect on claude_code", supported: []string{config.BackendNameChat, config.BackendNameArchitect},
+			wantSource: "claude_code", wantDefault: "claude-sonnet-5-5", wantArchDefault: "claude-sonnet-5-5",
+		},
+		{
+			name: "architect on the endpoint", supported: []string{config.BackendNameChat},
+			wantSource: "claude_code", wantDefault: "claude-sonnet-5-5", wantArchDefault: "anthropic/claude-opus-5.5",
+		},
+		{
+			name: "chat on the endpoint", supported: []string{config.BackendNameArchitect},
+			wantSource: "openrouter", wantDefault: "anthropic/claude-opus-5.5", wantArchDefault: "anthropic/claude-opus-5.5",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := &chatHandlers{
+				openRouter:       true,
+				orDefault:        "anthropic/claude-opus-5.5",
+				architectDefault: "anthropic/claude-opus-5.5",
+				servedModels: func(context.Context) []chatModelEntry {
+					return []chatModelEntry{{ID: "deepseek/deepseek-v4-flash"}}
+				},
+				priced:        func(m string) bool { return m == "claude-sonnet-5-5" },
+				llmChannel:    chatChannelWith(t, fableCatalog, llmchannel.ModeClaudeCode, tt.supported...),
+				claudeCatalog: fableCatalog,
+			}
+
+			rec := httptest.NewRecorder()
+			h.listModels(rec, httptest.NewRequest(http.MethodGet, "/api/chats/models", nil))
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var body struct {
+				Source           string           `json:"source"`
+				Models           []chatModelEntry `json:"models"`
+				Default          string           `json:"default"`
+				ArchitectDefault string           `json:"architect_default"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+
+			assert.Equal(t, tt.wantSource, body.Source)
+			assert.Equal(t, tt.wantDefault, body.Default)
+			assert.Equal(t, tt.wantArchDefault, body.ArchitectDefault)
+
+			if tt.wantSource != "claude_code" {
+				require.Len(t, body.Models, 1)
+				assert.Equal(t, "deepseek/deepseek-v4-flash", body.Models[0].ID)
+
+				return
+			}
+
+			assert.Equal(t, []chatModelEntry{
+				{ID: "claude-fable-5-2", Label: "claude-fable-5-2", MaxTokens: 400_000, Unpriced: true},
+				{ID: "claude-opus-5-5", Label: "claude-opus-5-5", MaxTokens: 1_000_000, Unpriced: true},
+				{ID: "claude-sonnet-5-5", Label: "claude-sonnet-5-5", MaxTokens: 200_000},
+			}, body.Models)
+		})
+	}
+}
+
+// A built catalog that lacks the default still lists it, so the advertised
+// default is selectable.
+func TestChatsModels_ClaudeCodeListsDefaultOutsideCatalog(t *testing.T) {
+	t.Parallel()
+
+	h := &chatHandlers{
+		llmChannel:    chatChannelWith(t, noDefaultCatalog, llmchannel.ModeClaudeCode, config.BackendNameChat),
+		claudeCatalog: noDefaultCatalog,
+	}
+
+	rec := httptest.NewRecorder()
+	h.listModels(rec, httptest.NewRequest(http.MethodGet, "/api/chats/models", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var body struct {
+		Models  []chatModelEntry `json:"models"`
+		Default string           `json:"default"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+
+	ids := make([]string, len(body.Models))
+	for i, m := range body.Models {
+		ids[i] = m.ID
+	}
+
+	assert.Equal(t, "claude-sonnet-5-5", body.Default)
+	assert.Equal(t, []string{"claude-opus-5-5", "claude-sonnet-5-5"}, ids)
+}
+
+// Without a catalog the picker offers the default alone, sized by the window
+// lookup; a nil catalog sizes nothing.
+func TestChatsModels_ClaudeCodeWithoutCatalog(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		catalog ClaudeCodeCatalog
+		want    []chatModelEntry
+	}{
+		{"unbuilt catalog", stubClaudeCatalog{}, []chatModelEntry{{ID: "claude-sonnet-5-5", Label: "claude-sonnet-5-5", MaxTokens: 1_000_000}}},
+		{"nil catalog", nil, []chatModelEntry{{ID: "claude-sonnet-5-5", Label: "claude-sonnet-5-5"}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := &chatHandlers{
+				llmChannel:    chatChannel(t, llmchannel.ModeClaudeCode, config.BackendNameChat),
+				claudeCatalog: tt.catalog,
+			}
+
+			rec := httptest.NewRecorder()
+			h.listModels(rec, httptest.NewRequest(http.MethodGet, "/api/chats/models", nil))
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var body struct {
+				Models  []chatModelEntry `json:"models"`
+				Default string           `json:"default"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+			assert.Equal(t, "claude-sonnet-5-5", body.Default)
+			assert.Equal(t, tt.want, body.Models)
+		})
+	}
+}
+
+// The blueprint picker asks for the architect's own list: during a rollout the
+// chat kind can run on claude_code while the architect stays on the endpoint.
+func TestChatsModels_KindArchitect(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		supported       []string
+		query           string
+		wantStatus      int
+		wantSource      string
+		wantDefault     string
+		wantArchDefault string
+	}{
+		{
+			name: "architect on the endpoint while chat runs claude_code", supported: []string{config.BackendNameChat},
+			query: "?kind=architect", wantStatus: http.StatusOK,
+			wantSource: "openrouter", wantDefault: "anthropic/claude-opus-5.5", wantArchDefault: "anthropic/claude-opus-5.5",
+		},
+		{
+			name: "architect on claude_code while chat runs the endpoint", supported: []string{config.BackendNameArchitect},
+			query: "?kind=architect", wantStatus: http.StatusOK,
+			wantSource: "claude_code", wantDefault: "claude-sonnet-5-5", wantArchDefault: "claude-sonnet-5-5",
+		},
+		{
+			name: "an explicit chat kind is the chat list", supported: []string{config.BackendNameChat},
+			query: "?kind=chat", wantStatus: http.StatusOK,
+			wantSource: "claude_code", wantDefault: "claude-sonnet-5-5", wantArchDefault: "anthropic/claude-opus-5.5",
+		},
+		{
+			name: "an unknown kind is refused", supported: []string{config.BackendNameChat},
+			query: "?kind=card", wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := &chatHandlers{
+				openRouter:       true,
+				orDefault:        "anthropic/claude-opus-5.5",
+				architectDefault: "anthropic/claude-opus-5.5",
+				servedModels: func(context.Context) []chatModelEntry {
+					return []chatModelEntry{{ID: "deepseek/deepseek-v4-flash"}}
+				},
+				llmChannel:    chatChannelWith(t, fableCatalog, llmchannel.ModeClaudeCode, tt.supported...),
+				claudeCatalog: fableCatalog,
+			}
+
+			rec := httptest.NewRecorder()
+			h.listModels(rec, httptest.NewRequest(http.MethodGet, "/api/chats/models"+tt.query, nil))
+			require.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			var body struct {
+				Source           string           `json:"source"`
+				Models           []chatModelEntry `json:"models"`
+				Default          string           `json:"default"`
+				ArchitectDefault string           `json:"architect_default"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+
+			assert.Equal(t, tt.wantSource, body.Source)
+			assert.Equal(t, tt.wantDefault, body.Default)
+			assert.Equal(t, tt.wantArchDefault, body.ArchitectDefault)
+
+			ids := make([]string, len(body.Models))
+			for i, m := range body.Models {
+				ids[i] = m.ID
+			}
+
+			if tt.wantSource == "claude_code" {
+				assert.Equal(t, []string{"claude-fable-5-2", "claude-opus-5-5", "claude-sonnet-5-5"}, ids)
+			} else {
+				assert.Equal(t, []string{"deepseek/deepseek-v4-flash"}, ids)
+			}
+		})
+	}
+}
+
+func TestCreateChat_ValidatesClaudeCodeModelID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		catalog   stubClaudeCatalog
+		model     string
+		wantCode  int
+		wantModel string
+	}{
+		{name: "openrouter slug", catalog: fableCatalog, model: "deepseek/deepseek-v4-flash", wantCode: http.StatusBadRequest},
+		{name: "empty model", catalog: fableCatalog, model: "", wantCode: http.StatusCreated, wantModel: "claude-sonnet-5-5"},
+		{name: "catalog id", catalog: fableCatalog, model: "claude-opus-5-5", wantCode: http.StatusCreated, wantModel: "claude-opus-5-5"},
+		{name: "catalog fable slug", catalog: fableCatalog, model: "anthropic/claude-fable-5.2", wantCode: http.StatusCreated, wantModel: "claude-fable-5-2"},
+		{name: "well-formed outside catalog", catalog: fableCatalog, model: "anthropic/claude-haiku-5.5", wantCode: http.StatusBadRequest},
+		{name: "default outside a built catalog", catalog: noDefaultCatalog, model: "", wantCode: http.StatusCreated, wantModel: "claude-sonnet-5-5"},
+		{name: "explicit default outside a built catalog", catalog: noDefaultCatalog, model: "claude-sonnet-5-5", wantCode: http.StatusCreated, wantModel: "claude-sonnet-5-5"},
+		{name: "other id outside a built catalog", catalog: noDefaultCatalog, model: "claude-haiku-5-5", wantCode: http.StatusBadRequest},
+		{name: "no catalog: openrouter slug", model: "deepseek/deepseek-v4-flash", wantCode: http.StatusBadRequest},
+		{name: "no catalog: any well-formed id", model: "anthropic/claude-haiku-5.5", wantCode: http.StatusCreated, wantModel: "claude-haiku-5-5"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			opts := openRouterFixtureOpts()
+			opts.chatBackendCfg.DefaultModel = "anthropic/claude-opus-5.5"
+			opts.validateModel = func(_ context.Context, slug string) bool { return slug == "deepseek/deepseek-v4-flash" }
+			opts.llmChannel = chatChannelWith(t, tt.catalog, llmchannel.ModeClaudeCode, config.BackendNameChat)
+			opts.claudeCatalog = tt.catalog
+			mux, _ := newChatFixture(t, opts)
+
+			body, err := json.Marshal(map[string]string{"title": "t", "project": "alpha", "model": tt.model})
+			require.NoError(t, err)
+
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats", string(body)))
+			require.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
+
+			if tt.wantCode != http.StatusCreated {
+				assert.Contains(t, rec.Body.String(), ErrCodeInvalidModel)
+				assert.Contains(t, rec.Body.String(), tt.model)
+
+				return
+			}
+
+			var sess chat.Session
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sess))
+			assert.Equal(t, tt.wantModel, sess.Model)
+			assert.Equal(t, string(llmchannel.ModeClaudeCode), sess.LLMChannel)
+		})
+	}
+}
+
+// A blueprint follows its own kind's mode: with chat on claude_code and the
+// architect on the endpoint, its model is checked against the endpoint side.
+func TestCreateChat_ArchitectFollowsItsOwnMode(t *testing.T) {
+	t.Parallel()
+
+	opts := openRouterFixtureOpts()
+	opts.architectBackendCfg = &config.ArchitectBackendConfig{DefaultModel: "z-ai/glm-5.2"}
+	opts.validateModel = func(_ context.Context, slug string) bool { return slug == "deepseek/deepseek-v4-flash" }
+	opts.llmChannel = chatChannel(t, llmchannel.ModeClaudeCode, config.BackendNameChat)
+	mux, _ := newChatFixture(t, opts)
+
+	tests := []struct {
+		name      string
+		model     string
+		wantCode  int
+		wantModel string
+	}{
+		{name: "openrouter slug", model: "deepseek/deepseek-v4-flash", wantCode: http.StatusCreated, wantModel: "deepseek/deepseek-v4-flash"},
+		{name: "empty model stays empty", model: "", wantCode: http.StatusCreated, wantModel: ""},
+		{name: "architect default is exempt", model: "z-ai/glm-5.2", wantCode: http.StatusCreated, wantModel: "z-ai/glm-5.2"},
+		{name: "unknown slug", model: "nope/unknown", wantCode: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			body, err := json.Marshal(map[string]any{"kind": "architect", "projects": []string{"alpha"}, "model": tt.model})
+			require.NoError(t, err)
+
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats", string(body)))
+			require.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
+
+			if tt.wantCode != http.StatusCreated {
+				assert.Contains(t, rec.Body.String(), ErrCodeInvalidModel)
+
+				return
+			}
+
+			var sess chat.Session
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sess))
+			assert.Equal(t, tt.wantModel, sess.Model)
+			assert.Equal(t, string(llmchannel.ModeEndpoint), sess.LLMChannel)
 		})
 	}
 }

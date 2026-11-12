@@ -53,7 +53,7 @@ export function Paper({ chatId, view, stage, slice, version, writing, draft, com
           {draft?.refused && <RefusedBand reason={draft.reason} />}
           {previous && (
             <div className="bp-dimmed">
-              <ArtifactRenderer artifact={previous} previous={null} mode="plain" view={view} />
+              <ArtifactRenderer chatId={chatId} artifact={previous} previous={null} mode="plain" view={view} />
             </div>
           )}
         </>
@@ -72,7 +72,13 @@ export function Paper({ chatId, view, stage, slice, version, writing, draft, com
             </ul>
           </div>
         )}
-        <ArtifactRenderer artifact={entry.artifact} previous={mode === 'plain' ? null : previous} mode={mode} view={view} />
+        <ArtifactRenderer
+          chatId={chatId}
+          artifact={entry.artifact}
+          previous={mode === 'plain' ? null : previous}
+          mode={mode}
+          view={view}
+        />
       </>
     );
   } else if (entry?.status === 'error') {

@@ -67,6 +67,7 @@ type CardSummary struct {
 	TokenUsage              *board.TokenUsage   `json:"token_usage,omitempty"`
 	SubtaskCostUSD          float64             `json:"subtask_cost_usd,omitempty"`
 	SubtaskCostHasEstimates bool                `json:"subtask_cost_has_estimates,omitempty"`
+	ParkResetsAt            *time.Time          `json:"park_resets_at,omitempty"`
 	InPlaybooks             []string            `json:"in_playbooks,omitempty"`
 	// PlaybookLock names the runnable playbook that owns this card's execution
 	// settings, with its run status while a run is active. Computed on read.
@@ -134,6 +135,7 @@ func summarizeCard(c *board.Card) *CardSummary {
 		TokenUsage:              c.TokenUsage,
 		SubtaskCostUSD:          c.SubtaskCostUSD,
 		SubtaskCostHasEstimates: c.SubtaskCostHasEstimates,
+		ParkResetsAt:            c.ParkResetsAt,
 		InPlaybooks:             c.InPlaybooks,
 		PlaybookLock:            c.PlaybookLock,
 		Created:                 c.Created,

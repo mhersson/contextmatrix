@@ -41,17 +41,20 @@ or chat execution.
 | Repository                                                                         | Role                                                                                                                                                                                                  |
 | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **[contextmatrix](https://github.com/mhersson/contextmatrix)** (this repo)         | Coordination server: board, web UI, REST API, MCP hub.                                                                                                                                                |
-| **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)**         | Task backend. A Go harness with per-role model selection over **OpenRouter** or any OpenAI-compatible gateway. Executes cards only.                                                                   |
-| **[contextmatrix-chat](https://github.com/mhersson/contextmatrix-chat)**           | Chat backend for the global `/chat` surface: long-lived, board-aware sessions on the same LLM endpoint.                                                                                               |
+| **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)**         | Task backend. A Go harness with per-role model selection over **OpenRouter** or any OpenAI-compatible gateway, or Claude Code on a subscription. Executes cards only.                                 |
+| **[contextmatrix-chat](https://github.com/mhersson/contextmatrix-chat)**           | Chat backend for the global `/chat` surface: long-lived, board-aware sessions on the same LLM endpoint or Claude Code subscription.                                                                   |
 | **[contextmatrix-architect](https://github.com/mhersson/contextmatrix-architect)** | Blueprint backend for the same chat panel. Interviews you about a need, then slices, designs and reviews it into contract-checked cards it creates in ContextMatrix, with a playbook for two or more. |
 
-Three shared Go modules underpin them:
+Four shared Go modules underpin them:
 [contextmatrix-protocol](https://github.com/mhersson/contextmatrix-protocol)
 (webhook wire types),
 [contextmatrix-harness](https://github.com/mhersson/contextmatrix-harness)
-(the agentic tool-use loop), and
+(the agentic tool-use loop),
 [contextmatrix-backendkit](https://github.com/mhersson/contextmatrix-backendkit)
-(serve plumbing: webhook auth, worker lifecycle, metrics, log streaming).
+(serve plumbing: webhook auth, worker lifecycle, metrics, log streaming), and
+[contextmatrix-vendorkit](https://github.com/mhersson/contextmatrix-vendorkit)
+(runs the unmodified Claude Code CLI as an executor, so the backends can run on
+a Claude subscription).
 
 ## A blueprint, step by step
 

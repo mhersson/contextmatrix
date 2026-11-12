@@ -172,6 +172,15 @@ describe('costLabel', () => {
     expect(costLabel({ ...cost, cap_usd: 0 }).percent).toBeNull();
     expect(costLabel(cost).percent).toBeCloseTo(17.5);
   });
+
+  it.each([
+    ['on Claude Code', { llm_channel: 'claude_code' }, cost, '$0.35 of $2.00, API-equivalent'],
+    ['on Claude Code, no cap', { llm_channel: 'claude_code', subscription_cost_usd: 0.35 }, { ...cost, cap_usd: 0 }, '$0.35, no cap, API-equivalent'],
+    ['back on the endpoint after subscription runs', { llm_channel: 'endpoint', subscription_cost_usd: 0.1 }, cost, '$0.35 of $2.00, includes an API-equivalent estimate'],
+    ['on the endpoint only', { llm_channel: 'endpoint', subscription_cost_usd: 0 }, cost, '$0.35 of $2.00'],
+  ])('labels the basis %s from the session record', (_name, session, c, text) => {
+    expect(costLabel(c, session).text).toBe(text);
+  });
 });
 
 describe('slices', () => {

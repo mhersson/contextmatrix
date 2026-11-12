@@ -206,6 +206,8 @@ func (c *backendClient) StreamLogs(ctx context.Context, sessionID string, onEntr
 			Model:     entry.Model,
 			Prompt:    entry.Prompt,
 			Marker:    entry.Marker,
+			// The pointer is shared with the decoded frame, which nothing else keeps.
+			UsageLimit: entry.UsageLimit,
 		}
 
 		if entry.Usage != nil {
@@ -215,6 +217,8 @@ func (c *backendClient) StreamLogs(ctx context.Context, sessionID string, onEntr
 				CacheReadTokens:   entry.Usage.CacheReadTokens,
 				CacheCreateTokens: entry.Usage.CacheCreateTokens,
 				CostUSD:           entry.Usage.CostUSD,
+				CostBasis:         entry.Usage.CostBasis,
+				Subscription:      entry.Usage.Subscription,
 			}
 		}
 

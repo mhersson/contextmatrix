@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { SessionsPage } from './SessionsPage';
 import { api } from '../../api/client';
 import type { ChatSession } from '../../types';
+import { SUBSCRIPTION_TOOLTIP } from '../../lib/subscription';
 
 const toast = vi.hoisted(() => ({ showToast: vi.fn() }));
 vi.mock('../../hooks/useToast', () => ({ useToast: () => toast }));
@@ -156,6 +157,14 @@ describe('SessionsPage', () => {
     const unrecorded = row('Recipe box');
     expect(within(unrecorded).queryByText(/\$/)).toBeNull();
     expect(within(unrecorded).getByText('default')).toBeInTheDocument();
+  });
+
+  it('a blueprint on Claude Code reads its spend as an API-equivalent estimate', async () => {
+    store = store.map((s) => (s.id === 'b1' ? { ...s, llm_channel: 'claude_code', subscription_cost_usd: 1.2 } : s));
+    renderAt();
+    await screen.findByText('Recipe box');
+
+    expect(within(row('Shopping list')).getByText('≈ $1.42')).toHaveAttribute('title', SUBSCRIPTION_TOOLTIP);
   });
 
   it('the pin toggle patches the session without opening it', async () => {

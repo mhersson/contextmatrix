@@ -11,6 +11,8 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix-protocol/selection"
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/config"
+	"github.com/mhersson/contextmatrix/internal/llmchannel"
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 )
@@ -39,11 +41,19 @@ type selectorAdminStore interface {
 // modelcatalog.Builder; wider than catalogProvider (trigger path) for the
 // same narrow-interface reason as blacklistAdminStore.
 type selectorCatalog interface {
-	Candidates(ctx context.Context) []protocol.CandidateModel
+	catalogProvider
 	Provenance(ctx context.Context) map[string]modelcatalog.CandidateProvenance
 	Stats(ctx context.Context) modelcatalog.CatalogStats
+	ClaudeCodeProvenance(ctx context.Context) map[string]modelcatalog.CandidateProvenance
+	ClaudeCodeStats(ctx context.Context) modelcatalog.CatalogStats
 	Floor() float64
 	LastRefreshed(ctx context.Context) time.Time
+}
+
+// agentChannel reports the mode a card run would start in now. Implemented
+// by *llmchannel.Holder.
+type agentChannel interface {
+	Effective(kind llmchannel.Kind) llmchannel.Mode
 }
 
 // ErrCodeCatalogUnavailable -> 503: no candidate catalog is configured, or
@@ -77,6 +87,9 @@ type selectorAdminHandlers struct {
 	// admin session. In none mode they are open, same trust posture as the
 	// model-blacklist endpoints.
 	authEnabled bool
+	// channel picks the catalog the candidates and preview show: the one a
+	// card run would select from now. Nil reads as endpoint mode.
+	channel agentChannel
 }
 
 // selectorLaddersResponse is the GET and PUT /api/admin/selector/ladders
@@ -288,6 +301,9 @@ func headroomDetails(err error) string {
 // every input the preview feeds the selector, plus the catalog's floor and
 // freshness so the page can say what it is showing.
 type selectorCandidatesResponse struct {
+	// Catalog is the LLM channel mode whose catalog this is: "claude_code"
+	// or "endpoint".
+	Catalog            string                  `json:"catalog"`
 	Candidates         []selectorCandidateView `json:"candidates"`
 	Favorites          []protocol.FavoriteRule `json:"favorites"`
 	Blacklist          []string                `json:"blacklist"`
@@ -315,7 +331,8 @@ type selectorCandidateView struct {
 	ContextWindow         int     `json:"context_window"`
 	PriceSource           string  `json:"price_source"`
 	// ScoredFrom is the AA slug an automatic join scored the priors from;
-	// empty for a model_priors entry and on the OpenRouter leg.
+	// empty for a model_priors entry and for a served candidate on the
+	// OpenRouter leg.
 	ScoredFrom string `json:"scored_from"`
 	// PriorSource is "aa" or "model_priors": whether the priors are AA
 	// scores or an operator entry.
@@ -331,8 +348,10 @@ type selectorPreviewRequest struct {
 }
 
 // selectorPreviewResponse is keyed by tier name; every tier is present.
+// Catalog is as on the candidates response.
 type selectorPreviewResponse struct {
-	Tiers map[string]selectorTierPreview `json:"tiers"`
+	Catalog string                         `json:"catalog"`
+	Tiers   map[string]selectorTierPreview `json:"tiers"`
 }
 
 type selectorTierPreview struct {
@@ -396,17 +415,22 @@ type selectorFilteredOutView struct {
 	Models []string `json:"models"`
 }
 
-// selectorInputs is what both catalog-backed endpoints read: a sorted copy
-// of the candidates, the blacklist, and the snapshot time.
+// selectorInputs is what both catalog-backed endpoints read, all from the
+// catalog of one mode: a sorted copy of the candidates, the backend-level
+// favorites, the blacklist, the provenance, the stats and the snapshot time.
 type selectorInputs struct {
+	mode        llmchannel.Mode
 	candidates  []protocol.CandidateModel
+	favorites   []protocol.FavoriteRule
 	provenance  map[string]modelcatalog.CandidateProvenance
+	stats       modelcatalog.CatalogStats
 	blacklist   []string
 	refreshedAt time.Time
 }
 
 // inputs gathers the catalog-backed inputs or writes the refusal: 503 for
 // no catalog or one that never refreshed, 500 for a blacklist read failure.
+// The mode is read once, so every input comes from the same catalog.
 func (h *selectorAdminHandlers) inputs(w http.ResponseWriter, r *http.Request) (selectorInputs, bool) {
 	if h.catalog == nil {
 		writeError(w, http.StatusServiceUnavailable, ErrCodeCatalogUnavailable, "catalog not available yet", "")
@@ -415,7 +439,6 @@ func (h *selectorAdminHandlers) inputs(w http.ResponseWriter, r *http.Request) (
 	}
 
 	ctx := r.Context()
-	cands := h.catalog.Candidates(ctx)
 
 	at := h.catalog.LastRefreshed(ctx)
 	if at.IsZero() {
@@ -424,37 +447,55 @@ func (h *selectorAdminHandlers) inputs(w http.ResponseWriter, r *http.Request) (
 		return selectorInputs{}, false
 	}
 
-	in := selectorInputs{candidates: slices.Clone(cands), blacklist: []string{}, refreshedAt: at}
-
-	in.provenance = h.catalog.Provenance(ctx)
-	if in.provenance == nil {
-		in.provenance = map[string]modelcatalog.CandidateProvenance{}
-	}
+	var bl []string
 
 	if h.blacklist != nil {
-		bl, err := h.blacklist.BlacklistedSlugs(ctx)
-		if err != nil {
+		var err error
+		if bl, err = h.blacklist.BlacklistedSlugs(ctx); err != nil {
 			writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to read model blacklist", "")
 
 			return selectorInputs{}, false
 		}
-
-		if bl != nil {
-			in.blacklist = bl
-		}
 	}
 
+	in := selectorInputs{mode: llmchannel.ModeEndpoint, refreshedAt: at}
+	if h.channel != nil {
+		in.mode = h.channel.Effective(config.BackendNameAgent)
+	}
+
+	cands, favorites, bl := channelSelection(ctx, h.catalog, in.mode, h.favoriteRules(), bl)
+
+	in.candidates = slices.Clone(cands)
 	slices.SortFunc(in.candidates, func(a, b protocol.CandidateModel) int { return strings.Compare(a.Slug, b.Slug) })
+
+	in.favorites = nonNil(favorites)
+	in.blacklist = nonNil(bl)
+
+	if in.mode == llmchannel.ModeClaudeCode {
+		in.provenance, in.stats = h.catalog.ClaudeCodeProvenance(ctx), h.catalog.ClaudeCodeStats(ctx)
+	} else {
+		in.provenance, in.stats = h.catalog.Provenance(ctx), h.catalog.Stats(ctx)
+	}
+
+	if in.provenance == nil {
+		in.provenance = map[string]modelcatalog.CandidateProvenance{}
+	}
 
 	return in, true
 }
 
-// favoriteRules is the backend-level favorites as wire rules, never nil.
+// nonNil keeps an empty list an empty JSON array.
+func nonNil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+
+	return s
+}
+
+// favoriteRules is the backend-level favorites as wire rules.
 func (h *selectorAdminHandlers) favoriteRules() []protocol.FavoriteRule {
 	rules := mergeFavorites(h.favorites, nil)
-	if rules == nil {
-		return []protocol.FavoriteRule{}
-	}
 
 	// mergeFavorites walks maps, so the order it returns varies per call.
 	// The page renders these; sort so a refetch never reshuffles them.
@@ -480,20 +521,23 @@ func (h *selectorAdminHandlers) getCandidates(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	stats := h.catalog.Stats(r.Context())
-
 	resp := selectorCandidatesResponse{
+		Catalog:            string(in.mode),
 		Candidates:         make([]selectorCandidateView, 0, len(in.candidates)),
-		Favorites:          h.favoriteRules(),
+		Favorites:          in.favorites,
 		Blacklist:          in.blacklist,
 		QualityFloor:       h.catalog.Floor(),
 		CatalogRefreshedAt: in.refreshedAt.UTC().Format(time.RFC3339),
-		ReasoningEffort:    h.reasoningEffort,
 
-		IntelligenceIndexVersion: stats.IndexVersion,
-		AAScoredModels:           stats.AAScored,
-		ServedScoredModels:       stats.ServedScored,
-		BestAAScore:              stats.BestAAScore,
+		IntelligenceIndexVersion: in.stats.IndexVersion,
+		AAScoredModels:           in.stats.AAScored,
+		ServedScoredModels:       in.stats.ServedScored,
+		BestAAScore:              in.stats.BestAAScore,
+	}
+
+	// The Claude Code catalog holds no OpenAI model for the effort to apply to.
+	if in.mode != llmchannel.ModeClaudeCode {
+		resp.ReasoningEffort = h.reasoningEffort
 	}
 
 	for _, c := range in.candidates {
@@ -561,7 +605,7 @@ func (h *selectorAdminHandlers) preview(w http.ResponseWriter, r *http.Request) 
 
 	sel := selection.New(selection.Input{
 		Candidates:    in.candidates,
-		Favorites:     h.favoriteRules(),
+		Favorites:     in.favorites,
 		Blacklist:     in.blacklist,
 		Ladders:       ladders,
 		PriceHeadroom: headroom,
@@ -572,7 +616,7 @@ func (h *selectorAdminHandlers) preview(w http.ResponseWriter, r *http.Request) 
 		prices[c.Slug] = c.PromptPricePerTok + c.CompletionPricePerTok
 	}
 
-	resp := selectorPreviewResponse{Tiers: make(map[string]selectorTierPreview, 4)}
+	resp := selectorPreviewResponse{Catalog: string(in.mode), Tiers: make(map[string]selectorTierPreview, 4)}
 
 	for tier := range selection.DefaultTierBars() {
 		coder, coderRep := sel.SelectByComplexityReport(selection.SelectInput{Role: selection.RoleCoder, Tier: tier})

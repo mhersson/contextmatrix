@@ -3,8 +3,10 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { api } from '../../api/client';
 import { useChatStream } from '../../hooks/useChatStream';
+import { clearChatLiveData, useChatLiveData } from '../../hooks/useChatLiveData';
 import type { ChatSession, LogEntry } from '../../types';
 import { ChatThread } from './ChatThread';
+import { usageLimitText } from '../../lib/subscription';
 
 vi.mock('../../api/client', () => ({
   api: { getChat: vi.fn(), sendChatMessage: vi.fn() },
@@ -127,3 +129,75 @@ describe('ChatThread blueprint pane', () => {
     await waitFor(() => expect(screen.queryByTestId('working-indicator')).not.toBeInTheDocument());
   });
 });
+
+describe('ChatThread subscription usage', () => {
+  const thu14 = new Date(2099, 0, 1, 14, 0).toISOString();
+
+  function stream(extra: Partial<ReturnType<typeof useChatStream>>) {
+    vi.mocked(useChatStream).mockReturnValue({
+      logs: [],
+      connected: true,
+      sessionUpdate: null,
+      usageLimit: null,
+      hasMore: false,
+      loadingOlder: false,
+      loadOlder: vi.fn(),
+      ...extra,
+    } as unknown as ReturnType<typeof useChatStream>);
+  }
+
+  function LiveProbe({ id }: { id: string }) {
+    const live = useChatLiveData(id);
+    return <output aria-label="live">{`${live?.llmChannel}:${live?.subscriptionCostUsd}`}</output>;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearChatLiveData('bp-1');
+  });
+
+  it.each([
+    ['chat', 'chat' as const],
+    ['blueprint', 'architect' as const],
+  ])('shows a usage-limit banner on a %s pane', async (_name, kind) => {
+    vi.mocked(api.getChat).mockResolvedValue({ ...session, kind });
+    const limit = { window: 'five_hour', resets_at: thu14 };
+    stream({ usageLimit: limit });
+    render(<ChatThread sessionID="bp-1" embedded />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(usageLimitText(limit));
+  });
+
+  it('says the reset time is unknown when the vendor reported none', async () => {
+    vi.mocked(api.getChat).mockResolvedValue({ ...session, kind: 'chat' });
+    stream({ usageLimit: {} });
+    render(<ChatThread sessionID="bp-1" embedded />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(usageLimitText({}));
+    expect(usageLimitText({})).not.toBe(usageLimitText({ resets_at: thu14 }));
+  });
+
+  it('shows no banner without a usage limit', async () => {
+    vi.mocked(api.getChat).mockResolvedValue({ ...session, kind: 'chat' });
+    stream({});
+    render(<ChatThread sessionID="bp-1" embedded />);
+    await screen.findByRole('textbox');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it("publishes the session's channel and the live subscription cost for the pane header", async () => {
+    vi.mocked(api.getChat).mockResolvedValue({
+      ...session,
+      kind: 'chat',
+      llm_channel: 'claude_code',
+      subscription_cost_usd: 0.4,
+    });
+    stream({ sessionUpdate: { subscription_cost_usd: 0.9 } });
+    render(
+      <>
+        <ChatThread sessionID="bp-1" embedded />
+        <LiveProbe id="bp-1" />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByLabelText('live')).toHaveTextContent('claude_code:0.9'));
+  });
+});
+

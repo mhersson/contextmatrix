@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { api } from '../../api/client';
 import { useAdminResource } from '../../hooks/useAdminResource';
+import { useLLMChannel } from '../../hooks/useLLMChannel';
 import { errorMessage } from '../../lib/errors';
-import type { ModelBlacklist, SelectorCandidatesResponse, SelectorLadders, SelectorLaddersResponse, SelectorTier, TierBars } from '../../types';
+import type { LLMChannel, ModelBlacklist, SelectorCandidatesResponse, SelectorLadders, SelectorLaddersResponse, SelectorTier, TierBars } from '../../types';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 import { LadderPanel } from './LadderPanel';
 import { ModelBlacklistTable } from './ModelBlacklistTable';
@@ -25,6 +26,7 @@ const EMPTY_LADDERS: SelectorLaddersResponse = {
   is_default: true,
 };
 const EMPTY_CATALOG: SelectorCandidatesResponse = {
+  catalog: 'endpoint',
   candidates: [],
   favorites: [],
   blacklist: [],
@@ -77,6 +79,20 @@ export function AdminModelSelectionPage() {
   const [menu, setMenu] = useState<ModelMenu | null>(null);
   const [selectedTier, setSelectedTier] = useState<SelectorTier>('complex');
 
+  // The server picks the catalog from the LLM channel, so a switch refetches
+  // it; the first answer is not a switch.
+  const refreshCatalog = catalog.refresh;
+  const channelMode = useLLMChannel().view?.mode ?? null;
+  const lastModeRef = useRef<LLMChannel | null>(null);
+  useEffect(() => {
+    if (channelMode === null) return;
+    const previous = lastModeRef.current;
+    lastModeRef.current = channelMode;
+    if (previous !== null && previous !== channelMode) void refreshCatalog('Failed to refresh the candidate catalog.');
+  }, [channelMode, refreshCatalog]);
+  const onCatalogMismatch = useCallback(() => refreshCatalog('Failed to refresh the candidate catalog.'), [refreshCatalog]);
+  const claudeCode = catalog.items.catalog === 'claude_code';
+
   const ladders = draft?.ladders ?? saved.items.ladders;
   const headroom = draft?.headroom ?? saved.items.headroom;
   // NaN (an emptied field) compares unequal, so an emptied field is dirty
@@ -96,7 +112,7 @@ export function AdminModelSelectionPage() {
 
   // The catalog's blacklist is what strikes the dots and what re-keys the
   // preview after an add or a delist.
-  const preview = useSelectorPreview(ladders, headroom, editable && headroomValid, catalog.items.blacklist);
+  const preview = useSelectorPreview(ladders, headroom, editable && headroomValid, catalog.items.blacklist, catalog.items.catalog, onCatalogMismatch);
 
   const blacklisted = useMemo(() => new Set(catalog.items.blacklist), [catalog.items.blacklist]);
 
@@ -148,7 +164,13 @@ export function AdminModelSelectionPage() {
 
   const addToBlacklist = (slug: string) => void mutateBlacklist(() => api.adminBlacklistModel(slug), 'Failed to blacklist model.');
 
-  const openModelMenu = (slug: string, x: number, y: number) => setMenu({ slug, x, y });
+  // The Claude Code catalog strikes a point through any entry that maps to its
+  // ID; one stored under a gateway slug can only be delisted from the table.
+  const tableSlugs = useMemo(() => new Set(blacklist.items.models.map((m) => m.slug)), [blacklist.items.models]);
+  const openModelMenu = (slug: string, x: number, y: number) => {
+    if (claudeCode && blacklisted.has(slug) && !tableSlugs.has(slug)) return;
+    setMenu({ slug, x, y });
+  };
 
   // The loading panel stands in for the chart whenever either half is missing;
   // the ladders error wins because it blocks editing outright.
@@ -173,6 +195,13 @@ export function AdminModelSelectionPage() {
           <h1 className="apd-strip-title">Tier ladders</h1>
         </div>
         <p className="apd-strip-summary tl-summary">
+          {catalogReady && (
+            <span data-testid="tl-catalog" data-catalog={catalog.items.catalog}>
+              {claudeCode
+                ? 'The Claude Code catalog: card runs start on Claude Code and pick from it. '
+                : 'The catalog your gateway serves, which card runs pick from. '}
+            </span>
+          )}
           Every candidate by price and quality, one line per tier bar. Drag a handle; the picks, the panel and the price band follow.
           Nothing is sent until you save.
         </p>
@@ -234,6 +263,7 @@ export function AdminModelSelectionPage() {
               appliedHeadroom={preview.appliedHeadroom}
               blacklist={blacklisted}
               onModelMenu={openModelMenu}
+              providerFilter={!claudeCode}
             />
           ) : (
             <section className="apd-panel" style={{ '--apd-acc': 'var(--aqua)' } as CSSProperties}>

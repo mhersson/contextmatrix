@@ -52,7 +52,7 @@ GET    /api/worker/git-credentials  ?host=&path=       # per-repo git credential
 
 GET    /api/chats                                      ?project=&status=&kind=&created_by=&limit=
 POST   /api/chats                                      # create a new chat session (cold)
-GET    /api/chats/models                               # chat model picker source (openrouter|endpoint)
+GET    /api/chats/models                               ?kind=chat|architect  # model picker source (openrouter|endpoint|claude_code)
 GET    /api/chats/{id}
 PATCH  /api/chats/{id}                                 # rename a session
 DELETE /api/chats/{id}                                 # delete session and transcript
@@ -126,6 +126,9 @@ GET    /api/admin/selector/ladders                          # per-role tier ladd
 PUT    /api/admin/selector/ladders                          # replace both ladders (both auth modes; admin-gated only in multi)
 GET    /api/admin/selector/candidates                       # selector inputs: candidates, favorites, blacklist, floor (both auth modes; admin-gated only in multi)
 POST   /api/admin/selector/preview                          # picks and panel seats under a ladder, not stored (both auth modes; admin-gated only in multi)
+
+GET    /api/llm-channel                                     # LLM channel mode, work in flight per mode, newest subscription usage readings (any session in multi mode)
+PUT    /api/admin/llm-channel                               # switch the LLM channel mode (both auth modes; admin-gated only in multi)
 
 GET    /api/events                                     ?project=             # SSE stream of board events
 GET    /healthz                                        # liveness probe (shallow)
@@ -912,9 +915,18 @@ The inputs the preview feeds the selector: the cached candidate catalog
 quality floor, and when the catalog snapshot was built. Project favorites are
 not included - they are per `.board.yaml` and merged at trigger time.
 
+`catalog` names the catalog a card run would select from now, as the trigger
+does: `claude_code` while the LLM channel is `claude_code` and the agent is in
+`claude_code.backends`, else `endpoint`. For `claude_code` the candidates are
+the Claude Code catalog (catalog IDs, empty `creator`), the favorites and the
+blacklist are mapped to Claude Code IDs (a slug without one is dropped, and so
+is a favorite rule left empty), the stats count Claude Code IDs as served, and
+`reasoning_effort` is empty.
+
 `price_source` says where the candidate's price came from (`gateway`, `aa`,
 `token_costs`, `none`); `scored_from` is the AA slug an automatic join scored
-the priors from, empty for a `model_priors` entry and on the OpenRouter leg;
+the priors from, empty for a `model_priors` entry and for a served candidate on
+the OpenRouter leg;
 `prior_source` is `aa` when the priors are AA scores and `model_priors` when
 an operator entry supplies them; `reasoning_effort` echoes
 `llm_endpoint.reasoning_effort`, empty when unset.
@@ -932,6 +944,7 @@ the catalog holds no AA data.
 
 ```json
 {
+  "catalog": "endpoint",
   "candidates": [
     {
       "slug": "z-ai/glm-5.3",
@@ -964,7 +977,9 @@ refresh, or when no candidate catalog is configured (no `aa_api_key`).
 ### POST /api/admin/selector/preview
 
 What the shared selector would pick under the given ladders, against the
-current catalog, favorites and blacklist. Validated like `PUT`, never stored.
+current catalog, favorites and blacklist, chosen and mapped as for `GET
+/api/admin/selector/candidates`; `catalog` names which. Validated like `PUT`,
+never stored.
 `headroom` is optional: absent or `0` uses the stored headroom (the built-in
 1.5 when none is stored); a value below 1 is `422 VALIDATION_ERROR`. For
 every tier: the coder pick, the reviewer pick, and the three-seat review
@@ -978,6 +993,7 @@ the models that coded.
 
 ```json
 {
+  "catalog": "endpoint",
   "tiers": {
     "complex": {
       "coder": {
@@ -1015,6 +1031,81 @@ cheaper model at the rung was already seated or belonged to a seated vendor;
 `selected`, `in-band` or `out-of-band`.
 
 **Errors:** `422 VALIDATION_ERROR`, `503 CATALOG_UNAVAILABLE`.
+
+## LLM Channel Endpoints
+
+The global LLM channel: `endpoint` sends new work through `llm_endpoint`,
+`claude_code` runs it on the Claude Code subscription. See
+[Claude Code subscription mode](remote-execution.md#claude-code-subscription-mode).
+
+### GET /api/llm-channel
+
+The mode, what is configured, the work in flight per mode and the newest
+subscription usage readings. Any session in `multi` mode; open in `none` mode.
+
+```json
+{
+  "mode": "claude_code",
+  "switchable": true,
+  "endpoint": { "type": "openrouter", "label": "OpenRouter" },
+  "claude_code": true,
+  "in_flight": {
+    "endpoint":    { "cards": 1, "chats": 0, "blueprints": 1 },
+    "claude_code": { "cards": 2, "chats": 1, "blueprints": 0 }
+  },
+  "exceptions": [{ "backend": "architect", "runs_on": "endpoint" }],
+  "usage": [
+    { "window": "five_hour", "utilization": 0.41, "status": "allowed", "resets_at": "2026-11-11T18:00:00Z", "seen_at": "2026-11-11T14:02:10Z", "stale": false },
+    { "window": "seven_day", "utilization": 0.62, "status": "allowed_warning", "resets_at": "2026-11-13T14:00:00Z", "seen_at": "2026-11-11T14:02:10Z", "stale": false }
+  ],
+  "updated_at": "2026-11-11T09:30:00Z",
+  "updated_by": "human:alice"
+}
+```
+
+- `mode` is `endpoint` or `claude_code`. `switchable` is `true` when both
+  `llm_endpoint` and `claude_code.oauth_token` are configured.
+- `endpoint` is the configured `llm_endpoint` type with a display label
+  (`OpenRouter` for `openrouter`, else `Endpoint`); `null` when `llm_endpoint`
+  is unset.
+- `claude_code` says whether a Claude Code token is configured. The token
+  itself is never returned.
+- `in_flight` always has both modes. It counts card runs whose worker is
+  `queued` or `running` by the mode they were triggered in, and `active` or
+  `warm-idle` chats and blueprints by their `llm_channel`. A recorded card
+  run whose worker has ended, or whose card or project no longer exists, is
+  closed by this read.
+- `exceptions` lists each enabled backend that is not in
+  `claude_code.backends`. Its `runs_on` is `endpoint`: it stays on the
+  endpoint while the mode is `claude_code`; or `none` when `llm_endpoint` is
+  unset: it gets no endpoint and fails closed. Empty without a token.
+- `usage` is the newest reading of each subscription window, ordered by
+  window: a reading with a later `resets_at` replaces the stored one; within
+  the same period a `rejected` reading always wins its status, otherwise a
+  higher utilization does and an equal one never clears a stored `rejected`;
+  the stored utilization only rises. `status` is the vendor's
+  (`allowed`, `allowed_warning`, `rejected`) and may be empty; `stale` is
+  `true` once `resets_at` has passed, since the reading predates the reset.
+- `updated_at` and `updated_by` describe the last switch; both are omitted
+  until the first one.
+
+### PUT /api/admin/llm-channel
+
+Switches the mode for new work; running work keeps the mode it started in.
+Admin-only in `multi` mode, open in `none` mode.
+
+```json
+{ "mode": "claude_code" }
+```
+
+Saves the mode in ops.db, publishes `llm_channel.changed` and returns
+**200 OK** with the `GET` body. `updated_by` is the caller's identity, or
+`human:web` without one. Switching to the current mode is accepted and
+rewrites `updated_at` and `updated_by`.
+
+**Errors:** `400 BAD_REQUEST` (malformed JSON), `403 FORBIDDEN` (non-admin in
+`multi` mode), `409 BAD_REQUEST` (the mode's side is not configured),
+`422 VALIDATION_ERROR` (a mode other than `endpoint` or `claude_code`).
 
 ## Health Endpoints
 
@@ -1112,9 +1203,10 @@ omitted when zero or empty; the rest are always present.
 | `worker_status?`                                                | string                  | `queued`, `running`, `completed`, `failed`, `killed`, `parked`                                                                                                      |
 | `phase?`                                                        | string                  |                                                                                                                                                                     |
 | `token_usage?`                                                  | object                  | `{model?, prompt_tokens, completion_tokens, cache_read_tokens?, cache_creation_tokens?, estimated_cost_usd}`                                                        |
-| `usage_breakdown?`                                              | object[]                | Per `(agent, model, role)` buckets: `{agent, model, role?, steps?, prompt_tokens, completion_tokens, cache_read_tokens?, cache_creation_tokens?, cost_usd, cost_source, counts_source?}` |
+| `usage_breakdown?`                                              | object[]                | Per `(agent, model, role, cost_basis)` buckets: `{agent, model, role?, steps?, prompt_tokens, completion_tokens, cache_read_tokens?, cache_creation_tokens?, cost_usd, cost_source, counts_source?, cost_basis?}` |
 | `subtask_cost_usd?`, `subtask_cost_has_estimates?`              | float, bool             | Computed on `GET .../cards/{id}` only                                                                                                                               |
 | `subtask_usage?`                                                | object[]                | Computed on `GET .../cards/{id}` only: `{card_id, buckets}` per costed direct subtask, in id order                                                                  |
+| `park_resets_at?`                                               | RFC 3339                | Computed on read while `worker_status` is `parked`: when the subscription usage limit that parked the run resets                                                    |
 | `in_playbooks?`                                                 | string[]                | Computed on read                                                                                                                                                    |
 | `state_since?`, `working_since?`, `unclaimed_since?`            | RFC 3339                | Computed on read; see [card timing](data-model.md#card-timing)                                                                                                       |
 | `worked_seconds?`, `work_intervals?`                            | float, object[]         | Computed on read: total held time (absent when unknown) and `{agent, from, to}` per recorded claim, `to` `null` while held                                         |
@@ -1645,7 +1737,8 @@ the base-branch dropdown.
 ### GET /api/projects/{project}/usage
 
 Aggregated token usage across all cards in a project. Every field is always
-present; `card_count` counts cards with a `token_usage` record.
+present except `subscription_cost_usd`; `card_count` counts cards with a
+`token_usage` record.
 
 ```json
 {
@@ -1654,9 +1747,14 @@ present; `card_count` counts cards with a `token_usage` record.
   "cache_read_tokens": 380000,
   "cache_creation_tokens": 12000,
   "estimated_cost_usd": 0.315,
+  "subscription_cost_usd": 0.12,
   "card_count": 8
 }
 ```
+
+`subscription_cost_usd` is the part of `estimated_cost_usd` from
+subscription-basis buckets: an API-equivalent estimate of flat-rate Claude
+subscription usage, not billed spend. It is omitted when zero.
 
 ### GET /api/projects/{project}/dashboard
 
@@ -1704,6 +1802,13 @@ present; `card_count` counts cards with a `token_usage` record.
   can show run-level numbers next to card-level ones.
 - `total_cost_has_estimates*` and each row's `has_estimates` are `true` when
   any contributing bucket has `cost_source: estimated`; omitted when false.
+- `total_subscription_cost_usd`, `chat_subscription_cost_usd`, each
+  `card_costs_30d` row's `subscription_cost_usd` and each `model_costs_30d`
+  row's `subscription` say how much of a total is an API-equivalent estimate of
+  flat-rate subscription usage rather than billed spend; the totals still
+  include it. All are omitted when zero or false. A model row is flagged when
+  any of its cost is subscription usage. The chat part is capped per session at
+  that session's own cost.
 - `assigned_agent` on a `card_costs_30d` row is omitted when no agent owns
   the card. Rows fold each subtask's tokens and cost into the parent, so a
   parent row appears even when only its subtasks have spend; subtasks whose
@@ -1739,6 +1844,7 @@ Prometheus counters related to chat cost (admin `/metrics` listener):
 | ---------------------------------------------- | ------- | ----------------------------------------------------------------------------------------- |
 | `contextmatrix_chat_usage_unknown_model_total` | `model` | A chat usage frame without a gateway cost named a model not in `token_costs`; tokens accumulate, cost stays `$0` |
 | `contextmatrix_chat_cost_summary_errors_total` | -       | The chat-cost summary failed inside the dashboard; chat-cost fields render as zero        |
+| `contextmatrix_chat_subscription_cost_usd_total` | `project`, `model` | Chat subscription usage priced from the rate table as an API-equivalent estimate; not billed spend, never added to `contextmatrix_chat_cost_usd_total` |
 
 ### GET /api/projects/{project}/activity
 
@@ -1839,7 +1945,7 @@ syncer is wired).
 
 Server-Sent Events stream of every board mutation. `?project=<slug>` limits
 the stream to that project; events with an empty `project` (sync, playbook,
-Jira import) pass every filter.
+Jira import, LLM channel) pass every filter.
 
 - The handler sends `: connected\n\n` on subscribe, then `: keepalive\n\n`
   every 30 seconds. `X-Accel-Buffering: no` is set to bypass nginx proxy
@@ -1883,7 +1989,7 @@ originate from a shared-board pull carry `data.source: "sync"`.
 | `worker.started`      | `{worker_status: "running"}`                                                                                                                                                        | Backend reported `running`                                                             |
 | `worker.failed`       | `{worker_status: "failed"}`                                                                                                                                                         | Backend reported `failed`                                                              |
 | `worker.killed`       | `{worker_status: "killed"}`                                                                                                                                                         | `POST .../stop`                                                                        |
-| `worker.parked`       | `{worker_status: "parked", reason}`                                                                                                                                                 | `report_parked`                                                                        |
+| `worker.parked`       | `{worker_status: "parked", reason, resets_at?}`                                                                                                                                     | `report_parked`                                                                        |
 | `project.created`     | none (`project` set, no `card_id`)                                                                                                                                                  |                                                                                        |
 | `project.updated`     | none                                                                                                                                                                                |                                                                                        |
 | `project.deleted`     | none                                                                                                                                                                                |                                                                                        |
@@ -1896,6 +2002,7 @@ originate from a shared-board pull carry `data.source: "sync"`.
 | `sync.error`          | `{trigger, repo, error}`                                                                                                                                                            | Cycle failed                                                                           |
 | `jira_import.progress` | `{import_id, key, status, project, card_id, reason}`                                                                                                                                | One selected issue of a Jira import finished; the event's own `project` is empty       |
 | `jira_import.done`    | `{import_id, status, playbook_id, results, error}`                                                                                                                                  | A Jira import finished or stopped; the event's own `project` is empty                  |
+| `llm_channel.changed` | `{mode}` (`project` empty)                                                                                                                                                          | The LLM channel mode was switched, or a worker reported subscription usage (a subscription `report_usage`, a chat usage frame, a usage-limit frame, or `report_parked` naming a window and a reset time), whether or not it replaced the stored reading |
 
 A shared-board pull publishes per-card `card.created` / `card.updated` /
 `card.state_changed` / `card.deleted` diffs (with `source: "sync"`) only when
@@ -2583,10 +2690,12 @@ management lives under `/api/admin/chats`.
 | `context_tokens_updated_at`                                                        | always    | Zero time (`0001-01-01T00:00:00Z`) until the first usage entry                             |
 | `rehydration_active`, `rehydration_started_at`                                     | omitempty | `true` between a cold reopen and the agent's `chat_rehydration_complete` call              |
 | `prompt_tokens`, `completion_tokens`, `cache_read_tokens`, `cache_creation_tokens` | omitempty | Cumulative totals across usage frames                                                      |
-| `estimated_cost_usd`                                                               | omitempty | Running cost: per usage frame the gateway's `cost_usd` when reported, else the `report_usage` cache-tier formula |
+| `estimated_cost_usd`                                                               | omitempty | Running cost: per usage frame the gateway's `cost_usd` when reported, else the `report_usage` cache-tier formula. A subscription frame always takes the formula, never a gateway cost; see [Claude Code cost](remote-execution.md#cost) for its rates |
+| `subscription_cost_usd`                                                            | omitempty | The part of `estimated_cost_usd` that is an API-equivalent estimate of Claude Code subscription usage, not billed spend |
 | `pinned`                                                                           | omitempty | `true` once pinned; set through `PATCH /api/chats/{id}`                                    |
 | `spent_usd`                                                                        | omitempty | Architect sessions only: the architect's `cost.spent_usd` as CM last read it; absent until the first read. CM reads it on each blueprint view read, after each architect run, and once at startup for a blueprint without one |
 | `assistant_working`, `assistant_working_since`                                     | omitempty | In-memory presence derived from `status` log frames                                        |
+| `llm_channel`                                                                      | always    | `endpoint` or `claude_code`: the LLM channel mode the session starts in, set at creation and at every cold open (an `/open` or a send to a cold session). The session keeps it until it goes cold; a cold open adopts the current mode |
 
 ### POST /api/chats
 
@@ -2599,14 +2708,21 @@ Creates a session row in `cold`; no container starts.
 All three fields are optional, but the body must be valid JSON (`{}` at
 minimum). An empty `title` is filled from the first user message; `project`
 may be empty for cross-project chats; `model` defaults to
-`backends.chat.default_model` and is forwarded to the container on every
-`/open`.
+`backends.chat.default_model` (`claude_code.default_model` while new chats
+start in `claude_code` mode) and is forwarded to the container on every cold
+open. A `claude_code` open maps it onto the Claude Code catalog; an endpoint
+open maps it only when the session last ran on `claude_code`, so a bare Claude
+Code ID then becomes the backend default, with or without a catalog.
 
-Model validation follows the active source (see `GET /api/chats/models`):
-in `endpoint` mode `model` must be in the endpoint's served list, in
-`openrouter` mode in CM's vendor-screened catalog; either way an unknown slug
-is 400 `INVALID_MODEL`, and an unfetched or failed list fails open. When both
-an OpenAI-compatible endpoint and an OpenRouter chat backend are configured,
+Model validation follows the mode the session's kind starts in. In
+`claude_code` mode `model` must map to a well-formed Claude Code ID (stored as
+that ID); once a Claude Code catalog is built it must also be in the catalog,
+except `claude_code.default_model`, which is always accepted. Otherwise it
+follows the active source (see `GET /api/chats/models`): in `endpoint` mode
+`model` must be in the endpoint's served list, in `openrouter` mode in CM's
+vendor-screened catalog. An unknown model is 400 `INVALID_MODEL`, and an
+unfetched or failed list fails open. When both an
+OpenAI-compatible endpoint and an OpenRouter chat backend are configured,
 endpoint mode wins. With neither, the value is accepted unvalidated.
 
 A blueprint session on the architect backend takes its own fields:
@@ -2626,9 +2742,11 @@ has the architect plan so the playbook run never stops for a person except at
 a real gate, and put the checks a person makes after the run in the playbook's
 follow-ups. It is fixed at creation, no endpoint changes it, and it is ignored
 on a chat session. `model` is not defaulted at create for architect sessions:
-the cold open uses `backends.architect.default_model`. A `model` equal to that
-default is accepted without catalog validation, exactly like an omitted one;
-any other model is validated against the catalog as for chat sessions.
+the cold open uses `backends.architect.default_model` (`claude_code.default_model`
+when the architect starts in `claude_code` mode). A `model` equal to
+`backends.architect.default_model` is accepted without catalog validation,
+exactly like an omitted one; any other model is validated as for chat
+sessions, by the mode the architect starts in.
 Violations are 400 `INVALID_CHAT_INPUT` with the reason in `details`; a create
 with no architect backend configured is 409 `CHAT_KIND_UNAVAILABLE`.
 
@@ -2644,7 +2762,11 @@ session response carries `origin_chat` and `origin_seq`.
 
 ### GET /api/chats/models
 
-Tells the New Chat dialog which model picker to render.
+Tells the New Chat dialog which model picker to render. `?kind=architect`
+answers for the mode new blueprints start in, which can differ from the chat
+kind's while only one of them runs on `claude_code`; the blueprint picker, a
+blueprint pane's context window and the cost cap's price check ask for it. Without `kind` (or with `kind=chat`) the answer is for new chats; any
+other value is a 400.
 
 ```json
 {
@@ -2663,12 +2785,22 @@ Tells the New Chat dialog which model picker to render.
   upstream fetch fails the response carries `fetch_error` with an empty
   list. Also returned as
   `{"source":"endpoint","models":[],"default":"","architect_default":""}` when
-  no chat backend is configured (`architect_default` is still the architect
-  entry's default when that backend is configured).
+  no chat backend is configured and the kind asked for does not start in
+  `claude_code` mode (`architect_default` is still the architect entry's
+  default when that backend is configured).
+- `"claude_code"`: new sessions of the kind asked for start in `claude_code`
+  mode (the LLM channel is `claude_code` and the kind's backend is in
+  `claude_code.backends`). `models` is the
+  Claude Code catalog plus `claude_code.default_model` when the catalog lacks
+  it, or `claude_code.default_model` alone while there is no catalog (no
+  `backends.agent.aa_api_key`, or before the first refresh). `default` is
+  `claude_code.default_model`, as is `architect_default` when the architect
+  runs in `claude_code` mode too.
 
 `architect_default` is always present: `backends.architect.default_model` when
-the architect backend is configured, else `""`. The New blueprint dialog seeds
-its model pick from it.
+the architect backend is configured (`claude_code.default_model` under the
+`claude_code` source when the architect runs in that mode too), else `""`.
+The New blueprint dialog seeds its model pick from it.
 
 Blacklisted models carry `"blacklisted": true` (absent otherwise, best-effort
 join, informational only - see `GET /api/models`). Models CM cannot price
@@ -2991,8 +3123,9 @@ Three event kinds share the wire:
   | `model`                                                                                                  | Set on the first usage event                                  |
   | `rehydration_active`                                                                                     | `false` once `chat_rehydration_complete` is called            |
   | `status`                                                                                                 | Present only when the lifecycle state changed; never `ending` |
-  | `prompt_tokens`, `completion_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `estimated_cost_usd` | New cumulative totals; omitted when zero                      |
+  | `prompt_tokens`, `completion_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `estimated_cost_usd`, `subscription_cost_usd` | New cumulative totals; omitted when zero |
   | `assistant_working`, `assistant_working_since`                                                           | Presence derived from `status` log frames                     |
+  | `usage_limit`                                                                                            | `{window?, resets_at?}`: a Claude Code subscription usage limit stopped the turn; `resets_at` is absent when the vendor reported none |
 
   Status transitions that emit `status`: `cold → active` on `/open` or the
   first message; `warm-idle → active` when a browser subscriber attaches or

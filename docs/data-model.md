@@ -374,6 +374,7 @@ type Card struct {
     SubtaskCostUSD          float64           `yaml:"-"                               json:"subtask_cost_usd,omitempty"`
     SubtaskCostHasEstimates bool              `yaml:"-"                               json:"subtask_cost_has_estimates,omitempty"`
     SubtaskUsage            []SubtaskUsage    `yaml:"-"                               json:"subtask_usage,omitempty"`
+    ParkResetsAt            *time.Time        `yaml:"-"                               json:"park_resets_at,omitempty"`
     InPlaybooks             []string          `yaml:"-"                             json:"in_playbooks,omitempty"`
     StateSince              time.Time         `yaml:"-"                             json:"state_since,omitzero"`
     WorkingSince            *time.Time        `yaml:"-"                             json:"working_since,omitempty"`
@@ -422,6 +423,7 @@ type UsageBucket struct {
     CostUSD             float64  `yaml:"cost_usd"                        json:"cost_usd"`
     CostSource          string   `yaml:"cost_source"                     json:"cost_source"`
     CountsSource        string   `yaml:"counts_source,omitempty"         json:"counts_source,omitempty"`
+    CostBasis           string   `yaml:"cost_basis,omitempty"            json:"cost_basis,omitempty"`
 }
 
 type SubtaskUsage struct {
@@ -456,8 +458,8 @@ pass the gateway's cache-write count as is.
 
 ### Usage breakdown
 
-`UsageBreakdown` holds one `UsageBucket` per `(agent, model, role)` triple,
-merging every `report_usage` call for that triple. It attributes cost after release
+`UsageBreakdown` holds one `UsageBucket` per `(agent, model, role, cost_basis)` tuple,
+merging every `report_usage` call for that tuple. It attributes cost after release
 (when `assigned_agent` is cleared) and across several agents or models on
 one card. Empty-agent buckets roll up to the dashboard's `unassigned` label.
 
@@ -466,6 +468,13 @@ one card. Empty-agent buckets roll up to the dashboard's `unassigned` label.
   rate table. Actual is authoritative: `RecalculateCosts` re-prices only
   `estimated` buckets, and a bucket that ever received an actual cost stays
   `actual`.
+- `cost_basis` is `subscription` for usage served by a flat-rate Claude Code
+  subscription and empty for metered usage. A subscription bucket is always
+  `estimated`, priced from the rate table (see
+  [Claude Code cost](remote-execution.md#cost)), and is not billed spend: MCP
+  rejects an `actual_cost_usd` with it and the service ignores one. It counts
+  on `contextmatrix_llm_subscription_cost_usd_total`, never on
+  `contextmatrix_llm_cost_usd_total`.
 - Token counts are caller-reported in every mode; CM never measures tokens.
   `counts_source` is `collector` when the counts came from a backend reading
   the gateway's measured usage (`source: "collector"`, which
@@ -487,8 +496,9 @@ one card. Empty-agent buckets roll up to the dashboard's `unassigned` label.
   `mob_moderator`, `gate`, ...) that fed the bucket beyond the primary phase
   call, sorted; `main` and unknown words are not recorded. On a shared board,
   a pre-role server merges buckets on `(agent, model)` and drops `role` and
-  `steps` when it writes, so upgrade every instance that writes the board
-  together.
+  `steps` when it writes, and a server older than `cost_basis` drops that
+  field, turning subscription buckets into metered ones, so upgrade every
+  instance that writes the board together.
 - The cumulative `TokenUsage` stays equal to the bucket sum: each report
   increments both. Cards with no buckets fall back to `assigned_agent` for
   their rollup.
@@ -612,6 +622,11 @@ reports whether any of those costs include rate-table-estimated buckets.
 `in_playbooks` lists the playbooks holding a card entry for the card (GET and
 list); omitted when empty and best-effort, so a playbook-store failure leaves
 it empty rather than failing the read.
+`park_resets_at` - read from this instance's ops.db, never written to
+frontmatter or merged across a shared board; the RFC 3339 time the
+subscription usage limit that parked the run resets, set only while
+`worker_status` is `parked` (GET and list) and cleared when the card is queued
+again or parks without one.
 `playbook_lock` - computed on read, never persisted; `{id, title,
 run_status}` of the runnable playbook that owns the card's `autonomous`,
 `create_pr`, `await_ci`, `merge_pr`, `base_branch`; `run_status` set only
@@ -1212,7 +1227,7 @@ Valid values (`validWorkerStatuses` in `internal/board/validation.go`):
 | `failed`     | backend status callback | The worker exited with an error, the trigger webhook failed, or the reconcile sweep found no container for it. |
 | `killed`     | stop / stop-all         | The worker was stopped by a server-initiated stop.                        |
 | `completed`  | backend status callback | The worker finished.                                                      |
-| `parked`     | MCP `report_parked`     | The run parked the card for a human (review or PR gates); reason in the activity log. |
+| `parked`     | MCP `report_parked`     | The run parked the card for a human (review or PR gates, or a subscription usage limit); reason in the activity log. |
 
 The backend reports through `POST /api/agent/status`, whose accepted subset
 (`validWorkerCallbackStatuses`) is `running`, `failed`, `completed`; it
@@ -1327,7 +1342,8 @@ and a unique index on `(session_id, seq)`.
 | `completion_tokens`         | INTEGER | `0`     | Cumulative output tokens.                                      |
 | `cache_read_tokens`         | INTEGER | `0`     | Cumulative cache-read tokens.                                  |
 | `cache_creation_tokens`     | INTEGER | `0`     | Cumulative cache-creation tokens.                              |
-| `estimated_cost_usd`        | REAL    | `0`     | Running USD total, accumulated via `IncrementSessionCost`.     |
+| `estimated_cost_usd`        | REAL    | `0`     | Running USD total, accumulated via `IncrementSessionCost`; includes `subscription_cost_usd`. |
+| `subscription_cost_usd`     | REAL    | `0`     | The part of `estimated_cost_usd` that is an API-equivalent estimate of Claude Code subscription usage, priced from the rate table; not billed spend. |
 | `kind`                      | TEXT    | `chat`  | `chat` or `architect` (blueprint); selects the backend.        |
 | `mode`                      | TEXT    | `''`    | Architect session mode; empty for chat sessions.               |
 | `cost_cap_usd`              | REAL    | `0`     | Architect session cost cap in USD; `0` for chat sessions.      |
@@ -1337,6 +1353,7 @@ and a unique index on `(session_id, seq)`.
 | `origin_seq`                | INTEGER | `0`     | The `handoff` row in `origin_chat` the blueprint was started from; `0` otherwise. |
 | `pinned`                    | INTEGER | `0`     | `1` keeps the session in its sidebar section. |
 | `spent_usd`                 | REAL    | `NULL`  | The architect's recorded spend for a blueprint; `NULL` until CM first reads the blueprint view. |
+| `llm_channel`               | TEXT    | `endpoint` | The LLM channel mode the session starts in, `endpoint` or `claude_code`: the current mode at creation and at every cold open, kept until the session goes cold. |
 
 A partial unique index on `(origin_chat, origin_seq) WHERE origin_chat != ''`
 allows one blueprint per hand-off; deleting the blueprint frees the hand-off.
@@ -1358,6 +1375,7 @@ blueprint's `spent_usd` (0 until recorded). Rows are retained indefinitely; ther
 | `cache_read_tokens`     | INTEGER | `0`     | Cumulative cache-read tokens.              |
 | `cache_creation_tokens` | INTEGER | `0`     | Cumulative cache-creation tokens.          |
 | `estimated_cost_usd`    | REAL    | `0`     | The session's cost at delete time (a blueprint's `spent_usd`, else the estimate); rows archived earlier keep the estimate. |
+| `subscription_cost_usd` | REAL    | `0`     | The part of `estimated_cost_usd` that is an API-equivalent subscription estimate, capped at the session's cost at delete time. |
 | `deleted_at`            | INTEGER | -       | Unix epoch of deletion.                    |
 
 `estimated_cost_usd` is a SQLite `REAL` (IEEE 754 double); rounding drift

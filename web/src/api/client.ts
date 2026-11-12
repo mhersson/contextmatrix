@@ -51,6 +51,8 @@ import type {
   PatchPlaybookFollowupInput,
   BlueprintArtifact,
   BlueprintView,
+  LLMChannel,
+  LLMChannelView,
 } from '../types';
 
 const BASE_URL = '/api';
@@ -445,6 +447,14 @@ class APIClient {
     });
   }
 
+  async getLLMChannel(): Promise<LLMChannelView> {
+    return this.request<LLMChannelView>('/llm-channel');
+  }
+
+  async putLLMChannel(mode: LLMChannel): Promise<LLMChannelView> {
+    return this.request<LLMChannelView>('/admin/llm-channel', { method: 'PUT', body: JSON.stringify({ mode }) });
+  }
+
   async adminSelectorCandidates(): Promise<SelectorCandidatesResponse> {
     return this.request<SelectorCandidatesResponse>('/admin/selector/candidates');
   }
@@ -552,8 +562,9 @@ class APIClient {
     });
   }
 
-  async listChatModels(): Promise<ChatModelList> {
-    return this.request<ChatModelList>('/chats/models');
+  /** `architect` asks for the list new blueprints start on, which can differ from the chat list. */
+  async listChatModels(kind?: 'architect'): Promise<ChatModelList> {
+    return this.request<ChatModelList>(kind ? `/chats/models?kind=${kind}` : '/chats/models');
   }
 
   async getModelCatalog(): Promise<ModelCatalogResponse> {

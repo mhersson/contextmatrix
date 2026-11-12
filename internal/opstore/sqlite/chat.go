@@ -22,7 +22,7 @@ const sessionColumns = `id, title, project, status, created_at, last_active, cre
     container_id, workspace, model, context_tokens, context_tokens_updated_at, rehydration_active,
     rehydration_started_at, prompt_tokens, completion_tokens, cache_read_tokens,
     cache_creation_tokens, estimated_cost_usd, kind, mode, cost_cap_usd, plain_language, unattended,
-    origin_chat, origin_seq, pinned, spent_usd`
+    origin_chat, origin_seq, pinned, spent_usd, llm_channel, subscription_cost_usd`
 
 func (s *Store) CreateSession(ctx context.Context, sess chat.Session) error {
 	workspaceJSON, err := json.Marshal(sess.Workspace)
@@ -45,15 +45,16 @@ func (s *Store) CreateSession(ctx context.Context, sess chat.Session) error {
 		unattended = 1
 	}
 
+	// An empty mode is stored as the column default.
 	_, err = s.db.ExecContext(ctx, `INSERT INTO chat_sessions
         (id, title, project, status, created_at, last_active, created_by, container_id, workspace, model,
-         kind, mode, cost_cap_usd, plain_language, unattended, origin_chat, origin_seq)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         kind, mode, cost_cap_usd, plain_language, unattended, origin_chat, origin_seq, llm_channel)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(NULLIF(?, ''), 'endpoint'))`,
 		sess.ID, sess.Title, nullIf(sess.Project), string(sess.Status),
 		sess.CreatedAt.Unix(), sess.LastActive.Unix(), sess.CreatedBy,
 		nullIf(sess.ContainerID), string(workspaceJSON), sess.Model,
 		string(kind), sess.Mode, sess.CostCapUSD, plainLanguage, unattended,
-		sess.OriginChat, sess.OriginSeq,
+		sess.OriginChat, sess.OriginSeq, sess.LLMChannel,
 	)
 	if err != nil {
 		if sess.OriginChat != "" && isUniqueViolation(err) {
@@ -188,6 +189,45 @@ func (s *Store) CountSessionsByStatus(ctx context.Context, statuses ...chat.Stat
 	return n, nil
 }
 
+// CountLiveSessionsByMode returns the active and warm-idle sessions counted by
+// LLM channel mode, then by kind. Modes and kinds with no live session are
+// absent.
+func (s *Store) CountLiveSessionsByMode(ctx context.Context) (map[string]map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT llm_channel, kind, COUNT(*) FROM chat_sessions WHERE status IN (?, ?) GROUP BY llm_channel, kind`,
+		string(chat.StatusActive), string(chat.StatusWarmIdle))
+	if err != nil {
+		return nil, fmt.Errorf("chat: count live sessions by mode: %w", err)
+	}
+
+	defer rows.Close()
+
+	out := map[string]map[string]int{}
+
+	for rows.Next() {
+		var (
+			mode, kind string
+			n          int
+		)
+
+		if err := rows.Scan(&mode, &kind, &n); err != nil {
+			return nil, fmt.Errorf("chat: scan live session count: %w", err)
+		}
+
+		if out[mode] == nil {
+			out[mode] = map[string]int{}
+		}
+
+		out[mode][kind] = n
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("chat: count live sessions by mode: %w", err)
+	}
+
+	return out, nil
+}
+
 func (s *Store) UpdateSession(ctx context.Context, sess chat.Session) error {
 	workspaceJSON, err := json.Marshal(sess.Workspace)
 	if err != nil {
@@ -200,13 +240,14 @@ func (s *Store) UpdateSession(ctx context.Context, sess chat.Session) error {
 		startedAt = sess.RehydrationStartedAt.Unix()
 	}
 
+	// An empty mode keeps the row's, so a writer that never set it cannot clear it.
 	res, err := s.db.ExecContext(ctx, `UPDATE chat_sessions SET
         title=?, project=?, status=?, last_active=?, container_id=?, workspace=?, model=?,
-        rehydration_started_at=?
+        rehydration_started_at=?, llm_channel=COALESCE(NULLIF(?, ''), llm_channel)
         WHERE id=?`,
 		sess.Title, nullIf(sess.Project), string(sess.Status),
 		sess.LastActive.Unix(), nullIf(sess.ContainerID), string(workspaceJSON),
-		sess.Model, startedAt, sess.ID)
+		sess.Model, startedAt, sess.LLMChannel, sess.ID)
 	if err != nil {
 		return fmt.Errorf("chat: update session: %w", err)
 	}
@@ -374,10 +415,10 @@ func (s *Store) DeleteSession(ctx context.Context, id string) error {
 		INSERT INTO chat_cost_archive
 			(id, project, model, last_active,
 			 prompt_tokens, completion_tokens, cache_read_tokens,
-			 cache_creation_tokens, estimated_cost_usd, deleted_at)
+			 cache_creation_tokens, estimated_cost_usd, subscription_cost_usd, deleted_at)
 		SELECT id, project, model, last_active,
 			prompt_tokens, completion_tokens, cache_read_tokens,
-			cache_creation_tokens, `+sessionCostExpr+`, ?
+			cache_creation_tokens, `+sessionCostExpr+`, `+sessionSubscriptionCostExpr+`, ?
 		FROM chat_sessions WHERE id = ?
 		ON CONFLICT(id) DO NOTHING`,
 		time.Now().UTC().Unix(), id,
@@ -614,12 +655,13 @@ func scanSession(sc scanner) (chat.Session, error) {
 		cacheReadTokens             int64
 		cacheCreationTokens         int64
 		estimatedCostUSD            float64
-		kind, mode                  string
+		kind, mode, llmChannel      string
 		costCapUSD                  float64
 		plainLanguage               int
 		unattended                  int
 		pinned                      int
 		spentUSD                    sql.NullFloat64
+		subscriptionCostUSD         float64
 	)
 
 	if err := sc.Scan(
@@ -629,7 +671,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 		&rehydrationStartedAt,
 		&promptTokens, &completionTokens, &cacheReadTokens, &cacheCreationTokens,
 		&estimatedCostUSD, &kind, &mode, &costCapUSD, &plainLanguage, &unattended,
-		&s.OriginChat, &s.OriginSeq, &pinned, &spentUSD,
+		&s.OriginChat, &s.OriginSeq, &pinned, &spentUSD, &llmChannel, &subscriptionCostUSD,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return chat.Session{}, chat.ErrSessionNotFound
@@ -643,6 +685,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 	s.Status = chat.Status(status)
 	s.Kind = chat.SessionKind(kind)
 	s.Mode = mode
+	s.LLMChannel = llmChannel
 	s.CostCapUSD = costCapUSD
 	s.PlainLanguage = plainLanguage != 0
 	s.Unattended = unattended != 0
@@ -674,6 +717,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 	s.CacheReadTokens = cacheReadTokens
 	s.CacheCreationTokens = cacheCreationTokens
 	s.EstimatedCostUSD = estimatedCostUSD
+	s.SubscriptionCostUSD = subscriptionCostUSD
 
 	if workspaceJSON.Valid && workspaceJSON.String != "" && workspaceJSON.String != "null" {
 		if err := json.Unmarshal([]byte(workspaceJSON.String), &s.Workspace); err != nil {
@@ -688,31 +732,38 @@ func scanSession(sc scanner) (chat.Session, error) {
 // recorded, never CM's estimate), a chat's estimate.
 const sessionCostExpr = "CASE WHEN kind = 'architect' THEN COALESCE(spent_usd, 0) ELSE estimated_cost_usd END"
 
+// sessionSubscriptionCostExpr is the API-equivalent estimate inside sessionCostExpr.
+// Capped at the session total: a blueprint's total is the backend-reported spend, a
+// different source from CM's own frame estimate.
+const sessionSubscriptionCostExpr = "MIN(COALESCE(subscription_cost_usd, 0), " + sessionCostExpr + ")"
+
 // costRowsSubquery is a UNION ALL over live and archived sessions that exposes
-// the session cost AS cost and last_active for a half-open time window
-// [?, ?). It accepts four bind parameters: since, until, since, until.
-const costRowsSubquery = `SELECT ` + sessionCostExpr + ` AS cost, last_active FROM chat_sessions     WHERE last_active >= ? AND last_active < ?
+// the session cost AS cost, its subscription part AS sub_cost and last_active
+// for a half-open time window [?, ?). It accepts four bind parameters: since,
+// until, since, until.
+const costRowsSubquery = `SELECT ` + sessionCostExpr + ` AS cost, ` + sessionSubscriptionCostExpr + ` AS sub_cost, last_active FROM chat_sessions     WHERE last_active >= ? AND last_active < ?
                           UNION ALL
-                          SELECT estimated_cost_usd AS cost, last_active FROM chat_cost_archive WHERE last_active >= ? AND last_active < ?`
+                          SELECT estimated_cost_usd AS cost, subscription_cost_usd AS sub_cost, last_active FROM chat_cost_archive WHERE last_active >= ? AND last_active < ?`
 
 // AggregateCost returns cost aggregates over the 30-day window [since, until)
 // and the equal-width prior window [since-30d, since). series30d is a
 // length-30 daily slice; index 0 = since, index 29 = the day before until.
-// Days with no sessions are filled with 0.0. Both live sessions and archived
+// Days with no sessions are filled with 0.0. subscriptionLast30d is the part of
+// last30d that is a subscription estimate. Both live sessions and archived
 // (deleted) sessions contribute via UNION ALL over chat_sessions and
 // chat_cost_archive.
-func (s *Store) AggregateCost(ctx context.Context, since, until time.Time) (last30d, prior30d float64, series30d []float64, err error) {
+func (s *Store) AggregateCost(ctx context.Context, since, until time.Time) (last30d, prior30d, subscriptionLast30d float64, series30d []float64, err error) {
 	const numDays = 30
 
 	series30d = make([]float64, numDays)
 
 	// last30d: sum of cost in [since, until) across live + archived sessions.
 	row := s.db.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(cost), 0.0) FROM (`+costRowsSubquery+`)`,
+		`SELECT COALESCE(SUM(cost), 0.0), COALESCE(SUM(sub_cost), 0.0) FROM (`+costRowsSubquery+`)`,
 		since.Unix(), until.Unix(), since.Unix(), until.Unix(),
 	)
-	if err = row.Scan(&last30d); err != nil {
-		return 0, 0, nil, fmt.Errorf("chat: aggregate cost last30d: %w", err)
+	if err = row.Scan(&last30d, &subscriptionLast30d); err != nil {
+		return 0, 0, 0, nil, fmt.Errorf("chat: aggregate cost last30d: %w", err)
 	}
 
 	// prior30d: sum of cost in the equal-width window before since.
@@ -723,7 +774,7 @@ func (s *Store) AggregateCost(ctx context.Context, since, until time.Time) (last
 		priorStart.Unix(), since.Unix(), priorStart.Unix(), since.Unix(),
 	)
 	if err = row.Scan(&prior30d); err != nil {
-		return 0, 0, nil, fmt.Errorf("chat: aggregate cost prior30d: %w", err)
+		return 0, 0, 0, nil, fmt.Errorf("chat: aggregate cost prior30d: %w", err)
 	}
 
 	// series30d: per-day sums bucketed by date(last_active, 'unixepoch').
@@ -733,7 +784,7 @@ func (s *Store) AggregateCost(ctx context.Context, since, until time.Time) (last
 		since.Unix(), until.Unix(), since.Unix(), until.Unix(),
 	)
 	if err != nil {
-		return 0, 0, nil, fmt.Errorf("chat: aggregate cost series: %w", err)
+		return 0, 0, 0, nil, fmt.Errorf("chat: aggregate cost series: %w", err)
 	}
 	defer rows.Close()
 
@@ -747,7 +798,7 @@ func (s *Store) AggregateCost(ctx context.Context, since, until time.Time) (last
 		)
 
 		if err = rows.Scan(&dayStr, &dayCost); err != nil {
-			return 0, 0, nil, fmt.Errorf("chat: aggregate cost series scan: %w", err)
+			return 0, 0, 0, nil, fmt.Errorf("chat: aggregate cost series scan: %w", err)
 		}
 
 		// Parse the day string (SQLite date() returns "YYYY-MM-DD").
@@ -766,44 +817,46 @@ func (s *Store) AggregateCost(ctx context.Context, since, until time.Time) (last
 	}
 
 	if err = rows.Err(); err != nil {
-		return 0, 0, nil, fmt.Errorf("chat: aggregate cost series rows: %w", err)
+		return 0, 0, 0, nil, fmt.Errorf("chat: aggregate cost series rows: %w", err)
 	}
 
-	return last30d, prior30d, series30d, nil
+	return last30d, prior30d, subscriptionLast30d, series30d, nil
 }
 
 // IncrementSessionCost atomically adds token deltas and cost to the session row
 // using a single UPDATE … RETURNING statement. Race-free: the DB performs the
-// arithmetic so concurrent increments cannot interleave. Returns ErrSessionNotFound
-// when no matching row exists.
+// arithmetic so concurrent increments cannot interleave. dSubscriptionCost
+// lands in both estimated_cost_usd and subscription_cost_usd. Returns
+// ErrSessionNotFound when no matching row exists.
 func (s *Store) IncrementSessionCost(
 	ctx context.Context,
 	sessionID string,
 	dPrompt, dCompletion, dCacheRead, dCacheCreation int64,
-	dCost float64,
+	dCost, dSubscriptionCost float64,
 	model string,
-) (newPrompt, newCompletion, newCacheRead, newCacheCreation int64, newCost float64, err error) {
+) (newPrompt, newCompletion, newCacheRead, newCacheCreation int64, newCost, newSubscriptionCost float64, err error) {
 	row := s.db.QueryRowContext(ctx, `
 		UPDATE chat_sessions SET
 			prompt_tokens       = prompt_tokens       + ?,
 			completion_tokens   = completion_tokens   + ?,
 			cache_read_tokens   = cache_read_tokens   + ?,
 			cache_creation_tokens = cache_creation_tokens + ?,
-			estimated_cost_usd  = estimated_cost_usd  + ?,
+			estimated_cost_usd  = estimated_cost_usd  + ? + ?,
+			subscription_cost_usd = subscription_cost_usd + ?,
 			model               = COALESCE(NULLIF(?, ''), model)
 		WHERE id = ?
 		RETURNING prompt_tokens, completion_tokens, cache_read_tokens,
-		          cache_creation_tokens, estimated_cost_usd`,
-		dPrompt, dCompletion, dCacheRead, dCacheCreation, dCost, model, sessionID,
+		          cache_creation_tokens, estimated_cost_usd, subscription_cost_usd`,
+		dPrompt, dCompletion, dCacheRead, dCacheCreation, dCost, dSubscriptionCost, dSubscriptionCost, model, sessionID,
 	)
 
-	if err := row.Scan(&newPrompt, &newCompletion, &newCacheRead, &newCacheCreation, &newCost); err != nil {
+	if err := row.Scan(&newPrompt, &newCompletion, &newCacheRead, &newCacheCreation, &newCost, &newSubscriptionCost); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return 0, 0, 0, 0, 0, chat.ErrSessionNotFound
+			return 0, 0, 0, 0, 0, 0, chat.ErrSessionNotFound
 		}
 
-		return 0, 0, 0, 0, 0, fmt.Errorf("chat: increment session cost: %w", err)
+		return 0, 0, 0, 0, 0, 0, fmt.Errorf("chat: increment session cost: %w", err)
 	}
 
-	return newPrompt, newCompletion, newCacheRead, newCacheCreation, newCost, nil
+	return newPrompt, newCompletion, newCacheRead, newCacheCreation, newCost, newSubscriptionCost, nil
 }

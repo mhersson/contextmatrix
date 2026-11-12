@@ -13,7 +13,8 @@ repository) is the **algorithm**: it makes every pick. Nothing in this
 repository selects a model for a card run.
 
 Chat sessions are out of scope: a chat receives a single model choice
-validated against the served catalog, never a selection payload.
+validated against the served catalog (the Claude Code catalog when it starts
+on Claude Code, by form alone while there is none), never a selection payload.
 
 ## Steering the selector
 
@@ -384,6 +385,69 @@ then the compiled-in `deepseek/deepseek-v4-flash`) - and no card pin is
 honored (a pin resolves against the candidate catalog, which is empty).
 Auto-selection requires the key.
 
+### The Claude Code catalog
+
+With `claude_code.oauth_token` set and the Builder in `aa+candidates` mode,
+the Builder also keeps a Claude Code catalog. There is no static list: it is
+derived from the same AA fetch as the served catalog, refreshed with it, and
+keeps its last good set when a refresh fails. In any other Builder mode there
+is no Claude Code catalog.
+
+- The IDs are the distinct family keys of the AA rows (lowercased, vendor
+  prefix dropped, dots turned into hyphens, effort and date suffixes
+  stripped) that are well-formed Claude Code IDs, such as `claude-opus-5-5`.
+  Effort variants and dated rows of one model collapse onto one ID; non-Claude
+  rows are not IDs. A new Anthropic model joins once AA lists it.
+- Each ID joins its AA family the way the `openai` leg joins a served model.
+  Its priors are its intelligence index over the best AA score, and its
+  candidate price is the AA list price. The quality floor applies, which drops
+  old versions; the allowlist and `model_priors` do not.
+- The context window is the served catalog's entry for the ID when it carries
+  one (matched by exact id, bare name or snapshot key), else 1,000,000 tokens.
+- Candidates carry the bare Claude Code ID as `slug` and an empty `creator`,
+  so the selector resolves no vendor for them and the vendor-diversity
+  preference never steers a Best-of-N, mob or review-panel seat.
+- Fable is an ordinary candidate. On a Pro subscription, Fable runs only on
+  paid usage credits, from the first call. On Max and Ultra, it is included up
+  to half the weekly limit; past that, in `claude -p`, it spends usage credits
+  without asking. Operators who do not want that keep it out with the model
+  blacklist.
+- Accepted risk: a model AA lists before the pinned Claude Code version or the
+  subscription accepts it fails its runs until the agent reports it incapable
+  and it is blacklisted.
+
+Catalog membership is the candidates that clear the quality floor. Without a
+catalog (no `backends.agent.aa_api_key`, or before the first refresh) the chat
+picker offers `claude_code.default_model` alone, a chat start or run model is
+checked by its form only, and a stale slug that maps to a well-formed ID runs
+as mapped. With a catalog, a chat start outside it is refused and a run's model
+outside it falls back to `claude_code.default_model`. The configured
+`claude_code.default_model` is always accepted, and the picker lists it when
+the catalog lacks it. Favorites and the blacklist map by form only, catalog or
+not.
+
+A trigger whose agent runs in `claude_code` mode (see
+[remote execution](remote-execution.md#claude-code-subscription-mode))
+changes four inputs:
+
+| Input                    | In `claude_code` mode                                                                                                                                 |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `selection.candidates`   | The Claude Code catalog instead of the served one.                                                                                                    |
+| `selection.favorites`    | Each rule's slugs mapped to Claude Code IDs (`anthropic/claude-sonnet-5.5` becomes `claude-sonnet-5-5`); a slug without one is dropped, and so is a rule left empty. |
+| `selection.blacklist`    | Each slug mapped to its Claude Code ID the same way; a slug without one is dropped.                                                                   |
+| `model`                  | `backends.agent.default_model` mapped to its Claude Code ID, else `claude_code.default_model` (also when a built catalog lacks the ID).               |
+
+The tier ladders and the price headroom ship unchanged. A
+subscription bills nothing per token, but the price band still runs on the AA
+list prices: a model's list price stands in for how much of the usage limit
+it consumes, so the band keeps a frontier model off a `simple` task to save
+usage rather than money. Card pins resolve agent-side (see
+[running cards](running-cards.md#claude-code-subscription)). While card runs
+start on Claude Code (the channel is `claude_code` and the agent is in
+`claude_code.backends`), the ladders page charts and previews the Claude Code
+catalog, with the favorites and blacklist mapped the same way; otherwise it
+shows the served catalog. Its ladders and headroom are one setting for both.
+
 ## What the trigger carries
 
 `launch` (`internal/api/backend_launch.go`) assembles a
@@ -392,9 +456,9 @@ is configured (see [Builder modes](#builder-modes)):
 
 | Field           | Content                                                                                  |
 | --------------- | ---------------------------------------------------------------------------------------- |
-| `candidates`    | the cached catalog, cloned per trigger                                                   |
+| `candidates`    | the cached catalog, cloned per trigger (the [Claude Code catalog](#the-claude-code-catalog) in `claude_code` mode) |
 | `favorites`     | operator tier preferences, global merged with project                                    |
-| `blacklist`     | slugs reported incapable (from `ops.db`)                                                 |
+| `blacklist`     | slugs reported incapable (from `ops.db`), mapped to Claude Code IDs in `claude_code` mode |
 | `tier_bars`     | the per-role quality ladders saved on the admin page; absent when none is saved, which the agent reads as its built-in ladder |
 
 Each `CandidateModel` carries:
@@ -405,7 +469,7 @@ Each `CandidateModel` carries:
 | `prompt_price_per_tok`, `completion_price_per_tok`| USD per token: the gateway's price, else the AA list price, else `token_costs` (see [endpoint pricing](#endpoint-pricing)) |
 | `context_window`                                  | tokens                                                         |
 | `coder_prior`, `reviewer_prior`                   | normalized quality, `[0, 1]`                                   |
-| `creator`                                         | vendor prefix, drives the agent's vendor-diversity preference  |
+| `creator`                                         | vendor prefix, drives the agent's vendor-diversity preference; empty on Claude Code candidates |
 
 Recorded model outcomes never ship in the trigger: selection is priors-only,
 and the outcome ledger (below) exists for operators, not the selector.
@@ -424,8 +488,9 @@ Assembly rules:
 - **Mob execute wins over Best-of-N**: when a trigger carries both, mob coding
   takes priority and `best_of_n` is zeroed with a warning (see
   [remote execution](remote-execution.md#mob-sessions)).
-- The payload `model` field is `backends.agent.default_model`; card pins are
-  resolved agent-side, not here.
+- The payload `model` field is `backends.agent.default_model` (mapped in
+  `claude_code` mode, see [the Claude Code catalog](#the-claude-code-catalog));
+  card pins are resolved agent-side, not here.
 
 ## How the agent picks
 
@@ -473,10 +538,17 @@ and carry on; the other role is unaffected.
 
 #### The ladders page
 
+The header names the catalog the page shows, the one a card run would select
+from now: the Claude Code catalog while card runs start on Claude Code, else
+the served one (see [the Claude Code catalog](#the-claude-code-catalog)). A
+channel switch refetches the catalog and re-runs the preview, and a preview
+answered from another catalog stays pending while the page refetches the
+catalog and asks again.
+
 A data-source strip under the header shows the catalog snapshot's stats (see
 [caching and refresh](#caching-and-refresh)): the index version, the AA models
-scored, the models scored and served with tool use, the candidate count and
-floor, the best AA score as prior 1.00, the reasoning effort the gateway pins
+scored, the models scored and served with tool use (the Claude Code IDs scored,
+for the Claude Code catalog), the candidate count and floor, the best AA score as prior 1.00, the reasoning effort the gateway pins
 for its OpenAI models when `llm_endpoint.reasoning_effort` is set, the refresh
 time and the attribution link to Artificial Analysis. While the catalog is
 loading or unavailable it shows no numbers.
@@ -525,7 +597,8 @@ Provider chips (per-provider counts plus `all` / `none` buttons) hide the
 unpressed providers' points, and the panel meta then shows
 `N of M candidates shown`. The selection is remembered per browser and is
 display-only: it never changes the scales, picks, seats, counts, saved
-ladders or any request.
+ladders or any request. The Claude Code catalog names no provider, so it shows
+no chips and every point.
 
 Right-clicking a point, a pick name in the preview, or a panel seat opens a
 one-item menu for that model: **Add to blacklist**, or **Remove from
@@ -533,7 +606,9 @@ blacklist** when it is already struck (the same confirm as the table's
 delist button). Either change refetches the catalog and the blacklist
 panel and re-runs the preview, so the points, picks and seats reflect the
 new blacklist at once. The ladders and headroom on screen are untouched;
-the blacklist is not part of the unsaved draft.
+the blacklist is not part of the unsaved draft. On the Claude Code catalog a
+point struck only by an entry stored under its gateway slug (for example
+`anthropic/claude-opus-5.5`) opens no menu; delist that row in the table.
 
 Nothing is sent until **Save**; the status pill says whether the next run
 uses what is on screen. **Discard changes** returns to the saved ladders and
@@ -847,7 +922,8 @@ are the only evidence that exists about that choice.
   ladders page: the catalog's data-source strip, the price × quality chart
   with both ladders, and the pick preview, with the blacklist panel below
   (per-row delist). Right-clicking a model on the chart or in the preview
-  blacklists or delists it. The outcome ledger has no page; its endpoints
+  blacklists or delists it, except a Claude Code point struck only by an
+  entry stored under its gateway slug, which only the table delists. The outcome ledger has no page; its endpoints
   remain.
 - Metrics: `contextmatrix_model_outcomes_total{model,result}` and
   `contextmatrix_model_blacklists_total{model}`. There are no catalog metrics
@@ -869,6 +945,8 @@ overrides; this table maps the knobs to their effect on selection.
 | `favorites` in a project `.board.yaml` | none               | Per-project override; replaces the global entry per tier; hand-edited only (see the [data model](data-model.md#project-board-config-format)) |
 | `llm_endpoint.type`                  | `openrouter`         | Selects the catalog leg and the wire dialect                            |
 | `llm_endpoint.reasoning_effort`      | unset                | The reasoning effort the gateway pins for its OpenAI models (`openai` leg only); the join prefers the AA row carrying it for OpenAI families and ignores it for other creators. Env `CONTEXTMATRIX_LLM_ENDPOINT_REASONING_EFFORT` |
+| `claude_code.oauth_token`            | unset                | With `backends.agent.aa_api_key` set, adds the [Claude Code catalog](#the-claude-code-catalog), which `claude_code` triggers carry instead of the served one |
+| `claude_code.default_model`          | `claude-sonnet-5-5`  | The `model` of a `claude_code` trigger when `backends.agent.default_model` maps to no Claude Code ID, or to one outside a built Claude Code catalog |
 | `best_of_n.max_candidates`           | 5                    | Hard cap on a card's race size                                          |
 | `best_of_n.default_candidates`       | 3                    | UI-suggested race size                                                  |
 | Price headroom (admin page, stored in `ops.db`) | 1.5        | Width of the price band; edited on the Model selection admin page with the ladders; travels as `selection.price_headroom` |

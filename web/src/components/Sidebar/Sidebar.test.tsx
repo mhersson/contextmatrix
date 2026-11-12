@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router';
 import { Sidebar } from './Sidebar';
 import { api } from '../../api/client';
-import type { PlaybookSummary } from '../../types';
+import type { LLMChannelView, PlaybookSummary } from '../../types';
 import type { AuthContextValue } from '../../hooks/useAuth';
 
 vi.mock('../../hooks/useProjects', () => ({
@@ -74,6 +74,23 @@ const defaultProjects = [
 function playbook(id: string): PlaybookSummary {
   return { id, title: id, complete: 0, total: 2, segments: [], projects: 1, updated_at: '' };
 }
+
+function channel(claudeCode: boolean): LLMChannelView {
+  const zero = { cards: 0, chats: 0, blueprints: 0 };
+  return {
+    mode: claudeCode ? 'claude_code' : 'endpoint',
+    switchable: claudeCode,
+    endpoint: { type: 'openrouter', label: 'OpenRouter' },
+    claude_code: claudeCode,
+    in_flight: { endpoint: zero, claude_code: zero },
+    exceptions: [],
+    usage: [],
+  };
+}
+
+beforeEach(() => {
+  vi.spyOn(api, 'getLLMChannel').mockResolvedValue(channel(false));
+});
 
 describe('Sidebar', () => {
   beforeEach(() => {
@@ -370,5 +387,43 @@ describe('boards repo sections', () => {
     const priv = screen.getByRole('region', { name: 'Boards repo private' });
     expect(within(team).getByRole('link', { name: /ghost/ })).toBeInTheDocument();
     expect(within(priv).queryByRole('link', { name: /ghost/ })).toBeNull();
+  });
+});
+
+describe('Sidebar LLM channel', () => {
+  beforeEach(() => {
+    vi.spyOn(api, 'listPlaybooks').mockResolvedValue([]);
+    vi.spyOn(api, 'getLLMChannel').mockResolvedValue(channel(true));
+    mockUseProjects.mockReturnValue({ projects: defaultProjects, loading: false, error: null, connected: true, refreshProjects: async () => {} });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('puts the strip under the wordmark and a dot on the collapsed rail', async () => {
+    renderSidebar();
+    const strip = await screen.findByRole('button', { name: /LLM channel: Claude Code/ });
+    const follows = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(screen.getByRole('heading', { level: 1 }), strip)).toBe(true);
+    expect(follows(strip, screen.getByRole('navigation', { name: 'Projects' }))).toBe(true);
+
+    fireEvent.click(screen.getByTitle('Collapse sidebar'));
+    expect(await screen.findByRole('img', { name: 'LLM channel: Claude Code' })).toBeInTheDocument();
+  });
+
+  it('closes only the popover on Escape inside the mobile drawer', async () => {
+    const onMobileClose = vi.fn();
+    renderSidebar({ mobileOpen: true, onMobileClose });
+    const drawer = screen.getByRole('dialog', { name: 'Sidebar navigation' });
+    const strip = await within(drawer).findByRole('button', { name: /LLM channel: Claude Code/ });
+    fireEvent.click(strip);
+    expect(within(drawer).getByRole('group', { name: 'LLM channel' })).toBeInTheDocument();
+
+    fireEvent.keyDown(strip, { key: 'Escape' });
+    expect(within(drawer).queryByRole('group', { name: 'LLM channel' })).toBeNull();
+    expect(onMobileClose).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(strip, { key: 'Escape' });
+    expect(onMobileClose).toHaveBeenCalledTimes(1);
   });
 });

@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mhersson/contextmatrix-protocol/selection"
 	"gopkg.in/yaml.v3"
 
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -44,6 +45,70 @@ type LLMEndpointConfig struct {
 	// has one; models of other creators ignore it. Empty means unknown: the
 	// family base row is used. One of LLMEndpointReasoningEfforts.
 	ReasoningEffort string `yaml:"reasoning_effort"`
+}
+
+// ClaudeCodeConfig configures the Claude Code subscription channel: backends
+// listed in Backends run Claude Code on OAuthToken instead of the LLM endpoint.
+type ClaudeCodeConfig struct {
+	OAuthToken string `yaml:"oauth_token"` // from `claude setup-token`
+	// Backends are the backend kinds that run Claude Code, a subset of
+	// BackendNameAgent, BackendNameChat and BackendNameArchitect.
+	Backends     []string `yaml:"backends"`
+	DefaultModel string   `yaml:"default_model"` // a Claude Code model ID, e.g. claude-sonnet-5-5
+	// Effort is Claude Code's --effort level for every claude_code start;
+	// empty sends none, so Claude Code uses its own default.
+	Effort string `yaml:"effort"`
+}
+
+// ClaudeCodeEfforts are the --effort levels Claude Code accepts.
+var ClaudeCodeEfforts = []string{"low", "medium", "high", "xhigh", "max"}
+
+// Configured reports whether a Claude Code token is set.
+func (c ClaudeCodeConfig) Configured() bool { return c.OAuthToken != "" }
+
+func (c ClaudeCodeConfig) validate() error {
+	valid := []string{BackendNameAgent, BackendNameChat, BackendNameArchitect}
+	seen := map[string]bool{}
+
+	for _, b := range c.Backends {
+		if !slices.Contains(valid, b) {
+			return fmt.Errorf("claude_code.backends must contain only %s, got %q", strings.Join(valid, ", "), b)
+		}
+
+		if seen[b] {
+			return fmt.Errorf("claude_code.backends lists %q more than once", b)
+		}
+
+		seen[b] = true
+	}
+
+	if len(c.Backends) > 0 && c.OAuthToken == "" {
+		return fmt.Errorf("claude_code.oauth_token is required when claude_code.backends is set")
+	}
+
+	// The catalog is derived at runtime, so config checks only the form of the ID.
+	if c.DefaultModel != "" {
+		if id, ok := selection.ClaudeCodeModelID(c.DefaultModel); !ok || id != c.DefaultModel {
+			return fmt.Errorf("claude_code.default_model must be a Claude Code model ID, got %q", c.DefaultModel)
+		}
+	}
+
+	if c.Effort != "" && !slices.Contains(ClaudeCodeEfforts, c.Effort) {
+		return fmt.Errorf("claude_code.effort must be empty or one of %s, got %q",
+			strings.Join(ClaudeCodeEfforts, ", "), c.Effort)
+	}
+
+	return nil
+}
+
+func applyClaudeCodeDefaults(cfg *Config) {
+	if cfg.ClaudeCode.Backends == nil {
+		cfg.ClaudeCode.Backends = []string{}
+	}
+
+	if cfg.ClaudeCode.DefaultModel == "" {
+		cfg.ClaudeCode.DefaultModel = "claude-sonnet-5-5"
+	}
 }
 
 // LLMEndpointReasoningEfforts are the values llm_endpoint.reasoning_effort
@@ -935,6 +1000,7 @@ type Config struct {
 	Theme             string               `yaml:"theme"`
 	TokenCosts        map[string]ModelRate `yaml:"token_costs"`
 	LLMEndpoint       LLMEndpointConfig    `yaml:"llm_endpoint"`
+	ClaudeCode        ClaudeCodeConfig     `yaml:"claude_code"`
 	MCPAPIKey         string               `yaml:"mcp_api_key"`
 	// Backends declares the agent (task execution) and chat backend entries.
 	// The mapping's key set is closed - see Backends.UnmarshalYAML.
@@ -989,6 +1055,12 @@ func (c *Config) Validate() error {
 	}
 
 	if err := c.LLMEndpoint.validate(); err != nil {
+		return err
+	}
+
+	applyClaudeCodeDefaults(c)
+
+	if err := c.ClaudeCode.validate(); err != nil {
 		return err
 	}
 
@@ -1509,6 +1581,7 @@ func Load(path string) (*Config, error) {
 	applyMobDefaults(cfg)
 	applyAuthDefaults(cfg)
 	applyJiraDefaults(cfg)
+	applyClaudeCodeDefaults(cfg)
 	applyBackendDefaults(cfg)
 
 	if err := applyEnvOverrides(cfg); err != nil {
@@ -2124,6 +2197,32 @@ func applyEnvOverrides(cfg *Config) error {
 
 	if v := os.Getenv("CONTEXTMATRIX_LLM_ENDPOINT_REASONING_EFFORT"); v != "" {
 		cfg.LLMEndpoint.ReasoningEffort = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_CLAUDE_CODE_OAUTH_TOKEN"); v != "" {
+		cfg.ClaudeCode.OAuthToken = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_CLAUDE_CODE_BACKENDS"); v != "" {
+		var backends []string
+
+		for s := range strings.SplitSeq(v, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				backends = append(backends, s)
+			}
+		}
+
+		if len(backends) > 0 {
+			cfg.ClaudeCode.Backends = backends
+		}
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_CLAUDE_CODE_DEFAULT_MODEL"); v != "" {
+		cfg.ClaudeCode.DefaultModel = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_CLAUDE_CODE_EFFORT"); v != "" {
+		cfg.ClaudeCode.Effort = v
 	}
 
 	// The outcome-bias mechanism was retired. A stale YAML outcome_floor key

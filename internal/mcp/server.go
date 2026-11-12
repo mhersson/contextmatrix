@@ -4,6 +4,7 @@ package mcp
 
 import (
 	"bytes"
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mhersson/contextmatrix/internal/chat"
@@ -79,6 +81,16 @@ type ServerConfig struct {
 
 	// Knowledge is optional; the knowledge tools are registered only when set.
 	Knowledge KnowledgeReader
+
+	// SubscriptionUsage is optional; report_usage forwards the subscription
+	// windows to it after the usage is recorded.
+	SubscriptionUsage UsageRecorder
+}
+
+// UsageRecorder receives the last-seen subscription windows of a
+// subscription-basis usage report.
+type UsageRecorder interface {
+	RecordUsage(ctx context.Context, u []protocol.SubscriptionUsage)
 }
 
 // NewServer creates a configured MCP server with all tools and prompts registered.
@@ -104,6 +116,7 @@ func NewServer(cfg ServerConfig) *mcp.Server {
 		CardRunner:        cfg.CardRunner,
 		PlaybookPlayer:    cfg.PlaybookPlayer,
 		Knowledge:         cfg.Knowledge,
+		SubscriptionUsage: cfg.SubscriptionUsage,
 	})
 	registerPrompts(server, cfg.Service, cfg.WorkflowSkillsDir)
 

@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { CostCell } from './CostCell';
+import { costBasis } from './stages';
 import { api } from '../../api/client';
 import { CHAT_SESSIONS_CHANGED_EVENT } from '../../hooks/useChatSessions';
+import { clearChatLiveData, setChatLiveData } from '../../hooks/useChatLiveData';
+import { SUBSCRIPTION_TOOLTIP } from '../../lib/subscription';
 import { resetChatModelsCache } from '../../utils/chatModels';
 import type { BlueprintCost } from '../../types';
 
@@ -24,6 +27,8 @@ function open(cost: BlueprintCost) {
 
 const amount = () => screen.getByLabelText('Cap in USD') as HTMLInputElement;
 const save = () => screen.getByRole('button', { name: 'Save' });
+
+const basis = costBasis({ llm_channel: 'claude_code' });
 
 describe('CostCell', () => {
   beforeEach(() => {
@@ -48,6 +53,32 @@ describe('CostCell', () => {
     unmount();
     render(<CostCell chatId="S1" cost={NO_CAP} />);
     expect(screen.getByRole('button', { name: 'Cost: $2.14, no cap, set a cap' })).toBeInTheDocument();
+  });
+
+  it("labels the spend as API-equivalent from the session's LLM channel", () => {
+    setChatLiveData('S1', { llmChannel: 'claude_code', subscriptionCostUsd: 2.14 });
+    const { unmount } = render(<CostCell chatId="S1" cost={WITH_CAP} />);
+    try {
+      const trigger = screen.getByRole('button', { name: `Cost: $2.14 of $2.00 cap${basis}, change cap` });
+      expect(trigger).toHaveTextContent(`$2.14 of $2.00${basis}`);
+      expect(screen.getByText(`$2.14 of $2.00${basis}`)).toHaveAttribute('title', SUBSCRIPTION_TOOLTIP);
+    } finally {
+      unmount();
+      clearChatLiveData('S1');
+    }
+  });
+
+  it('labels the spend in the popover from the session record', () => {
+    setChatLiveData('S1', { llmChannel: 'claude_code' });
+    const { unmount } = render(<CostCell chatId="S1" cost={WITH_CAP} />);
+    try {
+      fireEvent.click(screen.getByRole('button', { name: /^Cost:/ }));
+      const dialog = screen.getByRole('dialog', { name: 'Cost cap' });
+      expect(within(dialog).getByText(`$2.14 spent${basis}`)).toHaveAttribute('title', SUBSCRIPTION_TOOLTIP);
+    } finally {
+      unmount();
+      clearChatLiveData('S1');
+    }
   });
 
   it('opens with the spend and cap, and focus inside', () => {
@@ -145,6 +176,32 @@ describe('CostCell', () => {
     expect(save()).toBeDisabled();
     fireEvent.click(screen.getByLabelText('No cap'));
     expect(save()).toBeEnabled();
+  });
+
+  it("prices a blueprint by the architect's own list while chats run on Claude Code", async () => {
+    vi.mocked(api.listChatModels).mockImplementation(async (kind?: string) =>
+      kind === 'architect'
+        ? ({
+            source: 'endpoint',
+            default: 'arch/priced',
+            architect_default: 'arch/priced',
+            models: [
+              { id: 'arch/priced', label: 'priced', max_tokens: 1 },
+              { id: 'arch/free', label: 'free', max_tokens: 1, unpriced: true },
+            ],
+          } as never)
+        : ({
+            source: 'claude_code',
+            default: 'claude-sonnet-5-5',
+            architect_default: 'arch/priced',
+            models: [{ id: 'claude-sonnet-5-5', label: 'claude-sonnet-5-5', max_tokens: 1_000_000 }],
+          } as never),
+    );
+    vi.mocked(api.listChats).mockResolvedValue([{ id: 'S1', model: 'arch/free' }] as never);
+    open(ROOMY_CAP);
+    await waitFor(() => expect(screen.getByText(/No price is known for this model/)).toBeInTheDocument());
+    expect(save()).toBeDisabled();
+    expect(api.listChatModels).toHaveBeenCalledWith('architect');
   });
 
   it('prices a session with no model of its own by the architect default', async () => {

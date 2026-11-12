@@ -30,6 +30,7 @@ type registerToolsConfig struct {
 	CardRunner        *RunnerSlot
 	PlaybookPlayer    PlaybookPlayer
 	Knowledge         KnowledgeReader
+	SubscriptionUsage UsageRecorder
 }
 
 // registerTools adds all MCP tools to the server.
@@ -51,7 +52,7 @@ func registerTools(cfg registerToolsConfig) {
 	registerGetSubtaskSummary(server, svc)
 	registerCheckAgentHealth(server, svc)
 	registerGetReadyTasks(server, svc)
-	registerReportUsage(server, svc)
+	registerReportUsage(server, svc, cfg.SubscriptionUsage)
 	registerRecalculateCosts(server, svc)
 	registerCreateProject(server, svc)
 	registerUpdateProject(server, svc)
@@ -60,7 +61,7 @@ func registerTools(cfg registerToolsConfig) {
 	registerStartReview(server, svc, cfg.WorkflowSkillsDir)
 	registerGetSkill(server, svc, cfg.WorkflowSkillsDir)
 	registerReportPush(server, svc)
-	registerReportParked(server, svc)
+	registerReportParked(server, svc, cfg.SubscriptionUsage)
 	registerIncrementReviewAttempts(server, svc)
 	registerPromoteToAutonomous(server, svc)
 

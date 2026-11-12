@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/metrics"
@@ -17,7 +18,7 @@ import (
 // chat session cost aggregates. Defined here (not in the chat package) to avoid a
 // service → chat import edge. *chat.Manager satisfies it without modification.
 type ChatCostSummarizer interface {
-	GetChatCostSummary(ctx context.Context) (last30d, prior30d float64, series30d []float64, err error)
+	GetChatCostSummary(ctx context.Context) (last30d, prior30d, subscriptionLast30d float64, series30d []float64, err error)
 }
 
 // ActiveAgent describes an agent currently working on a card.
@@ -44,6 +45,9 @@ type ModelCost struct {
 	// actual-cost buckets; on the legacy fallback path (no breakdown) it is
 	// card-level via costHasEstimates.
 	HasEstimates bool `json:"has_estimates,omitempty"`
+	// Subscription is true when EstimatedCostUSD includes any API-equivalent
+	// estimate of flat-rate subscription usage; that part was not billed.
+	Subscription bool `json:"subscription,omitempty"`
 }
 
 // CardCost contains per-card cost summary.
@@ -57,6 +61,9 @@ type CardCost struct {
 	// HasEstimates is true when this card - or any subtask folded into it -
 	// carries a rate-table-estimated cost. See costHasEstimates.
 	HasEstimates bool `json:"has_estimates,omitempty"`
+	// SubscriptionCostUSD is the part of EstimatedCostUSD that is an
+	// API-equivalent estimate of flat-rate subscription usage.
+	SubscriptionCostUSD float64 `json:"subscription_cost_usd,omitempty"`
 }
 
 // MetricSeries holds an 8-sample daily window (oldest first, today last) for
@@ -91,6 +98,9 @@ type DashboardData struct {
 	StateCountsParents map[string]int `json:"state_counts_parents"`
 	ActiveAgents       []ActiveAgent  `json:"active_agents"`
 	TotalCostUSD       float64        `json:"total_cost_usd"`
+	// TotalSubscriptionCostUSD is the part of TotalCostUSD that is an
+	// API-equivalent estimate of flat-rate subscription usage, not billed spend.
+	TotalSubscriptionCostUSD float64 `json:"total_subscription_cost_usd,omitempty"`
 	// TotalCostHasEstimates is true when any card contributing to
 	// TotalCostUSD carries a rate-table-estimated cost. See costHasEstimates.
 	TotalCostHasEstimates bool    `json:"total_cost_has_estimates,omitempty"`
@@ -123,6 +133,9 @@ type DashboardData struct {
 	ChatCostUSDLast30d  float64   `json:"chat_cost_usd_last_30d"`
 	ChatCostUSDPrior30d float64   `json:"chat_cost_usd_prior_30d"`
 	ChatCostSeries30d   []float64 `json:"chat_cost_series_30d,omitempty"`
+	// ChatSubscriptionCostUSD is the part of ChatCostUSDLast30d that is a
+	// subscription estimate.
+	ChatSubscriptionCostUSD float64 `json:"chat_subscription_cost_usd,omitempty"`
 }
 
 // GetDashboard computes aggregated dashboard data for a project.
@@ -149,7 +162,7 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 	}
 
 	byID := buildCardIndex(cards)
-	_, cardCosts, totalCostUSD := aggregateCostsWithParentIndex(cards, byID)
+	_, cardCosts, totalCostUSD, totalSubscriptionCostUSD := aggregateCostsWithParentIndex(cards, byID)
 
 	// 30d rollups: same window boundary as bucketCostSeries' last30d (local
 	// midnight, 29 days back). The full card index keeps subtask folding
@@ -164,7 +177,7 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 		}
 	}
 
-	modelCosts30d, cardCosts30d, _ := aggregateCostsWithParentIndex(cards30d, byID)
+	modelCosts30d, cardCosts30d, _, _ := aggregateCostsWithParentIndex(cards30d, byID)
 
 	// Every card that contributes to totalCostUSD folds its costHasEstimates
 	// flag into exactly one CardCost row (its own, or its parent's via
@@ -189,20 +202,21 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 	// Server-wide chat cost summary. Errors here are non-fatal: the rest of
 	// the dashboard still renders with zero values for the chat-cost fields.
 	var (
-		chatLast30d, chatPrior30d float64
-		chatSeries30d             []float64
+		chatLast30d, chatPrior30d, chatSubscription float64
+		chatSeries30d                               []float64
 	)
 
 	if cs := s.chatCostSummarizerOrNil(); cs != nil {
 		var chatErr error
 
-		chatLast30d, chatPrior30d, chatSeries30d, chatErr = cs.GetChatCostSummary(ctx)
+		chatLast30d, chatPrior30d, chatSubscription, chatSeries30d, chatErr = cs.GetChatCostSummary(ctx)
 		if chatErr != nil {
 			ctxlog.Logger(ctx).Warn("chat cost summary failed", "error", chatErr)
 			metrics.ChatCostSummaryErrorsTotal.Inc()
 			// Zero-value fallback: chatLast30d, chatPrior30d stay 0, chatSeries30d stays nil.
 			chatLast30d = 0
 			chatPrior30d = 0
+			chatSubscription = 0
 			chatSeries30d = nil
 		}
 	}
@@ -212,6 +226,7 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 		StateCountsParents:           stateCountsParents,
 		ActiveAgents:                 activeAgents,
 		TotalCostUSD:                 totalCostUSD,
+		TotalSubscriptionCostUSD:     totalSubscriptionCostUSD,
 		TotalCostHasEstimates:        totalCostHasEstimates,
 		TotalCostHasEstimatesLast30d: totalCostHasEstimatesLast30d,
 		TotalCostUSDLast30d:          costLast30d,
@@ -229,6 +244,7 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 		ChatCostUSDLast30d:           chatLast30d,
 		ChatCostUSDPrior30d:          chatPrior30d,
 		ChatCostSeries30d:            chatSeries30d,
+		ChatSubscriptionCostUSD:      chatSubscription,
 	}, nil
 }
 
@@ -412,6 +428,20 @@ func costHasEstimates(c *board.Card) bool {
 		c.TokenUsage != nil && c.TokenUsage.EstimatedCostUSD != 0
 }
 
+// subscriptionCost sums the card's subscription-basis buckets: the part of its
+// cost that is an API-equivalent estimate, not billed spend.
+func subscriptionCost(c *board.Card) float64 {
+	var sum float64
+
+	for _, b := range c.UsageBreakdown {
+		if b.CostBasis == protocol.CostBasisSubscription {
+			sum += b.CostUSD
+		}
+	}
+
+	return sum
+}
+
 // buildCardIndex maps card ID → card for parent lookups during subtask folding.
 func buildCardIndex(cards []*board.Card) map[string]*board.Card {
 	byID := make(map[string]*board.Card, len(cards))
@@ -427,7 +457,7 @@ func buildCardIndex(cards []*board.Card) map[string]*board.Card {
 // per bucket; legacy cards fall back to TokenUsage. The caller supplies the
 // parent index, so a windowed subset of cards can still fold subtask spend
 // into parents that sit outside the subset. Model rows sort cost desc, name asc.
-func aggregateCostsWithParentIndex(cards []*board.Card, byID map[string]*board.Card) (modelCosts []ModelCost, cardCosts []CardCost, totalCostUSD float64) {
+func aggregateCostsWithParentIndex(cards []*board.Card, byID map[string]*board.Card) (modelCosts []ModelCost, cardCosts []CardCost, totalCostUSD, totalSubscriptionCostUSD float64) {
 	modelCostMap := make(map[string]*ModelCost)
 
 	// Per-card rows fold subtask spend into the parent's row so the Top cards
@@ -455,6 +485,9 @@ func aggregateCostsWithParentIndex(cards []*board.Card, byID map[string]*board.C
 
 		totalCostUSD += card.TokenUsage.EstimatedCostUSD
 
+		cardSubscription := subscriptionCost(card)
+		totalSubscriptionCostUSD += cardSubscription
+
 		est := costHasEstimates(card)
 
 		// Orphan subtasks (parent not in this project) keep their own row so
@@ -471,6 +504,7 @@ func aggregateCostsWithParentIndex(cards []*board.Card, byID map[string]*board.C
 		row.CompletionTokens += card.TokenUsage.CompletionTokens
 		row.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
 		row.HasEstimates = row.HasEstimates || est
+		row.SubscriptionCostUSD += cardSubscription
 
 		if len(card.UsageBreakdown) > 0 {
 			// Breakdown path: sum each (agent, model) bucket directly.
@@ -500,6 +534,7 @@ func aggregateCostsWithParentIndex(cards []*board.Card, byID map[string]*board.C
 				mc.CompletionTokens += b.CompletionTokens
 				mc.EstimatedCostUSD += b.CostUSD
 				mc.HasEstimates = mc.HasEstimates || b.CostSource == "estimated"
+				mc.Subscription = mc.Subscription || b.CostBasis == protocol.CostBasisSubscription
 
 				if !modelAccounted[model] {
 					mc.CardCount++
@@ -551,7 +586,7 @@ func aggregateCostsWithParentIndex(cards []*board.Card, byID map[string]*board.C
 		return modelCosts[i].Model < modelCosts[j].Model
 	})
 
-	return modelCosts, cardCosts, totalCostUSD
+	return modelCosts, cardCosts, totalCostUSD, totalSubscriptionCostUSD
 }
 
 // costWindowStart returns the start of the last-30d cost window: local

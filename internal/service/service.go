@@ -32,6 +32,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/backend/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/clock"
+	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -145,6 +146,10 @@ type CardService struct {
 	// SetPlaybookLister once at startup, before serving.
 	playbooks PlaybookLister
 
+	// parkResets is optional; when non-nil it holds the usage-limit reset
+	// times of parked cards. Wired via SetParkResetStore once at startup.
+	parkResets ParkResetStore
+
 	// Per-project caches
 	mu      sync.RWMutex
 	configs map[string]*board.ProjectConfig
@@ -162,6 +167,55 @@ type PlaybookLister interface {
 // is refused.
 func (s *CardService) SetPlaybookLister(l PlaybookLister) {
 	s.playbooks = l
+}
+
+// ParkResetStore keeps the reset time of the usage limit that parked a card.
+// It is instance-local state, never card YAML.
+type ParkResetStore interface {
+	PutParkReset(ctx context.Context, project, cardID string, resetsAt time.Time) error
+	ClearParkReset(ctx context.Context, project, cardID string) error
+	ParkResets(ctx context.Context, project string) (map[string]time.Time, error)
+}
+
+// SetParkResetStore wires the usage-limit reset store. Nil-safe: without one,
+// no reset time is kept or shown.
+func (s *CardService) SetParkResetStore(st ParkResetStore) {
+	s.parkResets = st
+}
+
+// enrichParkResets sets ParkResetsAt on the parked cards of one project with
+// a single store lookup. Best-effort: a failure leaves the field empty.
+func (s *CardService) enrichParkResets(ctx context.Context, project string, cards ...*board.Card) {
+	if s.parkResets == nil {
+		return
+	}
+
+	var parked bool
+
+	for _, c := range cards {
+		if c.WorkerStatus == "parked" {
+			parked = true
+
+			break
+		}
+	}
+
+	if !parked {
+		return
+	}
+
+	resets, err := s.parkResets.ParkResets(ctx, project)
+	if err != nil {
+		ctxlog.Logger(ctx).Warn("park reset enrichment skipped", "project", project, "error", err)
+
+		return
+	}
+
+	for _, c := range cards {
+		if at, ok := resets[c.ID]; ok && c.WorkerStatus == "parked" {
+			c.ParkResetsAt = &at
+		}
+	}
 }
 
 // SetChatCostSummarizer wires a ChatCostSummarizer into the service. Nil-safe:

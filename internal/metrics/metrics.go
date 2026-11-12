@@ -173,6 +173,11 @@ var (
 		Help: "LLM spend in USD reported via report_usage, by project, model, phase, run mode, and cost source.",
 	}, []string{"project", "model", "phase", "run_mode", "source"})
 
+	LLMSubscriptionCostUSDTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "contextmatrix_llm_subscription_cost_usd_total",
+		Help: "API-equivalent estimate in USD, priced from the rate table, of subscription-served LLM usage reported via report_usage; not billed spend.",
+	}, []string{"project", "model", "phase", "run_mode"})
+
 	LLMTokensTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "contextmatrix_llm_tokens_total",
 		Help: "LLM tokens reported via report_usage, by project, model, phase, and token kind.",
@@ -231,6 +236,11 @@ var (
 	ChatCostUSDTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "contextmatrix_chat_cost_usd_total",
 		Help: "Chat session spend in USD, by project and model: each frame adds the gateway-reported cost when present, else the rate-table price.",
+	}, []string{"project", "model"})
+
+	ChatSubscriptionCostUSDTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "contextmatrix_chat_subscription_cost_usd_total",
+		Help: "Chat subscription usage as an API-equivalent estimate in USD priced from the rate table, by project and model; not billed spend and never added to the chat cost counter.",
 	}, []string{"project", "model"})
 
 	ChatTokensTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -307,6 +317,7 @@ func Register(reg prometheus.Registerer) {
 		ChatUsageUnknownModelTotal,
 		ChatCostSummaryErrorsTotal,
 		LLMCostUSDTotal,
+		LLMSubscriptionCostUSDTotal,
 		LLMTokensTotal,
 		LLMCallsTotal,
 		LLMStepDuration,
@@ -317,6 +328,7 @@ func Register(reg prometheus.Registerer) {
 		ModelOutcomesTotal,
 		ModelBlacklistsTotal,
 		ChatCostUSDTotal,
+		ChatSubscriptionCostUSDTotal,
 		ChatTokensTotal,
 	}
 

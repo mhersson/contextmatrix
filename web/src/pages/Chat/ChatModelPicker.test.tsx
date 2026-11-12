@@ -41,6 +41,31 @@ describe('ChatModelPicker', () => {
     expect(screen.getByRole('option', { name: /Opus 4\.8/ })).toBeInTheDocument();
   });
 
+  it('claude_code mode: lists the Claude Code models with no price', () => {
+    const models: ChatModel[] = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'].map((id) => ({
+      id,
+      label: id,
+      max_tokens: 1_000_000,
+    }));
+    render(
+      <ChatModelPicker
+        source="claude_code"
+        model="claude-sonnet-5-5"
+        defaultModel="claude-sonnet-5-5"
+        models={models}
+        onChange={vi.fn()}
+      />,
+    );
+    const options = screen.getAllByRole('option');
+    expect(options.map((o) => (o as HTMLOptionElement).value)).toEqual([
+      'claude-opus-5-5',
+      'claude-sonnet-5-5',
+      'claude-haiku-5-5',
+    ]);
+    for (const o of options) expect(o.textContent).not.toMatch(/\$/);
+    expect(screen.getByLabelText('Model')).toHaveValue('claude-sonnet-5-5');
+  });
+
   it('endpoint mode: renders nothing when the model list is empty', () => {
     const { container } = render(
       <ChatModelPicker

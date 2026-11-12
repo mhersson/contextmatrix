@@ -18,6 +18,7 @@ import { FootStrip } from './FootStrip';
 import {
   aggregateDashboards,
   buildPrefixMap,
+  subscriptionCost30d,
 } from './utils';
 
 interface AllProjectsDashboardProps {
@@ -148,11 +149,13 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
           costPrior30dUsd={aggregated.total_cost_usd_prior_30d ?? 0}
           costSeries30d={aggregated.cost_series_30d}
           costHasEstimates={aggregated.total_cost_has_estimates_last_30d}
+          costSubscriptionUsd={subscriptionCost30d(aggregated.card_costs_30d ?? [])}
           stateCountsParents={aggregated.state_counts_parents}
           doneTodayParents={aggregated.cards_completed_today_parents}
           chatCostLast30dUsd={aggregated.chat_cost_usd_last_30d ?? 0}
           chatCostPrior30dUsd={aggregated.chat_cost_usd_prior_30d ?? 0}
           chatCostSeries30d={aggregated.chat_cost_series_30d}
+          chatCostSubscriptionUsd={aggregated.chat_subscription_cost_usd}
         />
         <div className="apd-deck">
           <ProjectsTable projects={projects} summaries={summaries} boardsRepos={appConfig?.boards_repos ?? []} />

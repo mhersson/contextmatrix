@@ -935,17 +935,18 @@ func TestStateAtTimeFromChanges_ReturnsLatestAtOrBeforeT(t *testing.T) {
 
 // stubChatCostSummarizer is a test double that returns fixed values.
 type stubChatCostSummarizer struct {
-	last30d   float64
-	prior30d  float64
-	series30d []float64
-	err       error
-	calls     int
+	last30d    float64
+	prior30d   float64
+	subLast30d float64
+	series30d  []float64
+	err        error
+	calls      int
 }
 
-func (s *stubChatCostSummarizer) GetChatCostSummary(_ context.Context) (float64, float64, []float64, error) {
+func (s *stubChatCostSummarizer) GetChatCostSummary(_ context.Context) (float64, float64, float64, []float64, error) {
 	s.calls++
 
-	return s.last30d, s.prior30d, s.series30d, s.err
+	return s.last30d, s.prior30d, s.subLast30d, s.series30d, s.err
 }
 
 func TestGetDashboard_ChatCostSummarizer_PopulatesFields(t *testing.T) {
@@ -1021,9 +1022,9 @@ type concurrentSafeSummarizer struct {
 	series30d []float64
 }
 
-func (c *concurrentSafeSummarizer) GetChatCostSummary(_ context.Context) (float64, float64, []float64, error) {
+func (c *concurrentSafeSummarizer) GetChatCostSummary(_ context.Context) (float64, float64, float64, []float64, error) {
 	// Return copies so callers cannot race on the backing array.
-	return c.last30d, c.prior30d, append([]float64(nil), c.series30d...), nil
+	return c.last30d, c.prior30d, 0, append([]float64(nil), c.series30d...), nil
 }
 
 // TestSetChatCostSummarizer_ConcurrentReadWrite exercises SetChatCostSummarizer
@@ -1252,11 +1253,11 @@ func TestGetChatCostSummary_DeletePreservesCost(t *testing.T) {
 	}))
 
 	// Increment cost so estimated_cost_usd is non-zero.
-	_, _, _, _, _, err = realStore.IncrementSessionCost(ctx, sessID, 100, 50, 0, 0, 1.50, "claude-sonnet-4-6")
+	_, _, _, _, _, _, err = realStore.IncrementSessionCost(ctx, sessID, 100, 50, 0, 0, 1.50, 0, "claude-sonnet-4-6")
 	require.NoError(t, err)
 
 	// Capture baseline: the cost must appear before deletion.
-	baseline, _, _, err := mgr.GetChatCostSummary(ctx)
+	baseline, _, _, _, err := mgr.GetChatCostSummary(ctx)
 	require.NoError(t, err)
 	assert.InDelta(t, 1.50, baseline, 1e-9, "baseline last30d must include the seeded session cost")
 
@@ -1273,8 +1274,76 @@ func TestGetChatCostSummary_DeletePreservesCost(t *testing.T) {
 	})
 
 	// The cost must survive deletion via the UNION ALL over chat_cost_archive.
-	afterDelete, _, _, err := mgr2.GetChatCostSummary(ctx)
+	afterDelete, _, _, _, err := mgr2.GetChatCostSummary(ctx)
 	require.NoError(t, err)
 	assert.InDelta(t, baseline, afterDelete, 1e-9,
 		"deleted session cost must persist via chat_cost_archive UNION branch")
+}
+
+func TestDashboard_SubscriptionSplit(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC)
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	setUsage := func(id string, total float64, buckets []board.UsageBucket) {
+		t.Helper()
+
+		c, err := svc.GetCard(ctx, project, id)
+		require.NoError(t, err)
+
+		c.TokenUsage = &board.TokenUsage{Model: "m1", EstimatedCostUSD: total}
+		c.UsageBreakdown = buckets
+		require.NoError(t, svc.store.UpdateCard(ctx, project, c))
+	}
+
+	mixed, err := svc.CreateCard(ctx, project, CreateCardInput{Title: "mixed", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	metered, err := svc.CreateCard(ctx, project, CreateCardInput{Title: "metered", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	sub, err := svc.CreateCard(ctx, project, CreateCardInput{
+		Title: "subtask", Type: "task", Priority: "medium", Parent: mixed.ID,
+	})
+	require.NoError(t, err)
+
+	setUsage(mixed.ID, 5, []board.UsageBucket{
+		{Agent: "a", Model: "m1", PromptTokens: 10, CostUSD: 2, CostSource: "actual"},
+		{Agent: "a", Model: "m1", PromptTokens: 10, CostUSD: 3, CostSource: "estimated", CostBasis: protocol.CostBasisSubscription},
+	})
+	setUsage(metered.ID, 4, []board.UsageBucket{
+		{Agent: "a", Model: "m2", PromptTokens: 10, CostUSD: 4, CostSource: "actual"},
+	})
+	setUsage(sub.ID, 1.5, []board.UsageBucket{
+		{Agent: "a", Model: "m1", PromptTokens: 10, CostUSD: 1.5, CostSource: "estimated", CostBasis: protocol.CostBasisSubscription},
+	})
+
+	svc.SetChatCostSummarizer(&stubChatCostSummarizer{last30d: 6, subLast30d: 2.5, series30d: make([]float64, 30)})
+
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+
+	assert.InDelta(t, 10.5, data.TotalCostUSD, 1e-9, "totals keep counting all usage")
+	assert.InDelta(t, 4.5, data.TotalSubscriptionCostUSD, 1e-9)
+	assert.InDelta(t, 2.5, data.ChatSubscriptionCostUSD, 1e-9)
+
+	cards := map[string]CardCost{}
+	for _, cc := range data.CardCosts30d {
+		cards[cc.CardID] = cc
+	}
+
+	assert.InDelta(t, 6.5, cards[mixed.ID].EstimatedCostUSD, 1e-9)
+	assert.InDelta(t, 4.5, cards[mixed.ID].SubscriptionCostUSD, 1e-9, "subtask folds into the parent exactly once")
+	assert.InDelta(t, 0, cards[metered.ID].SubscriptionCostUSD, 1e-9)
+	assert.NotContains(t, cards, sub.ID)
+
+	models := map[string]ModelCost{}
+	for _, mc := range data.ModelCosts30d {
+		models[mc.Model] = mc
+	}
+
+	assert.True(t, models["m1"].Subscription)
+	assert.InDelta(t, 6.5, models["m1"].EstimatedCostUSD, 1e-9)
+	assert.False(t, models["m2"].Subscription)
 }

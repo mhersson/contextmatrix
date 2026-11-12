@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mhersson/contextmatrix/internal/llmchannel/llmchanneltest"
 )
 
 func TestModelCatalogEndpoint(t *testing.T) {
@@ -161,6 +163,7 @@ func TestChatListModelsBlacklist(t *testing.T) {
 			h := &chatHandlers{
 				openRouter: true,
 				blacklist:  tt.blacklist,
+				llmChannel: llmchanneltest.EndpointOnly(nil),
 				servedModels: func(_ context.Context) []chatModelEntry {
 					return []chatModelEntry{
 						{ID: "bad/model", Label: "Bad", MaxTokens: 100000},

@@ -12,6 +12,7 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/clock"
+	"github.com/mhersson/contextmatrix/internal/llmchannel/llmchanneltest"
 	"github.com/mhersson/contextmatrix/internal/mcp/mcpcontext"
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 )
@@ -24,10 +25,11 @@ func newHandoffTestManager(t *testing.T, withArchitect bool) *chat.Manager {
 	t.Cleanup(func() { _ = store.Close() })
 
 	cfg := chat.Config{
-		Store:   store,
-		Backend: &chatStubBackend{},
-		Clock:   clock.Real(),
-		IdleTTL: time.Hour,
+		Store:      store,
+		Backend:    &chatStubBackend{},
+		Clock:      clock.Real(),
+		IdleTTL:    time.Hour,
+		LLMChannel: llmchanneltest.EndpointOnly(nil),
 		ResolveProjectExec: func(_ context.Context, project string) (chat.ProjectExecInfo, error) {
 			if project != "alpha" {
 				return chat.ProjectExecInfo{}, chat.ErrSessionNotFound

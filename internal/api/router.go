@@ -265,6 +265,10 @@ type RouterConfig struct {
 	// ValidateChatModel, when non-nil, reports whether a model slug is in the
 	// served set (fail-open on an empty catalog).
 	ValidateChatModel func(context.Context, string) bool
+	// ClaudeCodeCatalog, when non-nil, lists and checks Claude Code models for
+	// the chat picker and chat start. A nil value or a nil receiver means no
+	// catalog: the picker offers claude_code.default_model alone.
+	ClaudeCodeCatalog ClaudeCodeCatalog
 	// ChatModelPriced, when non-nil, reports whether CM can price a model;
 	// GET /api/chats/models flags the entries it rejects as unpriced.
 	ChatModelPriced func(model string) bool
@@ -287,11 +291,20 @@ type RouterConfig struct {
 	// nil defaults to GitHubTokenProvider and GitHubAPIBaseURL for every
 	// project.
 	ProviderForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string /*apiBase*/, error)
-	// LLMEndpoint is the CM-provisioned inference endpoint attached to every
-	// task-backend trigger payload (single admin-managed key, rotated in one
-	// place). nil when llm_endpoint is unset; the trigger then carries no
-	// endpoint and the backend refuses the run.
-	LLMEndpoint *protocol.LLMEndpoint
+	// LLMChannel selects the card-trigger endpoint, candidates and model,
+	// and the chat model picker, by the global LLM channel mode. Required
+	// whenever cards are run or chats served: it is the only endpoint source.
+	LLMChannel LLMChannelResolver
+	// LLMChannelState, LLMChannelStore and ConfiguredBackend back
+	// /api/llm-channel; ConfiguredBackend lists the backend kinds declared
+	// under backends:. LLMChannelCards defaults to Service. The routes are
+	// registered only when LLMChannelState and LLMChannelStore are set.
+	LLMChannelState   LLMChannelState
+	LLMChannelStore   LLMChannelStore
+	LLMChannelCards   LLMChannelCards
+	ConfiguredBackend []string
+	// CardRuns records the mode each card run started in; nil skips it.
+	CardRuns CardRunRecorder
 	// BestOfN bounds the card-level best_of_n field: cardHandlers rejects
 	// any value outside 0 or 2..MaxCandidates. Zero value (MaxCandidates 0)
 	// means only 0 validates - effectively disabling best_of_n until
@@ -565,11 +578,30 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			favorites:       agentCfg.Favorites,
 			reasoningEffort: cfg.SelectorReasoningEffort,
 			authEnabled:     cfg.AuthService != nil,
+			channel:         cfg.LLMChannel,
 		}
 		mux.HandleFunc("GET /api/admin/selector/ladders", selh.getLadders)
 		mux.HandleFunc("PUT /api/admin/selector/ladders", selh.putLadders)
 		mux.HandleFunc("GET /api/admin/selector/candidates", selh.getCandidates)
 		mux.HandleFunc("POST /api/admin/selector/preview", selh.preview)
+	}
+
+	if cfg.LLMChannelState != nil && cfg.LLMChannelStore != nil {
+		cards := cfg.LLMChannelCards
+		if cards == nil && cfg.Service != nil {
+			cards = cfg.Service
+		}
+
+		lh := &llmChannelHandlers{
+			state:       cfg.LLMChannelState,
+			store:       cfg.LLMChannelStore,
+			cards:       cards,
+			backends:    cfg.ConfiguredBackend,
+			authEnabled: cfg.AuthService != nil,
+			now:         time.Now,
+		}
+		mux.HandleFunc("GET /api/llm-channel", lh.get)
+		mux.HandleFunc("PUT /api/admin/llm-channel", lh.put)
 	}
 
 	// Auth routes - only in multi mode.
@@ -649,7 +681,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		taskSkillsDir:          cfg.TaskSkillsDir,
 		taskSkillsGitRemoteURL: cfg.TaskSkillsGitRemoteURL,
 		providerForProject:     cfg.ProviderForProject,
-		llmEndpoint:            cfg.LLMEndpoint,
+		llmChannel:             cfg.LLMChannel,
+		cardRuns:               cfg.CardRuns,
 		instanceTokenProvider:  cfg.GitHubTokenProvider,
 	}
 
@@ -712,6 +745,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	if cfg.ChatManager != nil && cfg.ChatHub != nil {
 		chh := newChatHandlers(cfg.ChatManager, cfg.ChatHub, cfg.ChatBackendCfg)
 		chh.blacklist = cfg.Blacklist
+		chh.llmChannel = cfg.LLMChannel
 
 		if cfg.ChatEndpointModels != nil {
 			emFn := cfg.ChatEndpointModels
@@ -747,6 +781,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		}
 
 		chh.validateModel = cfg.ValidateChatModel
+		chh.claudeCatalog = cfg.ClaudeCodeCatalog
 		chh.priced = cfg.ChatModelPriced
 
 		if architectBackendConfigured {
