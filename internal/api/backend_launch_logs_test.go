@@ -6,10 +6,12 @@ import (
 	"log/slog"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
@@ -69,6 +71,7 @@ func TestLaunch_ClaudeCodeTokenStaysOutOfLogs(t *testing.T) {
 	require.NoError(t, holder.Set(context.Background(), llmchannel.ModeClaudeCode, "human:test"))
 
 	h.llmChannel = holder
+	h.backend = backend.NewClient(cb.server.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", backend.WithBackoffBase(time.Millisecond))
 
 	ctx := ctxlog.WithRequestID(context.Background(), "req-canary")
 
