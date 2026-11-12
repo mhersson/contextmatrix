@@ -5054,9 +5054,9 @@ func (c *replayCache) reset() {
 
 type deliveredMessage struct{ content, messageID string }
 
-// fakeArchitect is an HTTP architect with the webhook kit's replay cache. The
-// signature is verified before routing, so a pair is recorded even when the
-// handler then answers 404.
+// fakeArchitect is an HTTP chat-protocol backend (architect or chat) with the
+// webhook kit's replay cache. The signature is verified before routing, so a
+// pair is recorded even when the handler then answers 404.
 type fakeArchitect struct {
 	srv   *httptest.Server
 	key   string
@@ -5083,6 +5083,14 @@ func (f *fakeArchitect) restart() {
 	f.held = map[string]bool{}
 	f.mu.Unlock()
 	f.cache.reset()
+}
+
+// workerExited simulates a chat worker exiting under a live backend: no
+// sessions, replay cache kept.
+func (f *fakeArchitect) workerExited() {
+	f.mu.Lock()
+	f.held = map[string]bool{}
+	f.mu.Unlock()
 }
 
 func (f *fakeArchitect) deliveredMessages() []deliveredMessage {
@@ -5294,6 +5302,49 @@ func TestManager_SendUserMessage_ChatResendsOnce(t *testing.T) {
 	got, err := mgr.GetSession(ctx, sess.ID)
 	require.NoError(t, err)
 	assert.False(t, got.AssistantWorking, "the indicator is disarmed")
+}
+
+func TestManager_SendUserMessage_ChatResendSignsInALaterSecond(t *testing.T) {
+	const key = "chat-hmac-key"
+
+	fake := newFakeArchitect(t, key)
+	mgr, _, _ := newManagerWithArchitectStub(t, func(c *chat.Config) {
+		c.Backend = chat.NewBackendClient(chat.BackendClientConfig{BaseURL: fake.srv.URL, HMACKey: key})
+	})
+	ctx := context.Background()
+	sess := openChatWithMessage(t, mgr)
+
+	fake.workerExited()
+
+	// The first send and an immediate re-send must share a second for the
+	// replay cache to see one pair twice.
+	time.Sleep(time.Until(time.Now().Truncate(time.Second).Add(time.Second)))
+
+	msgID, err := mgr.SendUserMessage(ctx, sess.ID, "second")
+	require.NoError(t, err)
+
+	var second []deliveredMessage
+
+	for _, d := range fake.deliveredMessages() {
+		if d.content == "second" {
+			second = append(second, d)
+		}
+	}
+
+	assert.Equal(t, []deliveredMessage{{"second", msgID}}, second, "delivered once, same id")
+
+	msgs, err := mgr.ListMessages(ctx, sess.ID, 0, 100)
+	require.NoError(t, err)
+
+	rows := 0
+
+	for _, m := range msgs {
+		if m.Role == chat.RoleUser && m.Content == "second" {
+			rows++
+		}
+	}
+
+	assert.Equal(t, 1, rows, "persisted once")
 }
 
 func TestManager_SendUserMessage_ChatReopenFailureIsNotResent(t *testing.T) {

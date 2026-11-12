@@ -446,9 +446,11 @@ Delivers a message to the session's worker. CM persists a user message only
 after the backend accepts it. Recovery: when a user message is answered with
 404 and the protocol's `not_found` code (the chat backend restarted or the
 worker exited), CM ends the session cold, opens it again with a resume built
-from the persisted transcript, which therefore never carries the message, and
-sends the message once more with the same message id. A failed reopen or a
-second failed send is returned to the caller.
+from the persisted transcript, which therefore never carries the message,
+waits until the clock passes the second the first send was signed in (a live
+backend's replay cache already recorded that pair), and sends the message once
+more with the same message id. A failed reopen or a second failed send is
+returned to the caller.
 
 ### CM → architect backend
 

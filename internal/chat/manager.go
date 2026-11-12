@@ -1723,7 +1723,7 @@ func (m *Manager) waitPastSecond(ctx context.Context, t time.Time) error {
 
 	select {
 	case <-ctx.Done():
-		return fmt.Errorf("wait before architect re-send: %w", ctx.Err())
+		return fmt.Errorf("wait before re-send: %w", ctx.Err())
 	case <-m.clk.After(d):
 		return nil
 	}
@@ -2782,13 +2782,21 @@ func (m *Manager) sendMessage(ctx context.Context, sessionID, content string, us
 	}
 
 	// A chat backend that restarted, or whose worker exited, no longer holds
-	// the session: reopen it cold and re-send once, with the same id.
+	// the session: reopen it cold and re-send once, with the same id, in a
+	// later second: the backend's replay cache holds the first send's pair.
 	if err != nil && sess.Kind != KindArchitect && errors.Is(err, ErrSessionUnknown) {
-		if rerr := m.reopenCold(ctx, sessionID); rerr != nil {
-			err = errors.Join(err, rerr)
-		} else {
+		firstSend := m.clk.Now()
+
+		rerr := m.reopenCold(ctx, sessionID)
+		if rerr == nil {
 			// The reopen's EndSession dropped the indicator this send armed.
 			armed = m.setWorking(sessionID, true)
+			rerr = m.waitPastSecond(ctx, firstSend)
+		}
+
+		if rerr != nil {
+			err = errors.Join(err, rerr)
+		} else {
 			err = backend.SendChatMessage(ctx, payload)
 		}
 	}
