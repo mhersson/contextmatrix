@@ -4,7 +4,7 @@ import { ArtifactRenderer } from './ArtifactRenderer';
 import { BOARD_V1, CARDS_V1, READINESS_V2, SIGNOFF_V1, ref, viewAtDesignGate } from '../../../test-utils/blueprintFixtures';
 import type { BlueprintArtifact } from '../../../types';
 import { acceptedLabel, assumptionChip, CHANGED_SINCE_ACCEPTED, supersededLabel } from '../artifactData';
-import { stageText } from '../stages';
+import { costBasis, stageText } from '../stages';
 import { clearChatLiveData, setChatLiveData } from '../../../hooks/useChatLiveData';
 import { SUBSCRIPTION_TOOLTIP } from '../../../lib/subscription';
 
@@ -398,8 +398,8 @@ describe('BoardSheet', () => {
   });
 
   it.each([
-    ['on Claude Code', { llmChannel: 'claude_code' }, "The architect's runs cost $0.41, API-equivalent."],
-    ['back on the endpoint', { llmChannel: 'endpoint', subscriptionCostUsd: 0.2 }, "The architect's runs cost $0.41, includes an API-equivalent estimate."],
+    ['on Claude Code', { llmChannel: 'claude_code' }, `The architect's runs cost $0.41${costBasis({ llm_channel: 'claude_code' })}.`],
+    ['back on the endpoint', { llmChannel: 'endpoint', subscriptionCostUsd: 0.2 }, `The architect's runs cost $0.41${costBasis({ llm_channel: 'endpoint', subscription_cost_usd: 0.2 })}.`],
   ])('labels the cost by the session record %s', (_name, live, text) => {
     setChatLiveData('S1', live);
     const { unmount } = render(<ArtifactRenderer chatId="S1" artifact={BOARD_V1} previous={null} mode="plain" view={view} />);

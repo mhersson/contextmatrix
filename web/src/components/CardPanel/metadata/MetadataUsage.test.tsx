@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { SUBSCRIPTION_TOOLTIP } from '../../../lib/subscription';
+import { formatCost } from '../../../lib/format';
+import { cardTotalText, SUBSCRIPTION_TOOLTIP } from '../../../lib/subscription';
 import type { Card, UsageBucket } from '../../../types';
 import { MetadataUsage } from './MetadataUsage';
 
@@ -372,7 +373,7 @@ describe('MetadataUsage', () => {
         usage_breakdown: [sub()],
       });
       render(<MetadataUsage card={card} />);
-      expect(screen.getByText('≈ $0.50 API-equivalent')).toHaveAttribute('title', SUBSCRIPTION_TOOLTIP);
+      expect(screen.getByText(cardTotalText(0.5, 0.5, formatCost)!)).toHaveAttribute('title', SUBSCRIPTION_TOOLTIP);
       expect(screen.queryByText('Total')).toBeInTheDocument();
     });
 
@@ -382,7 +383,7 @@ describe('MetadataUsage', () => {
         usage_breakdown: [bucket({ role: 'execute', cost_usd: 2 }), sub({ role: 'review' })],
       });
       render(<MetadataUsage card={card} />);
-      expect(screen.getByText('$2.50 total · $0.50 of it subscription estimate')).toHaveAttribute(
+      expect(screen.getByText(cardTotalText(2.5, 0.5, formatCost)!)).toHaveAttribute(
         'title',
         SUBSCRIPTION_TOOLTIP,
       );
@@ -396,7 +397,7 @@ describe('MetadataUsage', () => {
         usage_breakdown: [bucket({ role: 'execute', cost_usd: 2, cost_source: 'estimated' }), sub({ role: 'review' })],
       });
       render(<MetadataUsage card={card} />);
-      expect(screen.getByText('$2.50* total · $0.50 of it subscription estimate')).toBeInTheDocument();
+      expect(screen.getByText(cardTotalText(2.5, 0.5, formatCost, '*')!)).toBeInTheDocument();
     });
 
     it('gives every ≈ the subscription tooltip: legend, bar, role subtotal, this card and subtask subtotals', () => {
@@ -424,7 +425,7 @@ describe('MetadataUsage', () => {
         subtask_usage: [{ card_id: 'CMX-002', buckets: [sub()] }],
       });
       render(<MetadataUsage card={card} />);
-      expect(screen.getByText('$1.50 total · $0.50 of it subscription estimate')).toBeInTheDocument();
+      expect(screen.getByText(cardTotalText(1.5, 0.5, formatCost)!)).toBeInTheDocument();
       expect(screen.getByText('Total incl. subtasks')).toBeInTheDocument();
     });
   });

@@ -2,8 +2,11 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { ScaleBar } from './ScaleBar';
 import { THREE_SLICES, ref, viewAtDesignGate, viewEndedAtSlicing, viewEndedInSlice, viewOneSlice, viewSliced } from '../../test-utils/blueprintFixtures';
-import { stageText } from './stages';
+import { costBasis, stageText } from './stages';
 import { clearChatLiveData, setChatLiveData } from '../../hooks/useChatLiveData';
+
+const CC_BASIS = costBasis({ llm_channel: 'claude_code' });
+const EP_BASIS = costBasis({ llm_channel: 'endpoint', subscription_cost_usd: 0.1 });
 
 function tones() {
   return screen.getAllByRole('listitem').map((li) => li.getAttribute('data-tone'));
@@ -11,8 +14,8 @@ function tones() {
 
 describe('ScaleBar step cost', () => {
   it.each([
-    ['on Claude Code', { llmChannel: 'claude_code' }, /, \$0\.03, API-equivalent$/],
-    ['back on the endpoint', { llmChannel: 'endpoint', subscriptionCostUsd: 0.1 }, /, \$0\.03, includes an API-equivalent estimate$/],
+    ['on Claude Code', { llmChannel: 'claude_code' }, new RegExp(`, \\$0\\.03${CC_BASIS}$`)],
+    ['back on the endpoint', { llmChannel: 'endpoint', subscriptionCostUsd: 0.1 }, new RegExp(`, \\$0\\.03${EP_BASIS}$`)],
     ['on the endpoint only', { llmChannel: 'endpoint' }, /, \$0\.03$/],
   ])('labels a step cost by the session record %s', (_name, live, name) => {
     setChatLiveData('S1', live);
