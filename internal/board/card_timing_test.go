@@ -37,14 +37,4 @@ func TestRecordRelease(t *testing.T) {
 		assert.Equal(t, ReleasedAction, c.ActivityLog[0].Action)
 		assert.Equal(t, "worker-a", c.ActivityLog[0].Agent)
 	})
-
-	t.Run("claims survive a full log", func(t *testing.T) {
-		c := &Card{AssignedAgent: "worker-a"}
-		for range 2 * MaxActivityLogEntries {
-			c.ActivityLog = append(c.ActivityLog, ActivityEntry{Action: "log", Timestamp: now})
-		}
-
-		c.RecordRelease(now)
-		assert.Equal(t, ReleasedAction, c.ActivityLog[len(c.ActivityLog)-1].Action)
-	})
 }

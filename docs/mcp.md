@@ -121,7 +121,7 @@ The "Caller" column uses these values:
 | --------------------------- | ----------------------------------------------------------- | ------ |
 | `claim_card`                | Take the claim, then move `todo` to `in_progress`; a refused move (transitions, unmet `depends_on`) leaves the claim and sets `auto_transition_failed` | any |
 | `heartbeat`                 | Refresh liveness; any mutation refreshes it too             | claim  |
-| `add_log`                   | Append an activity entry (capped at 50 per card; `claimed` / `released` entries are kept; `claimed`, `released`, `state_changed` and `merge` are reserved for the server) | claim  |
+| `add_log`                   | Append an activity entry (capped at 50 per card; `claimed`, `released`, `state_changed` and `merge` are reserved for the server) | claim  |
 | `release_card`              | Drop the claim                                              | claim  |
 | `complete_task`             | Log, transition (subtask to `done`, parent to `review`), release | claim |
 | `report_push`               | Record branch and PR URL; hard error on `main` / `master`   | claim  |

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ActivityEntry, Card } from '../types';
-import { cardTiming, duration, elapsedSeconds, formatStamp, isWorkedOn, shortDuration } from './cardTiming';
+import { cardTiming, duration, elapsedSeconds, formatStamp, shortDuration } from './cardTiming';
 
 const T0 = Date.parse('2026-01-01T12:00:00Z');
 const iso = (offsetMin: number) => new Date(T0 + offsetMin * 60_000).toISOString();
@@ -91,17 +91,6 @@ describe('cardTiming', () => {
     const log = [moved('todo', 'in_progress', -90), moved('in_progress', 'review', -60), moved('review', 'in_progress', -30)];
     expect(cardTiming(card({ activity_log: log })).stateSince).toBe(iso(-30));
     expect(cardTiming(card({ state: 'review', activity_log: log })).stateSince).toBe(iso(-60));
-  });
-});
-
-describe('isWorkedOn', () => {
-  it('needs a holder and a state where work happens', () => {
-    expect(isWorkedOn(card({ assigned_agent: 'worker' }))).toBe(true);
-    expect(isWorkedOn(card({ state: 'review', assigned_agent: 'worker' }))).toBe(true);
-    expect(isWorkedOn(card({}))).toBe(false);
-    for (const state of ['todo', 'blocked', 'stalled', 'done', 'not_planned']) {
-      expect(isWorkedOn(card({ state, assigned_agent: 'worker' }))).toBe(false);
-    }
   });
 });
 

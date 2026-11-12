@@ -1,7 +1,6 @@
 import type { Card } from '../../types';
 import { signalSvgProps } from '../../lib/cardSignals';
 import { cardTiming, elapsedSeconds, isWorkedOn, shortDuration } from '../../lib/cardTiming';
-import { displayState } from '../../lib/stateLabels';
 import { useNow } from '../../hooks/useNow';
 
 /** The tile's clock: the time in the current state while an agent works on the card. */
@@ -19,7 +18,6 @@ export function CardClock({ card }: { card: Card }) {
         <circle cx="12" cy="12" r="10" />
         <path d="M12 6v6l4 2" />
       </svg>
-      <span className="sr-only">{displayState(card.state)} for </span>
       {shortDuration(elapsedSeconds(cardTiming(card).stateSince, now))}
     </span>
   );
