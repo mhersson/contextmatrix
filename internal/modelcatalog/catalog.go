@@ -320,8 +320,8 @@ func (b *Builder) Rate(ctx context.Context, slug string) (ModelPrice, bool) {
 // ContextWindow returns the context length in tokens of the model a name
 // resolves to, by the same lookup as Rate: the exact slug on the OpenRouter
 // leg, plus the gateway's other names on the endpoint leg. No vendor screen.
-// A well-formed Claude Code ID the served catalog lacks takes the default
-// Claude Code window. Otherwise 0 on a nil receiver, an unknown name, or an
+// A Claude Code ID the served catalog lacks takes the window the Claude Code
+// catalog sized it with, else the default Claude Code window if well-formed. Otherwise 0 on a nil receiver, an unknown name, or an
 // entry without a context length.
 func (b *Builder) ContextWindow(ctx context.Context, name string) int {
 	if b == nil {
@@ -335,6 +335,10 @@ func (b *Builder) ContextWindow(ctx context.Context, name string) int {
 
 	e, found := b.entryFor(name)
 	if !found {
+		if cc, ok := b.claudeCodeCatalog[name]; ok {
+			return cc.ContextWindow
+		}
+
 		return claudeCodeContextWindow(name)
 	}
 

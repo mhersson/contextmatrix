@@ -403,8 +403,8 @@ is no Claude Code catalog.
   candidate price is the AA list price. The quality floor applies, which drops
   old versions; the allowlist and `model_priors` do not.
 - The context window is the served catalog's entry for the ID when it carries
-  one (matched by exact id, bare name or snapshot key, as for any served
-  model), else 1,000,000 tokens.
+  one (matched by exact id, bare name or snapshot key), else 1,000,000 tokens.
+  A window lookup by the bare ID returns the same window the candidate carries.
 - Candidates carry the bare Claude Code ID as `slug` and an empty `creator`,
   so the selector resolves no vendor for them and the vendor-diversity
   preference never steers a Best-of-N, mob or review-panel seat.

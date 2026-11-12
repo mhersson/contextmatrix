@@ -19,6 +19,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
 	"github.com/mhersson/contextmatrix/internal/llmchannel/llmchanneltest"
+	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 	opsqlite "github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
@@ -160,6 +161,42 @@ func TestLaunch_ClaudeCodeModelAndFavoritesFollowCatalog(t *testing.T) {
 			assert.Equal(t, []string{"claude-fable-5-2"}, p.Selection.Blacklist)
 		})
 	}
+}
+
+// The first launch after a restart must already see the built catalog: a
+// stale default outside it falls back before any other call refreshed it.
+func TestLaunch_FirstLaunchFallsBackOverRealCatalog(t *testing.T) {
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"slug":"claude-opus-5-5","model_creator":{"name":"Anthropic"},
+			 "evaluations":{"artificial_analysis_intelligence_index":60,"artificial_analysis_coding_index":null},
+			 "pricing":{"price_1m_input_tokens":5,"price_1m_output_tokens":25,"price_1m_cache_hit_tokens":0.5,"price_1m_cache_write_tokens":6.25}},
+			{"slug":"claude-3-opus","model_creator":{"name":"Anthropic"},
+			 "evaluations":{"artificial_analysis_intelligence_index":6,"artificial_analysis_coding_index":null},
+			 "pricing":{"price_1m_input_tokens":15,"price_1m_output_tokens":75,"price_1m_cache_hit_tokens":1.5,"price_1m_cache_write_tokens":18.75}}
+		],"tier":"free","intelligence_index_version":5,"pagination":{"page":1,"page_size":200,"total_pages":1,"has_more":false}}`))
+	}))
+	t.Cleanup(aaSrv.Close)
+
+	orSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	t.Cleanup(orSrv.Close)
+
+	b := modelcatalog.NewBuilder("aa-key", 0.5, nil, time.Hour, modelcatalog.WithClaudeCode(),
+		modelcatalog.WithCatalogURLs(aaSrv.URL, orSrv.URL))
+
+	h, svc, cb, _ := channelLaunchHandlers(t, llmchannel.ModeClaudeCode, []string{config.BackendNameAgent})
+	h.llmChannel = chatChannelWith(t, b, llmchannel.ModeClaudeCode, config.BackendNameAgent)
+	h.catalog = b
+	h.backendCfg.DefaultModel = "anthropic/claude-3-opus"
+	card := createRunnable(t, svc, service.CreateCardInput{})
+
+	_, err := h.launch(context.Background(), "test-project", card.ID, launchOptions{})
+	require.NoError(t, err)
+
+	p := cb.lastTrigger(t)
+	assert.Equal(t, "claude-sonnet-5-5", p.Model)
 }
 
 func TestLaunch_EndpointModeKeepsToday(t *testing.T) {

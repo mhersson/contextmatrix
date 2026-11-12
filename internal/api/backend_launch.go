@@ -112,6 +112,12 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 	// The mode is resolved once so endpoint, catalog, favorites and model agree.
 	mode := h.llmChannel.Effective(config.BackendNameAgent)
 	if mode == llmchannel.ModeClaudeCode {
+		// ResolveModel reads the built catalog without refreshing it, so warm
+		// it first or the first launch after a restart skips the fallback.
+		if h.catalog != nil {
+			_ = h.catalog.ClaudeCodeCandidates(ctx)
+		}
+
 		model = h.llmChannel.ResolveModel(mode, model, model)
 	}
 

@@ -430,3 +430,23 @@ func TestBuilder_ClaudeCodeKnown_BelowFloorIsUnknown(t *testing.T) {
 	_, ok := b.ClaudeCodeRate(context.Background(), "claude-haiku-5-5")
 	assert.True(t, ok)
 }
+
+// On the OpenRouter leg the candidate takes the served window by snapshot key;
+// a lookup by the bare ID returns that same window.
+func TestContextWindow_MatchesClaudeCodeCandidate(t *testing.T) {
+	t.Parallel()
+
+	b, _ := claudeCodeBuilder(t, "aa-key", WithClaudeCode())
+	ctx := context.Background()
+
+	got := map[string]int{}
+	for _, c := range b.ClaudeCodeCandidates(ctx) {
+		got[c.Slug] = c.ContextWindow
+	}
+
+	require.Equal(t, 200_000, got["claude-opus-5-5"])
+
+	for slug, window := range got {
+		assert.Equal(t, window, b.ContextWindow(ctx, slug), slug)
+	}
+}
