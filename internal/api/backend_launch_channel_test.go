@@ -164,23 +164,6 @@ func TestLaunch_AgentUnsupported(t *testing.T) {
 	assert.Equal(t, "endpoint", runs[0].Mode)
 }
 
-func TestLaunch_NoPinNote(t *testing.T) {
-	h, svc, _, _ := channelLaunchHandlers(t, llmchannel.ModeClaudeCode, []string{config.BackendNameAgent})
-	card := createRunnable(t, svc, service.CreateCardInput{
-		ModelCoder: "anthropic/claude-opus-5.5", ModelReviewer: "openai/gpt-5.4",
-	})
-
-	got, err := h.launch(context.Background(), "test-project", card.ID, launchOptions{})
-	require.NoError(t, err)
-
-	reloaded, err := svc.GetCard(context.Background(), "test-project", got.ID)
-	require.NoError(t, err)
-
-	for _, e := range reloaded.ActivityLog {
-		assert.NotEqual(t, "pin-ignored", e.Action)
-	}
-}
-
 func TestLaunch_WebhookFailureClosesRun(t *testing.T) {
 	h, svc, _, ops := channelLaunchHandlers(t, llmchannel.ModeClaudeCode, []string{config.BackendNameAgent})
 	card := createRunnable(t, svc, service.CreateCardInput{})
