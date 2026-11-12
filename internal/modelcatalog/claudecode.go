@@ -84,8 +84,9 @@ func WithCatalogURLs(aaURL, orURL string) BuilderOption {
 }
 
 // buildClaudeCode derives the Claude Code catalog from the AA rows and scores
-// it. A served entry with a window sizes its ID. It returns the candidates (Creator blanked), the priced catalog, each
-// candidate's provenance and how many catalog IDs joined a scored AA row.
+// it. A served entry with a window sizes its ID. It returns the candidates
+// (Creator blanked), the priced catalog, each candidate's provenance and how
+// many catalog IDs joined a scored AA row.
 func buildClaudeCode(aa []aaModel, served map[string]orEntry, floor float64) ([]protocol.CandidateModel, map[string]orEntry, map[string]CandidateProvenance, int) {
 	names, snapshots := indexCatalogNames(served)
 	ids := claudeCodeIDs(aa)
@@ -198,9 +199,9 @@ func (b *Builder) ClaudeCodeRate(ctx context.Context, id string) (ModelPrice, bo
 }
 
 // ClaudeCodeKnown reports whether id is a candidate of the built Claude Code
-// catalog (above the quality floor). It
-// reads the cached catalog without refreshing; built is false on a nil
-// receiver, without WithClaudeCode, and before the first successful refresh.
+// catalog (above the quality floor). It reads the cached catalog without
+// refreshing; built is false on a nil receiver, without WithClaudeCode, and
+// before the first successful refresh.
 func (b *Builder) ClaudeCodeKnown(id string) (known, built bool) {
 	if b == nil || !b.claudeCode {
 		return false, false

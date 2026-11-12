@@ -154,7 +154,7 @@ func TestBuilder_ClaudeCodeRate(t *testing.T) {
 
 // A well-formed Claude Code ID the served catalog lacks takes the default
 // window; a served entry wins, and other names resolve nothing.
-func TestContextWindow_FallsBackToClaudeCodeList(t *testing.T) {
+func TestContextWindow_FallsBackForClaudeCodeIDs(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
