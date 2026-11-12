@@ -2787,8 +2787,8 @@ other value is a 400.
 - `"claude_code"`: new sessions of the kind asked for start in `claude_code`
   mode (the LLM channel is `claude_code` and the kind's backend is in
   `claude_code.backends`). `models` is the
-  Claude Code catalog (`claude-opus-5-5`, `claude-sonnet-5-5`,
-  `claude-haiku-5-5`) and `default` is `claude_code.default_model`, as is
+  Claude Code catalog, or `claude_code.default_model` alone while there is no
+  catalog (no `backends.agent.aa_api_key`, or before the first refresh). `default` is `claude_code.default_model`, as is
   `architect_default` when the architect runs in `claude_code` mode too.
 
 `architect_default` is always present: `backends.architect.default_model` when

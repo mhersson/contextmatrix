@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -112,6 +113,8 @@ type fixtureOpts struct {
 	// list and create-time check; unset is an endpoint-only channel with no
 	// endpoint.
 	llmChannel LLMChannelResolver
+	// claudeCatalog, when non-nil, is wired as the handlers' Claude Code catalog.
+	claudeCatalog ClaudeCodeCatalog
 }
 
 // defaultFixtureOpts is the no-backend topology: no chat backend configured
@@ -214,6 +217,7 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 	chh := newChatHandlers(mgr, hub, opts.chatBackendCfg)
 	chh.architectDefault = archDefault
 	chh.llmChannel = opts.llmChannel
+	chh.claudeCatalog = opts.claudeCatalog
 
 	if opts.endpointModels != nil {
 		chh.endpointModels = newCachedEndpointFetcher(opts.endpointModels, endpointModelCacheTTL)
@@ -2349,17 +2353,72 @@ func TestCreateChat_Unattended(t *testing.T) {
 func chatChannel(t *testing.T, mode llmchannel.Mode, supported ...string) *llmchannel.Holder {
 	t.Helper()
 
+	return chatChannelWith(t, nil, mode, supported...)
+}
+
+// chatChannelWith is chatChannel over a Claude Code catalog.
+func chatChannelWith(t *testing.T, cat llmchannel.ClaudeCodeCatalog, mode llmchannel.Mode, supported ...string) *llmchannel.Holder {
+	t.Helper()
+
 	h, err := llmchannel.New(context.Background(), llmchannel.Config{
 		Endpoint:     gatewayEndpoint(),
 		OAuthToken:   "tok",
 		Supported:    supported,
 		DefaultModel: "claude-sonnet-5-5",
+		Catalog:      cat,
 	}, llmchanneltest.Store{}, events.NewBus())
 	require.NoError(t, err)
 	require.NoError(t, h.Set(context.Background(), mode, "human:test"))
 
 	return h
 }
+
+// stubClaudeCatalog is a Claude Code catalog over fixed windows; built false
+// models a deployment with no catalog.
+type stubClaudeCatalog struct {
+	built   bool
+	windows map[string]int
+}
+
+func (c stubClaudeCatalog) ClaudeCodeKnown(id string) (known, built bool) {
+	_, known = c.windows[id]
+
+	return known, c.built
+}
+
+func (c stubClaudeCatalog) ClaudeCodeCandidates(context.Context) []protocol.CandidateModel {
+	if !c.built {
+		return nil
+	}
+
+	ids := make([]string, 0, len(c.windows))
+	for id := range c.windows {
+		ids = append(ids, id)
+	}
+
+	slices.Sort(ids)
+
+	out := make([]protocol.CandidateModel, len(ids))
+	for i, id := range ids {
+		out[i] = protocol.CandidateModel{Slug: id}
+	}
+
+	return out
+}
+
+func (c stubClaudeCatalog) ContextWindow(_ context.Context, name string) int {
+	if w, ok := c.windows[name]; ok {
+		return w
+	}
+
+	return 1_000_000
+}
+
+var fableCatalog = stubClaudeCatalog{built: true, windows: map[string]int{
+	"claude-opus-5-5":   1_000_000,
+	"claude-sonnet-5-5": 200_000,
+	"claude-fable-5-2":  400_000,
+}}
 
 func TestChatsModels_ClaudeCodeSource(t *testing.T) {
 	t.Parallel()
@@ -2396,8 +2455,9 @@ func TestChatsModels_ClaudeCodeSource(t *testing.T) {
 				servedModels: func(context.Context) []chatModelEntry {
 					return []chatModelEntry{{ID: "deepseek/deepseek-v4-flash"}}
 				},
-				priced:     func(m string) bool { return m == "claude-sonnet-5-5" },
-				llmChannel: chatChannel(t, llmchannel.ModeClaudeCode, tt.supported...),
+				priced:        func(m string) bool { return m == "claude-sonnet-5-5" },
+				llmChannel:    chatChannelWith(t, fableCatalog, llmchannel.ModeClaudeCode, tt.supported...),
+				claudeCatalog: fableCatalog,
 			}
 
 			rec := httptest.NewRecorder()
@@ -2424,10 +2484,48 @@ func TestChatsModels_ClaudeCodeSource(t *testing.T) {
 			}
 
 			assert.Equal(t, []chatModelEntry{
+				{ID: "claude-fable-5-2", Label: "claude-fable-5-2", MaxTokens: 400_000, Unpriced: true},
 				{ID: "claude-opus-5-5", Label: "claude-opus-5-5", MaxTokens: 1_000_000, Unpriced: true},
-				{ID: "claude-sonnet-5-5", Label: "claude-sonnet-5-5", MaxTokens: 1_000_000},
-				{ID: "claude-haiku-5-5", Label: "claude-haiku-5-5", MaxTokens: 1_000_000, Unpriced: true},
+				{ID: "claude-sonnet-5-5", Label: "claude-sonnet-5-5", MaxTokens: 200_000},
 			}, body.Models)
+		})
+	}
+}
+
+// Without a catalog the picker offers the default alone, sized by the window
+// lookup; a nil catalog sizes nothing.
+func TestChatsModels_ClaudeCodeWithoutCatalog(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		catalog ClaudeCodeCatalog
+		want    []chatModelEntry
+	}{
+		{"unbuilt catalog", stubClaudeCatalog{}, []chatModelEntry{{ID: "claude-sonnet-5-5", Label: "claude-sonnet-5-5", MaxTokens: 1_000_000}}},
+		{"nil catalog", nil, []chatModelEntry{{ID: "claude-sonnet-5-5", Label: "claude-sonnet-5-5"}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := &chatHandlers{
+				llmChannel:    chatChannel(t, llmchannel.ModeClaudeCode, config.BackendNameChat),
+				claudeCatalog: tt.catalog,
+			}
+
+			rec := httptest.NewRecorder()
+			h.listModels(rec, httptest.NewRequest(http.MethodGet, "/api/chats/models", nil))
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var body struct {
+				Models  []chatModelEntry `json:"models"`
+				Default string           `json:"default"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+			assert.Equal(t, "claude-sonnet-5-5", body.Default)
+			assert.Equal(t, tt.want, body.Models)
 		})
 	}
 }
@@ -2478,7 +2576,8 @@ func TestChatsModels_KindArchitect(t *testing.T) {
 				servedModels: func(context.Context) []chatModelEntry {
 					return []chatModelEntry{{ID: "deepseek/deepseek-v4-flash"}}
 				},
-				llmChannel: chatChannel(t, llmchannel.ModeClaudeCode, tt.supported...),
+				llmChannel:    chatChannelWith(t, fableCatalog, llmchannel.ModeClaudeCode, tt.supported...),
+				claudeCatalog: fableCatalog,
 			}
 
 			rec := httptest.NewRecorder()
@@ -2507,7 +2606,7 @@ func TestChatsModels_KindArchitect(t *testing.T) {
 			}
 
 			if tt.wantSource == "claude_code" {
-				assert.Equal(t, []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"}, ids)
+				assert.Equal(t, []string{"claude-fable-5-2", "claude-opus-5-5", "claude-sonnet-5-5"}, ids)
 			} else {
 				assert.Equal(t, []string{"deepseek/deepseek-v4-flash"}, ids)
 			}
@@ -2515,30 +2614,35 @@ func TestChatsModels_KindArchitect(t *testing.T) {
 	}
 }
 
-func TestCreateChat_ValidatesClaudeCodeModel(t *testing.T) {
+func TestCreateChat_ValidatesClaudeCodeModelID(t *testing.T) {
 	t.Parallel()
-
-	opts := openRouterFixtureOpts()
-	opts.chatBackendCfg.DefaultModel = "anthropic/claude-opus-5.5"
-	opts.validateModel = func(_ context.Context, slug string) bool { return slug == "deepseek/deepseek-v4-flash" }
-	opts.llmChannel = chatChannel(t, llmchannel.ModeClaudeCode, config.BackendNameChat)
-	mux, _ := newChatFixture(t, opts)
 
 	tests := []struct {
 		name      string
+		catalog   stubClaudeCatalog
 		model     string
 		wantCode  int
 		wantModel string
 	}{
-		{name: "openrouter slug", model: "deepseek/deepseek-v4-flash", wantCode: http.StatusBadRequest},
-		{name: "empty model", model: "", wantCode: http.StatusCreated, wantModel: "claude-sonnet-5-5"},
-		{name: "catalog id", model: "claude-opus-5-5", wantCode: http.StatusCreated, wantModel: "claude-opus-5-5"},
-		{name: "anthropic slug", model: "anthropic/claude-haiku-5.5", wantCode: http.StatusCreated, wantModel: "claude-haiku-5-5"},
+		{name: "openrouter slug", catalog: fableCatalog, model: "deepseek/deepseek-v4-flash", wantCode: http.StatusBadRequest},
+		{name: "empty model", catalog: fableCatalog, model: "", wantCode: http.StatusCreated, wantModel: "claude-sonnet-5-5"},
+		{name: "catalog id", catalog: fableCatalog, model: "claude-opus-5-5", wantCode: http.StatusCreated, wantModel: "claude-opus-5-5"},
+		{name: "catalog fable slug", catalog: fableCatalog, model: "anthropic/claude-fable-5.2", wantCode: http.StatusCreated, wantModel: "claude-fable-5-2"},
+		{name: "well-formed outside catalog", catalog: fableCatalog, model: "anthropic/claude-haiku-5.5", wantCode: http.StatusBadRequest},
+		{name: "no catalog: openrouter slug", model: "deepseek/deepseek-v4-flash", wantCode: http.StatusBadRequest},
+		{name: "no catalog: any well-formed id", model: "anthropic/claude-haiku-5.5", wantCode: http.StatusCreated, wantModel: "claude-haiku-5-5"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
+			opts := openRouterFixtureOpts()
+			opts.chatBackendCfg.DefaultModel = "anthropic/claude-opus-5.5"
+			opts.validateModel = func(_ context.Context, slug string) bool { return slug == "deepseek/deepseek-v4-flash" }
+			opts.llmChannel = chatChannelWith(t, tt.catalog, llmchannel.ModeClaudeCode, config.BackendNameChat)
+			opts.claudeCatalog = tt.catalog
+			mux, _ := newChatFixture(t, opts)
 
 			body, err := json.Marshal(map[string]string{"title": "t", "project": "alpha", "model": tt.model})
 			require.NoError(t, err)

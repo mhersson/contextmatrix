@@ -12,35 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestClaudeCodeID(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		in     string
-		wantID string
-		wantOK bool
-	}{
-		{"anthropic/claude-opus-5.5", "claude-opus-5-5", true},
-		{"claude-sonnet-5-5", "claude-sonnet-5-5", true},
-		{"anthropic/claude-sonnet-5.5:thinking", "claude-sonnet-5-5", true},
-		{"anthropic/claude-fable-5.2", "", false},
-		{"anthropic/claude-opus-5", "", false},
-		{"openai/gpt-5.4", "", false},
-		{"Anthropic/Claude-Opus-5.5", "", false},
-		{"", "", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.in, func(t *testing.T) {
-			t.Parallel()
-
-			id, ok := ClaudeCodeID(tt.in)
-			assert.Equal(t, tt.wantOK, ok)
-			assert.Equal(t, tt.wantID, id)
-		})
-	}
-}
-
 const aaClaudeCodePage = `{"data":[
 	{"slug":"claude-opus-5-5","model_creator":{"name":"Anthropic"},
 	 "evaluations":{"artificial_analysis_intelligence_index":60,"artificial_analysis_coding_index":null},
@@ -411,4 +382,32 @@ func TestClaudeCodeRate_PricesDerivedID(t *testing.T) {
 	p, ok := b.ClaudeCodeRate(context.Background(), "claude-haiku-5-5")
 	require.True(t, ok)
 	assert.InDelta(t, 1.0/1e6, p.Prompt, 1e-15)
+}
+
+func TestBuilder_ClaudeCodeKnown(t *testing.T) {
+	t.Parallel()
+
+	var nilBuilder *Builder
+
+	known, built := nilBuilder.ClaudeCodeKnown("claude-opus-5-5")
+	assert.False(t, known)
+	assert.False(t, built)
+
+	plain, _ := claudeCodeBuilder(t, "aa-key")
+	_, built = plain.ClaudeCodeKnown("claude-opus-5-5")
+	assert.False(t, built, "no WithClaudeCode")
+
+	b, hits := claudeCodeBuilder(t, "aa-key", WithClaudeCode())
+
+	_, built = b.ClaudeCodeKnown("claude-opus-5-5")
+	assert.False(t, built, "before the first refresh")
+	assert.Zero(t, hits.Load(), "a read never fetches")
+
+	require.NotEmpty(t, b.ClaudeCodeCandidates(context.Background()))
+
+	for id, want := range map[string]bool{"claude-opus-5-5": true, "claude-haiku-5-5": true, "claude-3-opus": false, "": false} {
+		known, built = b.ClaudeCodeKnown(id)
+		assert.True(t, built)
+		assert.Equal(t, want, known, id)
+	}
 }

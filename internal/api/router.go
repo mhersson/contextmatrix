@@ -265,6 +265,10 @@ type RouterConfig struct {
 	// ValidateChatModel, when non-nil, reports whether a model slug is in the
 	// served set (fail-open on an empty catalog).
 	ValidateChatModel func(context.Context, string) bool
+	// ClaudeCodeCatalog, when non-nil, lists and checks Claude Code models for
+	// the chat picker and chat start. A nil value or a nil receiver means no
+	// catalog: the picker offers claude_code.default_model alone.
+	ClaudeCodeCatalog ClaudeCodeCatalog
 	// ChatModelPriced, when non-nil, reports whether CM can price a model;
 	// GET /api/chats/models flags the entries it rejects as unpriced.
 	ChatModelPriced func(model string) bool
@@ -777,6 +781,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		}
 
 		chh.validateModel = cfg.ValidateChatModel
+		chh.claudeCatalog = cfg.ClaudeCodeCatalog
 		chh.priced = cfg.ChatModelPriced
 
 		if architectBackendConfigured {

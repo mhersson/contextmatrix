@@ -50,6 +50,14 @@ type LLMChannelResolver interface {
 	ResolveModel(mode llmchannel.Mode, model, endpointDefault string) string
 }
 
+// ClaudeCodeCatalog is the Claude Code catalog the chat handlers read.
+// Implemented by *modelcatalog.Builder; a nil receiver is "no catalog".
+type ClaudeCodeCatalog interface {
+	ClaudeCodeCandidates(ctx context.Context) []protocol.CandidateModel
+	ClaudeCodeKnown(id string) (known, built bool)
+	ContextWindow(ctx context.Context, name string) int
+}
+
 // CardRunRecorder stores the LLM channel mode each card run started in.
 // Implemented by opstore/sqlite.Store.
 type CardRunRecorder interface {

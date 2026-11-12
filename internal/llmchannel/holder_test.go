@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 
 	"github.com/mhersson/contextmatrix/internal/events"
+	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 )
 
 const testToken = "sk-ant-oat-secret"
@@ -213,28 +215,50 @@ func TestEndpointFor_NoEndpointConfigured(t *testing.T) {
 	assert.Equal(t, ModeEndpoint, m)
 }
 
+// stubCatalog is a ClaudeCodeCatalog over a fixed ID set.
+type stubCatalog struct {
+	built bool
+	ids   []string
+}
+
+func (c stubCatalog) ClaudeCodeKnown(id string) (known, built bool) {
+	return slices.Contains(c.ids, id), c.built
+}
+
 func TestResolveModel(t *testing.T) {
-	h, err := New(context.Background(),
-		Config{Endpoint: endpoint(), OAuthToken: testToken, DefaultModel: "claude-sonnet-5-5"},
-		&fakeStore{}, &fakeBus{})
-	require.NoError(t, err)
+	built := stubCatalog{built: true, ids: []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-2"}}
 
 	tests := []struct {
-		name  string
-		mode  Mode
-		model string
-		want  string
+		name    string
+		catalog ClaudeCodeCatalog
+		mode    Mode
+		model   string
+		want    string
 	}{
-		{"cc known id", ModeClaudeCode, "claude-opus-5-5", "claude-opus-5-5"},
-		{"cc unknown model", ModeClaudeCode, "openai/gpt-x", "claude-sonnet-5-5"},
-		{"cc empty model", ModeClaudeCode, "", "claude-sonnet-5-5"},
-		{"endpoint bare cc id", ModeEndpoint, "claude-haiku-5-5", "fallback/model"},
-		{"endpoint slugged anthropic", ModeEndpoint, "anthropic/claude-haiku-5-5", "anthropic/claude-haiku-5-5"},
-		{"endpoint other model", ModeEndpoint, "openai/gpt-x", "openai/gpt-x"},
+		{"cc catalog id", built, ModeClaudeCode, "claude-opus-5-5", "claude-opus-5-5"},
+		{"cc slug in catalog", built, ModeClaudeCode, "anthropic/claude-opus-5.5", "claude-opus-5-5"},
+		{"cc catalog fable", built, ModeClaudeCode, "anthropic/claude-fable-5.2", "claude-fable-5-2"},
+		{"cc stale slug outside catalog", built, ModeClaudeCode, "anthropic/claude-3-opus", "claude-sonnet-5-5"},
+		{"cc unmappable", built, ModeClaudeCode, "openai/gpt-x", "claude-sonnet-5-5"},
+		{"cc empty", built, ModeClaudeCode, "", "claude-sonnet-5-5"},
+		{"cc no catalog stale slug maps", stubCatalog{}, ModeClaudeCode, "anthropic/claude-3-opus", "claude-3-opus"},
+		{"cc nil catalog maps by form", nil, ModeClaudeCode, "anthropic/claude-3-opus", "claude-3-opus"},
+		{"cc typed nil catalog maps by form", (*modelcatalog.Builder)(nil), ModeClaudeCode, "claude-opus-5-5", "claude-opus-5-5"},
+		{"cc no catalog unmappable", stubCatalog{}, ModeClaudeCode, "openai/gpt-x", "claude-sonnet-5-5"},
+		{"endpoint bare catalog id", built, ModeEndpoint, "claude-opus-5-5", "fallback/model"},
+		{"endpoint bare unknown claude name", built, ModeEndpoint, "claude-3-opus", "claude-3-opus"},
+		{"endpoint bare claude name without catalog", stubCatalog{}, ModeEndpoint, "claude-opus-5-5", "claude-opus-5-5"},
+		{"endpoint slugged anthropic", built, ModeEndpoint, "anthropic/claude-opus-5-5", "anthropic/claude-opus-5-5"},
+		{"endpoint other model", built, ModeEndpoint, "openai/gpt-x", "openai/gpt-x"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			h, err := New(context.Background(),
+				Config{Endpoint: endpoint(), OAuthToken: testToken, DefaultModel: "claude-sonnet-5-5", Catalog: tt.catalog},
+				&fakeStore{}, &fakeBus{})
+			require.NoError(t, err)
+
 			assert.Equal(t, tt.want, h.ResolveModel(tt.mode, tt.model, "fallback/model"))
 		})
 	}

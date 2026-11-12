@@ -415,6 +415,13 @@ is no Claude Code catalog.
   subscription accepts it fails its runs until the agent reports it incapable
   and it is blacklisted.
 
+Without a catalog (no `backends.agent.aa_api_key`, or before the first
+refresh) the chat picker offers `claude_code.default_model` alone, a chat start
+or run model is checked by its form only, and a stale slug that maps to a
+well-formed ID runs as mapped. With a catalog, a chat start outside it is
+refused and a run's model outside it falls back to `claude_code.default_model`.
+Favorites and the blacklist map by form only, catalog or not.
+
 A trigger whose agent runs in `claude_code` mode (see
 [remote execution](remote-execution.md#claude-code-subscription-mode))
 changes four inputs:
@@ -424,7 +431,7 @@ changes four inputs:
 | `selection.candidates`   | The Claude Code catalog instead of the served one.                                                                                                    |
 | `selection.favorites`    | Each rule's slugs mapped to Claude Code IDs (`anthropic/claude-sonnet-5.5` becomes `claude-sonnet-5-5`); a slug without one is dropped, and so is a rule left empty. |
 | `selection.blacklist`    | Each slug mapped to its Claude Code ID the same way; a slug without one is dropped.                                                                   |
-| `model`                  | `backends.agent.default_model` mapped to its Claude Code ID, else `claude_code.default_model`.                                                        |
+| `model`                  | `backends.agent.default_model` mapped to its Claude Code ID, else `claude_code.default_model` (also when a built catalog lacks the ID).               |
 
 The tier ladders and the price headroom ship unchanged. A
 subscription bills nothing per token, but the price band still runs on the AA
@@ -935,7 +942,7 @@ overrides; this table maps the knobs to their effect on selection.
 | `llm_endpoint.type`                  | `openrouter`         | Selects the catalog leg and the wire dialect                            |
 | `llm_endpoint.reasoning_effort`      | unset                | The reasoning effort the gateway pins for its OpenAI models (`openai` leg only); the join prefers the AA row carrying it for OpenAI families and ignores it for other creators. Env `CONTEXTMATRIX_LLM_ENDPOINT_REASONING_EFFORT` |
 | `claude_code.oauth_token`            | unset                | With `backends.agent.aa_api_key` set, adds the [Claude Code catalog](#the-claude-code-catalog), which `claude_code` triggers carry instead of the served one |
-| `claude_code.default_model`          | `claude-sonnet-5-5`  | The `model` of a `claude_code` trigger when `backends.agent.default_model` maps to no Claude Code ID |
+| `claude_code.default_model`          | `claude-sonnet-5-5`  | The `model` of a `claude_code` trigger when `backends.agent.default_model` maps to no Claude Code ID, or to one outside a built Claude Code catalog |
 | `best_of_n.max_candidates`           | 5                    | Hard cap on a card's race size                                          |
 | `best_of_n.default_candidates`       | 3                    | UI-suggested race size                                                  |
 | Price headroom (admin page, stored in `ops.db`) | 1.5        | Width of the price band; edited on the Model selection admin page with the ladders; travels as `selection.price_headroom` |

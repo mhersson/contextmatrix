@@ -14,9 +14,9 @@ import (
 	"time"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
+	"github.com/mhersson/contextmatrix-protocol/selection"
 
 	"github.com/mhersson/contextmatrix/internal/events"
-	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 )
 
 // Mode is the channel a worker's model calls travel over.
@@ -55,6 +55,14 @@ type Config struct {
 	OAuthToken   string                // "" when claude_code is unset
 	Supported    []Kind                // claude_code.backends
 	DefaultModel string                // claude_code.default_model
+	Catalog      ClaudeCodeCatalog     // nil, or a catalog that is not built, checks IDs by form only
+}
+
+// ClaudeCodeCatalog reports membership in the built Claude Code catalog.
+// Implemented by *modelcatalog.Builder; built is false while there is no
+// catalog.
+type ClaudeCodeCatalog interface {
+	ClaudeCodeKnown(id string) (known, built bool)
 }
 
 // Holder is the runtime-switchable channel state.
@@ -249,21 +257,28 @@ func (h *Holder) EndpointFor(kind Kind, recorded Mode) (*protocol.LLMEndpoint, M
 	return &ep, m
 }
 
-// ResolveModel maps a model name onto the mode's catalog: claude_code takes a
-// Claude Code ID or the default; endpoint drops a bare Claude Code ID that the
-// endpoint would not know, falling back to endpointDefault.
+// ResolveModel maps a model name onto the mode's catalog. claude_code takes
+// the mapped Claude Code ID, else the default; once a catalog is built, an ID
+// outside it also falls back to the default. endpoint replaces a bare name
+// with endpointDefault only when the built catalog knows it, so a gateway's
+// own bare claude names keep working.
 func (h *Holder) ResolveModel(mode Mode, model, endpointDefault string) string {
-	id, ok := modelcatalog.ClaudeCodeID(model)
+	id, ok := selection.ClaudeCodeModelID(model)
+
+	var known, built bool
+	if ok && h.cfg.Catalog != nil {
+		known, built = h.cfg.Catalog.ClaudeCodeKnown(id)
+	}
 
 	if mode == ModeClaudeCode {
-		if ok {
+		if ok && (known || !built) {
 			return id
 		}
 
 		return h.cfg.DefaultModel
 	}
 
-	if ok && !strings.Contains(model, "/") {
+	if ok && known && !strings.Contains(model, "/") {
 		return endpointDefault
 	}
 

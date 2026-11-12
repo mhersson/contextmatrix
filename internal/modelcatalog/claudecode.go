@@ -11,21 +11,6 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 )
 
-// ClaudeCodeID maps a pin, a stored model name or a catalog ID to its Claude
-// Code catalog ID. ok is false when the name maps to nothing in the catalog.
-func ClaudeCodeID(name string) (string, bool) {
-	id, ok := selection.ClaudeCodeModelID(name)
-	if !ok {
-		return "", false
-	}
-
-	if !slices.ContainsFunc(selection.ClaudeCodeModels(), func(m selection.ClaudeCodeModel) bool { return m.ID == id }) {
-		return "", false
-	}
-
-	return id, true
-}
-
 // defaultClaudeCodeWindow is the window of a Claude Code ID the served catalog
 // does not size.
 const defaultClaudeCodeWindow = 1_000_000
@@ -210,4 +195,24 @@ func (b *Builder) ClaudeCodeRate(ctx context.Context, id string) (ModelPrice, bo
 		CacheRead:  e.CacheReadPrice,
 		CacheWrite: e.CacheWritePrice,
 	}, true
+}
+
+// ClaudeCodeKnown reports whether id is in the built Claude Code catalog. It
+// reads the cached catalog without refreshing; built is false on a nil
+// receiver, without WithClaudeCode, and before the first successful refresh.
+func (b *Builder) ClaudeCodeKnown(id string) (known, built bool) {
+	if b == nil || !b.claudeCode {
+		return false, false
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.claudeCodeCatalog == nil {
+		return false, false
+	}
+
+	_, known = b.claudeCodeCatalog[id]
+
+	return known, true
 }

@@ -128,6 +128,40 @@ func TestLaunch_BlacklistFollowsMode(t *testing.T) {
 	}
 }
 
+func TestLaunch_ClaudeCodeModelAndFavoritesFollowCatalog(t *testing.T) {
+	tests := []struct {
+		name      string
+		catalog   stubClaudeCatalog
+		stale     string
+		wantModel string
+	}{
+		{"stale default outside a built catalog", fableCatalog, "anthropic/claude-3-opus", "claude-sonnet-5-5"},
+		{"stale default without a catalog", stubClaudeCatalog{}, "anthropic/claude-3-opus", "claude-3-opus"},
+		{"catalog fable default", fableCatalog, "anthropic/claude-fable-5.2", "claude-fable-5-2"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, svc, cb, _ := channelLaunchHandlers(t, llmchannel.ModeClaudeCode, []string{config.BackendNameAgent})
+			h.llmChannel = chatChannelWith(t, tt.catalog, llmchannel.ModeClaudeCode, config.BackendNameAgent)
+			h.backendCfg.DefaultModel = tt.stale
+			h.backendCfg.Favorites = map[string]board.TierFavorites{
+				"simple": {All: []string{"anthropic/claude-fable-5.2", "z-ai/glm-5.2"}},
+			}
+			h.blacklist = &stubBlacklist{slugs: []string{"anthropic/claude-fable-5.2"}}
+			card := createRunnable(t, svc, service.CreateCardInput{})
+
+			_, err := h.launch(context.Background(), "test-project", card.ID, launchOptions{})
+			require.NoError(t, err)
+
+			p := cb.lastTrigger(t)
+			assert.Equal(t, tt.wantModel, p.Model)
+			assert.Equal(t, []string{"claude-fable-5-2"}, p.Selection.Favorites[0].Models)
+			assert.Equal(t, []string{"claude-fable-5-2"}, p.Selection.Blacklist)
+		})
+	}
+}
+
 func TestLaunch_EndpointModeKeepsToday(t *testing.T) {
 	h, svc, cb, ops := channelLaunchHandlers(t, llmchannel.ModeEndpoint, []string{config.BackendNameAgent})
 	card := createRunnable(t, svc, service.CreateCardInput{})
