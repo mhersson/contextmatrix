@@ -24,7 +24,11 @@ export interface LadderPanelProps {
   blacklist: ReadonlySet<string>;
   /** Right-click on a dot: the slug and the pointer's viewport position. Unset leaves the browser menu alone. */
   onModelMenu?: (slug: string, x: number, y: number) => void;
+  /** Provider chips; off for a catalog whose candidates name no provider. Defaults to on. */
+  providerFilter?: boolean;
 }
+
+const SHOW_ALL = () => true;
 
 export function LadderPanel({
   candidates,
@@ -42,9 +46,13 @@ export function LadderPanel({
   appliedHeadroom,
   blacklist,
   onModelMenu,
+  providerFilter = true,
 }: LadderPanelProps) {
   // View-only filter: the dots it hides never move a scale or touch a ladder.
-  const { visible, isActive, toggle, selectAll, selectNone, hidden } = useProviderFilter(candidates);
+  const filter = useProviderFilter(candidates);
+  const { toggle, selectAll, selectNone, hidden } = filter;
+  const visible = providerFilter ? filter.visible : SHOW_ALL;
+  const isActive = providerFilter && filter.isActive;
   const shown = useMemo(() => candidates.filter(visible).length, [candidates, visible]);
 
   return (
@@ -84,7 +92,7 @@ export function LadderPanel({
         </div>
       </div>
       <div className="tl-panel-body">
-        <ProviderFilter candidates={candidates} filter={{ hidden, toggle, selectAll, selectNone }} />
+        {providerFilter && <ProviderFilter candidates={candidates} filter={{ hidden, toggle, selectAll, selectNone }} />}
         <SelectionChart
           candidates={candidates}
           visible={visible}

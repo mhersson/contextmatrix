@@ -574,6 +574,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			favorites:       agentCfg.Favorites,
 			reasoningEffort: cfg.SelectorReasoningEffort,
 			authEnabled:     cfg.AuthService != nil,
+			channel:         cfg.LLMChannel,
 		}
 		mux.HandleFunc("GET /api/admin/selector/ladders", selh.getLadders)
 		mux.HandleFunc("PUT /api/admin/selector/ladders", selh.putLadders)

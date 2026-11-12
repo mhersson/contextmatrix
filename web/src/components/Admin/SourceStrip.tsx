@@ -20,7 +20,8 @@ export function SourceStrip({ catalog, ready, loading }: SourceStripProps) {
             <b>{catalog.aa_scored_models}</b> AA models scored
           </span>
           <span>
-            <b>{catalog.served_scored_models}</b> scored and served by your gateway with tool use
+            <b>{catalog.served_scored_models}</b>{' '}
+            {catalog.catalog === 'claude_code' ? 'Claude Code models scored' : 'scored and served by your gateway with tool use'}
           </span>
           <span>
             <b>{catalog.candidates.length}</b> candidates · floor {catalog.quality_floor}

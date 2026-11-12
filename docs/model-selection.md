@@ -420,9 +420,11 @@ subscription bills nothing per token, but the price band still runs on the AA
 list prices: a model's list price stands in for how much of the usage limit
 it consumes, so the band keeps a frontier model off a `simple` task to save
 usage rather than money. Card pins resolve agent-side (see
-[running cards](running-cards.md#claude-code-subscription)). The ladders page
-charts and previews the served catalog only; its ladders and headroom apply
-to Claude Code runs all the same.
+[running cards](running-cards.md#claude-code-subscription)). While card runs
+start on Claude Code (the channel is `claude_code` and the agent is in
+`claude_code.backends`), the ladders page charts and previews the Claude Code
+catalog, with the favorites and blacklist mapped the same way; otherwise it
+shows the served catalog. Its ladders and headroom are one setting for both.
 
 ## What the trigger carries
 
@@ -514,10 +516,17 @@ and carry on; the other role is unaffected.
 
 #### The ladders page
 
+The header names the catalog the page shows, the one a card run would select
+from now: the Claude Code catalog while card runs start on Claude Code, else
+the served one (see [the Claude Code catalog](#the-claude-code-catalog)). A
+channel switch refetches the catalog and re-runs the preview, and a preview
+answered from another catalog stays pending while the page refetches the
+catalog and asks again.
+
 A data-source strip under the header shows the catalog snapshot's stats (see
 [caching and refresh](#caching-and-refresh)): the index version, the AA models
-scored, the models scored and served with tool use, the candidate count and
-floor, the best AA score as prior 1.00, the reasoning effort the gateway pins
+scored, the models scored and served with tool use (the Claude Code IDs scored,
+for the Claude Code catalog), the candidate count and floor, the best AA score as prior 1.00, the reasoning effort the gateway pins
 for its OpenAI models when `llm_endpoint.reasoning_effort` is set, the refresh
 time and the attribution link to Artificial Analysis. While the catalog is
 loading or unavailable it shows no numbers.
@@ -566,7 +575,8 @@ Provider chips (per-provider counts plus `all` / `none` buttons) hide the
 unpressed providers' points, and the panel meta then shows
 `N of M candidates shown`. The selection is remembered per browser and is
 display-only: it never changes the scales, picks, seats, counts, saved
-ladders or any request.
+ladders or any request. The Claude Code catalog names no provider, so it shows
+no chips and every point.
 
 Right-clicking a point, a pick name in the preview, or a panel seat opens a
 one-item menu for that model: **Add to blacklist**, or **Remove from
@@ -574,7 +584,9 @@ blacklist** when it is already struck (the same confirm as the table's
 delist button). Either change refetches the catalog and the blacklist
 panel and re-runs the preview, so the points, picks and seats reflect the
 new blacklist at once. The ladders and headroom on screen are untouched;
-the blacklist is not part of the unsaved draft.
+the blacklist is not part of the unsaved draft. On the Claude Code catalog a
+point struck only by an entry stored under its gateway slug (for example
+`anthropic/claude-opus-5.5`) opens no menu; delist that row in the table.
 
 Nothing is sent until **Save**; the status pill says whether the next run
 uses what is on screen. **Discard changes** returns to the saved ladders and
@@ -888,7 +900,8 @@ are the only evidence that exists about that choice.
   ladders page: the catalog's data-source strip, the price × quality chart
   with both ladders, and the pick preview, with the blacklist panel below
   (per-row delist). Right-clicking a model on the chart or in the preview
-  blacklists or delists it. The outcome ledger has no page; its endpoints
+  blacklists or delists it, except a Claude Code point struck only by an
+  entry stored under its gateway slug, which only the table delists. The outcome ledger has no page; its endpoints
   remain.
 - Metrics: `contextmatrix_model_outcomes_total{model,result}` and
   `contextmatrix_model_blacklists_total{model}`. There are no catalog metrics

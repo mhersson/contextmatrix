@@ -182,14 +182,8 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 
 		// Clone: the catalog returns its shared cached slice; a defensive
 		// copy keeps the payload independent of the cache's backing array.
-		candidates := h.catalog.Candidates(ctx)
-		favorites := mergeFavorites(h.backendCfg.Favorites, projectCfg.Favorites)
-
-		if mode == llmchannel.ModeClaudeCode {
-			candidates = h.catalog.ClaudeCodeCandidates(ctx)
-			favorites = claudeCodeFavorites(favorites)
-			bl = claudeCodeIDs(bl)
-		}
+		candidates, favorites, bl := channelSelection(ctx, h.catalog, mode,
+			mergeFavorites(h.backendCfg.Favorites, projectCfg.Favorites), bl)
 
 		payload.Selection = &protocol.SelectionContext{
 			Candidates: slices.Clone(candidates),
@@ -270,6 +264,19 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 	}
 
 	return card, nil
+}
+
+// channelSelection returns the candidates, favorites and blacklist a run in
+// mode selects from: in claude_code mode the Claude Code catalog, with the
+// favorites and the blacklist mapped to Claude Code IDs.
+func channelSelection(ctx context.Context, cat catalogProvider, mode llmchannel.Mode,
+	favorites []protocol.FavoriteRule, blacklist []string,
+) ([]protocol.CandidateModel, []protocol.FavoriteRule, []string) {
+	if mode == llmchannel.ModeClaudeCode {
+		return cat.ClaudeCodeCandidates(ctx), claudeCodeFavorites(favorites), claudeCodeIDs(blacklist)
+	}
+
+	return cat.Candidates(ctx), favorites, blacklist
 }
 
 // claudeCodeFavorites maps favorite slugs onto Claude Code IDs, dropping the
