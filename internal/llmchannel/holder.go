@@ -259,26 +259,27 @@ func (h *Holder) EndpointFor(kind Kind, recorded Mode) (*protocol.LLMEndpoint, M
 
 // ResolveModel maps a model name onto the mode's catalog. claude_code takes
 // the mapped Claude Code ID, else the default; once a catalog is built, an ID
-// outside it also falls back to the default. endpoint replaces a bare name
-// with endpointDefault only when the built catalog knows it, so a gateway's
-// own bare claude names keep working.
+// outside it also falls back to the default. endpoint replaces a bare
+// Claude Code ID with endpointDefault by form alone: its only caller reopens a
+// session recorded under claude_code.
 func (h *Holder) ResolveModel(mode Mode, model, endpointDefault string) string {
 	id, ok := selection.ClaudeCodeModelID(model)
 
-	var known, built bool
-	if ok && h.cfg.Catalog != nil {
-		known, built = h.cfg.Catalog.ClaudeCodeKnown(id)
-	}
-
 	if mode == ModeClaudeCode {
-		if ok && (known || !built) {
-			return id
+		if !ok {
+			return h.cfg.DefaultModel
 		}
 
-		return h.cfg.DefaultModel
+		if h.cfg.Catalog != nil {
+			if known, built := h.cfg.Catalog.ClaudeCodeKnown(id); built && !known {
+				return h.cfg.DefaultModel
+			}
+		}
+
+		return id
 	}
 
-	if ok && known && !strings.Contains(model, "/") {
+	if ok && !strings.Contains(model, "/") {
 		return endpointDefault
 	}
 

@@ -14,7 +14,7 @@ repository selects a model for a card run.
 
 Chat sessions are out of scope: a chat receives a single model choice
 validated against the served catalog (the Claude Code catalog when it starts
-on Claude Code), never a selection payload.
+on Claude Code, by form alone while there is none), never a selection payload.
 
 ## Steering the selector
 
@@ -415,12 +415,15 @@ is no Claude Code catalog.
   subscription accepts it fails its runs until the agent reports it incapable
   and it is blacklisted.
 
-Without a catalog (no `backends.agent.aa_api_key`, or before the first
-refresh) the chat picker offers `claude_code.default_model` alone, a chat start
-or run model is checked by its form only, and a stale slug that maps to a
-well-formed ID runs as mapped. With a catalog, a chat start outside it is
-refused and a run's model outside it falls back to `claude_code.default_model`.
-Favorites and the blacklist map by form only, catalog or not.
+Catalog membership is the candidates that clear the quality floor. Without a
+catalog (no `backends.agent.aa_api_key`, or before the first refresh) the chat
+picker offers `claude_code.default_model` alone, a chat start or run model is
+checked by its form only, and a stale slug that maps to a well-formed ID runs
+as mapped. With a catalog, a chat start outside it is refused and a run's model
+outside it falls back to `claude_code.default_model`. The configured
+`claude_code.default_model` is always accepted, and the picker lists it when
+the catalog lacks it. Favorites and the blacklist map by form only, catalog or
+not.
 
 A trigger whose agent runs in `claude_code` mode (see
 [remote execution](remote-execution.md#claude-code-subscription-mode))

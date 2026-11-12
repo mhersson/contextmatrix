@@ -197,7 +197,8 @@ func (b *Builder) ClaudeCodeRate(ctx context.Context, id string) (ModelPrice, bo
 	}, true
 }
 
-// ClaudeCodeKnown reports whether id is in the built Claude Code catalog. It
+// ClaudeCodeKnown reports whether id is a candidate of the built Claude Code
+// catalog (above the quality floor). It
 // reads the cached catalog without refreshing; built is false on a nil
 // receiver, without WithClaudeCode, and before the first successful refresh.
 func (b *Builder) ClaudeCodeKnown(id string) (known, built bool) {
@@ -212,7 +213,13 @@ func (b *Builder) ClaudeCodeKnown(id string) (known, built bool) {
 		return false, false
 	}
 
-	_, known = b.claudeCodeCatalog[id]
+	// Membership is the candidate set, which the quality floor has pruned;
+	// claudeCodeCatalog also holds below-floor IDs for pricing.
+	for _, c := range b.claudeCodeCached {
+		if c.Slug == id {
+			return true, true
+		}
+	}
 
-	return known, true
+	return false, true
 }

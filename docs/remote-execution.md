@@ -1003,7 +1003,8 @@ in the log; the saved value is kept.
 
 A `claude_code` start of a backend in `claude_code.backends` carries the
 token in `llm_endpoint`, with no `base_url` or `api_key`, and takes its
-model, and on `/trigger` its `selection`, from the Claude Code catalog. The
+model, and on `/trigger` its `selection`, from the Claude Code catalog (the
+model is mapped by form alone while there is none). The
 [`/trigger`](#post-agent_urltrigger) and
 [`/chat/start`](#post-chat_urlchatstart) field tables give each field;
 [model selection](model-selection.md#the-claude-code-catalog) describes the

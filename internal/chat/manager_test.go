@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -7552,19 +7551,11 @@ func newChannel(t *testing.T, mode llmchannel.Mode, supported ...string) *llmcha
 		OAuthToken:   "tok",
 		Supported:    supported,
 		DefaultModel: "claude-sonnet-5-5",
-		Catalog:      builtClaudeCatalog{"claude-opus-5-5", "claude-sonnet-5-5"},
 	}, llmchanneltest.Store{}, events.NewBus())
 	require.NoError(t, err)
 	require.NoError(t, h.Set(context.Background(), mode, "human:test"))
 
 	return h
-}
-
-// builtClaudeCatalog is a built Claude Code catalog of the listed IDs.
-type builtClaudeCatalog []string
-
-func (c builtClaudeCatalog) ClaudeCodeKnown(id string) (known, built bool) {
-	return slices.Contains(c, id), true
 }
 
 func (s *stubBackend) startOpts() chat.StartChatOpts {

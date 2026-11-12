@@ -411,3 +411,22 @@ func TestBuilder_ClaudeCodeKnown(t *testing.T) {
 		assert.Equal(t, want, known, id)
 	}
 }
+
+func TestBuilder_ClaudeCodeKnown_BelowFloorIsUnknown(t *testing.T) {
+	t.Parallel()
+
+	b, _ := claudeCodeBuilder(t, "aa-key", WithClaudeCode())
+	b.floor = 0.7
+
+	require.NotEmpty(t, b.ClaudeCodeCandidates(context.Background()))
+
+	for id, want := range map[string]bool{"claude-opus-5-5": true, "claude-sonnet-5-5": true, "claude-haiku-5-5": false} {
+		known, built := b.ClaudeCodeKnown(id)
+		assert.True(t, built)
+		assert.Equal(t, want, known, id)
+	}
+
+	// The below-floor ID still prices.
+	_, ok := b.ClaudeCodeRate(context.Background(), "claude-haiku-5-5")
+	assert.True(t, ok)
+}

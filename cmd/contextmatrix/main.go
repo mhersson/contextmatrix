@@ -1267,7 +1267,7 @@ func configuredBackendKinds(cfg *config.Config) []string {
 // unpricedClaudeCodeDefault returns claude_code.default_model when it would be
 // priced at $0: claude_code is configured, the Artificial Analysis catalog (the
 // list price source) is not built, and token_costs has no row for it. Other
-// Claude Code models need rows too; "" when nothing is unpriced.
+// Claude Code models need rows too; "" otherwise.
 func unpricedClaudeCodeDefault(cfg *config.Config, agentAA bool) string {
 	if !cfg.ClaudeCode.Configured() || agentAA {
 		return ""

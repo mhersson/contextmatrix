@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"sync"
 	"testing"
@@ -246,8 +248,8 @@ func TestResolveModel(t *testing.T) {
 		{"cc typed nil catalog maps by form", (*modelcatalog.Builder)(nil), ModeClaudeCode, "claude-opus-5-5", "claude-opus-5-5"},
 		{"cc no catalog unmappable", stubCatalog{}, ModeClaudeCode, "openai/gpt-x", "claude-sonnet-5-5"},
 		{"endpoint bare catalog id", built, ModeEndpoint, "claude-opus-5-5", "fallback/model"},
-		{"endpoint bare unknown claude name", built, ModeEndpoint, "claude-3-opus", "claude-3-opus"},
-		{"endpoint bare claude name without catalog", stubCatalog{}, ModeEndpoint, "claude-opus-5-5", "claude-opus-5-5"},
+		{"endpoint bare claude id outside catalog", built, ModeEndpoint, "claude-3-opus", "fallback/model"},
+		{"endpoint bare claude id without catalog", stubCatalog{}, ModeEndpoint, "claude-opus-5-5", "fallback/model"},
 		{"endpoint slugged anthropic", built, ModeEndpoint, "anthropic/claude-opus-5-5", "anthropic/claude-opus-5-5"},
 		{"endpoint other model", built, ModeEndpoint, "openai/gpt-x", "openai/gpt-x"},
 	}
@@ -381,4 +383,37 @@ func TestSet_ConcurrentCallsStayConsistent(t *testing.T) {
 
 	require.Len(t, bus.events, 40)
 	assert.Equal(t, string(h.Mode()), bus.events[39].Data["mode"], "last event matches the final mode")
+}
+
+// A stale default with a below-floor AA row falls back to the configured
+// default through a real Builder.
+func TestResolveModel_RealBuilderBelowFloor(t *testing.T) {
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"slug":"claude-opus-5-5","model_creator":{"name":"Anthropic"},
+			 "evaluations":{"artificial_analysis_intelligence_index":60,"artificial_analysis_coding_index":null},
+			 "pricing":{"price_1m_input_tokens":5,"price_1m_output_tokens":25,"price_1m_cache_hit_tokens":0.5,"price_1m_cache_write_tokens":6.25}},
+			{"slug":"claude-3-opus","model_creator":{"name":"Anthropic"},
+			 "evaluations":{"artificial_analysis_intelligence_index":6,"artificial_analysis_coding_index":null},
+			 "pricing":{"price_1m_input_tokens":15,"price_1m_output_tokens":75,"price_1m_cache_hit_tokens":1.5,"price_1m_cache_write_tokens":18.75}}
+		],"tier":"free","intelligence_index_version":5,"pagination":{"page":1,"page_size":200,"total_pages":1,"has_more":false}}`))
+	}))
+	t.Cleanup(aaSrv.Close)
+
+	orSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	t.Cleanup(orSrv.Close)
+
+	b := modelcatalog.NewBuilder("aa-key", 0.5, nil, time.Hour, modelcatalog.WithClaudeCode(),
+		modelcatalog.WithCatalogURLs(aaSrv.URL, orSrv.URL))
+	require.Len(t, b.ClaudeCodeCandidates(context.Background()), 1)
+
+	h, err := New(context.Background(),
+		Config{Endpoint: endpoint(), OAuthToken: testToken, DefaultModel: "claude-sonnet-5-5", Catalog: b},
+		&fakeStore{}, &fakeBus{})
+	require.NoError(t, err)
+
+	assert.Equal(t, "claude-sonnet-5-5", h.ResolveModel(ModeClaudeCode, "anthropic/claude-3-opus", ""))
+	assert.Equal(t, "claude-opus-5-5", h.ResolveModel(ModeClaudeCode, "anthropic/claude-opus-5.5", ""))
 }

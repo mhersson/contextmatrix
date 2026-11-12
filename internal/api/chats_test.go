@@ -2400,19 +2400,22 @@ func (c stubClaudeCatalog) ClaudeCodeCandidates(context.Context) []protocol.Cand
 
 	out := make([]protocol.CandidateModel, len(ids))
 	for i, id := range ids {
-		out[i] = protocol.CandidateModel{Slug: id}
+		out[i] = protocol.CandidateModel{Slug: id, ContextWindow: c.windows[id]}
 	}
 
 	return out
 }
 
 func (c stubClaudeCatalog) ContextWindow(_ context.Context, name string) int {
-	if w, ok := c.windows[name]; ok {
-		return w
-	}
-
+	// Deliberately unlike the candidates' own windows: the picker must size a
+	// catalog entry from its candidate.
 	return 1_000_000
 }
+
+// noDefaultCatalog is built but lacks the configured default model.
+var noDefaultCatalog = stubClaudeCatalog{built: true, windows: map[string]int{
+	"claude-opus-5-5": 1_000_000,
+}}
 
 var fableCatalog = stubClaudeCatalog{built: true, windows: map[string]int{
 	"claude-opus-5-5":   1_000_000,
@@ -2490,6 +2493,35 @@ func TestChatsModels_ClaudeCodeSource(t *testing.T) {
 			}, body.Models)
 		})
 	}
+}
+
+// A built catalog that lacks the default still lists it, so the advertised
+// default is selectable.
+func TestChatsModels_ClaudeCodeListsDefaultOutsideCatalog(t *testing.T) {
+	t.Parallel()
+
+	h := &chatHandlers{
+		llmChannel:    chatChannelWith(t, noDefaultCatalog, llmchannel.ModeClaudeCode, config.BackendNameChat),
+		claudeCatalog: noDefaultCatalog,
+	}
+
+	rec := httptest.NewRecorder()
+	h.listModels(rec, httptest.NewRequest(http.MethodGet, "/api/chats/models", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var body struct {
+		Models  []chatModelEntry `json:"models"`
+		Default string           `json:"default"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+
+	ids := make([]string, len(body.Models))
+	for i, m := range body.Models {
+		ids[i] = m.ID
+	}
+
+	assert.Equal(t, "claude-sonnet-5-5", body.Default)
+	assert.Equal(t, []string{"claude-opus-5-5", "claude-sonnet-5-5"}, ids)
 }
 
 // Without a catalog the picker offers the default alone, sized by the window
@@ -2629,6 +2661,9 @@ func TestCreateChat_ValidatesClaudeCodeModelID(t *testing.T) {
 		{name: "catalog id", catalog: fableCatalog, model: "claude-opus-5-5", wantCode: http.StatusCreated, wantModel: "claude-opus-5-5"},
 		{name: "catalog fable slug", catalog: fableCatalog, model: "anthropic/claude-fable-5.2", wantCode: http.StatusCreated, wantModel: "claude-fable-5-2"},
 		{name: "well-formed outside catalog", catalog: fableCatalog, model: "anthropic/claude-haiku-5.5", wantCode: http.StatusBadRequest},
+		{name: "default outside a built catalog", catalog: noDefaultCatalog, model: "", wantCode: http.StatusCreated, wantModel: "claude-sonnet-5-5"},
+		{name: "explicit default outside a built catalog", catalog: noDefaultCatalog, model: "claude-sonnet-5-5", wantCode: http.StatusCreated, wantModel: "claude-sonnet-5-5"},
+		{name: "other id outside a built catalog", catalog: noDefaultCatalog, model: "claude-haiku-5-5", wantCode: http.StatusBadRequest},
 		{name: "no catalog: openrouter slug", model: "deepseek/deepseek-v4-flash", wantCode: http.StatusBadRequest},
 		{name: "no catalog: any well-formed id", model: "anthropic/claude-haiku-5.5", wantCode: http.StatusCreated, wantModel: "claude-haiku-5-5"},
 	}

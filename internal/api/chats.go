@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -523,33 +524,34 @@ func (h *chatHandlers) claudeCodeModelAllowed(model string) bool {
 		return true
 	}
 
+	// The configured default is always a valid choice.
+	if id == h.llmChannel.ResolveModel(llmchannel.ModeClaudeCode, "", "") {
+		return true
+	}
+
 	known, built := h.claudeCatalog.ClaudeCodeKnown(id)
 
 	return known || !built
 }
 
-// claudeCodeModels is the claude_code picker: the catalog, or def alone while
-// there is none.
+// claudeCodeModels is the claude_code picker: the catalog plus def, or def
+// alone while there is no catalog.
 func (h *chatHandlers) claudeCodeModels(ctx context.Context, def string) []chatModelEntry {
-	var ids []string
+	var models []chatModelEntry
 
 	if h.claudeCatalog != nil {
 		for _, c := range h.claudeCatalog.ClaudeCodeCandidates(ctx) {
-			ids = append(ids, c.Slug)
+			models = append(models, chatModelEntry{ID: c.Slug, Label: c.Slug, MaxTokens: int64(c.ContextWindow)})
 		}
 	}
 
-	if len(ids) == 0 {
-		ids = []string{def}
-	}
-
-	models := make([]chatModelEntry, len(ids))
-
-	for i, id := range ids {
-		models[i] = chatModelEntry{ID: id, Label: id}
+	if !slices.ContainsFunc(models, func(m chatModelEntry) bool { return m.ID == def }) {
+		entry := chatModelEntry{ID: def, Label: def}
 		if h.claudeCatalog != nil {
-			models[i].MaxTokens = int64(h.claudeCatalog.ContextWindow(ctx, id))
+			entry.MaxTokens = int64(h.claudeCatalog.ContextWindow(ctx, def))
 		}
+
+		models = append(models, entry)
 	}
 
 	return models
