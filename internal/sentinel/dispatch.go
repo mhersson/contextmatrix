@@ -146,9 +146,11 @@ func (c *Controller) dispatchCheck(ctx context.Context, h *Heal) error {
 }
 
 // dispatch records the dispatch on the heal, then sends it, so a run the agent
-// starts is always on record. A send the agent refuses parks the heal; any
-// other failed send clears the dispatch for a later pass to retry. Nothing is
-// recorded or sent for a while after the agent said it has no run kinds.
+// starts is always on record. Only a definite answer that started nothing
+// clears it: a refusal parks the heal, busy or no run kinds leaves it for a
+// later pass. A send of unknown outcome stays in flight until the run reports
+// or the settle grace parks it. Nothing is recorded or sent for a while after
+// the agent said it has no run kinds.
 func (c *Controller) dispatch(ctx context.Context, h *Heal, p protocol.RunKindPayload, mode llmchannel.Mode) error {
 	now := c.cfg.Clock.Now()
 	if c.noRunKinds(now) {
@@ -168,17 +170,25 @@ func (c *Controller) dispatch(ctx context.Context, h *Heal, p protocol.RunKindPa
 	}
 
 	log := ctxlog.Logger(ctx).With("project", h.Project, "card_id", h.CardID, "kind", p.Kind)
-	h.Dispatch = Dispatch{}
 
-	if errors.Is(sendErr, backend.ErrRunKindRejected) {
+	switch {
+	case errors.Is(sendErr, backend.ErrRunKindRejected):
 		log.Warn("sentinel: the agent refused a run kind", "error", sendErr)
 
+		h.Dispatch = Dispatch{}
+
 		return c.park(ctx, h, fmt.Sprintf("the agent refused the %s run", p.Kind))
+	case errors.Is(sendErr, backend.ErrRunKindsUnavailable):
+		c.markNoRunKinds(now)
+	case !errors.Is(sendErr, backend.ErrRunKindBusy):
+		// The agent may have admitted the run, so clearing it could lose its
+		// spend and send a second one.
+		log.Warn("sentinel: run kind send failed; it stays in flight", "error", sendErr)
+
+		return nil
 	}
 
-	if errors.Is(sendErr, backend.ErrRunKindsUnavailable) {
-		c.markNoRunKinds(now)
-	}
+	h.Dispatch = Dispatch{}
 
 	// ErrHealChanged here means the agent reported anyway; the report stays.
 	if err := c.cfg.Store.SaveHeal(ctx, h); err != nil {

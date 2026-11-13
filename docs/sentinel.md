@@ -218,14 +218,14 @@ dispatched and the heal parks.
 `dispatch` (`dispatch.go`) records the dispatch on the heal (kind, mode,
 ceiling, time) before it sends, so a run the agent starts is always on
 record. A save refused because the heal changed since it was read sends
-nothing. On a failed send:
+nothing. Only a definite answer that started nothing clears the dispatch:
 
-| Agent answer                      | Effect                                                                                                    |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| 404, the agent has no run kinds   | The dispatch is cleared, and nothing is dispatched for 15 minutes; the status reads paused meanwhile      |
-| 429 or 503, busy                  | The dispatch is cleared; a later pass retries                                                             |
-| Another 4xx, refused              | The heal parks                                                                                            |
-| A transport error                 | The dispatch is cleared; a later pass retries                                                             |
+| Agent answer                       | Effect                                                                                                    |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| 404, the agent has no run kinds    | The dispatch is cleared, and nothing is dispatched for 15 minutes; the status reads paused meanwhile      |
+| 429 or 503, busy                   | The dispatch is cleared; a later pass retries                                                             |
+| Another 4xx, refused               | The dispatch is cleared and the heal parks                                                                |
+| A transport error or other failure | The agent may have admitted the run, so the dispatch stays on record and the error is logged: it is answered when the run reports, or the settle grace parks it with its ceiling charged. Clearing it could lose the run's spend and send a second run |
 
 A run kind takes one of the agent's `max_concurrent` worker slots and must
 leave one free for card runs: `roomFor` (`gate.go`) allows a dispatch only

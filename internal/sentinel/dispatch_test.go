@@ -113,14 +113,16 @@ func TestDispatchErrors(t *testing.T) {
 	tests := []struct {
 		name        string
 		err         error
+		returned    bool // the send error comes back to the caller
+		inFlight    bool // the recorded dispatch stays in flight
 		stage       string
 		state       string
 		stateReason string
 	}{
-		{"unavailable", backend.ErrRunKindsUnavailable, StageInvestigate, StatePaused, "the agent has no run kinds"},
-		{"busy", backend.ErrRunKindBusy, StageInvestigate, StateWatching, ""},
-		{"transport", errors.New("connection refused"), StageInvestigate, StateWatching, ""},
-		{"rejected", fmt.Errorf("%w: invalid_field git_token", backend.ErrRunKindRejected), StageParked, StateWatching, ""},
+		{"unavailable", backend.ErrRunKindsUnavailable, true, false, StageInvestigate, StatePaused, "the agent has no run kinds"},
+		{"busy", backend.ErrRunKindBusy, true, false, StageInvestigate, StateWatching, ""},
+		{"transport: the run may have started", errors.New("connection reset"), false, true, StageInvestigate, StateWatching, ""},
+		{"rejected", fmt.Errorf("%w: invalid_field git_token", backend.ErrRunKindRejected), false, false, StageParked, StateWatching, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -129,14 +131,21 @@ func TestDispatchErrors(t *testing.T) {
 			e.backend.err = tc.err
 
 			err := e.ctl.dispatch(context.Background(), h, investigateRun(), llmchannel.ModeEndpoint)
-			if tc.stage == StageParked {
-				require.NoError(t, err)
-			} else {
+			if tc.returned {
 				require.ErrorIs(t, err, tc.err)
+			} else {
+				require.NoError(t, err)
 			}
 
 			stored := e.store.heal(1)
-			assert.Equal(t, Dispatch{}, stored.Dispatch, "a send that started nothing leaves no dispatch in flight")
+			if tc.inFlight {
+				require.NotNil(t, stored.Dispatch.At, "a send of unknown outcome stays on record")
+				assert.Equal(t, protocol.RunKindInvestigate, stored.Dispatch.Kind)
+				assert.InDelta(t, 2.0, stored.Dispatch.CeilingUSD, 0)
+			} else {
+				assert.Equal(t, Dispatch{}, stored.Dispatch, "an answer that started nothing leaves no dispatch in flight")
+			}
+
 			assert.Equal(t, tc.stage, stored.Stage)
 
 			if tc.stage == StageParked {
@@ -150,6 +159,27 @@ func TestDispatchErrors(t *testing.T) {
 			assert.Equal(t, tc.stateReason, st.Reason)
 		})
 	}
+}
+
+func TestDispatchClearKeepsAReportRecordedMeanwhile(t *testing.T) {
+	e := newDispatchEnv(t)
+	h := e.heal(StageInvestigate)
+
+	// The status callback records an answer while the send is still out.
+	e.backend.onSend = func(protocol.RunKindPayload) {
+		answered := e.store.heal(1)
+		answered.Dispatch.AnsweredRunID = "run-k1"
+		answered.Version++
+		e.store.putHeal(answered)
+	}
+	e.backend.err = backend.ErrRunKindBusy
+
+	err := e.ctl.dispatch(context.Background(), h, investigateRun(), llmchannel.ModeEndpoint)
+	require.ErrorIs(t, err, backend.ErrRunKindBusy)
+
+	stored := e.store.heal(1)
+	assert.Equal(t, "run-k1", stored.Dispatch.AnsweredRunID, "the stale clear never overwrites the report")
+	assert.NotNil(t, stored.Dispatch.At)
 }
 
 func TestDispatchHoldsWhileTheAgentHasNoRunKinds(t *testing.T) {
