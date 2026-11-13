@@ -676,10 +676,18 @@ The backend reports a worker-status transition.
   "card_id": "ALPHA-042",
   "project": "alpha",
   "worker_status": "running",
-  "message": "container started"
+  "message": "container started",
+  "run_id": "r1"
 }
 ```
 
+- `run_id` is the backend's id for the run, set on every status of a run it
+  admitted (absent from older backends). `stop_cause` is set on terminal
+  statuses only and names why the run ended (for example `verify_parked`,
+  `usage_limit`, `killed`); absent or unknown means unknown. CM records both on
+  the card's run row before it updates the card, and attaches a cause only to
+  the run whose `running` status named that `run_id`, so a late terminal status
+  of a replaced run cannot overwrite the current run's cause.
 - The backend may set `running`, `failed`, or `completed`
   (`board.ValidateWorkerCallbackStatus`); anything else is `422`.
 - A `failed` or `killed` status arriving after the card reached `done` or

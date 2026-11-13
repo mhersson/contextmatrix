@@ -36,6 +36,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/llmchannel/llmchanneltest"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
+	"github.com/mhersson/contextmatrix/internal/sentinel"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -1580,6 +1581,124 @@ func TestWorkerStatusUpdate_ValidSignature(t *testing.T) {
 	var respCard board.Card
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
 	assert.Equal(t, "running", respCard.WorkerStatus)
+}
+
+type statusCall struct {
+	runID, status, cause string
+	cardStatusAtCall     string
+}
+
+// statusRecorder keeps each RecordRunStatus call with the card's worker_status
+// as the call saw it.
+type statusRecorder struct {
+	svc *service.CardService
+
+	mu    sync.Mutex
+	calls []statusCall
+}
+
+func (r *statusRecorder) OpenCardRun(context.Context, string, string, string, time.Time, sentinel.LaunchFacts) error {
+	return nil
+}
+
+func (r *statusRecorder) MarkHumanStop(context.Context, string, string) error { return nil }
+
+func (r *statusRecorder) RecordRunStatus(ctx context.Context, project, cardID, runID, status, cause string, _ time.Time) error {
+	card, err := r.svc.GetCard(ctx, project, cardID)
+	if err != nil {
+		return err
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.calls = append(r.calls, statusCall{runID, status, cause, card.WorkerStatus})
+
+	return nil
+}
+
+func postSignedStatus(t *testing.T, serverURL, apiKey, body string) {
+	t.Helper()
+
+	bodyBytes := []byte(body)
+	sigHeader, tsHeader := protocol.SignRequestHeaders(apiKey, http.MethodPost, "/api/agent/status", bodyBytes)
+
+	req, err := http.NewRequest("POST", serverURL+"/api/agent/status", bytes.NewReader(bodyBytes))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Signature-256", sigHeader)
+	req.Header.Set("X-Webhook-Timestamp", tsHeader)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	defer closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+func statusCallbackServer(t *testing.T) (*httptest.Server, *service.CardService, *statusRecorder, string, string) {
+	t.Helper()
+
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
+	t.Cleanup(cleanup)
+
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Worker task", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
+
+	runs := &statusRecorder{svc: svc}
+	router := newTestRouter(RouterConfig{
+		Service: svc, Bus: bus, Backend: backend.NewClient("http://localhost:9090", apiKey),
+		AgentBackendCfg: &config.AgentBackendConfig{APIKey: apiKey},
+		CardRuns:        runs,
+	})
+
+	server := httptest.NewServer(router)
+	t.Cleanup(server.Close)
+
+	return server, svc, runs, card.ID, apiKey
+}
+
+func TestStatusCallbackRecordsRunStatusBeforeCard(t *testing.T) {
+	server, svc, runs, id, apiKey := statusCallbackServer(t)
+
+	postSignedStatus(t, server.URL, apiKey, fmt.Sprintf(
+		`{"card_id":%q,"project":"test-project","worker_status":"running","run_id":"r1"}`, strings.ToLower(id)))
+	postSignedStatus(t, server.URL, apiKey, fmt.Sprintf(
+		`{"card_id":%q,"project":"test-project","worker_status":"failed","run_id":"r1","stop_cause":"verify_parked"}`, id))
+
+	runs.mu.Lock()
+	defer runs.mu.Unlock()
+
+	require.Len(t, runs.calls, 2)
+	assert.Equal(t, statusCall{"r1", "running", "", ""}, runs.calls[0])
+	// The card still held the previous status when the cause was recorded.
+	assert.Equal(t, statusCall{"r1", "failed", "verify_parked", "running"}, runs.calls[1])
+
+	card, err := svc.GetCard(context.Background(), "test-project", id)
+	require.NoError(t, err)
+	assert.Equal(t, "failed", card.WorkerStatus)
+}
+
+func TestStatusCallbackWithoutRunIDStillUpdatesCard(t *testing.T) {
+	server, svc, runs, id, apiKey := statusCallbackServer(t)
+
+	postSignedStatus(t, server.URL, apiKey, fmt.Sprintf(
+		`{"card_id":%q,"project":"test-project","worker_status":"running"}`, id))
+
+	runs.mu.Lock()
+	defer runs.mu.Unlock()
+
+	require.Len(t, runs.calls, 1)
+	assert.Equal(t, statusCall{"", "running", "", ""}, runs.calls[0])
+
+	card, err := svc.GetCard(context.Background(), "test-project", id)
+	require.NoError(t, err)
+	assert.Equal(t, "running", card.WorkerStatus)
 }
 
 // Backend callbacks mount at the fixed config.AgentCallbackPath - prove the

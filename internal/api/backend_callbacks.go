@@ -40,7 +40,18 @@ func (h *backendHandlers) workerStatusUpdate(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	card, err := h.svc.UpdateWorkerStatus(r.Context(), req.Project, strings.ToUpper(req.CardID), req.WorkerStatus, req.Message)
+	cardID := strings.ToUpper(req.CardID)
+
+	// Recorded before the card changes so a bus wake-up on the new status
+	// always finds its cause.
+	if h.cardRuns != nil {
+		if err := h.cardRuns.RecordRunStatus(r.Context(), req.Project, cardID,
+			req.RunID, req.WorkerStatus, req.StopCause, time.Now()); err != nil {
+			ctxlog.Logger(r.Context()).Warn("record run status", "project", req.Project, "card_id", cardID, "error", err)
+		}
+	}
+
+	card, err := h.svc.UpdateWorkerStatus(r.Context(), req.Project, cardID, req.WorkerStatus, req.Message)
 	if err != nil {
 		handleServiceError(w, r, err)
 

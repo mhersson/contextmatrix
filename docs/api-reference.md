@@ -2530,8 +2530,13 @@ or on `dropped`, and stops reconnecting after `terminal`.
 Task-backend callback reporting a worker-status transition.
 
 ```json
-{ "card_id": "PROJ-042", "project": "my-project", "worker_status": "running", "message": "container started" }
+{ "card_id": "PROJ-042", "project": "my-project", "worker_status": "running", "message": "container started", "run_id": "r1" }
 ```
+
+`run_id` is the backend's id for the run, present on every status of an
+admitted run. `stop_cause` is present on terminal statuses only; an absent or
+unknown value means unknown. CM records the cause only for the run whose
+`running` status carried the same `run_id`.
 
 `worker_status` must be `running`, `failed`, or `completed`; the server-only
 `queued` and `killed` are 422 `VALIDATION_ERROR`. `message`, when present,
