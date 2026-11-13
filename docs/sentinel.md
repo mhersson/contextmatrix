@@ -176,7 +176,7 @@ settled:
   callback's stop cause.
 - A human Stop is `human_stop`. `review_parked` on a card with 7 or more
   review attempts (`board.MaxReviewAttempts`) is `review_cap`. Any stop but
-  `done` on a card whose forwarded fix is still on trial and was forwarded
+  `done` or `usage_limit` on a card whose forwarded fix is still on trial and was forwarded
   before the run started is `forward_fix_failed`. An empty cause is `unknown`;
   otherwise the cause is the stop cause.
 

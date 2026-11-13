@@ -30,7 +30,8 @@ func causeKey(run Run, card *board.Card, forward *Heal, now time.Time) (key stri
 		return CauseHumanStop, true
 	case run.StopCause == protocol.StopCauseReviewParked && card.ReviewAttempts >= board.MaxReviewAttempts:
 		return CauseReviewCap, true
-	case run.StopCause != protocol.StopCauseDone && forwardedBefore(forward, run.StartedAt):
+	case run.StopCause != protocol.StopCauseDone && run.StopCause != protocol.StopCauseUsageLimit &&
+		forwardedBefore(forward, run.StartedAt):
 		return CauseForwardFixFailed, true
 	case run.StopCause == "":
 		return CauseUnknown, true

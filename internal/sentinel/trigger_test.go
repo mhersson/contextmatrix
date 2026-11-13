@@ -43,6 +43,7 @@ func TestCauseKey(t *testing.T) {
 		{"review cap", run("review_parked", &stopped), card("review", "parked", time.Minute, 7), nil, "review_cap", true},
 		{"review short of the cap", run("review_parked", &stopped), card("review", "parked", time.Minute, 6), nil, "review_parked", true},
 		{"forwarded fix failed", run("error", &stopped), card("in_progress", "failed", time.Minute, 0), forward(StageForwarded, started.Add(-time.Minute)), "forward_fix_failed", true},
+		{"forwarded fix, usage limit", run("usage_limit", &stopped), card("in_progress", "failed", time.Minute, 0), forward(StageForwarded, started.Add(-time.Minute)), "usage_limit", true},
 		{"forwarded fix, run done", run("done", &stopped), card("done", "", time.Minute, 0), forward(StageForwarded, started.Add(-time.Minute)), "done", true},
 		{"forward after run start", run("error", &stopped), card("in_progress", "failed", time.Minute, 0), forward(StageForwarded, started.Add(time.Minute)), "error", true},
 		{"forward already judged", run("error", &stopped), card("in_progress", "failed", time.Minute, 0), forward(StageForwardFailed, started.Add(-time.Minute)), "error", true},

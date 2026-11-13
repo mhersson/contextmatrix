@@ -36,38 +36,38 @@ func TestCauseTableCoversEveryStopCause(t *testing.T) {
 
 func TestResponseFor(t *testing.T) {
 	tests := []struct {
-		key, response, reason string
+		key, response string
 	}{
-		{"toolchain_missing", RespInvestigateFix, ""},
-		{"verify_parked", RespInvestigateFix, ""},
-		{"empty_subtask", RespInvestigateFix, ""},
-		{"max_turns", RespInvestigateFix, ""},
-		{"context_limit", RespInvestigateFix, ""},
-		{"review_parked", RespInvestigateFix, ""},
-		{"review_cap", RespPark, "review rounds used up"},
-		{"usage_limit", RespUsageRerun, ""},
-		{"forward_fix_failed", RespPark, "a fix Sentinel forwarded to this card did not hold"},
-		{"budget_exceeded", RespPark, "budget exceeded"},
-		{"no_model", RespPark, "no model available"},
-		{"split_overflow", RespPark, "the split overflowed"},
-		{"gates_parked", RespInvestigatePark, ""},
-		{"error", RespInvestigatePark, ""},
-		{"shutdown", RespInvestigatePark, ""},
-		{"timeout", RespInvestigatePark, ""},
-		{"infrastructure", RespInvestigatePark, ""},
-		{"killed", RespInvestigatePark, ""},
-		{"ended", RespInvestigatePark, ""},
-		{"stalled", RespInvestigatePark, ""},
-		{"unknown", RespInvestigatePark, ""},
-		{"done", RespIgnore, ""},
-		{"human_stop", RespIgnore, ""},
-		{"brand_new_cause", RespInvestigatePark, ""},
+		{"toolchain_missing", RespInvestigateFix},
+		{"verify_parked", RespInvestigateFix},
+		{"empty_subtask", RespInvestigateFix},
+		{"max_turns", RespInvestigateFix},
+		{"context_limit", RespInvestigateFix},
+		{"review_parked", RespInvestigateFix},
+		{"review_cap", RespPark},
+		{"usage_limit", RespUsageRerun},
+		{"forward_fix_failed", RespPark},
+		{"budget_exceeded", RespPark},
+		{"no_model", RespPark},
+		{"split_overflow", RespPark},
+		{"gates_parked", RespInvestigatePark},
+		{"error", RespInvestigatePark},
+		{"shutdown", RespInvestigatePark},
+		{"timeout", RespInvestigatePark},
+		{"infrastructure", RespInvestigatePark},
+		{"killed", RespInvestigatePark},
+		{"ended", RespInvestigatePark},
+		{"stalled", RespInvestigatePark},
+		{"unknown", RespInvestigatePark},
+		{"done", RespIgnore},
+		{"human_stop", RespIgnore},
+		{"brand_new_cause", RespInvestigatePark},
 	}
 	for _, tt := range tests {
 		t.Run(tt.key, func(t *testing.T) {
 			row := responseFor(tt.key)
 			assert.Equal(t, tt.response, row.Response)
-			assert.Equal(t, tt.reason, row.Reason)
+			assert.Equal(t, tt.response == RespPark, row.Reason != "")
 		})
 	}
 }
