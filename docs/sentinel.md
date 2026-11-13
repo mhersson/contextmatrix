@@ -105,13 +105,15 @@ Three ops.db tables hold what Sentinel does; nothing writes them at present.
   a heal; `forward_passed` and `forward_failed` end a forward row.
 - `sentinel_findings`: the friction findings an investigation reported.
 - `sentinel_spend`: the spend ledger, one row per charge with the LLM channel
-  mode it ran on.
+  mode it ran on and, for a run kind's status, its run ID.
 
 A run kind's terminal status is recorded on the card's newest heal with that
 kind in flight and not yet answered or failed, whatever the heal's stage, and
 charges one ledger row: its usage, or the dispatch's ceiling when a model kind
-reported none. A repeat of the status, or one with no such heal, records and
-charges nothing. Recording never moves the stage.
+reported none. A status whose run ID is already on the ledger is a repeat, so
+it records and charges nothing even when an older heal of the card still has
+such a dispatch open; so does one with no such heal. Recording never moves the
+stage.
 
 Every write to a heal row bumps its version, and a save carries the version it
 read: one made from a stale read is refused (`ErrHealChanged`), so a pass never

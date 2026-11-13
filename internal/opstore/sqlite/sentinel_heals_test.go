@@ -370,11 +370,13 @@ func TestRecordRunKindStatusMatchesOnlyAnUnansweredDispatch(t *testing.T) {
 	}
 }
 
-func TestRecordRunKindStatusAnswersTheNewestDispatch(t *testing.T) {
-	st := openLadderStore(t)
-	ctx := context.Background()
+// openOlderAndNewerDispatch leaves P-001 with a closed heal whose investigate
+// dispatch never answered, and a newer heal with one in flight.
+func openOlderAndNewerDispatch(t *testing.T, st *Store) (older, newer int64) {
+	t.Helper()
 
-	older := openDispatchedHeal(t, st, "P-001", sentinel.StageClosed, "endpoint")
+	ctx := context.Background()
+	older = openDispatchedHeal(t, st, "P-001", sentinel.StageClosed, "endpoint")
 
 	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0.Add(time.Hour), sentinel.LaunchFacts{Autonomous: true}))
 
@@ -384,6 +386,32 @@ func TestRecordRunKindStatusAnswersTheNewestDispatch(t *testing.T) {
 		Dispatch: sentinel.Dispatch{Kind: protocol.RunKindInvestigate, Mode: "endpoint", CeilingUSD: 1, At: &at},
 	})
 	require.NoError(t, err)
+
+	return older, newer
+}
+
+func healByID(t *testing.T, st *Store, id int64) sentinel.Heal {
+	t.Helper()
+
+	heals, err := st.CardHeals(context.Background(), "p", "P-001")
+	require.NoError(t, err)
+
+	for _, h := range heals {
+		if h.ID == id {
+			return h
+		}
+	}
+
+	require.FailNow(t, "no heal", "id %d", id)
+
+	return sentinel.Heal{}
+}
+
+func TestRecordRunKindStatusAnswersTheNewestDispatch(t *testing.T) {
+	st := openLadderStore(t)
+	ctx := context.Background()
+
+	older, newer := openOlderAndNewerDispatch(t, st)
 
 	healID, recorded, err := st.RecordRunKindStatus(ctx, investigateReport("P-001"))
 	require.NoError(t, err)
@@ -396,6 +424,26 @@ func TestRecordRunKindStatusAnswersTheNewestDispatch(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, recorded)
 	assert.Equal(t, older, healID)
+}
+
+func TestRecordRunKindStatusRepeatSkipsAnOlderOpenDispatch(t *testing.T) {
+	st := openLadderStore(t)
+	ctx := context.Background()
+
+	older, newer := openOlderAndNewerDispatch(t, st)
+	before := healByID(t, st, older)
+
+	healID, recorded, err := st.RecordRunKindStatus(ctx, investigateReport("P-001"))
+	require.NoError(t, err)
+	require.True(t, recorded)
+	require.Equal(t, newer, healID)
+
+	healID, recorded, err = st.RecordRunKindStatus(ctx, investigateReport("P-001"))
+	require.NoError(t, err)
+	assert.False(t, recorded)
+	assert.Zero(t, healID)
+	assert.Equal(t, 1, ledgerRows(t, st))
+	assert.Equal(t, before, healByID(t, st, older))
 }
 
 func TestRecordRunKindStatusOnParkedHealStillCharges(t *testing.T) {

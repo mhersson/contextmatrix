@@ -27,7 +27,7 @@ const healSelect = `SELECT id, kind, project, card_id, run_started, created_at, 
 	(SELECT COALESCE(SUM(usd), 0) FROM sentinel_spend WHERE heal_id = h.id), version
 	FROM sentinel_heals h`
 
-const insertSpend = `INSERT INTO sentinel_spend (heal_id, mode, usd, at) VALUES (?, ?, ?, ?)`
+const insertSpend = `INSERT INTO sentinel_spend (heal_id, mode, usd, at, run_id) VALUES (?, ?, ?, ?, ?)`
 
 // OpenHeal inserts a heal or forward row and returns its ID. A heal also marks
 // its run decided in the same transaction; a second heal for the same run
@@ -151,9 +151,10 @@ func (s *Store) LatestHeals(ctx context.Context, project string) (map[string]sen
 
 // RecordRunKindStatus records a run kind's terminal status on the card's
 // newest heal whose dispatch of that kind is neither answered nor failed, and
-// charges its ledger once, whatever the heal's stage. A report matching no
-// such heal, a repeat among them, records and charges nothing, as does one
-// without a kind or run ID, which cannot be matched or deduplicated.
+// charges its ledger once, whatever the heal's stage. A run ID already on the
+// ledger is a repeat and records and charges nothing, even while an older heal
+// of the card still has that kind open; so does a report matching no heal, or
+// one without a kind or run ID.
 func (s *Store) RecordRunKindStatus(ctx context.Context, r sentinel.RunKindReport) (healID int64, recorded bool, err error) {
 	if r.Kind == "" || r.RunID == "" {
 		return 0, false, nil
@@ -182,6 +183,8 @@ func (s *Store) RecordRunKindStatus(ctx context.Context, r sentinel.RunKindRepor
 		ceiling float64
 	)
 
+	// The run_id != '' term lets the partial unique index on the ledger's run_id
+	// serve the repeat lookup.
 	err = tx.QueryRowContext(ctx,
 		`UPDATE sentinel_heals SET dispatch_answered_run_id = ?, dispatch_failure = ?,
 		   investigation = COALESCE(?, investigation), check_result = COALESCE(?, check_result),
@@ -190,8 +193,9 @@ func (s *Store) RecordRunKindStatus(ctx context.Context, r sentinel.RunKindRepor
 		             WHERE project = ? AND card_id = ? AND dispatch_kind = ?
 		               AND dispatch_answered_run_id = '' AND dispatch_failure = ''
 		             ORDER BY id DESC LIMIT 1)
+		   AND NOT EXISTS (SELECT 1 FROM sentinel_spend WHERE run_id = ? AND run_id != '')
 		 RETURNING id, dispatch_mode, dispatch_ceiling_usd`,
-		r.RunID, r.Failure, investigation, check, r.Project, r.CardID, r.Kind).
+		r.RunID, r.Failure, investigation, check, r.Project, r.CardID, r.Kind, r.RunID).
 		Scan(&healID, &mode, &ceiling)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false, nil
@@ -206,7 +210,7 @@ func (s *Store) RecordRunKindStatus(ctx context.Context, r sentinel.RunKindRepor
 		usd = ceiling
 	}
 
-	if _, err := tx.ExecContext(ctx, insertSpend, healID, mode, usd, unixNano(r.At)); err != nil {
+	if _, err := tx.ExecContext(ctx, insertSpend, healID, mode, usd, unixNano(r.At), r.RunID); err != nil {
 		return 0, false, fmt.Errorf("record run kind status: %w", err)
 	}
 
@@ -276,9 +280,9 @@ func (s *Store) CardFindings(ctx context.Context, project, cardID string) ([]sen
 	return findings, nil
 }
 
-// Charge adds one row to a heal's spend ledger.
+// Charge adds one row to a heal's spend ledger, tied to no run kind's status.
 func (s *Store) Charge(ctx context.Context, healID int64, mode string, usd float64, at time.Time) error {
-	if _, err := s.db.ExecContext(ctx, insertSpend, healID, mode, usd, unixNano(at)); err != nil {
+	if _, err := s.db.ExecContext(ctx, insertSpend, healID, mode, usd, unixNano(at), ""); err != nil {
 		return fmt.Errorf("charge heal: %w", err)
 	}
 

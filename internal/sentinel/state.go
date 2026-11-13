@@ -129,8 +129,10 @@ type Finding struct {
 type RunKindReport struct {
 	Project, CardID, Kind, RunID string
 	Failure                      string // terminal status without a result: message, else stop cause
-	Result                       []byte // the kind's result JSON; nil when failed
-	SpendUSD                     float64
-	ChargeCeiling                bool // model kind ended without usage
-	At                           time.Time
+	// Result is the kind's own result object as JSON, RunKindResult.Investigate
+	// or .Check, never the RunKindResult wrapper; nil when failed.
+	Result        []byte
+	SpendUSD      float64
+	ChargeCeiling bool // model kind ended without usage
+	At            time.Time
 }

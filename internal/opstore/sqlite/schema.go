@@ -227,9 +227,11 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			heal_id INTEGER NOT NULL REFERENCES sentinel_heals(id),
 			mode    TEXT NOT NULL,
 			usd     REAL NOT NULL,
-			at      INTEGER NOT NULL
+			at      INTEGER NOT NULL,
+			run_id  TEXT NOT NULL DEFAULT ''
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_sentinel_spend_heal ON sentinel_spend(heal_id)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_sentinel_spend_run ON sentinel_spend(run_id) WHERE run_id != ''`,
 	}
 
 	for _, s := range stmts {
