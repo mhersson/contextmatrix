@@ -28,6 +28,7 @@ type launchOptions struct {
 	createBaseBranch bool
 	baseBranchFrom   string
 	handRun          bool // a human's run of one card, guarded against a racing playbook Play
+	origin           string
 }
 
 // launchFailure is a refusal with the HTTP shape the handlers write and the
@@ -271,7 +272,11 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 	// Best-effort: the record feeds in-flight counts and must not fail a run
 	// the backend already accepted.
 	if h.cardRuns != nil {
-		if err := h.cardRuns.OpenCardRun(ctx, project, id, string(runMode), time.Now(), sentinel.LaunchFacts{}); err != nil {
+		if err := h.cardRuns.OpenCardRun(ctx, project, id, string(runMode), time.Now(), sentinel.LaunchFacts{
+			Snapshot:   board.TakeEditSnapshot(card),
+			Autonomous: card.Autonomous,
+			Origin:     opts.origin,
+		}); err != nil {
 			ctxlog.Logger(ctx).Warn("failed to record card run mode",
 				"card_id", id, "project", project, "error", err)
 		}
@@ -393,7 +398,22 @@ func (h *backendHandlers) stop(ctx context.Context, project, id string) (*board.
 		return nil, launchRefused(http.StatusBadGateway, ErrCodeBackendUnavailable, "failed to stop backend task", "")
 	}
 
+	h.markHumanStop(ctx, project, id)
+
 	return h.svc.UpdateWorkerStatus(ctx, project, id, "killed", "task stopped by user")
+}
+
+// markHumanStop is best-effort like the run row open: the stop already
+// reached the backend and must not fail on the record.
+func (h *backendHandlers) markHumanStop(ctx context.Context, project, id string) {
+	if h.cardRuns == nil {
+		return
+	}
+
+	if err := h.cardRuns.MarkHumanStop(ctx, project, id); err != nil {
+		ctxlog.Logger(ctx).Warn("failed to mark card run human-stopped",
+			"card_id", id, "project", project, "error", err)
+	}
 }
 
 // playbookLaunch and playbookStop adapt launch and stop for the playbook
@@ -404,7 +424,7 @@ func (h *backendHandlers) stop(ctx context.Context, project, id string) (*board.
 // returns its sanitized class instead. A *launchFailure is already human and
 // sanitized and passes through unchanged.
 func (h *backendHandlers) playbookLaunch(ctx context.Context, project, id string, opts playbookrun.LaunchOptions) error {
-	_, err := h.launch(ctx, project, id, launchOptions{createBaseBranch: opts.CreateBaseBranch, baseBranchFrom: opts.BaseBranchFrom})
+	_, err := h.launch(ctx, project, id, launchOptions{createBaseBranch: opts.CreateBaseBranch, baseBranchFrom: opts.BaseBranchFrom, origin: sentinel.OriginPlaybook})
 	if err == nil {
 		return nil
 	}

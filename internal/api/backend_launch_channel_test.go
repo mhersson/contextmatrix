@@ -289,6 +289,14 @@ func (failingRuns) OpenCardRun(context.Context, string, string, string, time.Tim
 	return errors.New("disk full")
 }
 
+func (failingRuns) RecordRunStatus(context.Context, string, string, string, string, string, time.Time) error {
+	return errors.New("disk full")
+}
+
+func (failingRuns) MarkHumanStop(context.Context, string, string) error {
+	return errors.New("disk full")
+}
+
 func TestLaunch_RunRowFailureDoesNotFailLaunch(t *testing.T) {
 	h, svc, _, _ := channelLaunchHandlers(t, llmchannel.ModeClaudeCode, []string{config.BackendNameAgent})
 	h.cardRuns = failingRuns{}

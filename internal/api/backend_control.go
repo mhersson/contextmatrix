@@ -288,6 +288,8 @@ func (h *backendHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 			continue // another instance's worker; its stop-all is its own
 		}
 
+		h.markHumanStop(r.Context(), project, card.ID)
+
 		_, err := h.svc.UpdateWorkerStatus(r.Context(), project, card.ID, "killed", "stopped by stop-all")
 		if err != nil {
 			// Backend already received the kill webhook above; only CM's view of this

@@ -59,10 +59,12 @@ type ClaudeCodeCatalog interface {
 	ContextWindow(ctx context.Context, name string) int
 }
 
-// CardRunRecorder stores the LLM channel mode each card run started in.
+// CardRunRecorder stores each card run's start facts, reported status and human stop.
 // Implemented by opstore/sqlite.Store.
 type CardRunRecorder interface {
 	OpenCardRun(ctx context.Context, project, cardID, mode string, at time.Time, facts sentinel.LaunchFacts) error
+	RecordRunStatus(ctx context.Context, project, cardID, runID, status, stopCause string, at time.Time) error
+	MarkHumanStop(ctx context.Context, project, cardID string) error
 }
 
 // blacklistReader returns the set of OpenRouter slugs that must never be
