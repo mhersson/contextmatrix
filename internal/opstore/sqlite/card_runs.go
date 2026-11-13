@@ -25,8 +25,8 @@ type CardRun struct {
 }
 
 // OpenCardRun records a run's mode and launch facts. A card has one row: a
-// rerun replaces it and clears every per-run column. Heal attempts reset only
-// for a REST launch.
+// rerun replaces it and clears every per-run column. Heal attempts and
+// usage-limit reruns reset only for a REST launch.
 func (s *Store) OpenCardRun(ctx context.Context, project, cardID, mode string, at time.Time, facts sentinel.LaunchFacts) error {
 	snap, err := json.Marshal(facts.Snapshot)
 	if err != nil {
@@ -40,7 +40,8 @@ func (s *Store) OpenCardRun(ctx context.Context, project, cardID, mode string, a
 		   started_at = excluded.started_at, ended_at = NULL,
 		   edit_snapshot = excluded.edit_snapshot, autonomous = excluded.autonomous, origin = excluded.origin,
 		   attempts = CASE WHEN excluded.origin = 'rest' THEN 0 ELSE attempts END,
-		   run_id = '', stop_cause = '', stopped_at = NULL, human_stop = 0`,
+		   usage_reruns = CASE WHEN excluded.origin = 'rest' THEN 0 ELSE usage_reruns END,
+		   run_id = '', stop_cause = '', stopped_at = NULL, human_stop = 0, decided = 0`,
 		project, cardID, mode, at.UnixNano(), string(snap), facts.Autonomous, facts.Origin); err != nil {
 		return fmt.Errorf("open card run: %w", err)
 	}
@@ -128,22 +129,15 @@ func (s *Store) RefreshEditSnapshot(ctx context.Context, project, cardID string,
 	return nil
 }
 
+// runColumns are the run row's columns in scanRun order.
+const runColumns = `project, card_id, mode, started_at, ended_at, stopped_at, edit_snapshot,
+	autonomous, origin, attempts, usage_reruns, run_id, stop_cause, human_stop, decided`
+
 // CardRunRow returns the card's run row, or nil when this instance never
 // launched one.
 func (s *Store) CardRunRow(ctx context.Context, project, cardID string) (*sentinel.Run, error) {
-	var (
-		r              sentinel.Run
-		started        int64
-		ended, stopped sql.NullInt64
-		snap           string
-	)
-
-	err := s.db.QueryRowContext(ctx,
-		`SELECT project, card_id, mode, started_at, ended_at, stopped_at, edit_snapshot,
-		        autonomous, origin, attempts, run_id, stop_cause, human_stop
-		 FROM card_run_modes WHERE project = ? AND card_id = ?`, project, cardID).
-		Scan(&r.Project, &r.CardID, &r.Mode, &started, &ended, &stopped, &snap,
-			&r.Launch.Autonomous, &r.Launch.Origin, &r.Attempts, &r.RunID, &r.StopCause, &r.HumanStop)
+	r, err := scanRun(s.db.QueryRowContext(ctx,
+		`SELECT `+runColumns+` FROM card_run_modes WHERE project = ? AND card_id = ?`, project, cardID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil //nolint:nilnil // nil, nil means no row
 	}
@@ -152,9 +146,53 @@ func (s *Store) CardRunRow(ctx context.Context, project, cardID string) (*sentin
 		return nil, fmt.Errorf("read card run: %w", err)
 	}
 
+	return &r, nil
+}
+
+// UndecidedRuns returns the autonomous runs Sentinel has not looked at.
+func (s *Store) UndecidedRuns(ctx context.Context) ([]sentinel.Run, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+runColumns+` FROM card_run_modes WHERE autonomous = 1 AND decided = 0`)
+	if err != nil {
+		return nil, fmt.Errorf("list undecided runs: %w", err)
+	}
+	defer rows.Close()
+
+	var runs []sentinel.Run
+
+	for rows.Next() {
+		r, err := scanRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list undecided runs: %w", err)
+		}
+
+		runs = append(runs, r)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list undecided runs: %w", err)
+	}
+
+	return runs, nil
+}
+
+func scanRun(sc scanner) (sentinel.Run, error) {
+	var (
+		r              sentinel.Run
+		started        int64
+		ended, stopped sql.NullInt64
+		snap           string
+	)
+
+	if err := sc.Scan(&r.Project, &r.CardID, &r.Mode, &started, &ended, &stopped, &snap,
+		&r.Launch.Autonomous, &r.Launch.Origin, &r.Attempts, &r.UsageReruns, &r.RunID, &r.StopCause,
+		&r.HumanStop, &r.Decided); err != nil {
+		return sentinel.Run{}, err
+	}
+
 	if snap != "" {
 		if err := json.Unmarshal([]byte(snap), &r.Launch.Snapshot); err != nil {
-			return nil, fmt.Errorf("read card run: decode snapshot: %w", err)
+			return sentinel.Run{}, fmt.Errorf("decode snapshot: %w", err)
 		}
 	}
 
@@ -162,7 +200,43 @@ func (s *Store) CardRunRow(ctx context.Context, project, cardID string) (*sentin
 	r.EndedAt = nanoTime(ended)
 	r.StoppedAt = nanoTime(stopped)
 
-	return &r, nil
+	return r, nil
+}
+
+// markRunDecided matches the run by its start, so a rerun opened since stays
+// undecided.
+const markRunDecided = `UPDATE card_run_modes SET decided = 1 WHERE project = ? AND card_id = ? AND started_at = ?`
+
+// MarkRunDecided records that Sentinel has looked at the run that started at
+// started.
+func (s *Store) MarkRunDecided(ctx context.Context, project, cardID string, started time.Time) error {
+	if _, err := s.db.ExecContext(ctx, markRunDecided, project, cardID, started.UnixNano()); err != nil {
+		return fmt.Errorf("mark run decided: %w", err)
+	}
+
+	return nil
+}
+
+// IncrementAttempts counts one heal rerun on the card's run row.
+func (s *Store) IncrementAttempts(ctx context.Context, project, cardID string) error {
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE card_run_modes SET attempts = attempts + 1 WHERE project = ? AND card_id = ?`,
+		project, cardID); err != nil {
+		return fmt.Errorf("increment attempts: %w", err)
+	}
+
+	return nil
+}
+
+// IncrementUsageReruns counts one usage-limit rerun on the card's run row.
+func (s *Store) IncrementUsageReruns(ctx context.Context, project, cardID string) error {
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE card_run_modes SET usage_reruns = usage_reruns + 1 WHERE project = ? AND card_id = ?`,
+		project, cardID); err != nil {
+		return fmt.Errorf("increment usage reruns: %w", err)
+	}
+
+	return nil
 }
 
 func nanoTime(n sql.NullInt64) *time.Time {

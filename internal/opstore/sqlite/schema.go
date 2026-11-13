@@ -179,6 +179,56 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			updated_by              TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_jira_writeback_due ON jira_writeback(state, next_attempt_at)`,
+		`CREATE TABLE IF NOT EXISTS sentinel_heals (
+			id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+			kind                     TEXT NOT NULL,
+			project                  TEXT NOT NULL,
+			card_id                  TEXT NOT NULL,
+			run_started              INTEGER NOT NULL,
+			created_at               INTEGER NOT NULL,
+			run_id                   TEXT NOT NULL,
+			cause                    TEXT NOT NULL,
+			response                 TEXT NOT NULL,
+			stage                    TEXT NOT NULL,
+			reason                   TEXT NOT NULL,
+			dispatch_kind            TEXT NOT NULL,
+			dispatch_mode            TEXT NOT NULL,
+			dispatch_ceiling_usd     REAL NOT NULL,
+			dispatch_at              INTEGER,
+			dispatch_answered_run_id TEXT NOT NULL,
+			dispatch_failure         TEXT NOT NULL,
+			investigation            TEXT NOT NULL,
+			check_result             TEXT NOT NULL,
+			sent_subtasks            TEXT NOT NULL,
+			sent_siblings            TEXT NOT NULL,
+			change                   TEXT NOT NULL,
+			relaunched_at            INTEGER,
+			cost_base_usd            REAL NOT NULL,
+			source_card              TEXT NOT NULL,
+			updated_at               INTEGER NOT NULL
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_sentinel_heals_run
+			ON sentinel_heals(project, card_id, run_started) WHERE kind = 'heal'`,
+		`CREATE INDEX IF NOT EXISTS idx_sentinel_heals_card ON sentinel_heals(project, card_id)`,
+		`CREATE TABLE IF NOT EXISTS sentinel_findings (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			heal_id    INTEGER NOT NULL REFERENCES sentinel_heals(id),
+			project    TEXT NOT NULL,
+			card_id    TEXT NOT NULL,
+			kind       TEXT NOT NULL,
+			title      TEXT NOT NULL,
+			text       TEXT NOT NULL,
+			evidence   TEXT NOT NULL,
+			created_at INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_sentinel_findings_card ON sentinel_findings(project, card_id)`,
+		`CREATE TABLE IF NOT EXISTS sentinel_spend (
+			heal_id INTEGER NOT NULL REFERENCES sentinel_heals(id),
+			mode    TEXT NOT NULL,
+			usd     REAL NOT NULL,
+			at      INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_sentinel_spend_heal ON sentinel_spend(heal_id)`,
 	}
 
 	for _, s := range stmts {
@@ -218,6 +268,8 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		{"stop_cause", "TEXT NOT NULL DEFAULT ''"},
 		{"stopped_at", "INTEGER"},
 		{"human_stop", "INTEGER NOT NULL DEFAULT 0"},
+		{"usage_reruns", "INTEGER NOT NULL DEFAULT 0"},
+		{"decided", "INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if err := addColumnIfMissing(ctx, db, "card_run_modes", col.name, col.decl); err != nil {
 			return err

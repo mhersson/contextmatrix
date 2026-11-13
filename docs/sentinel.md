@@ -72,10 +72,11 @@ step) replaces the row and records:
 | `autonomous`    | The card's `autonomous` flag at launch                                                                    |
 | `origin`        | `rest`, `mcp` or `playbook`; `sentinel` is defined for Sentinel's own reruns, and no launch uses it at present |
 | `attempts`      | Heal reruns, at most `MaxHealAttempts` (2): a `rest` launch resets it to 0, every other launch keeps it   |
+| `usage_reruns`  | Usage-limit reruns, at most `MaxUsageReruns` (3): reset and kept like `attempts`                          |
 
-Nothing increments `attempts` at present. A launch also clears `run_id`,
-`stop_cause`, `stopped_at`, `human_stop` and `ended_at`, which fill in as the
-run goes:
+Nothing increments `attempts` or `usage_reruns` at present. A launch also
+clears `run_id`, `stop_cause`, `stopped_at`, `human_stop`, `decided` and
+`ended_at`, which fill in as the run goes:
 
 - `run_id` comes from the first `running` status callback that carries one,
   while none is stored and the run has not stopped.
@@ -84,9 +85,33 @@ run goes:
   (empty). The callback records them before it updates the card.
 - `human_stop` is set by Stop and Stop All before the card reads `killed`.
 - `ended_at` is set once CM sees the card's worker end.
+- `decided` is set once Sentinel has looked at the run: when it opens a heal
+  for it, or decides to leave it. The store lists the autonomous runs not yet
+  decided; nothing sets it at present.
 
 `edit_snapshot` is refreshed after each write by the run's non-human claim
 holder, so only human, unclaimed and system writes read as edits against it.
+
+## Heal records
+
+Three ops.db tables hold what Sentinel does; nothing writes them at present.
+
+- `sentinel_heals`: one row per heal, for one stopped run (at most one per run
+  start, so opening it twice returns the first), or per fix forwarded to
+  another card. Opening a heal marks its run decided in the same transaction.
+  The row holds the stage, the run kind in flight and its answer, the
+  investigation and check results, the subtasks and siblings sent, and the
+  change made to the card. `healed`, `rerun_failed`, `parked` and `closed` end
+  a heal; `forward_passed` and `forward_failed` end a forward row.
+- `sentinel_findings`: the friction findings an investigation reported.
+- `sentinel_spend`: the spend ledger, one row per charge with the LLM channel
+  mode it ran on.
+
+A run kind's terminal status is recorded on the card's newest heal with that
+kind in flight and not yet answered or failed, whatever the heal's stage, and
+charges one ledger row: its usage, or the dispatch's ceiling when a model kind
+reported none. A repeat of the status, or one with no such heal, records and
+charges nothing. Recording never moves the stage.
 
 ## Status
 
@@ -111,15 +136,16 @@ on Claude Code the `windows` that have not reset. `healing`, `healed_today` and
 
 ## Where things live
 
-| File                                   | Holds                                                                                |
-| -------------------------------------- | ------------------------------------------------------------------------------------ |
-| `internal/sentinel/settings.go`        | `Settings`, the defaults and validation                                              |
-| `internal/sentinel/state.go`           | The run row types (`Run`, `LaunchFacts`), launch origins and `MaxHealAttempts`       |
-| `internal/sentinel/controller.go`      | The loop: `Start`, `Shutdown`, `Nudge`, `Status`, the panic-safe pass and the wake-up filter |
-| `internal/sentinel/pass.go`            | One pass: read settings, mode and windows; record the status and publish a change    |
-| `internal/sentinel/gate.go`            | The pure budget gate and the worker-slot check (`roomFor`)                           |
-| `internal/sentinel/status.go`          | `Status`, the states and the pure summary                                            |
-| `internal/opstore/sqlite/sentinel.go`  | The settings row and the subscription windows the controller reads                   |
-| `internal/opstore/sqlite/card_runs.go` | The run row                                                                          |
+| File                                        | Holds                                                                                                                                                        |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `internal/sentinel/settings.go`             | `Settings`, the defaults and validation                                                                                                                      |
+| `internal/sentinel/state.go`                | The durable-state types: the run row (`Run`, `LaunchFacts`), launch origins, the caps, and the heal records (`Heal`, the stages, `Finding`, `RunKindReport`) |
+| `internal/sentinel/controller.go`           | The loop: `Start`, `Shutdown`, `Nudge`, `Status`, the panic-safe pass and the wake-up filter                                                                 |
+| `internal/sentinel/pass.go`                 | One pass: read settings, mode and windows; record the status and publish a change                                                                            |
+| `internal/sentinel/gate.go`                 | The pure budget gate and the worker-slot check (`roomFor`)                                                                                                   |
+| `internal/sentinel/status.go`               | `Status`, the states and the pure summary                                                                                                                    |
+| `internal/opstore/sqlite/sentinel.go`       | The settings row and the subscription windows the controller reads                                                                                           |
+| `internal/opstore/sqlite/card_runs.go`      | The run row                                                                                                                                                  |
+| `internal/opstore/sqlite/sentinel_heals.go` | Heals, findings and the spend ledger                                                                                                                         |
 
 Tests sit next to each file.

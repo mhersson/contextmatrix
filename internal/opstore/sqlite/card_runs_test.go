@@ -183,3 +183,90 @@ func TestCardRunsSchemaKeepsV6Statements(t *testing.T) {
 	assert.Nil(t, got.StoppedAt)
 	assert.False(t, got.HumanStop)
 }
+
+func TestOpenCardRunClearsDecidedAndRESTResetsUsageReruns(t *testing.T) {
+	for origin, want := range map[string]int{
+		sentinel.OriginMCP:      2,
+		sentinel.OriginPlaybook: 2,
+		sentinel.OriginSentinel: 2,
+		sentinel.OriginREST:     0,
+	} {
+		t.Run(origin, func(t *testing.T) {
+			st := openLadderStore(t)
+			ctx := context.Background()
+
+			require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0, sentinel.LaunchFacts{Autonomous: true}))
+
+			for range 2 {
+				require.NoError(t, st.IncrementAttempts(ctx, "p", "P-001"))
+				require.NoError(t, st.IncrementUsageReruns(ctx, "p", "P-001"))
+			}
+
+			require.NoError(t, st.MarkRunDecided(ctx, "p", "P-001", runT0))
+
+			require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0.Add(time.Hour),
+				sentinel.LaunchFacts{Autonomous: true, Origin: origin}))
+
+			got, err := st.CardRunRow(ctx, "p", "P-001")
+			require.NoError(t, err)
+			assert.False(t, got.Decided)
+			assert.Equal(t, want, got.UsageReruns)
+			assert.Equal(t, want, got.Attempts)
+		})
+	}
+}
+
+func TestUndecidedRunsSkipsDecidedAndNonAutonomous(t *testing.T) {
+	st := openLadderStore(t)
+	ctx := context.Background()
+
+	auto := sentinel.LaunchFacts{Autonomous: true, Origin: sentinel.OriginMCP}
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0, auto))
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-002", "endpoint", runT0, auto))
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-003", "endpoint", runT0, sentinel.LaunchFacts{Origin: sentinel.OriginMCP}))
+
+	require.NoError(t, st.MarkRunDecided(ctx, "p", "P-002", runT0))
+	// A decision about an earlier run leaves the current one undecided.
+	require.NoError(t, st.MarkRunDecided(ctx, "p", "P-001", runT0.Add(-time.Hour)))
+
+	got, err := st.UndecidedRuns(ctx)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "P-001", got[0].CardID)
+	assert.Equal(t, auto, got[0].Launch)
+	assert.True(t, got[0].StartedAt.Equal(runT0))
+
+	decided, err := st.CardRunRow(ctx, "p", "P-002")
+	require.NoError(t, err)
+	assert.True(t, decided.Decided)
+}
+
+func TestSentinelTablesKeepV6Statements(t *testing.T) {
+	st := openLadderStore(t)
+	ctx := context.Background()
+
+	// OpenCardRun's upsert as a schema v6 binary without the Sentinel tables runs it, verbatim.
+	const v6Upsert = `INSERT INTO card_run_modes (project, card_id, mode, started_at, ended_at, edit_snapshot, autonomous, origin)
+		 VALUES (?, ?, ?, ?, NULL, ?, ?, ?)
+		 ON CONFLICT(project, card_id) DO UPDATE SET mode = excluded.mode,
+		   started_at = excluded.started_at, ended_at = NULL,
+		   edit_snapshot = excluded.edit_snapshot, autonomous = excluded.autonomous, origin = excluded.origin,
+		   attempts = CASE WHEN excluded.origin = 'rest' THEN 0 ELSE attempts END,
+		   run_id = '', stop_cause = '', stopped_at = NULL, human_stop = 0`
+
+	for _, at := range []time.Time{runT0, runT0.Add(time.Hour)} {
+		_, err := st.db.ExecContext(ctx, v6Upsert, "p", "P-001", "endpoint", at.UnixNano(), "{}", true, sentinel.OriginMCP)
+		require.NoError(t, err)
+	}
+
+	got, err := st.CardRunRow(ctx, "p", "P-001")
+	require.NoError(t, err)
+	assert.True(t, got.StartedAt.Equal(runT0.Add(time.Hour)))
+	assert.True(t, got.Launch.Autonomous)
+	assert.Zero(t, got.UsageReruns)
+	assert.False(t, got.Decided)
+
+	var version int
+	require.NoError(t, st.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version))
+	assert.Equal(t, 6, version)
+}
