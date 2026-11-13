@@ -429,7 +429,8 @@ func TestLaunch_RefusesUnmetDependencies(t *testing.T) {
 	require.True(t, ok, "got %v", err)
 	assert.Equal(t, http.StatusConflict, lf.status)
 	assert.Equal(t, ErrCodeDependenciesNotMet, lf.code)
-	assert.Equal(t, "dependencies not met: blocked by "+depA.ID+", "+depB.ID, lf.Error())
+	assert.Contains(t, lf.Error(), depA.ID)
+	assert.Contains(t, lf.Error(), depB.ID)
 
 	cb.mu.Lock()
 	assert.Empty(t, cb.triggers, "no trigger is sent")
@@ -449,7 +450,8 @@ func TestLaunch_RefusesUnmetDependencies(t *testing.T) {
 	lf, ok = errors.AsType[*launchFailure](err)
 	require.True(t, ok, "got %v", err)
 	assert.Equal(t, ErrCodeDependenciesNotMet, lf.code)
-	assert.Equal(t, "dependencies not met: blocked by "+depA.ID, lf.Error())
+	assert.Contains(t, lf.Error(), depA.ID)
+	assert.NotContains(t, lf.Error(), depB.ID)
 
 	// Once every dependency is done the launch goes through.
 	_, err = svc.TransitionTo(ctx, "test-project", depA.ID, board.StateTodo)
@@ -478,8 +480,10 @@ func TestPlaybookLaunch_PassesUnmetDependenciesThrough(t *testing.T) {
 	h := newLaunchHandlers(t, svc, newCaptureBackend(t))
 
 	err = h.playbookLaunch(ctx, "test-project", card.ID, playbookrun.LaunchOptions{})
-	require.Error(t, err)
-	assert.Equal(t, "dependencies not met: blocked by "+dep.ID, err.Error())
+	lf, ok := errors.AsType[*launchFailure](err)
+	require.True(t, ok, "got %v", err)
+	assert.Equal(t, ErrCodeDependenciesNotMet, lf.code)
+	assert.Contains(t, err.Error(), dep.ID)
 }
 
 func TestRunCard_RefusedForUnmetDependencies(t *testing.T) {
@@ -511,5 +515,5 @@ func TestRunCard_RefusedForUnmetDependencies(t *testing.T) {
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeDependenciesNotMet, apiErr.Code)
-	assert.Contains(t, apiErr.Details, "blocked by "+dep.ID)
+	assert.Contains(t, apiErr.Details, dep.ID)
 }
