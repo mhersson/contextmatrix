@@ -85,3 +85,32 @@ func TestUpsertSectionCRLFIdempotent(t *testing.T) {
 	twice := UpsertSection(once, "Plan", "new plan")
 	assert.Equal(t, once, twice)
 }
+
+func TestBodySections(t *testing.T) {
+	tests := []struct {
+		name, body, wantIntro string
+		want                  []Section
+	}{
+		{name: "empty", body: ""},
+		{
+			name: "intro and two sections", body: "intro\n## A\na\n## B\nb\n",
+			wantIntro: "intro\n", want: []Section{{"A", "a\n"}, {"B", "b\n"}},
+		},
+		{
+			name: "fence hides heading", body: "```\n## not\n```\n## A\nx",
+			wantIntro: "```\n## not\n```\n", want: []Section{{"A", "x"}},
+		},
+		{
+			name: "indented heading is not one", body: "  ## indented\n## A\n",
+			wantIntro: "  ## indented\n", want: []Section{{"A", ""}},
+		},
+		{name: "h3 stays in section", body: "## A\n### sub\n", want: []Section{{"A", "### sub\n"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			intro, sections := BodySections(tt.body)
+			assert.Equal(t, tt.wantIntro, intro)
+			assert.Equal(t, tt.want, sections)
+		})
+	}
+}

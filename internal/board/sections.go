@@ -66,3 +66,37 @@ func UpsertSection(body, heading, content string) string {
 
 	return prefix + section
 }
+
+// Section is one H2 block of a card body; Heading omits the "## " prefix and
+// Content runs to the next H2, byte for byte.
+type Section struct{ Heading, Content string }
+
+// BodySections splits body into the text before the first H2 and its H2
+// sections, using UpsertSection's rules: fences hide headings and an indented
+// "## " is not one.
+func BodySections(body string) (intro string, sections []Section) {
+	var introB strings.Builder
+
+	inFence := false
+
+	for _, line := range strings.SplitAfter(body, "\n") {
+		trimmed := strings.TrimRight(line, "\r\n")
+
+		fenceCandidate := strings.TrimLeft(trimmed, " \t")
+		if strings.HasPrefix(fenceCandidate, "```") || strings.HasPrefix(fenceCandidate, "~~~") {
+			inFence = !inFence
+		} else if !inFence && strings.HasPrefix(trimmed, "## ") {
+			sections = append(sections, Section{Heading: strings.TrimSpace(trimmed[3:])})
+
+			continue
+		}
+
+		if len(sections) == 0 {
+			introB.WriteString(line)
+		} else {
+			sections[len(sections)-1].Content += line
+		}
+	}
+
+	return introB.String(), sections
+}
