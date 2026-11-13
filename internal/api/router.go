@@ -33,6 +33,7 @@ import (
 	mcpserver "github.com/mhersson/contextmatrix/internal/mcp"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/playbookrun"
+	"github.com/mhersson/contextmatrix/internal/sentinel"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -303,6 +304,10 @@ type RouterConfig struct {
 	LLMChannelStore   LLMChannelStore
 	LLMChannelCards   LLMChannelCards
 	ConfiguredBackend []string
+	// Sentinel is nil without an execution backend. The Sentinel routes are
+	// registered only when SentinelStore is set.
+	Sentinel      *sentinel.Controller
+	SentinelStore SentinelStore
 	// CardRuns records the mode each card run started in; nil skips it.
 	CardRuns CardRunRecorder
 	// BestOfN bounds the card-level best_of_n field: cardHandlers rejects
@@ -602,6 +607,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		}
 		mux.HandleFunc("GET /api/llm-channel", lh.get)
 		mux.HandleFunc("PUT /api/admin/llm-channel", lh.put)
+	}
+
+	if cfg.SentinelStore != nil {
+		sh := &sentinelHandlers{ctl: cfg.Sentinel, store: cfg.SentinelStore, bus: cfg.Bus, authEnabled: cfg.AuthService != nil}
+		mux.HandleFunc("GET /api/sentinel", sh.get)
+		mux.HandleFunc("PUT /api/admin/sentinel", sh.put)
+		mux.HandleFunc("GET /api/projects/{project}/cards/{id}/sentinel", sh.cardRun)
 	}
 
 	// Auth routes - only in multi mode.

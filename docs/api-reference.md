@@ -129,6 +129,9 @@ POST   /api/admin/selector/preview                          # picks and panel se
 
 GET    /api/llm-channel                                     # LLM channel mode, work in flight per mode, newest subscription usage readings (any session in multi mode)
 PUT    /api/admin/llm-channel                               # switch the LLM channel mode (both auth modes; admin-gated only in multi)
+GET    /api/sentinel                                        # Sentinel status and settings (any session in multi mode)
+PUT    /api/admin/sentinel                                  # replace Sentinel settings (both auth modes; admin-gated only in multi)
+GET    /api/projects/{project}/cards/{id}/sentinel          # the card's last run facts as Sentinel sees them
 
 GET    /api/events                                     ?project=             # SSE stream of board events
 GET    /healthz                                        # liveness probe (shallow)
@@ -1106,6 +1109,79 @@ rewrites `updated_at` and `updated_by`.
 **Errors:** `400 BAD_REQUEST` (malformed JSON), `403 FORBIDDEN` (non-admin in
 `multi` mode), `409 BAD_REQUEST` (the mode's side is not configured),
 `422 VALIDATION_ERROR` (a mode other than `endpoint` or `claude_code`).
+
+### GET /api/sentinel
+
+Sentinel's status and stored settings.
+
+```json
+{
+  "status": {
+    "enabled": true,
+    "state": "watching",
+    "mode": "endpoint",
+    "healing": 0,
+    "healed_today": 0,
+    "spent_today_usd": 0,
+    "daily_cap_usd": 20,
+    "headroom": 0.85
+  },
+  "settings": {
+    "enabled": true,
+    "healing": true,
+    "friction": true,
+    "daily_cap_usd": 20,
+    "investigate_ceiling_usd": 2,
+    "headroom": 0.85
+  },
+  "updated_at": "2026-11-13T10:00:00Z",
+  "updated_by": "human:alice"
+}
+```
+
+`status.state` is `off`, `watching`, `working`, `paused` or `not_running`;
+`reason` explains `paused` and `not_running`, and `windows` lists the
+subscription usage windows in `claude_code` mode. Without an execution backend
+there is no controller: the status is `off` while Sentinel is off and
+`not_running` (`no execution backend`) once it is on. Before any save,
+`settings` are the defaults and `updated_at` and `updated_by` are omitted.
+
+### PUT /api/admin/sentinel
+
+Replaces all settings with the request body (the `settings` object above).
+Admin-only in `multi` mode, open in `none` mode. Saves them in ops.db, wakes
+the controller, publishes `sentinel.changed` and returns **200 OK** with the
+`GET` body. `updated_by` is the caller's identity, or `human:web` without one.
+
+**Errors:** `400 BAD_REQUEST` (malformed JSON), `403 FORBIDDEN` (non-admin in
+`multi` mode), `422 VALIDATION_ERROR` (a non-finite number, `daily_cap_usd`
+outside 0-10000, `investigate_ceiling_usd` not above 0 or over 100, or
+`headroom` not above 0 or over 1).
+
+### GET /api/projects/{project}/cards/{id}/sentinel
+
+The last run this instance launched for the card, or `{"run": null}` when
+there is none.
+
+```json
+{
+  "run": {
+    "origin": "rest",
+    "autonomous": true,
+    "attempts": 1,
+    "max_attempts": 2,
+    "started_at": "2026-11-13T10:00:00Z",
+    "stop_cause": "usage_limit",
+    "stopped_at": "2026-11-13T11:00:00Z",
+    "human_stop": false
+  }
+}
+```
+
+`origin` is `rest`, `mcp`, `playbook` or `sentinel`. `attempts` counts heal
+reruns since the last UI or REST Run; `max_attempts` is
+the per-card cap. `stop_cause` and `stopped_at` are omitted until the run's
+terminal status arrives (and `stop_cause` when the cause is unknown).
 
 ## Health Endpoints
 

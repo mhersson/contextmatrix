@@ -788,6 +788,8 @@ func main() {
 		LLMChannel:             llmChannel,
 		LLMChannelState:        llmChannel,
 		LLMChannelStore:        opStore,
+		Sentinel:               sentinelCtl,
+		SentinelStore:          opStore,
 		ConfiguredBackend:      configuredBackendKinds(cfg),
 		CardRuns:               opStore,
 		BestOfN:                cfg.BestOfN,
