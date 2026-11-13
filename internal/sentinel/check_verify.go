@@ -17,9 +17,9 @@ func checkVerify(c fixContext) []string {
 		return nil
 	}
 
-	before := board.ResolveVerify(c.Card.Verify, c.Project)
-	after := board.ResolveVerify(&board.VerifyConfig{
-		Command:        c.Fix.Verify.Command,
+	before := resolved(c.Card.Verify, c.Project)
+	after := resolved(&board.VerifyConfig{
+		Command:        strings.TrimSpace(c.Fix.Verify.Command),
 		TimeoutSeconds: c.Fix.Verify.TimeoutSeconds,
 		Env:            c.Fix.Verify.Env,
 	}, c.Project)
@@ -47,6 +47,21 @@ func checkVerify(c fixContext) []string {
 	}
 
 	return violations
+}
+
+// resolved is the verify config as the card will resolve it. A card verify
+// with no intent (such as an empty env list) is stored as nil, so the card
+// inherits the project's; the service's normalizeVerify does the same on write.
+func resolved(card, project *board.VerifyConfig) board.VerifyConfig {
+	if card.IsZero() {
+		card = nil
+	}
+
+	if r := board.ResolveVerify(card, project); r != nil {
+		return *r
+	}
+
+	return board.VerifyConfig{}
 }
 
 func declared(check *protocol.CheckResult, command string) bool {

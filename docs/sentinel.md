@@ -198,13 +198,13 @@ calls them at present.
 | `checkSection` | A `## Sentinel` section with an H2 line or an unbalanced code fence (``` or ~~~)                         | heal, forward        |
 | `checkRetire`  | Retiring a subtask that is not this card's, is not in `todo`, is claimed, or has a queued or running worker | heal              |
 | `checkEdits`   | Any change since launch: `title edited`, `verify edited`, `autonomous changed`, `intro edited`, `section "X" edited`, `added` or `removed`; no launch snapshot is also refused | heal |
-| `checkVerify`  | A verify change that adds an env name (`adds env NAME`), drops the command (`removes the verify command`), changes the command to one the trial run did not list as a candidate (`command not declared by the repo`), was never trial-run (`verify not trial-run`), or whose trial did not finish (`trial run: <trial>`) | heal, forward |
+| `checkVerify`  | A verify change that adds an env name (`adds env NAME`), drops the command (`removes the verify command`), changes the command to one the check run kind did not list as a candidate (`command not declared by the repo`), was never trial-run (`verify not trial-run`), or whose trial did not finish (`trial run: <trial>`) | heal, forward |
 | `checkText`    | A fix with a `## Sentinel` section when the check run kind did not run (`text not checked`), or when it reports text absent from the repo that is also absent from the card's title and body (`introduces <entry>`) | heal, forward |
 
 The verify rule compares the card's resolved verify (card over project) with the
-fix's resolved verify. Command fields are compared by whitespace-separated
+fix's resolved verify (a fix verify with no content, such as an empty env list, is stored as none, so the card inherits the project's). Command fields are compared by whitespace-separated
 fields, so an unchanged command needs no candidate, and a changed one must match
-a candidate. Only the timeout may rise; env names may only be removed. The text
+a candidate. The timeout may change freely; env names may only be removed. The text
 check ignores the card's own `## Sentinel` section, so text Sentinel wrote
 earlier never whitelists itself.
 

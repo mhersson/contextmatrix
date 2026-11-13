@@ -88,6 +88,38 @@ func TestCheckVerify(t *testing.T) {
 		})
 	}
 
+	t.Run("empty env list does not clear the project env", func(t *testing.T) {
+		got := checkVerify(fixContext{
+			Card:    &board.Card{Verify: &board.VerifyConfig{Env: []string{"A"}}},
+			Project: &board.VerifyConfig{Env: []string{"A", "S"}},
+			Fix:     protocol.CardFix{Verify: &protocol.VerifyConfig{Env: []string{}}},
+			Check:   finished,
+		})
+		assert.Equal(t, []string{"adds env S"}, got)
+	})
+
+	t.Run("env added when only the project supplies env", func(t *testing.T) {
+		got := checkVerify(fixContext{
+			Card:    &board.Card{},
+			Project: &board.VerifyConfig{Command: "make test"},
+			Fix:     protocol.CardFix{Verify: &protocol.VerifyConfig{Env: []string{"S"}}},
+			Check:   finished,
+		})
+		assert.Equal(t, []string{"adds env S"}, got)
+	})
+
+	t.Run("nothing declared anywhere", func(t *testing.T) {
+		for _, fix := range []*protocol.VerifyConfig{
+			{Env: []string{}},
+			{TimeoutSeconds: 30},
+			{Command: "go test ./..."},
+		} {
+			assert.NotPanics(t, func() {
+				checkVerify(fixContext{Card: &board.Card{}, Fix: protocol.CardFix{Verify: fix}, Check: finished})
+			})
+		}
+	})
+
 	t.Run("removes the command", func(t *testing.T) {
 		got := checkVerify(fixContext{
 			Card:  &board.Card{Verify: &board.VerifyConfig{Command: "make lint"}},
