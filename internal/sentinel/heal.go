@@ -1,0 +1,255 @@
+package sentinel
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	protocol "github.com/mhersson/contextmatrix-protocol"
+
+	"github.com/mhersson/contextmatrix/internal/board"
+)
+
+// relaunchGrace is how long a relaunched card may take to start its rerun.
+const relaunchGrace = 10 * time.Minute
+
+type stepKind int
+
+const (
+	stepWait stepKind = iota
+	stepDispatch
+	stepAdvance
+	stepApply
+	stepUsageRerun
+	stepPark
+	stepClose
+	stepSettle
+)
+
+// step is what a pass does next for one heal.
+type step struct {
+	Kind          stepKind
+	RunKind       string // stepDispatch
+	Stage         string // stepAdvance and stepSettle
+	Reason        string // stepPark and stepClose
+	ChargeCeiling bool   // stepPark for a dispatch that never reported
+}
+
+// healView is what the pass read for one open heal.
+type healView struct {
+	Heal     Heal
+	Card     *board.Card // nil = deleted
+	Run      Run         // the card's current run row
+	Healing  bool
+	Budget   bool     // budget gate open for the effective mode
+	Room     bool     // a worker slot is free for a run kind
+	Listed   bool     // the in-flight dispatch's container is listed
+	Edited   []string // checkEdits violations
+	Rejected []string // vetFix violations, computed at stage apply when the heal holds a fix
+	Now      time.Time
+}
+
+// nextStep decides a heal's next step from what the pass read; the first rule
+// that matches wins.
+func nextStep(v healView) step {
+	h := v.Heal
+
+	switch {
+	case h.Stage == StageRerun && v.Card != nil:
+		return rerunStep(v)
+	case v.Card == nil || board.IsTerminalState(v.Card.State):
+		return closeStep("the card was closed")
+	case takenOver(v):
+		return closeStep("a human or another run took over")
+	case len(v.Edited) > 0:
+		return parkStep("edited since launch: " + strings.Join(v.Edited, ", "))
+	case inFlight(h.Dispatch):
+		return inFlightStep(v)
+	case !v.Healing:
+		return waitStep()
+	}
+
+	switch h.Stage {
+	case StageInvestigate:
+		return investigateStep(v)
+	case StageCheck:
+		return checkStep(v)
+	case StageApply:
+		return applyStep(v)
+	case StageUsageWait:
+		return usageWaitStep(v)
+	}
+
+	return waitStep()
+}
+
+// rerunStep waits for the relaunched run, then settles on its outcome. The
+// rerun holds the card's claim and worker, so no takeover rule applies.
+func rerunStep(v healView) step {
+	if !rerunStarted(v.Heal, v.Run) {
+		if younger(v.Heal.RelaunchedAt, relaunchGrace, v.Now) {
+			return waitStep()
+		}
+
+		return parkStep("the rerun did not start")
+	}
+
+	switch {
+	case workerBusy(v.Card):
+		return waitStep()
+	case v.Card.State == board.StateDone:
+		return settleStep(StageHealed)
+	}
+
+	key, settled := causeKey(v.Run, v.Card, nil, v.Now)
+
+	switch {
+	case !settled:
+		return waitStep()
+	case key == protocol.StopCauseDone:
+		return settleStep(StageHealed)
+	}
+
+	return settleStep(StageRerunFailed)
+}
+
+// rerunStarted reports whether the run row is the rerun's: every launch
+// replaces the row, so the rerun's started at or after the relaunch.
+func rerunStarted(h Heal, run Run) bool {
+	return h.RelaunchedAt != nil && !run.StartedAt.Before(*h.RelaunchedAt)
+}
+
+// takenOver reports whether someone else is working the card, or a newer run
+// replaced the stopped one.
+func takenOver(v healView) bool {
+	return workerBusy(v.Card) || v.Card.AssignedAgent != "" || !v.Run.StartedAt.Equal(v.Heal.RunStarted)
+}
+
+func inFlightStep(v healView) step {
+	d := v.Heal.Dispatch
+	if v.Listed || younger(d.At, settleGrace, v.Now) {
+		return waitStep()
+	}
+
+	return step{Kind: stepPark, Reason: fmt.Sprintf("the %s run did not report", d.Kind), ChargeCeiling: true}
+}
+
+func investigateStep(v healView) step {
+	h := v.Heal
+
+	switch {
+	case !dispatched(h, protocol.RunKindInvestigate) && v.Budget && v.Room:
+		return dispatchStep(protocol.RunKindInvestigate)
+	case !dispatched(h, protocol.RunKindInvestigate):
+		return waitStep()
+	case h.Investigation == nil:
+		return parkStep("investigation failed: " + h.Dispatch.Failure)
+	case h.Response == RespInvestigatePark:
+		return parkStep(diagnosisReason(*h.Investigation))
+	}
+
+	return diagnosisStep(*h.Investigation)
+}
+
+// diagnosisStep acts on the investigation of a cause Sentinel may fix.
+func diagnosisStep(inv protocol.InvestigateResult) step {
+	cardFix := inv.Cause == protocol.DiagnosisCard && inv.Fix != nil
+
+	switch {
+	case cardFix && needsCheck(*inv.Fix):
+		return advanceStep(StageCheck)
+	case cardFix, inv.Cause == protocol.DiagnosisModel:
+		return advanceStep(StageApply)
+	case inv.Cause == protocol.DiagnosisEnvironment, inv.Cause == protocol.DiagnosisEcosystem:
+		return parkStep(diagnosisReason(inv))
+	}
+
+	return parkStep("the investigation proposed no usable fix")
+}
+
+// needsCheck reports whether a fix has anything for the check run kind: it
+// trials a verify change and checks section text, so a retire-only fix skips it.
+func needsCheck(fix protocol.CardFix) bool {
+	return fix.Section != "" || fix.Verify != nil
+}
+
+func diagnosisReason(inv protocol.InvestigateResult) string {
+	return fmt.Sprintf("%s diagnosis: %s", inv.Cause, inv.Diagnosis)
+}
+
+// checkStep runs the check kind, which runs no model, so the budget gate does
+// not hold it.
+func checkStep(v healView) step {
+	h := v.Heal
+
+	switch {
+	case !dispatched(h, protocol.RunKindCheck) && v.Room:
+		return dispatchStep(protocol.RunKindCheck)
+	case !dispatched(h, protocol.RunKindCheck):
+		return waitStep()
+	case h.Check == nil:
+		return parkStep("check failed: " + h.Dispatch.Failure)
+	}
+
+	return advanceStep(StageApply)
+}
+
+func applyStep(v healView) step {
+	switch {
+	case len(v.Rejected) > 0:
+		return parkStep("fix rejected: " + strings.Join(v.Rejected, ", "))
+	case v.Run.Attempts >= MaxHealAttempts:
+		return parkStep(fmt.Sprintf("heal attempts used (%[1]d of %[1]d)", MaxHealAttempts))
+	case !v.Budget:
+		return waitStep()
+	}
+
+	return step{Kind: stepApply}
+}
+
+func usageWaitStep(v healView) step {
+	switch {
+	case v.Run.UsageReruns >= MaxUsageReruns:
+		return parkStep(fmt.Sprintf("usage-limit reruns used (%[1]d of %[1]d)", MaxUsageReruns))
+	case v.Card.ParkResetsAt != nil && v.Card.ParkResetsAt.After(v.Now):
+		return waitStep()
+	case !v.Budget:
+		return waitStep()
+	}
+
+	return step{Kind: stepUsageRerun}
+}
+
+// inFlight reports whether d was sent and has neither been answered nor
+// marked failed.
+func inFlight(d Dispatch) bool {
+	return d.At != nil && d.AnsweredRunID == "" && d.Failure == ""
+}
+
+// dispatched reports whether the heal's latest dispatch is of kind. At stage
+// check it still holds the answered investigation until the check is sent.
+func dispatched(h Heal, kind string) bool {
+	return h.Dispatch.Kind == kind && h.Dispatch.At != nil
+}
+
+func workerBusy(card *board.Card) bool {
+	return card.WorkerStatus == "queued" || card.WorkerStatus == "running"
+}
+
+// younger reports whether at is less than grace before now; a missing time is
+// never younger.
+func younger(at *time.Time, grace time.Duration, now time.Time) bool {
+	return at != nil && now.Sub(*at) < grace
+}
+
+func waitStep() step { return step{Kind: stepWait} }
+
+func dispatchStep(kind string) step { return step{Kind: stepDispatch, RunKind: kind} }
+
+func advanceStep(stage string) step { return step{Kind: stepAdvance, Stage: stage} }
+
+func settleStep(stage string) step { return step{Kind: stepSettle, Stage: stage} }
+
+func parkStep(reason string) step { return step{Kind: stepPark, Reason: reason} }
+
+func closeStep(reason string) step { return step{Kind: stepClose, Reason: reason} }

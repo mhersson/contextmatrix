@@ -299,6 +299,53 @@ a candidate. The timeout may change freely; env names may only be removed. The t
 check ignores the card's own `## Sentinel` section, so text Sentinel wrote
 earlier never whitelists itself.
 
+## The heal flow
+
+`nextStep` (`internal/sentinel/heal.go`) decides one open heal's next step
+from what a pass read: the heal, the card, the card's run row, the `healing`
+switch, the budget gate, whether a worker slot is free, whether the in-flight
+run kind's container is listed, the edit check's violations and, at stage
+`apply`, the fix checks' violations. It reads no clock and does no I/O. No
+pass calls it at present.
+
+A step is to wait, dispatch a run kind, advance to a stage, apply the fix,
+rerun after a usage limit, park or close with a reason, or settle a rerun. The
+first matching rule wins:
+
+1. **Stage `rerun`** (the card still exists): until a run starts at or after
+   the relaunch, wait, and park once 10 minutes have passed
+   (`relaunchGrace`). While the worker is queued or running, wait. A card in
+   `done` settles `healed`. Otherwise, once the run settles (`causeKey`), a
+   `done` stop settles `healed` and any other stop `rerun_failed`. The rerun
+   holds the card's claim and worker, so no later rule applies to it.
+2. The card is deleted, `done` or `not_planned`: close.
+3. A worker is queued or running, the card is claimed, or the run row is a
+   newer run than the one the heal follows: close, since a human or another
+   run took over.
+4. The edit check found changes since launch: park, naming them.
+5. A run kind is in flight (sent, neither answered nor failed): wait while its
+   container is listed or for the settle grace (10 minutes) after it was
+   sent; then park, with the dispatch's ceiling marked to be charged.
+6. `healing` is off: wait.
+7. **Stage `investigate`:** dispatch `investigate` while the budget gate is
+   open and a worker slot is free, else wait. An answer without a result
+   parks with the failure the intake recorded. A cause whose response is
+   `investigate_park` parks with the diagnosis. Otherwise a `card` diagnosis
+   with a fix advances to `check` when the fix has a section or verify, else
+   to `apply`; `model` advances to `apply` with no fix; `environment` and
+   `ecosystem` park with the diagnosis; anything else parks.
+8. **Stage `check`:** dispatch `check` while a worker slot is free; it runs no
+   model, so the budget gate does not hold it. An answer without a result
+   parks with its failure; a result advances to `apply`.
+9. **Stage `apply`:** park when the fix checks refuse the fix or the card has
+   used its 2 heal attempts; wait while the budget gate is shut; else apply.
+10. **Stage `usage_wait`:** park when the card has used its 3 usage-limit
+    reruns; wait until the usage limit resets (`park_resets_at`) and while the
+    budget gate is shut; else rerun.
+
+Rules 7 to 10 match only their own stage; past rule 6, a heal at any other
+stage waits.
+
 ## Where things live
 
 | File                                        | Holds                                                                                                                                                        |
@@ -317,6 +364,7 @@ earlier never whitelists itself.
 | `internal/sentinel/checks.go`               | `fixContext`, the two check lists, `vetFix` and `vetForward`                                                                                                 |
 | `internal/sentinel/check_*.go`              | One check per file: shape, section, retire, edits, verify, text                                                                                                            |
 | `internal/sentinel/trigger.go`              | The pure triggers: `causeKey` (settled and cause), `eligible`                                                                                                |
+| `internal/sentinel/heal.go`                 | The pure heal flow: `nextStep` over a `healView`, one rule per stage and exit                                                                                |
 | `internal/sentinel/gate.go`                 | The pure budget gate and the worker-slot check (`roomFor`)                                                                                                   |
 | `internal/sentinel/status.go`               | `Status`, the states and the pure summary                                                                                                                    |
 | `internal/opstore/sqlite/sentinel.go`       | The settings row and the subscription windows the controller reads                                                                                           |
