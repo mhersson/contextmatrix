@@ -978,3 +978,36 @@ func TestAddLogEntry_ReservedActions(t *testing.T) {
 		assert.Equal(t, "note", got.ActivityLog[len(got.ActivityLog)-1].Action)
 	})
 }
+
+func TestPatchCardExpectUpdated(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	created, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "orig", Type: "task", Priority: "low"})
+	require.NoError(t, err)
+
+	// A card read back from disk, as Sentinel reads it.
+	read, err := svc.GetCard(ctx, "test-project", created.ID)
+	require.NoError(t, err)
+
+	stale := read.Updated
+	newTitle := "sentinel"
+
+	_, err = svc.PatchCard(ctx, "test-project", created.ID, PatchCardInput{Title: &newTitle, ExpectUpdated: &stale})
+	require.NoError(t, err)
+
+	// A write in between makes the held timestamp stale.
+	humanTitle := "human"
+	_, err = svc.PatchCard(ctx, "test-project", created.ID, PatchCardInput{Title: &humanTitle})
+	require.NoError(t, err)
+
+	lateTitle := "late"
+	_, err = svc.PatchCard(ctx, "test-project", created.ID, PatchCardInput{Title: &lateTitle, ExpectUpdated: &stale})
+	require.ErrorIs(t, err, ErrCardChanged)
+
+	got, err := svc.GetCard(ctx, "test-project", created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "human", got.Title)
+}

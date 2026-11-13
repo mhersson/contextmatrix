@@ -136,7 +136,14 @@ type PatchCardInput struct {
 	// UpsertSection replaces or appends one H2 section without resending the
 	// body. Mutually exclusive with Body.
 	UpsertSection *SectionPatch
+	// ExpectUpdated, when set, refuses the write with ErrCardChanged unless the
+	// stored card's Updated equals it. In-process only; REST and MCP never set it.
+	ExpectUpdated *time.Time
 }
+
+// ErrCardChanged is returned when a guarded write finds the card newer than
+// the copy the caller read.
+var ErrCardChanged = errors.New("card changed since it was read")
 
 // SectionPatch targets one "## <Heading>" block. Heading carries no "## "
 // prefix and must be a single line.
@@ -1131,6 +1138,10 @@ func validatePatchFieldLimits(input PatchCardInput) error {
 // the fields present in input.
 func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput) func(*board.Card, *board.ProjectConfig) error {
 	return func(card *board.Card, cfg *board.ProjectConfig) error {
+		if input.ExpectUpdated != nil && !card.Updated.Equal(*input.ExpectUpdated) {
+			return ErrCardChanged
+		}
+
 		// Verify agent ownership before applying any mutations so a rejected
 		// call produces no side effects. Empty AgentID skips the check for
 		// backward-compatible callers that do not supply an agent ID.
