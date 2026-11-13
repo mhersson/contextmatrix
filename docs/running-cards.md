@@ -264,7 +264,8 @@ first run in a repository.
 - The runner never retries on its own. After a failed card, fix the cause,
   then press Stop and Run: Stop ends the `waiting` run and Run resumes it.
 - A card with unmet dependencies holds the run at `waiting` with the reason
-  `dependencies not met: blocked by <ID>`.
+  `dependencies not met: blocked by <ID>`. It does not continue by itself:
+  once the blockers are `done`, press Stop and then Run to resume it.
 - An imported card that is not vetted holds the run at `waiting` with the reason
   `<card> not vetted`. Vetting the card is the go-ahead: the run continues by
   itself, without Run.
