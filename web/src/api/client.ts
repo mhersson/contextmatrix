@@ -53,6 +53,7 @@ import type {
   BlueprintView,
   LLMChannel,
   LLMChannelView,
+  SentinelCardView,
   SentinelInfo,
   SentinelSettings,
 } from '../types';
@@ -455,6 +456,13 @@ class APIClient {
 
   async getSentinel(): Promise<SentinelInfo> {
     return this.request<SentinelInfo>('/sentinel');
+  }
+
+  async getCardSentinel(project: string, id: string, signal?: AbortSignal): Promise<SentinelCardView> {
+    return this.request<SentinelCardView>(
+      `/projects/${encodeURIComponent(project)}/cards/${encodeURIComponent(id)}/sentinel`,
+      { signal },
+    );
   }
 
   async putSentinelSettings(settings: SentinelSettings): Promise<SentinelInfo> {

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 
-export type RailTabKey = 'card' | 'chat' | 'automation' | 'info' | 'danger';
+export type RailTabKey = 'card' | 'chat' | 'automation' | 'info' | 'sentinel' | 'danger';
 
 /** Rail width levels. All three reshape the split inside a drawer of constant
  *  width; `full` is the degenerate case where the left column drops out and

@@ -5,6 +5,7 @@ import { AutomationTab } from './tabs/AutomationTab';
 import { ChatTab } from './tabs/ChatTab';
 import { DangerTab } from './tabs/DangerTab';
 import { InfoTab } from './tabs/InfoTab';
+import { SentinelTab } from './tabs/SentinelTab';
 
 interface BuildCardPanelTabsOptions {
   card: Card;
@@ -35,6 +36,7 @@ interface BuildCardPanelTabsOptions {
   excludeStateFromPicker: string | null;
   onDependsOnChange: (ids: string[]) => Promise<void>;
   instanceId?: string | null;
+  sentinelOn?: boolean;
 }
 
 /**
@@ -110,6 +112,10 @@ export function buildCardPanelTabs(opts: BuildCardPanelTabsOptions): {
       />
     ),
   });
+
+  if (opts.sentinelOn) {
+    tabs.push({ key: 'sentinel', label: 'Sentinel', content: <SentinelTab card={opts.card} /> });
+  }
 
   tabs.push({
     key: 'danger',

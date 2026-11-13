@@ -226,6 +226,16 @@ the state as its label.
   `none` mode, also get a "Sentinel settings" link to `/admin/sentinel`.
 - The strip loads with the page and on every event-stream reconnect, and
   refreshes on Sentinel events and every minute.
+- While Sentinel is enabled, a card's rail gains a Sentinel tab between Info
+  and Danger. It shows where the card's last run was launched from (UI or
+  REST, MCP, playbook or Sentinel), whether the card was autonomous at launch,
+  the heal attempts used against the cap, and the last stop (its cause and
+  time, or that a human stopped it). A card this instance never launched shows
+  a note that Sentinel acts only on runs this instance launched. The tab
+  refetches on Sentinel events and events for the card.
+- A purple shield joins the board card's signal icons when the card carries a
+  Sentinel mark (healing, healed, edited or parked); its label is the mark's
+  label. It is hidden while Sentinel is off.
 
 ## Global chat
 

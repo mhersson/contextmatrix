@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import type { Card } from '../../types';
+import { useSentinel } from '../../hooks/useSentinel';
 import { chipTint, priorityColors, typeColors } from '../../lib/chip';
 import { cardSignals, signalSvgProps } from '../../lib/cardSignals';
 
@@ -52,7 +53,8 @@ export function CardHoverCard({ card, anchorRef, id }: CardHoverCardProps) {
     setPos({ top, left });
   }, [anchorRef]);
 
-  const signals = cardSignals(card);
+  const sentinelOn = useSentinel().info?.status.enabled ?? false;
+  const signals = cardSignals(card, sentinelOn);
   const labels = card.labels ?? [];
   const mobPhases = card.mob_phases ?? [];
 

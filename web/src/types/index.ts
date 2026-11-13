@@ -43,6 +43,7 @@ export interface Card {
   model_coder?: string;
   model_reviewer?: string;
   best_of_n?: number;
+  sentinel?: SentinelMark;
   /** Mob discussion seats: 0/absent = off, 2..mob_max_participants = on. */
   mob_participants?: number;
   /** When true, ignore cost and pick the most capable model in the card's tier. */
@@ -891,6 +892,28 @@ export interface SentinelSettings {
   daily_cap_usd: number;
   investigate_ceiling_usd: number;
   headroom: number;
+}
+
+/** Shape of GET /api/projects/{project}/cards/{id}/sentinel: the card's last run facts, null when this instance launched none. */
+export interface SentinelCardView {
+  run: SentinelRunView | null;
+}
+
+export interface SentinelRunView {
+  origin: 'rest' | 'mcp' | 'playbook' | 'sentinel';
+  autonomous: boolean;
+  attempts: number;
+  max_attempts: number;
+  started_at: string;
+  stop_cause?: string;
+  stopped_at?: string;
+  human_stop: boolean;
+}
+
+/** Read-only mark on a card Sentinel touched. */
+export interface SentinelMark {
+  action: 'healing' | 'healed' | 'edited' | 'parked';
+  label: string;
 }
 
 /** Shape of GET /api/sentinel and PUT /api/admin/sentinel. */

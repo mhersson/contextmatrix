@@ -11,6 +11,7 @@ import { SubtaskStrip, SubtaskPeekList } from './SubtaskStrip';
 import { CardHoverCard } from './CardHoverCard';
 import { hasUnmetDeps } from '../../lib/chip';
 import { lastInputWasKeyboard } from '../../lib/inputModality';
+import { useSentinel } from '../../hooks/useSentinel';
 import { CardClock } from '../CardTiming/CardClock';
 
 interface CardItemProps {
@@ -39,6 +40,7 @@ const cardIdStyle: React.CSSProperties = {
 };
 
 function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollapse, onParentClick, subtasks, dragOverlay }: CardItemProps) {
+  const sentinelOn = useSentinel().info?.status.enabled ?? false;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
     data: { card },
@@ -281,7 +283,7 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
             onMouseEnter={hoverEnabled ? openHover : undefined}
             onMouseLeave={closeHover}
           >
-            {cardSignals(card).length >= HEADER_SIGNAL_CAP ? (
+            {cardSignals(card, sentinelOn).length >= HEADER_SIGNAL_CAP ? (
               <span
                 className="chip-pill"
                 style={chipTint(typeColors[card.type] || 'var(--grey1)')}

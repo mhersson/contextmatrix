@@ -13,6 +13,7 @@ import { useBranches } from '../../hooks/useBranches';
 import { useCardPanelKeyboard } from '../../hooks/useCardPanelKeyboard';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useTheme } from '../../hooks/useTheme';
+import { useSentinel } from '../../hooks/useSentinel';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 
 interface CardPanelProps {
@@ -77,6 +78,7 @@ export function CardPanel(props: CardPanelProps) {
 
   const { taskBackend, instanceId } = useTheme();
 
+  const sentinelOn = useSentinel().info?.status.enabled ?? false;
   const isMobile = useMediaQuery('(max-width: 768px)');
   // Chat is "live" (transcript streaming, tab shown with a pulse) whenever a
   // worker session is running - HITL or autonomous. Mirrors the
@@ -239,6 +241,7 @@ export function CardPanel(props: CardPanelProps) {
     excludeStateFromPicker,
     onDependsOnChange: handleDependsOnChange,
     instanceId,
+    sentinelOn,
   });
 
   // If the active tab disappears (e.g. live session ended, chat tab removed),

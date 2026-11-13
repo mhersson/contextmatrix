@@ -1,5 +1,6 @@
 import type { Card } from '../../types';
 import { chipTint } from '../../lib/chip';
+import { useSentinel } from '../../hooks/useSentinel';
 import { cardSignals, splitCardSignals } from '../../lib/cardSignals';
 
 /**
@@ -10,7 +11,8 @@ import { cardSignals, splitCardSignals } from '../../lib/cardSignals';
  * from the header group this cluster sits in) explains the icons instead.
  */
 export function CardSignalIcons({ card }: { card: Card }) {
-  const signals = cardSignals(card);
+  const sentinelOn = useSentinel().info?.status.enabled ?? false;
+  const signals = cardSignals(card, sentinelOn);
   if (signals.length === 0) return null;
 
   const { visible, hidden } = splitCardSignals(signals);
