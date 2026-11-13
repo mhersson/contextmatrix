@@ -653,8 +653,9 @@ up to 256 KiB: it cuts `content` and `prompt.text` first, then drops the
 oldest chat messages, and stores a round whose questions alone overflow as
 the plain message.
 
-The backend redacts credential patterns before publishing and sends keepalive
-comments to hold the connection open through proxy idle timeouts.
+The backend masks the secret values registered by its active sessions (exact
+literal strings such as the run's tokens, not patterns) before publishing and
+sends keepalive comments to hold the connection open through proxy idle timeouts.
 
 ### Task backend → CM: callbacks
 
@@ -1184,7 +1185,7 @@ flowchart LR
 ```
 
 - **Backend log bridge.** Demultiplexes each container's output into
-  `protocol.LogEntry` frames, redacts secrets, and publishes them on `GET
+  `protocol.LogEntry` frames, masks registered secret values, and publishes them on `GET
   /logs`, filterable by `project` (card mode) or `session_id` (chat mode).
 - **CM session-log manager** (`internal/backend/sessionlog`). Opens one
   long-lived signed upstream connection per card or per project (at most 64

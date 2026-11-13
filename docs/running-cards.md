@@ -22,8 +22,9 @@ container, the card's generated branch, and a claim held by the worker.
 
 The `run_card` MCP tool starts the same run as **Run Auto** and is human-only.
 It sets a non-autonomous `todo` card autonomous first, so HITL runs start only
-from the board. A card whose worker is already `queued` or `running`, or an
-unvetted import, is left unchanged and the run is refused.
+from the board. A card whose worker is already `queued` or `running`, an
+unvetted import, or a card with unmet dependencies is left unchanged and the
+run is refused.
 
 The `run_playbook` MCP tool is the playbook counterpart, also human-only: it
 makes a playbook runnable if it is not, then runs it (see
@@ -31,6 +32,10 @@ makes a playbook runnable if it is not, then runs it (see
 
 An imported card (one with a `source`) that is not vetted cannot run: the run
 button answers `403 CARD_NOT_VETTED` until a human ticks **Content vetted**.
+
+A card whose `depends_on` cards are not all `done` cannot run either: the run
+answers `409 DEPENDENCIES_NOT_MET` with details `blocked by <ID>, ...`, and the
+card is not queued. A `not_planned` dependency does not satisfy the gate.
 
 ## HITL runs
 
@@ -242,7 +247,7 @@ first run in a repository.
 | Run status  | Meaning                                                                                                                                                                        |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `running`   | The current card is queued or executing.                                                                                                                                       |
-| `waiting`   | A human is needed: a manual step, an imported card that is not vetted, or the current card parked, stalled, failed, was killed, or could not be launched. `reason` says which. |
+| `waiting`   | A human is needed: a manual step, an imported card that is not vetted, a card with unmet dependencies, or the current card parked, stalled, failed, was killed, or could not be launched. `reason` says which. |
 | `stopped`   | Stop was pressed; the **Stop** bullet below says which workers it killed.                                                                                                      |
 | `completed` | Every entry is complete. The compare links open the final pull requests.                                                                                                       |
 
@@ -258,6 +263,9 @@ first run in a repository.
   the stop is left alone.
 - The runner never retries on its own. After a failed card, fix the cause,
   then press Stop and Run: Stop ends the `waiting` run and Run resumes it.
+- A card with unmet dependencies holds the run at `waiting` with the reason
+  `dependencies not met: blocked by <ID>`. It does not continue by itself:
+  once the blockers are `done`, press Stop and then Run to resume it.
 - An imported card that is not vetted holds the run at `waiting` with the reason
   `<card> not vetted`. Vetting the card is the go-ahead: the run continues by
   itself, without Run.

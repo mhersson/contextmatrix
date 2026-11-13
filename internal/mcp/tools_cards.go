@@ -758,7 +758,7 @@ func registerGetReadyTasks(server *mcp.Server, svc *service.CardService) {
 				continue // already claimed
 			}
 
-			if card.DependenciesMet != nil && !*card.DependenciesMet {
+			if card.DependenciesBlocked() {
 				continue
 			}
 

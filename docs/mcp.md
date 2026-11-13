@@ -128,7 +128,7 @@ The "Caller" column uses these values:
 | `report_parked`             | Set `worker_status: parked`; optional `resets_at`, `window`  | claim  |
 | `increment_review_attempts` | Bump `review_attempts`; the server caps it at 7             | claim  |
 | `promote_to_autonomous`     | Flip `autonomous` to true; idempotent; 409 on terminal cards | human |
-| `run_card`                  | Start an autonomous (Run Auto) agent-backend run; a non-autonomous `todo` card is set autonomous first | human |
+| `run_card`                  | Start an autonomous (Run Auto) agent-backend run; a non-autonomous `todo` card is set autonomous first; refused, card unchanged, while a worker is in flight, for an unvetted import or with unmet dependencies | human |
 | `run_playbook`              | Make a playbook runnable if it is not, then run it; same guards as the playbook page | human |
 
 `report_parked` takes an optional `resets_at` (RFC 3339) when a Claude Code

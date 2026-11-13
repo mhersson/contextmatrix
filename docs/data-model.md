@@ -40,6 +40,10 @@ live in [architecture](architecture.md); the HTTP surface in the
    - `depends_on` gates `in_progress`: a transition or `PATCH` into
      `in_progress` fails with `ErrDependenciesNotMet` (409) while any
      dependency is not `done`; `not_planned` does not satisfy a dependency.
+     Every launch is gated on the same rule: UI/REST Run answers
+     `409 DEPENDENCIES_NOT_MET` with details `blocked by <ID>, ...`; MCP
+     `run_card` returns a tool error naming the blockers; a playbook step
+     waits with the reason `dependencies not met: blocked by <ID>`.
      `get_ready_tasks` and the `dependencies_met` read-time field use the
      same rule; `blocked_by` lists the ids that fail it. The claim itself is not gated: `claim_card` takes the claim
      first and then runs the `todo` -> `in_progress` transition, so on a

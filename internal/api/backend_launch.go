@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
@@ -92,6 +93,12 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 	if card.NeedsVetting() {
 		return nil, launchRefused(http.StatusForbidden, ErrCodeCardNotVetted,
 			"card not vetted", card.ID+" must be vetted by a human before an agent can run it")
+	}
+
+	// GetCard already applied the dependency rule (done only) to DependenciesMet and BlockedBy.
+	if card.DependenciesBlocked() {
+		return nil, launchRefused(http.StatusConflict, ErrCodeDependenciesNotMet,
+			"dependencies not met", "blocked by "+strings.Join(card.BlockedBy, ", "))
 	}
 
 	// Get project config to retrieve repo URL and worker image.

@@ -1288,3 +1288,23 @@ func TestSameSource(t *testing.T) {
 		})
 	}
 }
+
+func TestCard_DependenciesBlocked(t *testing.T) {
+	yes, no := true, false
+
+	tests := []struct {
+		name string
+		met  *bool
+		want bool
+	}{
+		{"not computed", nil, false},
+		{"met", &yes, false},
+		{"unmet", &no, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := Card{DependenciesMet: tt.met}
+			assert.Equal(t, tt.want, c.DependenciesBlocked())
+		})
+	}
+}

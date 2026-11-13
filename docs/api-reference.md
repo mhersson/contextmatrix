@@ -268,7 +268,7 @@ the request's `request_id`.
 | `CARD_EXISTS`                 | 409     | Card ID collision on create                                                                                                                                                                |
 | `PARENT_NOT_FOUND`            | 404     | Referenced parent card does not exist                                                                                                                                                      |
 | `INVALID_TRANSITION`          | 409     | State transition not allowed by the project config; also a claim or promote on a terminal card                                                                                             |
-| `DEPENDENCIES_NOT_MET`        | 409     | `depends_on` references an unknown, cross-project, or self card, or would form a cycle                                                                                                     |
+| `DEPENDENCIES_NOT_MET`        | 409     | `depends_on` references an unknown, cross-project, or self card, or forms a cycle; a transition or `PATCH` into `in_progress`, or a run, while a dependency is not `done`                  |
 | `ALREADY_CLAIMED`             | 409     | Card is claimed by another agent (on a shared board the details name the holding instance)                                                                                                 |
 | `NOT_CLAIMED`                 | 409     | Release or force-release on a card with no claim                                                                                                                                           |
 | `AGENT_MISMATCH`              | 403     | Caller does not own the claim on the card                                                                                                                                                  |
@@ -2318,7 +2318,9 @@ a chat backend is enabled with an `api_key`.
 ### POST /api/projects/{project}/cards/{id}/run
 
 Trigger remote execution for a card. Human-only. Requires the card to be in
-`todo` and a task backend configured. The `autonomous` flag is not required.
+`todo`, every `depends_on` card in `done` (otherwise `409 DEPENDENCIES_NOT_MET`
+with details `blocked by <ID>, ...`), and a task backend configured. The
+`autonomous` flag is not required.
 
 Optional JSON body:
 
