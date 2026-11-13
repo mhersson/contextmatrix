@@ -70,6 +70,26 @@ func TestCheckVerify(t *testing.T) {
 			[]string{"command not declared by the repo"},
 		},
 		{
+			"newline makes a changed command", &board.VerifyConfig{Command: "a b"},
+			&protocol.VerifyConfig{Command: "a\nb"}, finished,
+			[]string{"command not declared by the repo"},
+		},
+		{
+			"blank lines and spacing are unchanged", &board.VerifyConfig{Command: "a b\nc"},
+			&protocol.VerifyConfig{Command: "a  b\n\nc"}, finished, nil,
+		},
+		{
+			"multi-line candidate matches line for line", &board.VerifyConfig{Command: "x"},
+			&protocol.VerifyConfig{Command: "a\nb"},
+			&protocol.CheckResult{Trial: protocol.TrialFinished, Candidates: []string{"a  \n b\n"}}, nil,
+		},
+		{
+			"joined command does not match a multi-line candidate", &board.VerifyConfig{Command: "x"},
+			&protocol.VerifyConfig{Command: "a b"},
+			&protocol.CheckResult{Trial: protocol.TrialFinished, Candidates: []string{"a\nb"}},
+			[]string{"command not declared by the repo"},
+		},
+		{
 			"not trial-run", nil,
 			&protocol.VerifyConfig{TimeoutSeconds: 900}, nil,
 			[]string{"verify not trial-run"},
