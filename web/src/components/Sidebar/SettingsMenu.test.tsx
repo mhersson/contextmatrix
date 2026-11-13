@@ -89,6 +89,10 @@ describe('SettingsMenu', () => {
     openMenu();
     fireEvent.click(screen.getByRole('button', { name: 'Chats' }));
     expect(navMock).toHaveBeenCalledWith('/admin/chats');
+
+    openMenu();
+    fireEvent.click(screen.getByRole('button', { name: 'Sentinel' }));
+    expect(navMock).toHaveBeenCalledWith('/admin/sentinel');
   });
 
   it('closes on Escape and on outside click', () => {

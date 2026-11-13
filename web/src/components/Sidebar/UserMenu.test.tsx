@@ -68,6 +68,9 @@ describe('UserMenu admin section', () => {
     expect(screen.getByText('ADMIN')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Users' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Credentials' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Sentinel' }));
+    expect(navMock).toHaveBeenCalledWith('/admin/sentinel');
+    fireEvent.click(screen.getByRole('button', { name: /Root/ }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Chats' }));
     expect(navMock).toHaveBeenCalledWith('/admin/chats');
@@ -84,6 +87,7 @@ describe('UserMenu admin section', () => {
 
     expect(screen.queryByText('ADMIN')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Users' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sentinel' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Change password' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
   });

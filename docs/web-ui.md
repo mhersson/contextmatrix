@@ -18,6 +18,7 @@ reference for people using the UI; execution semantics live in
 | `/admin/users`, `/admin/credentials`        | Admin pages, `multi` auth mode only                      |
 | `/admin/chats`                              | Chat administration (admin; open in `none` mode)         |
 | `/admin/model-selection`                    | Tier ladders (admin; open in `none` mode)                |
+| `/admin/sentinel`                           | Sentinel settings (admin; open in `none` mode)           |
 
 Every view updates live from one Server-Sent Events stream per tab
 (`GET /api/events`); no view polls for card changes.
@@ -236,6 +237,14 @@ the state as its label.
 - A purple shield joins the board card's signal icons when the card carries a
   Sentinel mark (healing, healed, edited or parked); its label is the mark's
   label. It is hidden while Sentinel is off.
+
+The settings page at `/admin/sentinel` (admin only in `multi` mode) has three
+switches (Sentinel, Healing, Friction analysis), the daily spend cap in USD
+(endpoint channel), the investigation ceiling in USD per investigation and the
+subscription headroom threshold. The threshold is shown as a percent (85) and
+saved as a fraction (0.85). Healing and Friction analysis are disabled while
+Sentinel is off. Save shows the server's validation message inline and refreshes
+the strip; the footer names who last saved and when, once someone has.
 
 ## Global chat
 

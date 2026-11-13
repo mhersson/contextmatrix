@@ -45,6 +45,9 @@ const AdminChatsPage = lazy(() =>
 const AdminModelSelectionPage = lazy(() =>
   import('./components/Admin').then((m) => ({ default: m.AdminModelSelectionPage }))
 );
+const AdminSentinelPage = lazy(() =>
+  import('./components/Admin').then((m) => ({ default: m.AdminSentinelPage }))
+);
 const AdminGuard = lazy(() =>
   import('./components/Admin').then((m) => ({ default: m.AdminGuard }))
 );
@@ -114,6 +117,7 @@ function AppInner() {
                           <Route path="admin/credentials" element={<AdminGuard><AdminCredentialsPage /></AdminGuard>} />
                           <Route path="admin/chats" element={<AdminGuard><AdminChatsPage /></AdminGuard>} />
                           <Route path="admin/model-selection" element={<AdminGuard><AdminModelSelectionPage /></AdminGuard>} />
+                          <Route path="admin/sentinel" element={<AdminGuard><AdminSentinelPage /></AdminGuard>} />
                           <Route path="*" element={<NotFound />} />
                         </Routes>
                       </Suspense>

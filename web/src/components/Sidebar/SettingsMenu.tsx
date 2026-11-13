@@ -76,6 +76,7 @@ export function SettingsMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
           {[
             { label: 'Chats', path: '/admin/chats' },
             { label: 'Model selection', path: '/admin/model-selection' },
+            { label: 'Sentinel', path: '/admin/sentinel' },
           ].map((item) => (
             <button
               key={item.path}
