@@ -653,9 +653,9 @@ up to 256 KiB: it cuts `content` and `prompt.text` first, then drops the
 oldest chat messages, and stores a round whose questions alone overflow as
 the plain message.
 
-The backend masks the secret values registered for the session (exact literal
-strings such as the run's tokens, not patterns) before publishing and sends
-keepalive comments to hold the connection open through proxy idle timeouts.
+The backend masks the secret values registered by its active sessions (exact
+literal strings such as the run's tokens, not patterns) before publishing and
+sends keepalive comments to hold the connection open through proxy idle timeouts.
 
 ### Task backend → CM: callbacks
 
