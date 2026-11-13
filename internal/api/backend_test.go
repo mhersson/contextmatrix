@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -36,6 +37,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/llmchannel/llmchanneltest"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
+	opsqlite "github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 	"github.com/mhersson/contextmatrix/internal/sentinel"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
@@ -1624,10 +1626,18 @@ func (r *statusRecorder) RecordRunStatus(ctx context.Context, project, cardID, r
 func postSignedStatus(t *testing.T, serverURL, apiKey, body string) {
 	t.Helper()
 
-	bodyBytes := []byte(body)
-	sigHeader, tsHeader := protocol.SignRequestHeaders(apiKey, http.MethodPost, "/api/agent/status", bodyBytes)
+	code, _ := signedStatus(t, serverURL, apiKey, []byte(body))
+	require.Equal(t, http.StatusOK, code)
+}
 
-	req, err := http.NewRequest("POST", serverURL+"/api/agent/status", bytes.NewReader(bodyBytes))
+// signedStatus posts a signed status callback and returns the response code
+// and body.
+func signedStatus(t *testing.T, serverURL, apiKey string, body []byte) (int, string) {
+	t.Helper()
+
+	sigHeader, tsHeader := protocol.SignRequestHeaders(apiKey, http.MethodPost, "/api/agent/status", body)
+
+	req, err := http.NewRequest("POST", serverURL+"/api/agent/status", bytes.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Signature-256", sigHeader)
@@ -1638,7 +1648,10 @@ func postSignedStatus(t *testing.T, serverURL, apiKey, body string) {
 
 	defer closeBody(t, resp.Body)
 
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	return resp.StatusCode, string(respBody)
 }
 
 func statusCallbackServer(t *testing.T) (*httptest.Server, *service.CardService, *statusRecorder, string, string) {
@@ -1703,6 +1716,200 @@ func TestStatusCallbackWithoutRunIDStillUpdatesCard(t *testing.T) {
 	card, err := svc.GetCard(context.Background(), "test-project", id)
 	require.NoError(t, err)
 	assert.Equal(t, "running", card.WorkerStatus)
+}
+
+type runKindFixture struct {
+	server     *httptest.Server
+	svc        *service.CardService
+	ops        *opsqlite.Store // nil without a controller
+	runs       *statusRecorder
+	id, apiKey string
+}
+
+// runKindCallbackServer serves the status callback for one running card. With
+// a controller, the card's heal waits on an investigate run in a scratch
+// ops.db.
+func runKindCallbackServer(t *testing.T, withController bool) runKindFixture {
+	t.Helper()
+
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
+	t.Cleanup(cleanup)
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Worker task", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
+
+	f := runKindFixture{svc: svc, runs: &statusRecorder{svc: svc}, id: card.ID, apiKey: apiKey}
+	cfg := RouterConfig{
+		Service: svc, Bus: bus, Backend: backend.NewClient("http://localhost:9090", apiKey),
+		AgentBackendCfg: &config.AgentBackendConfig{APIKey: apiKey},
+		CardRuns:        f.runs,
+	}
+
+	if withController {
+		f.ops, err = opsqlite.Open(filepath.Join(t.TempDir(), "ops.db"))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = f.ops.Close() })
+
+		at := time.Now().Add(-time.Minute)
+		_, err = f.ops.OpenHeal(ctx, sentinel.Heal{
+			Kind: sentinel.HealKindHeal, Project: "test-project", CardID: card.ID, RunStarted: at.Add(-time.Hour),
+			Stage:     sentinel.StageInvestigate,
+			Dispatch:  sentinel.Dispatch{Kind: protocol.RunKindInvestigate, Mode: "endpoint", CeilingUSD: 2, At: &at},
+			CreatedAt: at, UpdatedAt: at,
+		})
+		require.NoError(t, err)
+
+		cfg.Sentinel = sentinel.New(sentinel.Config{
+			Store: f.ops, Channel: llmchanneltest.EndpointOnly(nil), Bus: bus, Pricer: svc,
+		})
+	}
+
+	f.server = httptest.NewServer(newTestRouter(cfg))
+	t.Cleanup(f.server.Close)
+
+	postSignedStatus(t, f.server.URL, apiKey, fmt.Sprintf(
+		`{"card_id":%q,"project":"test-project","worker_status":"running","run_id":"r1"}`, card.ID))
+
+	return f
+}
+
+func (f runKindFixture) heal(t *testing.T) sentinel.Heal {
+	t.Helper()
+
+	heals, err := f.ops.CardHeals(context.Background(), "test-project", f.id)
+	require.NoError(t, err)
+	require.Len(t, heals, 1)
+
+	return heals[0]
+}
+
+// investigateStatusBody is a valid completed investigate status for cardID,
+// exactly size bytes of JSON: 50 findings at their size limits, padded out in
+// the diagnosis.
+func investigateStatusBody(t *testing.T, cardID string, size int) []byte {
+	t.Helper()
+
+	findings := make([]protocol.FrictionFinding, 50)
+	for i := range findings {
+		findings[i] = protocol.FrictionFinding{
+			Kind: protocol.FindingGuidance, Text: strings.Repeat("t", 16<<10), Evidence: strings.Repeat("e", 4<<10),
+		}
+	}
+
+	p := protocol.StatusCallbackPayload{
+		CardID: cardID, Project: "test-project", WorkerStatus: "completed", RunID: "k1",
+		StopCause: protocol.StopCauseDone, Kind: protocol.RunKindInvestigate,
+		Result: &protocol.RunKindResult{Investigate: &protocol.InvestigateResult{
+			Cause: protocol.DiagnosisModel, Findings: findings,
+		}},
+	}
+
+	body, err := json.Marshal(p)
+	require.NoError(t, err)
+
+	p.Result.Investigate.Diagnosis = strings.Repeat("d", size-len(body))
+
+	body, err = json.Marshal(p)
+	require.NoError(t, err)
+	require.Len(t, body, size)
+
+	return body
+}
+
+func TestStatusCallbackRoutesRunKindsAwayFromCard(t *testing.T) {
+	for _, withController := range []bool{true, false} {
+		t.Run(fmt.Sprintf("controller %t", withController), func(t *testing.T) {
+			f := runKindCallbackServer(t, withController)
+
+			before, err := f.svc.GetCard(context.Background(), "test-project", f.id)
+			require.NoError(t, err)
+
+			code, body := signedStatus(t, f.server.URL, f.apiKey, fmt.Appendf(nil,
+				`{"card_id":%q,"project":"test-project","worker_status":"failed","run_id":"k1","stop_cause":"killed","kind":"investigate"}`,
+				strings.ToLower(f.id)))
+			assert.Equal(t, http.StatusOK, code)
+			assert.JSONEq(t, `{}`, body)
+
+			after, err := f.svc.GetCard(context.Background(), "test-project", f.id)
+			require.NoError(t, err)
+			assert.Equal(t, "running", after.WorkerStatus)
+			assert.Equal(t, before.ActivityLog, after.ActivityLog)
+
+			f.runs.mu.Lock()
+			assert.Len(t, f.runs.calls, 1, "only the card's own running status reached the run row")
+			f.runs.mu.Unlock()
+
+			if withController {
+				h := f.heal(t)
+				assert.Equal(t, "k1", h.Dispatch.AnsweredRunID)
+				assert.Equal(t, protocol.StopCauseKilled, h.Dispatch.Failure)
+				assert.InDelta(t, 2.0, h.SpendUSD, 1e-9)
+			}
+		})
+	}
+}
+
+func TestStatusCallbackRejectsInvalidRunKindStatus(t *testing.T) {
+	f := runKindCallbackServer(t, true)
+
+	code, body := signedStatus(t, f.server.URL, f.apiKey, fmt.Appendf(nil,
+		`{"card_id":%q,"project":"test-project","worker_status":"failed","run_id":"k1","kind":"investigate","result":{"investigate":{"diagnosis":"d","cause":"model"}}}`,
+		f.id))
+	assert.Equal(t, http.StatusUnprocessableEntity, code)
+
+	var apiErr APIError
+	require.NoError(t, json.Unmarshal([]byte(body), &apiErr))
+	assert.Equal(t, ErrCodeValidationError, apiErr.Code)
+
+	h := f.heal(t)
+	assert.Empty(t, h.Dispatch.AnsweredRunID)
+	assert.Zero(t, h.SpendUSD)
+}
+
+func TestStatusCallbackRejectsOversizedRunKindResult(t *testing.T) {
+	f := runKindCallbackServer(t, true)
+
+	code, body := signedStatus(t, f.server.URL, f.apiKey, investigateStatusBody(t, f.id, 1<<20+1))
+	assert.Equal(t, http.StatusUnprocessableEntity, code)
+
+	var apiErr APIError
+	require.NoError(t, json.Unmarshal([]byte(body), &apiErr))
+	assert.Equal(t, ErrCodeValidationError, apiErr.Code)
+
+	h := f.heal(t)
+	assert.Empty(t, h.Dispatch.AnsweredRunID)
+	assert.Nil(t, h.Investigation)
+	assert.Zero(t, h.SpendUSD)
+
+	findings, err := f.ops.CardFindings(context.Background(), "test-project", f.id)
+	require.NoError(t, err)
+	assert.Empty(t, findings)
+}
+
+func TestStatusCallbackAcceptsOneMiBRunKindResult(t *testing.T) {
+	f := runKindCallbackServer(t, true)
+
+	body := investigateStatusBody(t, f.id, 1<<20)
+
+	code, _ := signedStatus(t, f.server.URL, f.apiKey, body)
+	require.Equal(t, http.StatusOK, code)
+
+	var sent protocol.StatusCallbackPayload
+	require.NoError(t, json.Unmarshal(body, &sent))
+
+	h := f.heal(t)
+	assert.Equal(t, "k1", h.Dispatch.AnsweredRunID)
+	assert.Equal(t, sent.Result.Investigate, h.Investigation)
+
+	findings, err := f.ops.CardFindings(context.Background(), "test-project", f.id)
+	require.NoError(t, err)
+	assert.Len(t, findings, 50)
 }
 
 // Backend callbacks mount at the fixed config.AgentCallbackPath - prove the

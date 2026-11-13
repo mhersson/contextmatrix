@@ -695,6 +695,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		providerForProject:     cfg.ProviderForProject,
 		llmChannel:             cfg.LLMChannel,
 		cardRuns:               cfg.CardRuns,
+		runKinds:               cfg.Sentinel,
 		instanceTokenProvider:  cfg.GitHubTokenProvider,
 	}
 

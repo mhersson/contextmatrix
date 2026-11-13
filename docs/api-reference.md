@@ -2076,8 +2076,8 @@ originate from a shared-board pull carry `data.source: "sync"`.
 | `sync.error`          | `{trigger, repo, error}`                                                                                                                                                            | Cycle failed                                                                           |
 | `jira_import.progress` | `{import_id, key, status, project, card_id, reason}`                                                                                                                                | One selected issue of a Jira import finished; the event's own `project` is empty       |
 | `jira_import.done`    | `{import_id, status, playbook_id, results, error}`                                                                                                                                  | A Jira import finished or stopped; the event's own `project` is empty                  |
-| `llm_channel.changed` | `{mode}` (`project` empty)                                                                                                                                                          | The LLM channel mode was switched, or a worker reported subscription usage (a subscription `report_usage`, a chat usage frame, a usage-limit frame, or `report_parked` naming a window and a reset time), whether or not it replaced the stored reading |
-| `sentinel.changed`    | none (`project` empty)                                                                                                                                                              | Sentinel's status changed                                                              |
+| `llm_channel.changed` | `{mode}` (`project` empty)                                                                                                                                                          | The LLM channel mode was switched, or a worker reported subscription usage (a subscription `report_usage`, a chat usage frame, a usage-limit frame, `report_parked` naming a window and a reset time, or a recorded run-kind status carrying windows), whether or not it replaced the stored reading |
+| `sentinel.changed`    | none (`project` empty, or the card's `project` and `card_id`)                                                                                                                       | Sentinel's status changed (`project` empty), or a run kind's result for the card was recorded |
 
 A shared-board pull publishes per-card `card.created` / `card.updated` /
 `card.state_changed` / `card.deleted` diffs (with `source: "sync"`) only when
@@ -2619,6 +2619,51 @@ unknown value means unknown. CM records the cause only for the run whose
 `queued` and `killed` are 422 `VALIDATION_ERROR`. `message`, when present,
 is appended to the card's activity log. Returns **200** with the updated
 card; 400 `BAD_REQUEST` on malformed JSON.
+
+A status with `kind` set is a Sentinel run kind's terminal status. CM routes
+it on `kind` before it touches the card: it never updates the card, its
+activity log or its run row. It returns **200** with `{}`, also for a repeat
+of a recorded `run_id`, which changes nothing; 500 when Sentinel cannot
+record it, so the backend's retry delivers it again.
+
+```json
+{
+  "card_id": "PROJ-042", "project": "my-project", "worker_status": "completed",
+  "run_id": "PROJ-042-k3j9x2qa", "stop_cause": "done", "kind": "investigate",
+  "result": { "investigate": { "diagnosis": "...", "cause": "card",
+    "fix": { "verify": { "command": "go test ./...", "timeout_seconds": 900 } },
+    "findings": [{ "kind": "card_advice", "text": "...", "evidence": "..." }] } },
+  "usage": [{ "model": "vendor/model-a", "input_tokens": 41210, "output_tokens": 2210,
+    "cache_read_tokens": 0, "cache_creation_tokens": 0, "cost_usd": 0.1534 }]
+}
+```
+
+| Field           | Rule                                                                                                         |
+| --------------- | ------------------------------------------------------------------------------------------------------------ |
+| `kind`          | `check` or `investigate`                                                                                     |
+| `worker_status` | `completed` or `failed`; a run kind sends no `running` status                                                |
+| `result`        | Only on `completed` with `stop_cause` `done`; holds exactly the member `kind` names, `check` or `investigate` |
+| `usage`         | At most 16 rows, one per model: `model` plus the token counts, `cost_usd`, `cost_basis` and `subscription` of a usage frame |
+
+A status that breaks any rule or limit is 422 `VALIDATION_ERROR`, and nothing
+in it is recorded:
+
+| Item                                              | Limit                                                                                         |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Request body                                      | 1 MiB                                                                                         |
+| `investigate.diagnosis`                           | 32 KiB                                                                                        |
+| `investigate.cause`                               | `card`, `model`, `environment` or `ecosystem`                                                 |
+| `investigate.fix.section`                         | 16 KiB                                                                                        |
+| `investigate.fix.retire_subtasks`, `forward_to`   | 50 IDs each                                                                                   |
+| `investigate.findings`                            | 50                                                                                            |
+| A finding's `kind`                                | `guidance`, `code`, `card_advice`, `project_verify`, `hard_card` or `ecosystem`               |
+| A finding's `title`, `text`, `evidence`           | 200 bytes, 16 KiB, 4 KiB                                                                      |
+| `check.candidates`                                | 32 entries of at most 512 bytes                                                               |
+| `check.absent_from_repo`                          | 64 entries of at most 512 bytes                                                               |
+| `check.trial`, when set                           | `finished`, `timeout`, `toolchain`, `infrastructure` or `rejected`                            |
+
+What Sentinel does with an accepted status is in
+[Sentinel](sentinel.md#run-kind-results).
 
 ### GET /api/v1/cards/{project}/{id}/autonomous
 

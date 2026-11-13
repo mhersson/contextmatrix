@@ -47,8 +47,9 @@ const (
 	// switch and every stored subscription usage reading publish it.
 	LLMChannelChanged EventType = "llm_channel.changed"
 
-	// SentinelChanged has empty Project and no data; it is published when
-	// Sentinel's status changes.
+	// SentinelChanged has no data. It has empty Project when Sentinel's status
+	// changes, and the card's Project and CardID when a run kind's result for
+	// the card is recorded.
 	SentinelChanged EventType = "sentinel.changed"
 
 	SyncStarted   EventType = "sync.started"

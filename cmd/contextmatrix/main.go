@@ -608,7 +608,7 @@ func main() {
 
 	if backendSys.Client != nil {
 		taskBackend = backendSys.Client
-		sentinelCtl = sentinel.New(sentinel.Config{Store: opStore, Channel: llmChannel, Bus: bus, Clock: clk})
+		sentinelCtl = sentinel.New(sentinel.Config{Store: opStore, Channel: llmChannel, Bus: bus, Clock: clk, Pricer: svc})
 	}
 
 	// Attribute backend-generated audit-trail entries to the agent backend

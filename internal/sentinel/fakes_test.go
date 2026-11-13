@@ -42,6 +42,15 @@ func (f *fakeStore) SubscriptionWindows(context.Context) ([]protocol.Subscriptio
 	return f.windows, nil
 }
 
+// Passes never record run-kind statuses; the intake tests use the real store.
+func (f *fakeStore) RecordRunKindStatus(context.Context, RunKindReport) (int64, bool, error) {
+	return 0, false, nil
+}
+
+func (f *fakeStore) AddFindings(context.Context, int64, string, string, []protocol.FrictionFinding, time.Time) error {
+	return nil
+}
+
 func (f *fakeStore) passes() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -57,9 +66,12 @@ func (f *fakeStore) set(s Settings) {
 }
 
 // fakeChannel maps a backend kind to its effective mode; other kinds get "".
+// It keeps no usage.
 type fakeChannel map[llmchannel.Kind]llmchannel.Mode
 
 func (f fakeChannel) Effective(kind llmchannel.Kind) llmchannel.Mode { return f[kind] }
+
+func (f fakeChannel) RecordUsage(context.Context, []protocol.SubscriptionUsage) {}
 
 func enabledSettings() Settings {
 	s := DefaultSettings()

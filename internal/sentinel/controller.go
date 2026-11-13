@@ -17,25 +17,30 @@ import (
 
 const defaultTick = 30 * time.Second
 
-// Store is the ops.db slice the controller reads.
+// Store is the ops.db slice the controller reads and writes.
 type Store interface {
 	SentinelSettings(ctx context.Context) (Settings, time.Time, string, error)
 	SubscriptionWindows(ctx context.Context) ([]protocol.SubscriptionUsage, error)
+	RecordRunKindStatus(ctx context.Context, r RunKindReport) (healID int64, recorded bool, err error)
+	AddFindings(ctx context.Context, healID int64, project, cardID string, fs []protocol.FrictionFinding, at time.Time) error
 }
 
-// Channel gives the LLM channel mode a fresh run of a backend kind starts in.
+// Channel gives the LLM channel mode a fresh run of a backend kind starts in,
+// and keeps the subscription windows workers report.
 type Channel interface {
 	Effective(kind llmchannel.Kind) llmchannel.Mode
+	RecordUsage(ctx context.Context, u []protocol.SubscriptionUsage)
 }
 
 // Config wires the controller. Clock nil means the real clock; Tick zero
-// means 30 seconds.
+// means 30 seconds. Pricer prices run-kind usage without a gateway cost.
 type Config struct {
 	Store   Store
 	Channel Channel
 	Bus     *events.Bus
 	Clock   clock.Clock
 	Tick    time.Duration
+	Pricer  Pricer
 }
 
 // Controller is Sentinel's level-triggered loop: each pass decides from

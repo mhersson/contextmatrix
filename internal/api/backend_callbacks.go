@@ -11,6 +11,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/githubauth"
+	"github.com/mhersson/contextmatrix/internal/sentinel"
 )
 
 // Callback request bodies are protocol-owned; aliased so handlers keep their local names.
@@ -27,6 +28,12 @@ func (h *backendHandlers) workerStatusUpdate(w http.ResponseWriter, r *http.Requ
 	var req workerStatusRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON", "")
+
+		return
+	}
+
+	if req.Kind != "" {
+		h.runKindStatus(w, r, req, len(body))
 
 		return
 	}
@@ -59,6 +66,28 @@ func (h *backendHandlers) workerStatusUpdate(w http.ResponseWriter, r *http.Requ
 	}
 
 	writeJSON(w, http.StatusOK, card)
+}
+
+// runKindStatus takes a run kind's terminal status. It never touches the card
+// or its run row; without a controller it is acknowledged and ignored.
+func (h *backendHandlers) runKindStatus(w http.ResponseWriter, r *http.Request, req workerStatusRequest, bodyLen int) {
+	if err := sentinel.ValidateRunKindStatus(req, bodyLen); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid run-kind status", err.Error())
+
+		return
+	}
+
+	req.CardID = strings.ToUpper(req.CardID)
+
+	if h.runKinds != nil {
+		if err := h.runKinds.RunKindStatus(r.Context(), req); err != nil {
+			handleServiceError(w, r, err)
+
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, struct{}{})
 }
 
 // cardAutonomousResponse is the minimal read-only shape returned to the

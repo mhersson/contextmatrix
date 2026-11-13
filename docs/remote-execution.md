@@ -705,6 +705,10 @@ The backend reports a worker-status transition.
   of a replaced run cannot overwrite the current run's cause.
 - The backend may set `running`, `failed`, or `completed`
   (`board.ValidateWorkerCallbackStatus`); anything else is `422`.
+- A status with `kind` set is a Sentinel run kind's terminal status. CM routes
+  it to Sentinel before it touches the card, so it never updates the card or
+  its run row; its fields and limits are in
+  [api-reference.md](api-reference.md#post-apiagentstatus).
 - A `failed` or `killed` status arriving after the card reached `done` or
   `not_planned` is rewritten to `completed` with the activity message
   `container cleaned up after run completed`, so a cleanup kill never flips a

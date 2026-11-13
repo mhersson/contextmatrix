@@ -140,6 +140,9 @@ type backendHandlers struct {
 	// cardRuns records each run's mode; nil skips the record.
 	cardRuns CardRunRecorder
 
+	// runKinds takes run kinds' statuses; nil without a Sentinel controller.
+	runKinds *sentinel.Controller
+
 	// instanceTokenProvider mints the instance-scoped git credential attached
 	// to task-skills-source responses. Unlike providerForProject (per-project,
 	// fail-closed on a broken binding), this is the flat instance provider -

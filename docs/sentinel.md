@@ -6,7 +6,8 @@ stuck: find out why, fix the card and rerun it, and only for card runs this
 instance launched. It lives in `internal/sentinel` as a level-triggered
 controller, built like the playbook runner. At present a pass reads Sentinel's
 settings, the agent's LLM channel mode and the stored subscription windows,
-and derives Sentinel's status from them; it does not act on runs.
+and derives Sentinel's status from them; it does not act on runs. The status
+callback hands the controller run kinds' results, which it records and charges.
 
 ## Settings
 
@@ -19,7 +20,7 @@ and records the time and the writer; invalid settings store nothing.
 | ------------------------- | ------- | -------------------- | -------------------------------------------------------------- |
 | `enabled`                 | off     |                      | The controller: off reports `off` and reads nothing else       |
 | `healing`                 | on      |                      | Stored; nothing reads it at present                            |
-| `friction`                | on      |                      | Stored; nothing reads it at present                            |
+| `friction`                | on      |                      | The run-kind intake: off stores no findings                    |
 | `daily_cap_usd`           | 20.00   | 0 to 10000           | The budget gate on the endpoint channel                        |
 | `investigate_ceiling_usd` | 2.00    | above 0, at most 100 | Stored; nothing reads it at present                            |
 | `headroom`                | 0.85    | above 0, at most 1   | The budget gate on Claude Code, as a utilization fraction      |
@@ -94,7 +95,8 @@ holder, so only human, unclaimed and system writes read as edits against it.
 
 ## Heal records
 
-Three ops.db tables hold what Sentinel does; nothing writes them at present.
+Three ops.db tables hold what Sentinel does. Nothing opens a heal at present;
+the run-kind intake records results, findings and spend on one that exists.
 
 - `sentinel_heals`: one row per heal, for one stopped run (at most one per run
   start, so opening it twice returns the first), or per fix forwarded to
@@ -118,6 +120,42 @@ stage.
 Every write to a heal row bumps its version, and a save carries the version it
 read: one made from a stale read is refused (`ErrHealChanged`), so a pass never
 overwrites an answer recorded since it read the heal.
+
+## Run-kind results
+
+A run kind reports once, on its terminal status, through the status callback
+(`POST /api/agent/status` with `kind` set). The callback routes on `kind`
+before it touches the card, so the card and its run row never see the status.
+
+- `ValidateRunKindStatus` (`limits.go`) checks every value and size limit
+  (listed in the [API reference](api-reference.md#post-apiagentstatus)). A breach is 422 and nothing is recorded.
+- `Controller.RunKindStatus` (`intake.go`) records a valid status on the
+  card's heal as above: the kind's result, or without one the status message,
+  else its stop cause, as the dispatch's failure.
+- Once a status is recorded, and only then, it records the usage rows'
+  subscription windows (see Spend), stores the investigation's findings while
+  `friction` is on, publishes `sentinel.changed` with the card's project and
+  ID, and nudges the controller.
+- A store failure is returned, so the callback answers 500 and the backend's
+  retry delivers the status again. A failure after recording is logged
+  instead: the retry would be a repeat.
+- Recording never applies a result; nothing acts on one at present.
+
+## Spend
+
+Each recorded run-kind status charges the heal's ledger one row on the LLM
+channel mode its dispatch ran on, once per run ID (`spend.go`):
+
+- Each usage row is charged its gateway cost (`cost_usd`) when the gateway
+  reported one, else the estimate from CM's rate table and model catalog
+  (`CardService.PriceTokens`), the same rule card runs and chats use. A row
+  priced neither way charges nothing.
+- An `investigate` status with no usage is charged the dispatch's ceiling, so
+  the daily cap never under-counts a run that died before it reported. A
+  `check` runs no model.
+- A Claude Code row's `subscription` windows are recorded as `report_usage`
+  records them, so the budget gate reads current windows.
+- Nothing reaches the card's own token usage or cost.
 
 ## Status
 
@@ -215,6 +253,9 @@ earlier never whitelists itself.
 | `internal/sentinel/settings.go`             | `Settings`, the defaults and validation                                                                                                                      |
 | `internal/sentinel/state.go`                | The durable-state types: the run row (`Run`, `LaunchFacts`), launch origins, the caps, and the heal records (`Heal`, the stages, `Finding`, `RunKindReport`) |
 | `internal/sentinel/controller.go`           | The loop: `Start`, `Shutdown`, `Nudge`, `Status`, the panic-safe pass and the wake-up filter                                                                 |
+| `internal/sentinel/intake.go`               | `RunKindStatus`: record a run kind's terminal status, its windows and findings                                                                               |
+| `internal/sentinel/limits.go`               | `ValidateRunKindStatus`: the run-kind status values and size limits                                                                                          |
+| `internal/sentinel/spend.go`                | `Pricer` and `priceUsage`: what a run kind's usage costs                                                                                                     |
 | `internal/sentinel/pass.go`                 | One pass: read settings, mode and windows; record the status and publish a change                                                                            |
 | `internal/sentinel/causes.go`               | The cause table: one row per cause, `responseFor`                                                                                                            |
 | `internal/sentinel/checks.go`               | `fixContext`, the two check lists, `vetFix` and `vetForward`                                                                                                 |
