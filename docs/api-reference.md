@@ -2001,6 +2001,7 @@ originate from a shared-board pull carry `data.source: "sync"`.
 | `jira_import.progress` | `{import_id, key, status, project, card_id, reason}`                                                                                                                                | One selected issue of a Jira import finished; the event's own `project` is empty       |
 | `jira_import.done`    | `{import_id, status, playbook_id, results, error}`                                                                                                                                  | A Jira import finished or stopped; the event's own `project` is empty                  |
 | `llm_channel.changed` | `{mode}` (`project` empty)                                                                                                                                                          | The LLM channel mode was switched, or a worker reported subscription usage (a subscription `report_usage`, a chat usage frame, a usage-limit frame, or `report_parked` naming a window and a reset time), whether or not it replaced the stored reading |
+| `sentinel.changed`    | none (`project` empty)                                                                                                                                                              | Sentinel's status changed                                                              |
 
 A shared-board pull publishes per-card `card.created` / `card.updated` /
 `card.state_changed` / `card.deleted` diffs (with `source: "sync"`) only when

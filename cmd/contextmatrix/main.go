@@ -43,6 +43,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 	opsqlite "github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 	"github.com/mhersson/contextmatrix/internal/playbookrun"
+	"github.com/mhersson/contextmatrix/internal/sentinel"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/web"
 )
@@ -602,8 +603,12 @@ func main() {
 	// `!= nil` enablement check in the router.
 	var taskBackend api.TaskBackend
 
+	// Sentinel works only through the agent backend, so it has no controller without one.
+	var sentinelCtl *sentinel.Controller
+
 	if backendSys.Client != nil {
 		taskBackend = backendSys.Client
+		sentinelCtl = sentinel.New(sentinel.Config{Store: opStore, Channel: llmChannel, Bus: bus, Clock: clk})
 	}
 
 	// Attribute backend-generated audit-trail entries to the agent backend
@@ -845,6 +850,10 @@ func main() {
 		pbRunner.Start(ctx)
 	}
 
+	if sentinelCtl != nil {
+		sentinelCtl.Start(ctx)
+	}
+
 	slog.Info("MCP server registered", "endpoint", "/mcp")
 
 	// Embed frontend and create SPA handler
@@ -935,6 +944,7 @@ func main() {
 		SessionLog:     sessionMgr,
 		CommitQueues:   boards.queues(),
 		PlaybookRunner: pbRunner,
+		Sentinel:       sentinelCtl,
 		JiraImport:     jiraImporter,
 		JiraWriteback:  jiraWriteback,
 		Syncer:         syncGroup,

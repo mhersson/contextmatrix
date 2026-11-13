@@ -14,6 +14,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/jiraimport"
 	"github.com/mhersson/contextmatrix/internal/jirawriteback"
 	"github.com/mhersson/contextmatrix/internal/playbookrun"
+	"github.com/mhersson/contextmatrix/internal/sentinel"
 )
 
 // shutdownComponents groups the live objects touched during the multi-phase
@@ -40,6 +41,10 @@ type shutdownComponents struct {
 	// mid-write races the queue close and loses its run-state write. May be
 	// nil when no boards repo has playbooks enabled.
 	PlaybookRunner *playbookrun.Runner
+
+	// Sentinel is the healing controller, joined with the playbook walkers.
+	// May be nil when no agent backend is configured.
+	Sentinel *sentinel.Controller
 
 	// JiraImport runs Jira epic imports in the background. Its imports are
 	// joined with the playbook walkers, before the commit queues close, for
@@ -73,9 +78,10 @@ type shutdownComponents struct {
 //  1. http_drain      - cancel SSE contexts, drain in-flight HTTP requests.
 //  2. sessionlog_close - close backend SSE log sessions with terminal events.
 //  3. ctx_cancel      - cancel the long-lived application context.
-//  4. playbook_runner_drain, jira_import_drain, jira_writeback_drain - join
-//     the playbook walkers, the Jira imports and the Jira writeback worker
-//     on one shared budget.
+//  4. playbook_runner_drain, sentinel_drain, jira_import_drain,
+//     jira_writeback_drain - join the playbook walkers, the Sentinel
+//     controller, the Jira imports and the Jira writeback worker on one
+//     shared budget.
 //  5. commit_queue_close - flush buffered commits to disk.
 //  6. syncers_drain   - wait for git syncers, then push private auto-push
 //     repos that are still ahead of their remote.
@@ -125,10 +131,11 @@ func runShutdownSequence(ctx context.Context, c shutdownComponents) error {
 	slog.Info("shutdown: phase=ctx_cancel")
 	c.AppCancel()
 
-	// Phase 4: join the playbook walkers, the Jira imports and the Jira
-	// writeback worker. AppCancel above is what stops them (an import between
-	// two issues); this waits so their writes land before the commit queues
-	// close underneath them, which would otherwise roll a write back.
+	// Phase 4: join the playbook walkers, the Sentinel controller, the Jira
+	// imports and the Jira writeback worker. AppCancel above is what stops
+	// them (an import between two issues); this waits so their writes land
+	// before the commit queues close underneath them, which would otherwise
+	// roll a write back.
 	// AppCancel also aborts a playbook trigger in flight, whose card the
 	// launcher reverts to failed before the queues close, and an import's
 	// in-flight issue finishes or is cancelled once the importer's 8 s drain
@@ -147,6 +154,18 @@ func runShutdownSequence(ctx context.Context, c shutdownComponents) error {
 		if err := c.PlaybookRunner.Shutdown(phase4Ctx); err != nil {
 			slog.Warn("shutdown: playbook runner drain exceeded budget",
 				"phase", "playbook_runner_drain",
+				"timeout", phase4Timeout,
+				"error", err,
+			)
+		}
+	}
+
+	slog.Info("shutdown: phase=sentinel_drain")
+
+	if c.Sentinel != nil {
+		if err := c.Sentinel.Shutdown(phase4Ctx); err != nil {
+			slog.Warn("shutdown: sentinel drain exceeded budget",
+				"phase", "sentinel_drain",
 				"timeout", phase4Timeout,
 				"error", err,
 			)

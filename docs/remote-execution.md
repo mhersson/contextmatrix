@@ -1029,8 +1029,9 @@ catalog.
 
 - A card run keeps the mode it was triggered in for its whole life; the
   backend holds it from the trigger. A rerun takes the current mode. CM
-  records each run's mode in ops.db (`card_run_modes`) only to count work in
-  flight.
+  records each run's mode in ops.db (`card_run_modes`) to count work in
+  flight; the same row holds the run's launch facts (see
+  [Sentinel](sentinel.md#the-run-row)).
 - A chat or blueprint keeps the mode it started in until it goes cold (its
   `llm_channel` field). A cold open, through `/open` or a send to a cold
   session, adopts the current mode.
