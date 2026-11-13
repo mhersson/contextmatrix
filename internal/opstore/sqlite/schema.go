@@ -166,6 +166,18 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			updated_at      INTEGER NOT NULL,
 			PRIMARY KEY (project, card_id, kind)
 		)`,
+		`CREATE TABLE IF NOT EXISTS sentinel_settings (
+			id                      INTEGER PRIMARY KEY CHECK (id = 1),
+			enabled                 INTEGER NOT NULL,
+			healing                 INTEGER NOT NULL,
+			friction                INTEGER NOT NULL,
+			ecosystem               INTEGER NOT NULL DEFAULT 0,
+			daily_cap_usd           REAL NOT NULL,
+			investigate_ceiling_usd REAL NOT NULL,
+			headroom                REAL NOT NULL,
+			updated_at              INTEGER NOT NULL,
+			updated_by              TEXT NOT NULL
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_jira_writeback_due ON jira_writeback(state, next_attempt_at)`,
 	}
 
