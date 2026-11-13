@@ -45,6 +45,7 @@ type statusInput struct {
 	Mode         llmchannel.Mode
 	GateOpen     bool
 	GateReason   string
+	NoRunKinds   bool // the agent said it has no run kinds, within the hold
 	Windows      []protocol.SubscriptionUsage
 	Healing      int
 }
@@ -55,7 +56,7 @@ func NotRunningStatus(s Settings) Status {
 }
 
 // summarize derives the status. The first matching state wins: off, not
-// running, paused, working, watching.
+// running, paused (no run kinds, then the budget gate), working, watching.
 func summarize(in statusInput) Status {
 	st := Status{
 		Enabled:     in.Settings.Enabled,
@@ -80,6 +81,8 @@ func summarize(in statusInput) Status {
 		st.State, st.Reason = StateNotRunning, "no execution backend"
 	case in.Now.Sub(in.LastPass) > staleTicks*in.Tick:
 		st.State, st.Reason = StateNotRunning, "controller stopped"
+	case in.NoRunKinds:
+		st.State, st.Reason = StatePaused, reasonNoRunKinds
 	case !in.GateOpen:
 		st.State, st.Reason = StatePaused, in.GateReason
 	case in.Healing > 0:

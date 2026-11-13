@@ -10,10 +10,12 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/mhersson/contextmatrix/internal/chat"
+	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/sqliteutil"
 )
 
@@ -1426,4 +1428,86 @@ func TestAggregateCost_SubscriptionPart(t *testing.T) {
 	require.NoError(t, err)
 	assert.InDelta(t, 1.00+0.75+0.25+0.10, last30d, 1e-9, "totals still count everything")
 	assert.InDelta(t, 0.75+0.25+0.10, sub30d, 1e-9)
+}
+
+// noopChatBackend is a minimal chat.Backend for tests that do not exercise
+// the backend path (cold opens, message sends, log streaming).
+type noopChatBackend struct{}
+
+func (noopChatBackend) StartChat(_ context.Context, _ chat.StartChatOpts) (string, error) {
+	return "noop-container", nil
+}
+
+func (noopChatBackend) EndChat(_ context.Context, _ string) error { return nil }
+
+func (noopChatBackend) SendChatMessage(_ context.Context, _ protocol.MessagePayload) error {
+	return nil
+}
+
+func (noopChatBackend) StreamLogs(_ context.Context, _ string, _ func(chat.LogEntry)) error {
+	return nil
+}
+
+// TestGetChatCostSummary_DeletePreservesCost guards the invariant that after
+// Manager.DeleteSession, the deleted session's estimated cost still appears in
+// GetChatCostSummary because DeleteSession archives the cost columns into
+// chat_cost_archive and AggregateCost UNIONs both tables.
+func TestGetChatCostSummary_DeletePreservesCost(t *testing.T) {
+	ctx := context.Background()
+
+	// Open a real SQLite store backed by a temp directory.
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	realStore, err := Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = realStore.Close() })
+
+	// Fix the clock so "now - 1h" is well inside the 30-day window.
+	now := time.Date(2026, 5, 23, 14, 0, 0, 0, time.UTC)
+	clk := clock.Fake(now)
+
+	// Build the first manager - used to capture the baseline and delete the session.
+	mgr := chat.NewManager(chat.Config{
+		Store:   realStore,
+		Backend: noopChatBackend{},
+		Clock:   clk,
+		IdleTTL: time.Hour,
+	})
+
+	// Seed a cold session whose last_active falls inside the 30-day window.
+	sessID := chat.NewID()
+	require.NoError(t, realStore.CreateSession(ctx, chat.Session{
+		ID:         sessID,
+		Title:      "preserve-cost-test",
+		Status:     chat.StatusCold,
+		CreatedAt:  now.Add(-1 * time.Hour),
+		LastActive: now.Add(-1 * time.Hour),
+		CreatedBy:  "human:test",
+	}))
+
+	// Increment cost so estimated_cost_usd is non-zero.
+	_, _, _, _, _, _, err = realStore.IncrementSessionCost(ctx, sessID, 100, 50, 0, 0, 1.50, 0, "claude-sonnet-4-6")
+	require.NoError(t, err)
+
+	// Capture baseline: the cost must appear before deletion.
+	baseline, _, _, _, err := mgr.GetChatCostSummary(ctx)
+	require.NoError(t, err)
+	assert.InDelta(t, 1.50, baseline, 1e-9, "baseline last30d must include the seeded session cost")
+
+	// Delete the session - DeleteSession archives cost into chat_cost_archive.
+	require.NoError(t, mgr.DeleteSession(ctx, sessID))
+
+	// Build a fresh manager on the same store to bypass the 30s costCache TTL.
+	// A zero costCache on the new manager forces a re-query from the store.
+	mgr2 := chat.NewManager(chat.Config{
+		Store:   realStore,
+		Backend: noopChatBackend{},
+		Clock:   clk,
+		IdleTTL: time.Hour,
+	})
+
+	// The cost must survive deletion via the UNION ALL over chat_cost_archive.
+	afterDelete, _, _, _, err := mgr2.GetChatCostSummary(ctx)
+	require.NoError(t, err)
+	assert.InDelta(t, baseline, afterDelete, 1e-9,
+		"deleted session cost must persist via chat_cost_archive UNION branch")
 }

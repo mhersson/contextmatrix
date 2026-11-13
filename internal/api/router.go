@@ -713,6 +713,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		cfg.MCPCardRunner.Set(rh.mcpRunCard)
 	}
 
+	if cfg.Sentinel != nil {
+		cfg.Sentinel.SetRunKindBase(rh.runKindBase)
+	}
+
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/run", rh.runCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/stop", rh.stopCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/message", rh.messageCard)

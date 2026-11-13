@@ -9,10 +9,14 @@ import (
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
 
+	"github.com/mhersson/contextmatrix/internal/backend"
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/service"
+	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 const defaultTick = 30 * time.Second
@@ -23,6 +27,9 @@ type Store interface {
 	SubscriptionWindows(ctx context.Context) ([]protocol.SubscriptionUsage, error)
 	RecordRunKindStatus(ctx context.Context, r RunKindReport) (healID int64, recorded bool, err error)
 	AddFindings(ctx context.Context, healID int64, project, cardID string, fs []protocol.FrictionFinding, at time.Time) error
+	// SaveHeal advances h.Version, or answers ErrHealChanged when the row was
+	// written since h was read.
+	SaveHeal(ctx context.Context, h *Heal) error
 }
 
 // Channel gives the LLM channel mode a fresh run of a backend kind starts in,
@@ -32,16 +39,40 @@ type Channel interface {
 	RecordUsage(ctx context.Context, u []protocol.SubscriptionUsage)
 }
 
+// Backend is the agent backend the controller dispatches run kinds to.
+type Backend interface {
+	RunKind(ctx context.Context, p protocol.RunKindPayload) error
+	ListContainers(ctx context.Context) ([]backend.ContainerInfo, error)
+	Health(ctx context.Context) (protocol.HealthResponse, error)
+}
+
+// Cards reads the cards and projects a heal works on.
+type Cards interface {
+	GetCard(ctx context.Context, project, id string) (*board.Card, error)
+	ListCards(ctx context.Context, project string, f storage.CardFilter) ([]*board.Card, error)
+	GetProject(ctx context.Context, project string) (*board.ProjectConfig, error)
+}
+
+// Playbooks reads a playbook with its run and resolved entries.
+type Playbooks interface {
+	Get(ctx context.Context, id string) (*service.PlaybookDetail, error)
+}
+
 // Config wires the controller. Clock nil means the real clock; Tick zero
 // means 30 seconds. Pricer prices run-kind usage without a gateway cost and
-// is required with a Store.
+// is required with a Store. Playbooks is nil when playbooks are off.
+// Instance is this instance's ID as playbook runs record it.
 type Config struct {
-	Store   Store
-	Channel Channel
-	Bus     *events.Bus
-	Clock   clock.Clock
-	Tick    time.Duration
-	Pricer  Pricer
+	Store     Store
+	Channel   Channel
+	Bus       *events.Bus
+	Clock     clock.Clock
+	Tick      time.Duration
+	Pricer    Pricer
+	Backend   Backend
+	Cards     Cards
+	Playbooks Playbooks
+	Instance  string
 }
 
 // Controller is Sentinel's level-triggered loop: each pass decides from
@@ -51,9 +82,11 @@ type Controller struct {
 	nudge chan struct{}
 	wg    sync.WaitGroup
 
-	mu        sync.Mutex
-	last      statusInput // from the last pass that completed
-	published Status
+	mu              sync.Mutex
+	last            statusInput // from the last pass that completed
+	published       Status
+	runKindBase     RunKindBase
+	noRunKindsUntil time.Time // the agent answered that it has no run kinds
 }
 
 // New creates a controller; Start runs it. It panics on a Store without a
@@ -112,6 +145,14 @@ func (c *Controller) Shutdown(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// SetRunKindBase wires what fills a run kind's common payload fields.
+func (c *Controller) SetRunKindBase(b RunKindBase) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.runKindBase = b
 }
 
 // Nudge asks for a pass; nudges that arrive during a pass coalesce into one.

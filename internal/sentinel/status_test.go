@@ -46,6 +46,12 @@ func TestSummarize(t *testing.T) {
 			in.GateReason = "waiting for subscription headroom"
 			in.Healing = 2
 		}), StatePaused, "waiting for subscription headroom"},
+		{"no run kinds", with(func(in *statusInput) { in.NoRunKinds = true }), StatePaused, "the agent has no run kinds"},
+		{"no run kinds wins over a closed gate", with(func(in *statusInput) {
+			in.NoRunKinds = true
+			in.GateOpen = false
+			in.GateReason = "daily cap reached"
+		}), StatePaused, "the agent has no run kinds"},
 		{"healing", with(func(in *statusInput) { in.Healing = 2 }), StateWorking, ""},
 		{"quiet", quiet, StateWatching, ""},
 	}

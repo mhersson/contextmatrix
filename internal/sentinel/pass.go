@@ -30,6 +30,7 @@ func (c *Controller) pass(ctx context.Context) error {
 		in.Windows = windows
 		// Sentinel dispatches no paid work, so nothing counts against the cap.
 		in.GateOpen, in.GateReason = budgetGate(in.Mode, set, 0, windows, now)
+		in.NoRunKinds = c.noRunKinds(now)
 	}
 
 	c.record(in)

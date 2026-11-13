@@ -18,11 +18,7 @@ func checkVerify(c fixContext) []string {
 	}
 
 	before := resolved(c.Card.Verify, c.Project)
-	after := resolved(&board.VerifyConfig{
-		Command:        strings.TrimSpace(c.Fix.Verify.Command),
-		TimeoutSeconds: c.Fix.Verify.TimeoutSeconds,
-		Env:            c.Fix.Verify.Env,
-	}, c.Project)
+	after := resolvedFix(c.Fix.Verify, c.Project)
 
 	var violations []string
 
@@ -62,6 +58,15 @@ func resolved(card, project *board.VerifyConfig) board.VerifyConfig {
 	}
 
 	return board.VerifyConfig{}
+}
+
+// resolvedFix is a fix's verify as the card will resolve it once written.
+func resolvedFix(fix *protocol.VerifyConfig, project *board.VerifyConfig) board.VerifyConfig {
+	return resolved(&board.VerifyConfig{
+		Command:        strings.TrimSpace(fix.Command),
+		TimeoutSeconds: fix.TimeoutSeconds,
+		Env:            fix.Env,
+	}, project)
 }
 
 func declared(check *protocol.CheckResult, command string) bool {

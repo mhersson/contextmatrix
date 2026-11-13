@@ -22,7 +22,7 @@ and records the time and the writer; invalid settings store nothing.
 | `healing`                 | on      |                      | Stored; nothing reads it at present                            |
 | `friction`                | on      |                      | The run-kind intake: off stores no findings                    |
 | `daily_cap_usd`           | 20.00   | 0 to 10000           | The budget gate on the endpoint channel                        |
-| `investigate_ceiling_usd` | 2.00    | above 0, at most 100 | Stored; nothing reads it at present                            |
+| `investigate_ceiling_usd` | 2.00    | above 0, at most 100 | The investigate run's `max_cost_usd`; no pass dispatches one at present |
 | `headroom`                | 0.85    | above 0, at most 1   | The budget gate on Claude Code, as a utilization fraction      |
 
 Numbers must be finite.
@@ -169,6 +169,7 @@ matching state wins:
 | `off`         |                                                            | `enabled` is off                                                      |
 | `not_running` | `no execution backend`                                     | Sentinel is on and no agent backend is configured, so no controller exists |
 | `not_running` | `controller stopped`                                       | No pass has landed for more than three ticks                          |
+| `paused`      | `the agent has no run kinds`                               | The agent answered a run kind with 404 in the last 15 minutes         |
 | `paused`      | `daily cap reached` or `waiting for subscription headroom` | The budget gate is closed                                             |
 | `working`     |                                                            | At least one heal is in progress                                      |
 | `watching`    |                                                            | Otherwise                                                             |
@@ -177,6 +178,58 @@ The status also carries `enabled`, `mode` (the agent's effective mode, empty
 while Sentinel is off or has no controller), `daily_cap_usd`, `headroom`, and
 on Claude Code the `windows` that have not reset. `healing`, `healed_today` and
 `spent_today_usd` are 0 at present, so the state is never `working`.
+
+## Run kinds
+
+A run kind is a sandboxed agent run Sentinel dispatches for one card through
+the agent's `POST /run-kind` ([remote execution](remote-execution.md#post-agent_urlrun-kind)).
+It gets no MCP key, so it cannot write the board, and it reports only on its
+terminal status (see Run-kind results). No pass dispatches one at present.
+
+Every run kind's payload starts from the same base, filled by
+`backendHandlers.runKindBase` (`internal/api/backend_runkind.go`), which the
+router hands the controller:
+
+- the project's repository and worker image, and the card's base branch;
+- a git token for the repository with contents read only
+  (`GenerateRepoReadToken`), minted from the project's credential binding and
+  failing closed as a launch does. A PAT cannot be narrowed, so a PAT install
+  sends the PAT. The token carries no expiry: the run clones once;
+- for `investigate`, the model, selection context and LLM endpoint a card
+  launched now would get (`chooseModel`, shared with `launch`), and the mode
+  that endpoint belongs to. `check` runs no model and gets none of them.
+
+| Kind          | Sends                                                                                                                                                                                                                       |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `investigate` | `max_cost_usd` = `investigate_ceiling_usd`; the stopped run's ID and stop cause (none for `stalled` and `unknown`); the card file; its verify resolved card over project; its subtasks' card files; its unstarted siblings' card files |
+| `check`       | A trial of the verify the fix leaves, resolved as the card will store it (none when the fix keeps verify); the card's resolved verify command in force today; the fix's `## Sentinel` text                                    |
+
+Siblings are the cards of the playbook run holding the card, when that run is
+active on this instance: card entries in the same project that are incomplete,
+in `todo` with no worker status, other than the card itself, in entry order.
+
+The agent refuses a body over 1 MiB, so the investigate payload is filled in
+order: the card, then subtasks, then siblings, while the encoded payload stays
+at or under 1 MiB. The first file that does not fit ends both lists. The heal
+records the subtask and sibling IDs sent, since a fix may retire only a
+subtask the investigation saw. A card whose file alone does not fit is not
+dispatched and the heal parks.
+
+`dispatch` (`dispatch.go`) records the dispatch on the heal (kind, mode,
+ceiling, time) before it sends, so a run the agent starts is always on
+record. A save refused because the heal changed since it was read sends
+nothing. On a failed send:
+
+| Agent answer                      | Effect                                                                                                    |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| 404, the agent has no run kinds   | The dispatch is cleared, and nothing is dispatched for 15 minutes; the status reads paused meanwhile      |
+| 429 or 503, busy                  | The dispatch is cleared; a later pass retries                                                             |
+| Another 4xx, refused              | The heal parks                                                                                            |
+| A transport error                 | The dispatch is cleared; a later pass retries                                                             |
+
+A run kind takes one of the agent's `max_concurrent` worker slots and must
+leave one free for card runs: `roomFor` (`gate.go`) allows a dispatch only
+while `running_containers + 1 < max_concurrent`.
 
 ## The cause table
 
@@ -252,7 +305,10 @@ earlier never whitelists itself.
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `internal/sentinel/settings.go`             | `Settings`, the defaults and validation                                                                                                                      |
 | `internal/sentinel/state.go`                | The durable-state types: the run row (`Run`, `LaunchFacts`), launch origins, the caps, and the heal records (`Heal`, the stages, `Finding`, `RunKindReport`) |
-| `internal/sentinel/controller.go`           | The loop: `Start`, `Shutdown`, `Nudge`, `Status`, the panic-safe pass and the wake-up filter                                                                 |
+| `internal/sentinel/controller.go`           | The loop: `Start`, `Shutdown`, `Nudge`, `Status`, the panic-safe pass and the wake-up filter; the `Store`, `Backend`, `Cards` and `Playbooks` it uses      |
+| `internal/sentinel/payload.go`              | The pure run-kind payloads: `investigatePayload` under the 1 MiB cap, `checkPayload`, and `siblings`                                                         |
+| `internal/sentinel/dispatch.go`             | Reading a run kind's inputs, `dispatch` (record, then send, then act on the agent's answer) and the no-run-kinds hold                                         |
+| `internal/sentinel/outcome.go`              | `park`                                                                                                                                                       |
 | `internal/sentinel/intake.go`               | `RunKindStatus`: record a run kind's terminal status, its windows and findings                                                                               |
 | `internal/sentinel/limits.go`               | `ValidateRunKindStatus`: the run-kind status values and size limits                                                                                          |
 | `internal/sentinel/spend.go`                | `Pricer` and `priceUsage`: what a run kind's usage costs                                                                                                     |
@@ -266,5 +322,6 @@ earlier never whitelists itself.
 | `internal/opstore/sqlite/sentinel.go`       | The settings row and the subscription windows the controller reads                                                                                           |
 | `internal/opstore/sqlite/card_runs.go`      | The run row                                                                                                                                                  |
 | `internal/opstore/sqlite/sentinel_heals.go` | Heals, findings and the spend ledger                                                                                                                         |
+| `internal/api/backend_runkind.go`           | `runKindBase`: a run kind's common payload fields and its contents-read token                                                                                |
 
 Tests sit next to each file.

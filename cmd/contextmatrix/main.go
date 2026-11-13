@@ -608,7 +608,17 @@ func main() {
 
 	if backendSys.Client != nil {
 		taskBackend = backendSys.Client
-		sentinelCtl = sentinel.New(sentinel.Config{Store: opStore, Channel: llmChannel, Bus: bus, Clock: clk, Pricer: svc})
+		sentinelCfg := sentinel.Config{
+			Store: opStore, Channel: llmChannel, Bus: bus, Clock: clk, Pricer: svc,
+			Backend: backendSys.Client, Cards: svc, Instance: cfg.Instance.ID,
+		}
+
+		// A nil *PlaybookService must stay a nil interface.
+		if pbSvc != nil {
+			sentinelCfg.Playbooks = pbSvc
+		}
+
+		sentinelCtl = sentinel.New(sentinelCfg)
 	}
 
 	// Attribute backend-generated audit-trail entries to the agent backend
