@@ -1728,6 +1728,9 @@ func (s *CardService) applyCardMutation(
 
 	oldState := card.State
 	oldPhase := card.Phase
+	workerWrite := opts.commitAgentID != "" &&
+		!strings.HasPrefix(opts.commitAgentID, "human:") &&
+		s.OwnsClaim(card, opts.commitAgentID)
 
 	if err := apply(card, cfg); err != nil {
 		s.writeMu.Unlock()
@@ -1807,6 +1810,10 @@ func (s *CardService) applyCardMutation(
 	card, err = s.commitAndRollbackOrReturn(ctx, project, id, card, snapshot, opts, stateChanged)
 	if err != nil {
 		return nil, err
+	}
+
+	if workerWrite {
+		s.refreshEditSnapshot(ctx, card)
 	}
 
 	if card.Phase != oldPhase {

@@ -496,6 +496,7 @@ func main() {
 	slog.Info("op store opened", "path", cfg.OpStore.DBPath)
 
 	svc.SetParkResetStore(opStore)
+	svc.SetEditSnapshotStore(opStore)
 
 	// Model catalog builder: constructed whenever there is a rate source. The
 	// AA+agent path also yields selection candidates (routerCfg.Catalog below);

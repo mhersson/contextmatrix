@@ -150,6 +150,10 @@ type CardService struct {
 	// times of parked cards. Wired via SetParkResetStore once at startup.
 	parkResets ParkResetStore
 
+	// editSnapshots is optional; when non-nil a run's own writes keep its
+	// launch snapshot current. Wired via SetEditSnapshotStore at startup.
+	editSnapshots EditSnapshotStore
+
 	// Per-project caches
 	mu      sync.RWMutex
 	configs map[string]*board.ProjectConfig
@@ -181,6 +185,30 @@ type ParkResetStore interface {
 // no reset time is kept or shown.
 func (s *CardService) SetParkResetStore(st ParkResetStore) {
 	s.parkResets = st
+}
+
+// EditSnapshotStore keeps a card's launch snapshot current with its worker's own writes.
+type EditSnapshotStore interface {
+	RefreshEditSnapshot(ctx context.Context, project, cardID string, snap board.EditSnapshot) error
+}
+
+// SetEditSnapshotStore wires the launch snapshot store. Nil-safe: without
+// one, worker writes leave no snapshot trace.
+func (s *CardService) SetEditSnapshotStore(st EditSnapshotStore) {
+	s.editSnapshots = st
+}
+
+// refreshEditSnapshot records card as the launch snapshot after a write by
+// its non-human claim holder. Best-effort: a stale snapshot only makes the
+// card read as edited.
+func (s *CardService) refreshEditSnapshot(ctx context.Context, card *board.Card) {
+	if s.editSnapshots == nil {
+		return
+	}
+
+	if err := s.editSnapshots.RefreshEditSnapshot(ctx, card.Project, card.ID, board.TakeEditSnapshot(card)); err != nil {
+		slog.Warn("refresh edit snapshot", "project", card.Project, "card", card.ID, "error", err)
+	}
 }
 
 // enrichParkResets sets ParkResetsAt on the parked cards of one project with
