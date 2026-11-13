@@ -293,7 +293,7 @@ calls them at present.
 | `checkText`    | A fix with a `## Sentinel` section when the check run kind did not run (`text not checked`), or when it reports text absent from the repo that is also absent from the card's title and body (`introduces <entry>`) | heal, forward |
 
 The verify rule compares the card's resolved verify (card over project) with the
-fix's resolved verify (a fix verify with no content, such as an empty env list, is stored as none, so the card inherits the project's). Command fields are compared by whitespace-separated
+fix's resolved verify (a fix verify with no content, such as an empty env list, is stored as none, so the card inherits the project's). Commands are compared line by line (blank lines ignored, a newline is significant), each line by whitespace-separated
 fields, so an unchanged command needs no candidate, and a changed one must match
 a candidate. The timeout may change freely; env names may only be removed. The text
 check ignores the card's own `## Sentinel` section, so text Sentinel wrote

@@ -31,7 +31,7 @@ func checkVerify(c fixContext) []string {
 	switch {
 	case before.Command != "" && after.Command == "":
 		violations = append(violations, "removes the verify command")
-	case !sameFields(before.Command, after.Command) && !declared(c.Check, after.Command):
+	case !sameCommand(before.Command, after.Command) && !declared(c.Check, after.Command):
 		violations = append(violations, "command not declared by the repo")
 	}
 
@@ -75,10 +75,25 @@ func declared(check *protocol.CheckResult, command string) bool {
 	}
 
 	return slices.ContainsFunc(check.Candidates, func(cand string) bool {
-		return sameFields(cand, command)
+		return sameCommand(cand, command)
 	})
 }
 
-func sameFields(a, b string) bool {
-	return slices.Equal(strings.Fields(a), strings.Fields(b))
+// sameCommand matches the agent's rule: equal non-empty lines, each with equal
+// whitespace-separated fields. A newline is significant: bash runs each line
+// as its own command.
+func sameCommand(a, b string) bool {
+	return slices.EqualFunc(commandLines(a), commandLines(b), slices.Equal[[]string])
+}
+
+func commandLines(cmd string) [][]string {
+	var out [][]string
+
+	for line := range strings.Lines(cmd) {
+		if f := strings.Fields(line); len(f) > 0 {
+			out = append(out, f)
+		}
+	}
+
+	return out
 }
