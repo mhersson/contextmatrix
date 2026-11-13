@@ -30,6 +30,16 @@ type Store interface {
 	// SaveHeal advances h.Version, or answers ErrHealChanged when the row was
 	// written since h was read.
 	SaveHeal(ctx context.Context, h *Heal) error
+	// OpenHeal also marks a heal's run decided.
+	OpenHeal(ctx context.Context, h Heal) (int64, error)
+	OpenHeals(ctx context.Context) ([]Heal, error)
+	UndecidedRuns(ctx context.Context) ([]Run, error)
+	MarkRunDecided(ctx context.Context, project, cardID string, started time.Time) error
+	// CardRunRow answers nil when this instance never launched the card.
+	CardRunRow(ctx context.Context, project, cardID string) (*Run, error)
+	Charge(ctx context.Context, healID int64, mode string, usd float64, at time.Time) error
+	SpentSince(ctx context.Context, mode string, since time.Time) (float64, error)
+	HealedSince(ctx context.Context, since time.Time) (int, error)
 }
 
 // Channel gives the LLM channel mode a fresh run of a backend kind starts in,
@@ -46,10 +56,14 @@ type Backend interface {
 	Health(ctx context.Context) (protocol.HealthResponse, error)
 }
 
-// Cards reads the cards and projects a heal works on.
+// Cards reads and writes the cards and projects a heal works on.
 type Cards interface {
 	GetCard(ctx context.Context, project, id string) (*board.Card, error)
 	ListCards(ctx context.Context, project string, f storage.CardFilter) ([]*board.Card, error)
+	ClaimedElsewhere(card *board.Card) bool
+	PatchCard(ctx context.Context, project, id string, in service.PatchCardInput) (*board.Card, error)
+	TransitionTo(ctx context.Context, project, id, state string) (*board.Card, error)
+	AddSystemLogEntry(ctx context.Context, project, id string, e board.ActivityEntry) (*board.Card, error)
 	GetProject(ctx context.Context, project string) (*board.ProjectConfig, error)
 }
 

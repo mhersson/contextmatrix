@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -81,6 +82,38 @@ func TestEligible(t *testing.T) {
 			ok, why := eligible(tt.run, &tt.card, tt.elsewhere)
 			assert.Equal(t, tt.ok, ok)
 			assert.Equal(t, !tt.ok, why != "")
+		})
+	}
+}
+
+func TestOpenStage(t *testing.T) {
+	withLog := Run{RunID: "run-1"}
+	attempts := func(n int) Run { return Run{RunID: "run-1", Attempts: n} }
+
+	tests := []struct {
+		name      string
+		key       string
+		run       Run
+		stage     string
+		reasonHas string // interpolated data the park reason must carry
+	}{
+		{"investigate_fix", protocol.StopCauseVerifyParked, withLog, StageInvestigate, ""},
+		{"investigate_fix, one attempt used", protocol.StopCauseVerifyParked, attempts(1), StageInvestigate, ""},
+		{"investigate_fix, attempts used", protocol.StopCauseVerifyParked, attempts(MaxHealAttempts), StageParked, "2"},
+		{"investigate_fix, attempts used, no log", protocol.StopCauseMaxTurns, Run{Attempts: MaxHealAttempts}, StageParked, "2"},
+		{"investigate_fix without a log", protocol.StopCauseVerifyParked, Run{}, StageParked, ""},
+		{"investigate_park", protocol.StopCauseError, attempts(MaxHealAttempts), StageInvestigate, ""},
+		{"investigate_park without a log", CauseStalled, Run{}, StageParked, ""},
+		{"usage_rerun", protocol.StopCauseUsageLimit, Run{Attempts: MaxHealAttempts}, StageUsageWait, ""},
+		{"park", protocol.StopCauseBudgetExceeded, withLog, StageParked, responseFor(protocol.StopCauseBudgetExceeded).Reason},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stage, reason := openStage(responseFor(tt.key), tt.run)
+
+			assert.Equal(t, tt.stage, stage)
+			assert.Equal(t, tt.stage == StageParked, reason != "", "a reason exactly when it parks")
+			assert.Contains(t, reason, tt.reasonHas)
 		})
 	}
 }

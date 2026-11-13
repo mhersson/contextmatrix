@@ -4,10 +4,11 @@ Sentinel is the healing controller inside ContextMatrix. It exists to run,
 without a human, the loop a person runs today when an autonomous card gets
 stuck: find out why, fix the card and rerun it, and only for card runs this
 instance launched. It lives in `internal/sentinel` as a level-triggered
-controller, built like the playbook runner. At present a pass reads Sentinel's
-settings, the agent's LLM channel mode and the stored subscription windows,
-and derives Sentinel's status from them; it does not act on runs. The status
-callback hands the controller run kinds' results, which it records and charges.
+controller, built like the playbook runner. A pass advances the heals in
+progress, opens heals for stopped runs and derives Sentinel's status (see
+[One pass](#one-pass)). It applies no fix and reruns no card at present, so a
+heal that reaches `apply` or `usage_wait` holds there. The status callback
+hands the controller run kinds' results, which it records and charges.
 
 ## Settings
 
@@ -19,10 +20,10 @@ and records the time and the writer; invalid settings store nothing.
 | Setting                   | Default | Valid range          | Read by                                                        |
 | ------------------------- | ------- | -------------------- | -------------------------------------------------------------- |
 | `enabled`                 | off     |                      | The controller: off reports `off` and reads nothing else       |
-| `healing`                 | on      |                      | Stored; nothing reads it at present                            |
+| `healing`                 | on      |                      | The pass: off opens no heal and dispatches nothing; open heals still close and park |
 | `friction`                | on      |                      | The run-kind intake: off stores no findings                    |
 | `daily_cap_usd`           | 20.00   | 0 to 10000           | The budget gate on the endpoint channel                        |
-| `investigate_ceiling_usd` | 2.00    | above 0, at most 100 | The investigate run's `max_cost_usd`; no pass dispatches one at present |
+| `investigate_ceiling_usd` | 2.00    | above 0, at most 100 | The investigate run's `max_cost_usd`                           |
 | `headroom`                | 0.85    | above 0, at most 1   | The budget gate on Claude Code, as a utilization fraction      |
 
 Numbers must be finite.
@@ -50,9 +51,9 @@ Numbers must be finite.
 The gate uses the agent's effective LLM channel mode: the current mode, or
 `endpoint` when the agent does not support `claude_code`.
 
-- **Endpoint:** open while today's Sentinel spend is below `daily_cap_usd`,
-  else `daily cap reached`. Sentinel dispatches no paid work, so its spend is
-  0.
+- **Endpoint:** open while today's Sentinel spend on the endpoint channel
+  (its ledger rows since 00:00 UTC) is below `daily_cap_usd`, else
+  `daily cap reached`.
 - **Claude Code:** cost does not count. Open while every stored subscription
   window whose reset time is still ahead has a status other than `rejected`
   and a utilization below `headroom`, else
@@ -87,16 +88,16 @@ clears `run_id`, `stop_cause`, `stopped_at`, `human_stop`, `decided` and
 - `human_stop` is set by Stop and Stop All before the card reads `killed`.
 - `ended_at` is set once CM sees the card's worker end.
 - `decided` is set once Sentinel has looked at the run: when it opens a heal
-  for it, or decides to leave it. The store lists the autonomous runs not yet
-  decided; nothing sets it at present.
+  for it, or decides to leave it. While `healing` is on, each pass considers
+  the autonomous runs not yet decided.
 
 `edit_snapshot` is refreshed after each write by the run's non-human claim
 holder, so only human, unclaimed and system writes read as edits against it.
 
 ## Heal records
 
-Three ops.db tables hold what Sentinel does. Nothing opens a heal at present;
-the run-kind intake records results, findings and spend on one that exists.
+Three ops.db tables hold what Sentinel does. The pass opens heals, and the
+run-kind intake records results, findings and spend on them.
 
 - `sentinel_heals`: one row per heal, for one stopped run (at most one per run
   start, so opening it twice returns the first), or per fix forwarded to
@@ -139,7 +140,8 @@ before it touches the card, so the card and its run row never see the status.
 - A store failure is returned, so the callback answers 500 and the backend's
   retry delivers the status again. A failure after recording is logged
   instead: the retry would be a repeat.
-- Recording never applies a result; nothing acts on one at present.
+- Recording never applies a result or moves the stage; the next pass acts on
+  it (see [The heal flow](#the-heal-flow)).
 
 ## Spend
 
@@ -176,15 +178,18 @@ matching state wins:
 
 The status also carries `enabled`, `mode` (the agent's effective mode, empty
 while Sentinel is off or has no controller), `daily_cap_usd`, `headroom`, and
-on Claude Code the `windows` that have not reset. `healing`, `healed_today` and
-`spent_today_usd` are 0 at present, so the state is never `working`.
+on Claude Code the `windows` that have not reset. `healing` counts the heals
+still open after the pass, `healed_today` the cards whose heal reached `healed`
+since 00:00 UTC, and `spent_today_usd` the endpoint ledger since 00:00 UTC; a
+pass reads the spend before it acts, so a charge it makes shows on the next.
 
 ## Run kinds
 
 A run kind is a sandboxed agent run Sentinel dispatches for one card through
 the agent's `POST /run-kind` ([remote execution](remote-execution.md#post-agent_urlrun-kind)).
 It gets no MCP key, so it cannot write the board, and it reports only on its
-terminal status (see Run-kind results). No pass dispatches one at present.
+terminal status (see Run-kind results). The pass dispatches one when the heal
+flow says so.
 
 Every run kind's payload starts from the same base, filled by
 `backendHandlers.runKindBase` (`internal/api/backend_runkind.go`), which the
@@ -235,8 +240,8 @@ while `running_containers + 1 < max_concurrent`.
 
 `causeTable` in `internal/sentinel/causes.go` maps each cause to a response.
 A new cause is one row in `causes.go` plus its test row. A key the table lacks
-(a newer agent's stop cause) reads as `unknown`. Nothing acts on the table at
-present.
+(a newer agent's stop cause) reads as `unknown`. The pass opens each heal by
+its cause's row (see [One pass](#one-pass)).
 
 | Cause                                                                                                   | Response           | Park reason                                         |
 | ------------------------------------------------------------------------------------------------------- | ------------------ | --------------------------------------------------- |
@@ -280,8 +285,9 @@ claimed, and is not claimed by another instance.
 A fix is vetted by plain functions in `internal/sentinel`, each taking a
 `fixContext` and returning its violations (none means it passes). `vetFix`
 runs `healChecks` and `vetForward` runs `forwardChecks`, and each concatenates
-the violations. A new check is one function in `checks.go`'s list. Nothing
-calls them at present.
+the violations. A new check is one function in `checks.go`'s list. The pass
+runs `checkEdits` on every open heal and `vetFix` at stage `apply`; nothing
+calls `vetForward` at present.
 
 | Check          | Refuses                                                                                                  | Lists                |
 | -------------- | -------------------------------------------------------------------------------------------------------- | -------------------- |
@@ -305,8 +311,8 @@ earlier never whitelists itself.
 from what a pass read: the heal, the card, the card's run row, the `healing`
 switch, the budget gate, whether a worker slot is free, whether the in-flight
 run kind's container is listed, the edit check's violations and, at stage
-`apply`, the fix checks' violations. It reads no clock and does no I/O. No
-pass calls it at present.
+`apply`, the fix checks' violations. It reads no clock and does no I/O. The
+pass calls it for every open heal.
 
 A step is to wait, dispatch a run kind, advance to a stage, apply the fix,
 rerun after a usage limit, park or close with a reason, or settle a rerun. The
@@ -332,7 +338,8 @@ first matching rule wins:
    parks with the failure the intake recorded. A cause whose response is
    `investigate_park` parks with the diagnosis. Otherwise a `card` diagnosis
    with a fix advances to `check` when the fix has a section or verify, else
-   to `apply`; `model` advances to `apply` with no fix; `environment` and
+   to `apply`; `model` advances to `apply` holding no fix (`healFix` ignores
+   any fix a diagnosis other than `card` carries); `environment` and
    `ecosystem` park with the diagnosis; anything else parks.
 8. **Stage `check`:** dispatch `check` while a worker slot is free; it runs no
    model, so the budget gate does not hold it. An answer without a result
@@ -346,6 +353,52 @@ first matching rule wins:
 Rules 7 to 10 match only their own stage; past rule 6, a heal at any other
 stage waits.
 
+## One pass
+
+`Controller.pass` (`internal/sentinel/pass.go`) runs on every wake-up:
+
+1. It reads the settings. While `enabled` is off the status reads `off` and
+   nothing else is read.
+2. It reads the agent's effective mode, the subscription windows and today's
+   spend, decides the budget gate, and reads the open heals. It lists the
+   agent's containers once, and only while a run kind is in flight, and reads
+   the agent's health once, and only while `healing` is on and a heal may
+   dispatch. A failed listing counts every run kind as listed, so none parks
+   on it; a failed health read leaves no worker slot free.
+3. For every open heal it reads the card and the run row fresh, runs
+   `checkEdits` against the launch snapshot and, at stage `apply`, `vetFix` on
+   a `card` diagnosis's fix, so a retire-only fix that skipped the check run
+   kind is still vetted. `nextStep` decides, and the pass dispatches, advances
+   the stage, parks or closes. A run kind it sends takes a worker slot for the
+   rest of the pass. It does not apply a fix, rerun after a usage limit or
+   settle a rerun at present; such a heal keeps its stage.
+4. While `healing` is on, it considers every undecided run whose card has no
+   open heal. A run that has not settled waits. One that is not eligible, or
+   whose cause is ignored, is marked decided. Otherwise a heal opens at
+   `investigate` (either investigate response) or `usage_wait`, or parked at
+   once: for a `park` row with its reason, for `investigate_fix` once the card
+   has used its 2 heal attempts, and for an investigation of a run with no run
+   ID, which left no log.
+5. It records the status.
+
+A heal whose read or step fails is logged and decided again on the next pass.
+A pass that advanced a heal, opened one, or found one written since it read it
+(a run kind's status arrived) nudges once, so the next step is decided at
+once. A pass reads only the heals still open, so a run kind's result that
+arrives after its heal parked or closed is recorded and charged, never applied.
+
+A run kind that never reported parks its heal; the same save marks the
+dispatch failed, and the dispatch's ceiling is then charged. A late report
+matches no dispatch, so the ceiling is the only charge.
+
+### Activity entries
+
+Each heal writes one activity entry on its card, as `system:sentinel` with
+action `sentinel`, when it parks: `Sentinel left this for a human: <reason>`,
+cut to the card service's 2000-byte limit. A closed heal writes none. The
+activity log carries only that line; the full reason and the rest of the
+heal's detail stay on its `sentinel_heals` row.
+
 ## Where things live
 
 | File                                        | Holds                                                                                                                                                        |
@@ -355,17 +408,17 @@ stage waits.
 | `internal/sentinel/controller.go`           | The loop: `Start`, `Shutdown`, `Nudge`, `Status`, the panic-safe pass and the wake-up filter; the `Store`, `Backend`, `Cards` and `Playbooks` it uses      |
 | `internal/sentinel/payload.go`              | The pure run-kind payloads: `investigatePayload` under the 1 MiB cap, `checkPayload`, and `siblings`                                                         |
 | `internal/sentinel/dispatch.go`             | Reading a run kind's inputs, `dispatch` (record, then send, then act on the agent's answer) and the no-run-kinds hold                                         |
-| `internal/sentinel/outcome.go`              | `park`                                                                                                                                                       |
+| `internal/sentinel/outcome.go`              | The ends of a heal: `park` (with its one activity entry, `activityText`), `parkUnreported` (and the ceiling charge) and `closeHeal`                          |
 | `internal/sentinel/intake.go`               | `RunKindStatus`: record a run kind's terminal status, its windows and findings                                                                               |
 | `internal/sentinel/limits.go`               | `ValidateRunKindStatus`: the run-kind status values and size limits                                                                                          |
 | `internal/sentinel/spend.go`                | `Pricer` and `priceUsage`: what a run kind's usage costs                                                                                                     |
-| `internal/sentinel/pass.go`                 | One pass: read settings, mode and windows; record the status and publish a change                                                                            |
+| `internal/sentinel/pass.go`                 | One pass: read the gate's inputs and the open heals, build each heal's view and act on its step, consider undecided runs, record the status                 |
 | `internal/sentinel/causes.go`               | The cause table: one row per cause, `responseFor`                                                                                                            |
 | `internal/sentinel/checks.go`               | `fixContext`, the two check lists, `vetFix` and `vetForward`                                                                                                 |
 | `internal/sentinel/check_*.go`              | One check per file: shape, section, retire, edits, verify, text                                                                                                            |
-| `internal/sentinel/trigger.go`              | The pure triggers: `causeKey` (settled and cause), `eligible`                                                                                                |
-| `internal/sentinel/heal.go`                 | The pure heal flow: `nextStep` over a `healView`, one rule per stage and exit                                                                                |
-| `internal/sentinel/gate.go`                 | The pure budget gate and the worker-slot check (`roomFor`)                                                                                                   |
+| `internal/sentinel/trigger.go`              | The pure triggers: `causeKey` (settled and cause), `eligible`, and `openStage` (the stage a new heal opens at)                                               |
+| `internal/sentinel/heal.go`                 | The pure heal flow: `nextStep` over a `healView`, one rule per stage and exit; `healFix`                                                                     |
+| `internal/sentinel/gate.go`                 | The pure budget gate, the daily cap's day (`dayStart`) and the worker-slot check (`roomFor`)                                                                 |
 | `internal/sentinel/status.go`               | `Status`, the states and the pure summary                                                                                                                    |
 | `internal/opstore/sqlite/sentinel.go`       | The settings row and the subscription windows the controller reads                                                                                           |
 | `internal/opstore/sqlite/card_runs.go`      | The run row                                                                                                                                                  |

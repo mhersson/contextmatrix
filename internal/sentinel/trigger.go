@@ -82,3 +82,20 @@ func eligible(run Run, card *board.Card, claimedElsewhere bool) (ok bool, why st
 
 	return true, ""
 }
+
+// openStage is the stage a heal for a settled, eligible run opens at, or
+// parked with a reason. Investigating needs the run's ID to find its log.
+func openStage(row causeRow, run Run) (stage, reason string) {
+	switch {
+	case row.Response == RespPark:
+		return StageParked, row.Reason
+	case row.Response == RespUsageRerun:
+		return StageUsageWait, ""
+	case row.Response == RespInvestigateFix && run.Attempts >= MaxHealAttempts:
+		return StageParked, reasonAttemptsUsed
+	case run.RunID == "":
+		return StageParked, "the run left no log to investigate"
+	}
+
+	return StageInvestigate, ""
+}

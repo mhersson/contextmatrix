@@ -65,7 +65,7 @@ func newDispatchEnv(t *testing.T) *dispatchEnv {
 // the copy a pass would have read.
 func (e *dispatchEnv) heal(stage string) *Heal {
 	h := Heal{
-		ID: 1, Kind: HealKindHeal, Project: "alpha", CardID: "ALPHA-001",
+		ID: 1, Kind: HealKindHeal, Project: "alpha", CardID: "ALPHA-001", RunStarted: runStarted,
 		RunID: "run-1", Cause: protocol.StopCauseVerifyParked, Stage: stage,
 	}
 	e.store.putHeal(h)
@@ -185,6 +185,8 @@ func TestDispatchClearKeepsAReportRecordedMeanwhile(t *testing.T) {
 func TestDispatchHoldsWhileTheAgentHasNoRunKinds(t *testing.T) {
 	e := newDispatchEnv(t)
 	ctx := context.Background()
+
+	e.stopped("ALPHA-001", protocol.StopCauseVerifyParked) // so a pass leaves the heal waiting
 	h := e.heal(StageInvestigate)
 
 	e.backend.err = backend.ErrRunKindsUnavailable
@@ -205,7 +207,7 @@ func TestDispatchHoldsWhileTheAgentHasNoRunKinds(t *testing.T) {
 	assert.NotNil(t, e.store.heal(1).Dispatch.At)
 
 	require.NoError(t, e.ctl.pass(ctx))
-	assert.Equal(t, StateWatching, e.ctl.Status().State)
+	assert.Equal(t, StateWorking, e.ctl.Status().State, "the hold is over and the heal is in flight")
 }
 
 // investigateCards stores ALPHA-001 with two subtasks, in an active playbook

@@ -37,6 +37,13 @@ func budgetGate(
 	return true, ""
 }
 
+// dayStart is 00:00 UTC on now's day, where the daily cap's day begins.
+func dayStart(now time.Time) time.Time {
+	y, m, d := now.UTC().Date()
+
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
 // windowReset reports whether w's reset time has passed, which makes its
 // reading stale.
 func windowReset(w protocol.SubscriptionUsage, now time.Time) bool {

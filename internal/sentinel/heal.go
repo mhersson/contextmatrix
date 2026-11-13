@@ -13,6 +13,8 @@ import (
 // relaunchGrace is how long a relaunched card may take to start its rerun.
 const relaunchGrace = 10 * time.Minute
 
+var reasonAttemptsUsed = fmt.Sprintf("heal attempts used (%[1]d of %[1]d)", MaxHealAttempts)
+
 type stepKind int
 
 const (
@@ -167,6 +169,16 @@ func diagnosisStep(inv protocol.InvestigateResult) step {
 	return parkStep("the investigation proposed no usable fix")
 }
 
+// healFix is the fix a heal may apply: only a card diagnosis holds one,
+// whatever another diagnosis's fix field carries.
+func healFix(h Heal) *protocol.CardFix {
+	if h.Investigation == nil || h.Investigation.Cause != protocol.DiagnosisCard {
+		return nil
+	}
+
+	return h.Investigation.Fix
+}
+
 // needsCheck reports whether a fix has anything for the check run kind: it
 // trials a verify change and checks section text, so a retire-only fix skips it.
 func needsCheck(fix protocol.CardFix) bool {
@@ -199,7 +211,7 @@ func applyStep(v healView) step {
 	case len(v.Rejected) > 0:
 		return parkStep("fix rejected: " + strings.Join(v.Rejected, ", "))
 	case v.Run.Attempts >= MaxHealAttempts:
-		return parkStep(fmt.Sprintf("heal attempts used (%[1]d of %[1]d)", MaxHealAttempts))
+		return parkStep(reasonAttemptsUsed)
 	case !v.Budget:
 		return waitStep()
 	}
@@ -230,6 +242,19 @@ func inFlight(d Dispatch) bool {
 // check it still holds the answered investigation until the check is sent.
 func dispatched(h Heal, kind string) bool {
 	return h.Dispatch.Kind == kind && h.Dispatch.At != nil
+}
+
+// mayDispatch reports whether nextStep could send a run kind for h, so a pass
+// reads the agent's health only when one may go out.
+func mayDispatch(h Heal, budget bool) bool {
+	switch h.Stage {
+	case StageInvestigate:
+		return budget && !dispatched(h, protocol.RunKindInvestigate)
+	case StageCheck:
+		return !dispatched(h, protocol.RunKindCheck)
+	}
+
+	return false
 }
 
 func workerBusy(card *board.Card) bool {

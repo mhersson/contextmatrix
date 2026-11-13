@@ -47,7 +47,9 @@ type statusInput struct {
 	GateReason   string
 	NoRunKinds   bool // the agent said it has no run kinds, within the hold
 	Windows      []protocol.SubscriptionUsage
-	Healing      int
+	Healing      int // heals open after the pass
+	HealedToday  int
+	SpentToday   float64 // the endpoint ledger since 00:00 UTC
 }
 
 // NotRunningStatus is what the API reports when no controller exists.
@@ -59,11 +61,13 @@ func NotRunningStatus(s Settings) Status {
 // running, paused (no run kinds, then the budget gate), working, watching.
 func summarize(in statusInput) Status {
 	st := Status{
-		Enabled:     in.Settings.Enabled,
-		Mode:        string(in.Mode),
-		Healing:     in.Healing,
-		DailyCapUSD: in.Settings.DailyCapUSD,
-		Headroom:    in.Settings.Headroom,
+		Enabled:       in.Settings.Enabled,
+		Mode:          string(in.Mode),
+		Healing:       in.Healing,
+		HealedToday:   in.HealedToday,
+		SpentTodayUSD: in.SpentToday,
+		DailyCapUSD:   in.Settings.DailyCapUSD,
+		Headroom:      in.Settings.Headroom,
 	}
 
 	if in.Mode == llmchannel.ModeClaudeCode {

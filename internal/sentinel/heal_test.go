@@ -219,3 +219,24 @@ func TestNextStep(t *testing.T) {
 		})
 	}
 }
+
+func TestHealFix(t *testing.T) {
+	fix := &protocol.CardFix{RetireSubtasks: []string{"ALPHA-002"}}
+
+	tests := []struct {
+		name string
+		inv  *protocol.InvestigateResult
+		want *protocol.CardFix
+	}{
+		{"card diagnosis", &protocol.InvestigateResult{Cause: protocol.DiagnosisCard, Fix: fix}, fix},
+		{"card diagnosis without a fix", &protocol.InvestigateResult{Cause: protocol.DiagnosisCard}, nil},
+		{"model diagnosis carrying a fix", &protocol.InvestigateResult{Cause: protocol.DiagnosisModel, Fix: fix}, nil},
+		{"environment diagnosis carrying a fix", &protocol.InvestigateResult{Cause: protocol.DiagnosisEnvironment, Fix: fix}, nil},
+		{"not investigated", nil, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Same(t, tt.want, healFix(Heal{Investigation: tt.inv}))
+		})
+	}
+}

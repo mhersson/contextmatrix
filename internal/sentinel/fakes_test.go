@@ -2,6 +2,9 @@ package sentinel
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"slices"
 	"sync"
 	"time"
 
@@ -15,19 +18,33 @@ import (
 )
 
 // fakeStore serves fixed settings and windows and counts settings reads, one
-// per pass. It keeps heals with the store's version guard.
+// per pass, and every other call. It keeps run rows, heals with the store's
+// version guard, and the spend ledger, following the store's rules.
 type fakeStore struct {
 	mu        sync.Mutex
 	settings  Settings
 	windows   []protocol.SubscriptionUsage
 	reads     int
+	others    int // calls to every method but SentinelSettings
 	panicNext bool
 	heals     map[int64]Heal
+	runs      []Run
+	ledger    []ledgerRow
+}
+
+type ledgerRow struct {
+	HealID int64
+	Mode   string
+	USD    float64
+	At     time.Time
+	RunID  string
 }
 
 func (f *fakeStore) SaveHeal(_ context.Context, h *Heal) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	f.others++
 
 	if cur, ok := f.heals[h.ID]; !ok || cur.Version != h.Version {
 		return ErrHealChanged
@@ -76,16 +93,256 @@ func (f *fakeStore) SubscriptionWindows(context.Context) ([]protocol.Subscriptio
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	f.others++
+
 	return f.windows, nil
 }
 
-// Passes never record run-kind statuses; the intake tests use the real store.
-func (f *fakeStore) RecordRunKindStatus(context.Context, RunKindReport) (int64, bool, error) {
-	return 0, false, nil
+// RecordRunKindStatus records on the card's newest heal with the kind in
+// flight, neither answered nor failed, and charges it once per run ID.
+func (f *fakeStore) RecordRunKindStatus(_ context.Context, r RunKindReport) (int64, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	if r.Kind == "" || r.RunID == "" || slices.ContainsFunc(f.ledger, func(l ledgerRow) bool { return l.RunID == r.RunID }) {
+		return 0, false, nil
+	}
+
+	var newest *Heal
+
+	for _, h := range f.heals {
+		d := h.Dispatch
+		if h.Project == r.Project && h.CardID == r.CardID && d.Kind == r.Kind && inFlight(d) &&
+			(newest == nil || h.ID > newest.ID) {
+			newest = &h
+		}
+	}
+
+	if newest == nil {
+		return 0, false, nil
+	}
+
+	newest.Dispatch.AnsweredRunID, newest.Dispatch.Failure = r.RunID, r.Failure
+
+	if r.Result != nil && r.Kind == protocol.RunKindInvestigate {
+		if err := json.Unmarshal(r.Result, &newest.Investigation); err != nil {
+			return 0, false, err
+		}
+	}
+
+	newest.Version++
+	f.heals[newest.ID] = *newest
+
+	usd := r.SpendUSD
+	if r.ChargeCeiling {
+		usd = newest.Dispatch.CeilingUSD
+	}
+
+	f.ledger = append(f.ledger, ledgerRow{HealID: newest.ID, Mode: newest.Dispatch.Mode, USD: usd, At: r.At, RunID: r.RunID})
+
+	return newest.ID, true, nil
 }
 
 func (f *fakeStore) AddFindings(context.Context, int64, string, string, []protocol.FrictionFinding, time.Time) error {
 	return nil
+}
+
+func (f *fakeStore) UndecidedRuns(context.Context) ([]Run, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	var runs []Run
+
+	for _, r := range f.runs {
+		if r.Launch.Autonomous && !r.Decided {
+			runs = append(runs, r)
+		}
+	}
+
+	return runs, nil
+}
+
+func (f *fakeStore) MarkRunDecided(_ context.Context, project, cardID string, started time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+	f.markDecided(project, cardID, started)
+
+	return nil
+}
+
+func (f *fakeStore) markDecided(project, cardID string, started time.Time) {
+	for i, r := range f.runs {
+		if r.Project == project && r.CardID == cardID && r.StartedAt.Equal(started) {
+			f.runs[i].Decided = true
+		}
+	}
+}
+
+// OpenHeal keeps one heal per run start: a second open returns the first's ID.
+// Opening a heal, first or not, marks its run decided.
+func (f *fakeStore) OpenHeal(_ context.Context, h Heal) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	if f.heals == nil {
+		f.heals = make(map[int64]Heal)
+	}
+
+	if h.Kind == HealKindHeal {
+		f.markDecided(h.Project, h.CardID, h.RunStarted)
+	}
+
+	var maxID int64
+
+	for _, cur := range f.heals {
+		if h.Kind == HealKindHeal && cur.Kind == HealKindHeal && cur.Project == h.Project && cur.CardID == h.CardID &&
+			cur.RunStarted.Equal(h.RunStarted) {
+			return cur.ID, nil
+		}
+
+		maxID = max(maxID, cur.ID)
+	}
+
+	h.ID, h.Version = maxID+1, 0
+	f.heals[h.ID] = h
+
+	return h.ID, nil
+}
+
+func (f *fakeStore) OpenHeals(context.Context) ([]Heal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	var heals []Heal
+
+	for _, h := range f.heals {
+		if h.Kind == HealKindHeal && !Terminal(h.Stage) {
+			heals = append(heals, h)
+		}
+	}
+
+	slices.SortFunc(heals, func(a, b Heal) int { return int(a.ID - b.ID) })
+
+	return heals, nil
+}
+
+func (f *fakeStore) Charge(_ context.Context, healID int64, mode string, usd float64, at time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+	f.ledger = append(f.ledger, ledgerRow{HealID: healID, Mode: mode, USD: usd, At: at})
+
+	return nil
+}
+
+func (f *fakeStore) SpentSince(_ context.Context, mode string, since time.Time) (float64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	var usd float64
+
+	for _, l := range f.ledger {
+		if l.Mode == mode && !l.At.Before(since) {
+			usd += l.USD
+		}
+	}
+
+	return usd, nil
+}
+
+func (f *fakeStore) HealedSince(_ context.Context, since time.Time) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	cards := map[string]bool{}
+
+	for _, h := range f.heals {
+		if h.Stage == StageHealed && !h.UpdatedAt.Before(since) {
+			cards[h.Project+"/"+h.CardID] = true
+		}
+	}
+
+	return len(cards), nil
+}
+
+func (f *fakeStore) CardRunRow(_ context.Context, project, cardID string) (*Run, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	for _, r := range f.runs {
+		if r.Project == project && r.CardID == cardID {
+			return &r, nil
+		}
+	}
+
+	return nil, nil //nolint:nilnil // nil, nil means no row, as the store answers
+}
+
+// putRun replaces the card's run row, as a launch does.
+func (f *fakeStore) putRun(r Run) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.runs = slices.DeleteFunc(f.runs, func(cur Run) bool { return cur.Project == r.Project && cur.CardID == r.CardID })
+	f.runs = append(f.runs, r)
+}
+
+func (f *fakeStore) run(project, cardID string) Run {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	for _, r := range f.runs {
+		if r.Project == project && r.CardID == cardID {
+			return r
+		}
+	}
+
+	return Run{}
+}
+
+func (f *fakeStore) allHeals() []Heal {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	heals := make([]Heal, 0, len(f.heals))
+	for _, h := range f.heals {
+		heals = append(heals, h)
+	}
+
+	slices.SortFunc(heals, func(a, b Heal) int { return int(a.ID - b.ID) })
+
+	return heals
+}
+
+func (f *fakeStore) charges() []ledgerRow {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return slices.Clone(f.ledger)
+}
+
+func (f *fakeStore) otherCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.others
 }
 
 func (f *fakeStore) passes() int {
@@ -111,11 +368,16 @@ func (f fakeChannel) Effective(kind llmchannel.Kind) llmchannel.Mode { return f[
 func (f fakeChannel) RecordUsage(context.Context, []protocol.SubscriptionUsage) {}
 
 // fakeBackend answers every run kind with err and keeps what it was sent;
-// onSend runs before it answers.
+// onSend runs before it answers. It lists containers and reports health as
+// set, counting each read.
 type fakeBackend struct {
-	err    error
-	onSend func(protocol.RunKindPayload)
-	sent   []protocol.RunKindPayload
+	err        error
+	onSend     func(protocol.RunKindPayload)
+	sent       []protocol.RunKindPayload
+	containers []backend.ContainerInfo
+	health     protocol.HealthResponse
+	lists      int
+	healths    int
 }
 
 func (f *fakeBackend) RunKind(_ context.Context, p protocol.RunKindPayload) error {
@@ -129,21 +391,67 @@ func (f *fakeBackend) RunKind(_ context.Context, p protocol.RunKindPayload) erro
 }
 
 func (f *fakeBackend) ListContainers(context.Context) ([]backend.ContainerInfo, error) {
-	return nil, nil
+	f.lists++
+
+	return f.containers, nil
 }
 
 func (f *fakeBackend) Health(context.Context) (protocol.HealthResponse, error) {
-	return protocol.HealthResponse{}, nil
+	f.healths++
+
+	return f.health, nil
 }
 
 // fakeCards serves cards and projects from memory; ListCards filters by
-// parent and state only.
+// parent and state only. It keeps every system log entry by card ID, served
+// or not, and counts every call; onGet runs before GetCard answers.
 type fakeCards struct {
 	cards    []*board.Card
 	projects map[string]*board.ProjectConfig
+	logged   map[string][]board.ActivityEntry
+	calls    int
+	onGet    func()
+}
+
+var errNotFaked = errors.New("not faked")
+
+func (f *fakeCards) ClaimedElsewhere(*board.Card) bool {
+	f.calls++
+
+	return false
+}
+
+func (f *fakeCards) PatchCard(context.Context, string, string, service.PatchCardInput) (*board.Card, error) {
+	f.calls++
+
+	return nil, errNotFaked
+}
+
+func (f *fakeCards) TransitionTo(context.Context, string, string, string) (*board.Card, error) {
+	f.calls++
+
+	return nil, errNotFaked
+}
+
+func (f *fakeCards) AddSystemLogEntry(_ context.Context, _, id string, e board.ActivityEntry) (*board.Card, error) {
+	f.calls++
+
+	if f.logged == nil {
+		f.logged = make(map[string][]board.ActivityEntry)
+	}
+
+	f.logged[id] = append(f.logged[id], e)
+
+	return nil, nil //nolint:nilnil // the controller never reads the card back
 }
 
 func (f *fakeCards) GetCard(_ context.Context, project, id string) (*board.Card, error) {
+	f.calls++
+
+	if f.onGet != nil {
+		f.onGet()
+	}
+
 	for _, c := range f.cards {
 		if c.Project == project && c.ID == id {
 			return c, nil
@@ -154,6 +462,8 @@ func (f *fakeCards) GetCard(_ context.Context, project, id string) (*board.Card,
 }
 
 func (f *fakeCards) ListCards(_ context.Context, project string, filter storage.CardFilter) ([]*board.Card, error) {
+	f.calls++
+
 	var out []*board.Card
 
 	for _, c := range f.cards {
@@ -167,6 +477,8 @@ func (f *fakeCards) ListCards(_ context.Context, project string, filter storage.
 }
 
 func (f *fakeCards) GetProject(_ context.Context, project string) (*board.ProjectConfig, error) {
+	f.calls++
+
 	if p, ok := f.projects[project]; ok {
 		return p, nil
 	}
