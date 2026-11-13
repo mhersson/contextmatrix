@@ -184,6 +184,21 @@ settled:
 autonomous, and the card is not finished, does not need vetting, is not
 claimed, and is not claimed by another instance.
 
+## The fix checks
+
+A fix is vetted by plain functions in `internal/sentinel`, each taking a
+`fixContext` and returning its violations (none means it passes). `vetFix`
+runs `healChecks` and `vetForward` runs `forwardChecks`, and each concatenates
+the violations. A new check is one function in `checks.go`'s list. Nothing
+calls them at present.
+
+| Check          | Refuses                                                                                                  | Lists                |
+| -------------- | -------------------------------------------------------------------------------------------------------- | -------------------- |
+| `checkShape`   | A fix that sets no field, or retires an ID the investigation was not sent                                | heal, forward        |
+| `checkSection` | A `## Sentinel` section with an H2 line or an unbalanced code fence (``` or ~~~)                         | heal, forward        |
+| `checkRetire`  | Retiring a subtask that is not this card's, is not in `todo`, is claimed, or has a queued or running worker | heal              |
+| `checkEdits`   | Any change since launch: `title edited`, `verify edited`, `autonomous changed`, `intro edited`, `section "X" edited`, `added` or `removed`; no launch snapshot is also refused | heal |
+
 ## Where things live
 
 | File                                        | Holds                                                                                                                                                        |
@@ -193,6 +208,8 @@ claimed, and is not claimed by another instance.
 | `internal/sentinel/controller.go`           | The loop: `Start`, `Shutdown`, `Nudge`, `Status`, the panic-safe pass and the wake-up filter                                                                 |
 | `internal/sentinel/pass.go`                 | One pass: read settings, mode and windows; record the status and publish a change                                                                            |
 | `internal/sentinel/causes.go`               | The cause table: one row per cause, `responseFor`                                                                                                            |
+| `internal/sentinel/checks.go`               | `fixContext`, the two check lists, `vetFix` and `vetForward`                                                                                                 |
+| `internal/sentinel/check_*.go`              | One check per file: shape, section, retire, edits                                                                                                            |
 | `internal/sentinel/trigger.go`              | The pure triggers: `causeKey` (settled and cause), `eligible`                                                                                                |
 | `internal/sentinel/gate.go`                 | The pure budget gate and the worker-slot check (`roomFor`)                                                                                                   |
 | `internal/sentinel/status.go`               | `Status`, the states and the pure summary                                                                                                                    |
