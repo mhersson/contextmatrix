@@ -78,11 +78,12 @@ func (s *Store) OpenHeal(ctx context.Context, h sentinel.Heal) (int64, error) {
 }
 
 // SaveHeal rewrites every column of the heal but its identity, run start and
-// creation time, leaving the row at version h.Version+1. A row written since h
-// was read is left alone and ErrHealChanged returned, so a save from a stale
-// read never wipes an answer RecordRunKindStatus stored meanwhile.
-func (s *Store) SaveHeal(ctx context.Context, h sentinel.Heal) error {
-	vals, err := healValues(h)
+// creation time, and advances h.Version with the row's, so h can be saved
+// again. A row written since h was read is left alone, h untouched and
+// ErrHealChanged returned, so a save from a stale read never wipes an answer
+// RecordRunKindStatus stored meanwhile.
+func (s *Store) SaveHeal(ctx context.Context, h *sentinel.Heal) error {
+	vals, err := healValues(*h)
 	if err != nil {
 		return fmt.Errorf("save heal: %w", err)
 	}
@@ -103,6 +104,8 @@ func (s *Store) SaveHeal(ctx context.Context, h sentinel.Heal) error {
 	if n == 0 {
 		return sentinel.ErrHealChanged
 	}
+
+	h.Version++
 
 	return nil
 }

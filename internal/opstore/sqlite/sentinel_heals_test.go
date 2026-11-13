@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -166,27 +165,27 @@ func TestSaveHealRoundTripsEveryField(t *testing.T) {
 		RelaunchedAt: &relaunched, CostBaseUSD: 1.25, SourceCard: "P-000",
 		CreatedAt: runT0, UpdatedAt: relaunched,
 	}
-	require.NoError(t, st.SaveHeal(ctx, want))
+	require.NoError(t, st.SaveHeal(ctx, &want))
 
-	want.Version = 1
+	assert.Equal(t, int64(1), want.Version)
 	assert.Equal(t, want, onlyHeal(t, st, "P-001"))
 }
 
-func TestSaveHealWithCurrentVersionBumpsIt(t *testing.T) {
+func TestConsecutiveSavesOfOneHealBothLand(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()
 
 	openDispatchedHeal(t, st, "P-001", sentinel.StageInvestigate, "endpoint")
+	h := onlyHeal(t, st, "P-001")
 
-	for want := int64(1); want <= 2; want++ {
-		h := onlyHeal(t, st, "P-001")
-		h.Reason = fmt.Sprint(want)
-		require.NoError(t, st.SaveHeal(ctx, h))
+	h.Dispatch.At = nil
+	require.NoError(t, st.SaveHeal(ctx, &h))
 
-		got := onlyHeal(t, st, "P-001")
-		assert.Equal(t, want, got.Version)
-		assert.Equal(t, h.Reason, got.Reason)
-	}
+	h.Stage, h.Reason = sentinel.StageParked, "the agent refused the investigate run"
+	require.NoError(t, st.SaveHeal(ctx, &h))
+
+	assert.Equal(t, int64(2), h.Version)
+	assert.Equal(t, h, onlyHeal(t, st, "P-001"))
 }
 
 func TestSaveHealRefusesAStaleVersion(t *testing.T) {
@@ -202,7 +201,8 @@ func TestSaveHealRefusesAStaleVersion(t *testing.T) {
 
 	stale.Stage = sentinel.StageParked
 	stale.Dispatch.Failure = "the investigate run did not report"
-	require.ErrorIs(t, st.SaveHeal(ctx, stale), sentinel.ErrHealChanged)
+	require.ErrorIs(t, st.SaveHeal(ctx, &stale), sentinel.ErrHealChanged)
+	assert.Zero(t, stale.Version)
 
 	h := onlyHeal(t, st, "P-001")
 	assert.Equal(t, sentinel.StageInvestigate, h.Stage)
@@ -308,7 +308,7 @@ func TestRecordRunKindStatusStoresCheckResult(t *testing.T) {
 
 	h := onlyHeal(t, st, "P-001")
 	h.Dispatch.Kind = protocol.RunKindCheck
-	require.NoError(t, st.SaveHeal(ctx, h))
+	require.NoError(t, st.SaveHeal(ctx, &h))
 
 	_, recorded, err := st.RecordRunKindStatus(ctx, sentinel.RunKindReport{
 		Project: "p", CardID: "P-001", Kind: protocol.RunKindCheck, RunID: "k2",
@@ -352,7 +352,7 @@ func TestRecordRunKindStatusMatchesOnlyAnUnansweredDispatch(t *testing.T) {
 			if tt.heal != nil {
 				h := onlyHeal(t, st, "P-001")
 				tt.heal(&h)
-				require.NoError(t, st.SaveHeal(ctx, h))
+				require.NoError(t, st.SaveHeal(ctx, &h))
 			}
 
 			r := investigateReport("P-001")
@@ -477,7 +477,7 @@ func TestHealedSinceCountsCards(t *testing.T) {
 		require.NoError(t, err)
 
 		h.ID, h.Stage, h.UpdatedAt = id, stage, at
-		require.NoError(t, st.SaveHeal(ctx, h))
+		require.NoError(t, st.SaveHeal(ctx, &h))
 	}
 
 	settle("P-001", runT0, sentinel.StageHealed, runT0.Add(time.Hour))
