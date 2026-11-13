@@ -25,8 +25,8 @@ type check func(fixContext) []string
 
 // A new check is one function appended to these lists.
 var (
-	healChecks    = []check{checkShape, checkSection, checkRetire, checkEdits}
-	forwardChecks = []check{checkShape, checkSection}
+	healChecks    = []check{checkShape, checkSection, checkRetire, checkEdits, checkVerify, checkText}
+	forwardChecks = []check{checkShape, checkSection, checkVerify, checkText}
 )
 
 func vetFix(c fixContext) []string { return runChecks(healChecks, c) }

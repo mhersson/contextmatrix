@@ -198,6 +198,15 @@ calls them at present.
 | `checkSection` | A `## Sentinel` section with an H2 line or an unbalanced code fence (``` or ~~~)                         | heal, forward        |
 | `checkRetire`  | Retiring a subtask that is not this card's, is not in `todo`, is claimed, or has a queued or running worker | heal              |
 | `checkEdits`   | Any change since launch: `title edited`, `verify edited`, `autonomous changed`, `intro edited`, `section "X" edited`, `added` or `removed`; no launch snapshot is also refused | heal |
+| `checkVerify`  | A verify change that adds an env name (`adds env NAME`), drops the command (`removes the verify command`), changes the command to one the trial run did not list as a candidate (`command not declared by the repo`), was never trial-run (`verify not trial-run`), or whose trial did not finish (`trial run: <trial>`) | heal, forward |
+| `checkText`    | A fix with a `## Sentinel` section when the check run kind did not run (`text not checked`), or when it reports text absent from the repo that is also absent from the card's title and body (`introduces <entry>`) | heal, forward |
+
+The verify rule compares the card's resolved verify (card over project) with the
+fix's resolved verify. Command fields are compared by whitespace-separated
+fields, so an unchanged command needs no candidate, and a changed one must match
+a candidate. Only the timeout may rise; env names may only be removed. The text
+check ignores the card's own `## Sentinel` section, so text Sentinel wrote
+earlier never whitelists itself.
 
 ## Where things live
 
@@ -209,7 +218,7 @@ calls them at present.
 | `internal/sentinel/pass.go`                 | One pass: read settings, mode and windows; record the status and publish a change                                                                            |
 | `internal/sentinel/causes.go`               | The cause table: one row per cause, `responseFor`                                                                                                            |
 | `internal/sentinel/checks.go`               | `fixContext`, the two check lists, `vetFix` and `vetForward`                                                                                                 |
-| `internal/sentinel/check_*.go`              | One check per file: shape, section, retire, edits                                                                                                            |
+| `internal/sentinel/check_*.go`              | One check per file: shape, section, retire, edits, verify, text                                                                                                            |
 | `internal/sentinel/trigger.go`              | The pure triggers: `causeKey` (settled and cause), `eligible`                                                                                                |
 | `internal/sentinel/gate.go`                 | The pure budget gate and the worker-slot check (`roomFor`)                                                                                                   |
 | `internal/sentinel/status.go`               | `Status`, the states and the pure summary                                                                                                                    |
