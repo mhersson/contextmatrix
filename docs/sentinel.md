@@ -131,7 +131,7 @@ before it touches the card, so the card and its run row never see the status.
   (listed in the [API reference](api-reference.md#post-apiagentstatus)). A breach is 422 and nothing is recorded.
 - `Controller.RunKindStatus` (`intake.go`) records a valid status on the
   card's heal as above: the kind's result, or without one the status message,
-  else its stop cause, as the dispatch's failure.
+  else its stop cause, else its worker status, as the dispatch's failure.
 - Once a status is recorded, and only then, it records the usage rows'
   subscription windows (see Spend), stores the investigation's findings while
   `friction` is on, publishes `sentinel.changed` with the card's project and

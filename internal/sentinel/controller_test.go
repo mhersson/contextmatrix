@@ -31,6 +31,7 @@ func newEnv(t *testing.T, store *fakeStore, mode llmchannel.Mode) *env {
 	e := &env{store: store, clk: clock.Fake(epoch), bus: events.NewBus()}
 	e.ctl = New(Config{
 		Store: store, Channel: fakeChannel{config.BackendNameAgent: mode}, Bus: e.bus, Clock: e.clk, Tick: 30 * time.Second,
+		Pricer: ratePricer{},
 	})
 
 	return e
@@ -80,6 +81,12 @@ func TestControllerPassesOnStartTickEventAndNudge(t *testing.T) {
 
 	e.ctl.Nudge()
 	e.waitPasses(t, 4)
+}
+
+func TestNewRefusesAStoreWithoutAPricer(t *testing.T) {
+	assert.Panics(t, func() { New(Config{Store: &fakeStore{}}) })
+	assert.NotPanics(t, func() { New(Config{Store: &fakeStore{}, Pricer: ratePricer{}}) })
+	assert.NotPanics(t, func() { New(Config{}) }, "a controller without a store prices nothing")
 }
 
 func TestWakes(t *testing.T) {

@@ -2661,6 +2661,7 @@ in it is recorded:
 | `check.candidates`                                | 32 entries of at most 512 bytes                                                               |
 | `check.absent_from_repo`                          | 64 entries of at most 512 bytes                                                               |
 | `check.trial`, when set                           | `finished`, `timeout`, `toolchain`, `infrastructure` or `rejected`                            |
+| A `usage` row                                     | Token counts and `cost_usd` non-negative, and the rows' costs a finite total; each `subscription` window named, with a non-negative `utilization` |
 
 What Sentinel does with an accepted status is in
 [Sentinel](sentinel.md#run-kind-results).

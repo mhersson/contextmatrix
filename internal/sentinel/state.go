@@ -83,7 +83,7 @@ type Dispatch struct {
 	CeilingUSD    float64
 	At            *time.Time
 	AnsweredRunID string // set once its terminal status is recorded
-	Failure       string // a terminal status without a result: its message, else its stop cause
+	Failure       string // a terminal status without a result: its message, else its stop cause, else its worker status
 }
 
 // Change is what a heal or a forward did to the card.
@@ -128,7 +128,7 @@ type Finding struct {
 // RunKindReport is a run kind's terminal status as the store records it.
 type RunKindReport struct {
 	Project, CardID, Kind, RunID string
-	Failure                      string // terminal status without a result: message, else stop cause
+	Failure                      string // terminal status without a result: message, else stop cause, else worker status
 	// Result is the kind's own result object as JSON, RunKindResult.Investigate
 	// or .Check, never the RunKindResult wrapper; nil when failed.
 	Result        []byte

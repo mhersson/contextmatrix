@@ -1,7 +1,9 @@
 package sentinel
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"slices"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
@@ -49,12 +51,17 @@ func ValidateRunKindStatus(p protocol.StatusCallbackPayload, bodyLen int) error 
 		return fmt.Errorf("unknown run kind %q", p.Kind)
 	case p.WorkerStatus != statusCompleted && p.WorkerStatus != statusFailed:
 		return fmt.Errorf("a run kind reports only completed or failed, not %q", p.WorkerStatus)
-	case len(p.Usage) > maxUsageRows:
-		return overLimit("usage", len(p.Usage), "rows", maxUsageRows)
+	}
+
+	if err := validateUsage(p.Usage); err != nil {
+		return err
+	}
+
+	switch {
 	case p.Result == nil:
 		return nil
 	case p.WorkerStatus != statusCompleted || p.StopCause != protocol.StopCauseDone:
-		return fmt.Errorf("a result comes only on a completed status with stop cause done")
+		return errors.New("a result comes only on a completed status with stop cause done")
 	case p.Kind == protocol.RunKindCheck && p.Result.Check != nil && p.Result.Investigate == nil:
 		return validateCheck(p.Result.Check)
 	case p.Kind == protocol.RunKindInvestigate && p.Result.Investigate != nil && p.Result.Check == nil:
@@ -63,6 +70,43 @@ func ValidateRunKindStatus(p protocol.StatusCallbackPayload, bodyLen int) error 
 
 	return fmt.Errorf("the result must hold exactly the %s result", p.Kind)
 }
+
+// validateUsage holds usage to report_usage's rules: no negative token count
+// or cost, and every subscription window named with a non-negative
+// utilization. A cost total past the float range is refused too.
+func validateUsage(rows []protocol.RunUsage) error {
+	if len(rows) > maxUsageRows {
+		return overLimit("usage", len(rows), "rows", maxUsageRows)
+	}
+
+	var total float64
+
+	for _, r := range rows {
+		if r.InputTokens < 0 || r.OutputTokens < 0 || r.CacheReadTokens < 0 || r.CacheCreateTokens < 0 {
+			return fmt.Errorf("usage for %q has a negative token count", r.Model)
+		}
+
+		if !finiteNonNegative(r.CostUSD) {
+			return fmt.Errorf("usage for %q has cost %v", r.Model, r.CostUSD)
+		}
+
+		total += r.CostUSD
+
+		for _, w := range r.Subscription {
+			if w.Window == "" || !finiteNonNegative(w.Utilization) {
+				return fmt.Errorf("usage for %q has subscription window %q with utilization %v", r.Model, w.Window, w.Utilization)
+			}
+		}
+	}
+
+	if math.IsInf(total, 0) {
+		return errors.New("usage costs sum past the float range")
+	}
+
+	return nil
+}
+
+func finiteNonNegative(x float64) bool { return x >= 0 && !math.IsInf(x, 1) }
 
 func validateCheck(r *protocol.CheckResult) error {
 	if err := validateEntries("candidates", r.Candidates, maxCandidates); err != nil {

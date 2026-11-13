@@ -229,6 +229,7 @@ func TestRunKindStatusFailedWithoutUsageChargesCeiling(t *testing.T) {
 		{"investigate killed", protocol.RunKindInvestigate, "", protocol.StopCauseKilled, "killed", 2},
 		{"investigate with a message", protocol.RunKindInvestigate, "worker image pull failed", protocol.StopCauseInfrastructure, "worker image pull failed", 2},
 		{"check charges nothing", protocol.RunKindCheck, "", protocol.StopCauseTimeout, "timeout", 0},
+		{"no message or cause", protocol.RunKindInvestigate, "", "", "failed", 2},
 	}
 
 	for _, tt := range tests {

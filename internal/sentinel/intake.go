@@ -59,7 +59,7 @@ func runKindReport(p protocol.StatusCallbackPayload, pricer Pricer, at time.Time
 
 	result := kindResult(p)
 	if result == nil {
-		r.Failure = cmp.Or(p.Message, p.StopCause)
+		r.Failure = cmp.Or(p.Message, p.StopCause, p.WorkerStatus)
 
 		return r, nil
 	}

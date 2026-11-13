@@ -1,6 +1,7 @@
 package sentinel
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -125,6 +126,32 @@ func TestValidateRunKindStatus(t *testing.T) {
 		}, 100, true},
 		{"17 usage rows", investigateStatus, func(p *protocol.StatusCallbackPayload) {
 			p.Usage = make([]protocol.RunUsage, 17)
+		}, 100, false},
+		{"negative input tokens", investigateStatus, func(p *protocol.StatusCallbackPayload) { p.Usage[0].InputTokens = -1 }, 100, false},
+		{"negative output tokens", investigateStatus, func(p *protocol.StatusCallbackPayload) { p.Usage[0].OutputTokens = -1 }, 100, false},
+		{"negative cache read tokens", investigateStatus, func(p *protocol.StatusCallbackPayload) { p.Usage[0].CacheReadTokens = -1 }, 100, false},
+		{"negative cache creation tokens", investigateStatus, func(p *protocol.StatusCallbackPayload) {
+			p.Usage[0].CacheCreateTokens = -1
+		}, 100, false},
+		{"gateway cost", investigateStatus, func(p *protocol.StatusCallbackPayload) { p.Usage[0].CostUSD = 0.15 }, 100, true},
+		{"negative cost", investigateStatus, func(p *protocol.StatusCallbackPayload) { p.Usage[0].CostUSD = -0.01 }, 100, false},
+		{"NaN cost", investigateStatus, func(p *protocol.StatusCallbackPayload) { p.Usage[0].CostUSD = math.NaN() }, 100, false},
+		{"infinite cost", investigateStatus, func(p *protocol.StatusCallbackPayload) { p.Usage[0].CostUSD = math.Inf(1) }, 100, false},
+		{"costs summing past the float range", investigateStatus, func(p *protocol.StatusCallbackPayload) {
+			p.Usage[0].CostUSD = math.MaxFloat64
+			p.Usage = append(p.Usage, p.Usage[0])
+		}, 100, false},
+		{"subscription window over its limit", investigateStatus, func(p *protocol.StatusCallbackPayload) {
+			p.Usage[0].Subscription = []protocol.SubscriptionUsage{{Window: "five_hour", Utilization: 1.2}}
+		}, 100, true},
+		{"unnamed subscription window", investigateStatus, func(p *protocol.StatusCallbackPayload) {
+			p.Usage[0].Subscription = []protocol.SubscriptionUsage{{Utilization: 0.2}}
+		}, 100, false},
+		{"negative utilization", investigateStatus, func(p *protocol.StatusCallbackPayload) {
+			p.Usage[0].Subscription = []protocol.SubscriptionUsage{{Window: "five_hour", Utilization: -0.1}}
+		}, 100, false},
+		{"NaN utilization", investigateStatus, func(p *protocol.StatusCallbackPayload) {
+			p.Usage[0].Subscription = []protocol.SubscriptionUsage{{Window: "five_hour", Utilization: math.NaN()}}
 		}, 100, false},
 	}
 

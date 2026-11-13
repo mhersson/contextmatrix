@@ -33,7 +33,8 @@ type Channel interface {
 }
 
 // Config wires the controller. Clock nil means the real clock; Tick zero
-// means 30 seconds. Pricer prices run-kind usage without a gateway cost.
+// means 30 seconds. Pricer prices run-kind usage without a gateway cost and
+// is required with a Store.
 type Config struct {
 	Store   Store
 	Channel Channel
@@ -55,8 +56,13 @@ type Controller struct {
 	published Status
 }
 
-// New creates a controller; Start runs it.
+// New creates a controller; Start runs it. It panics on a Store without a
+// Pricer, which would charge unpriced usage nothing.
 func New(cfg Config) *Controller {
+	if cfg.Store != nil && cfg.Pricer == nil {
+		panic("sentinel: a controller with a store needs a pricer")
+	}
+
 	if cfg.Clock == nil {
 		cfg.Clock = clock.Real()
 	}
