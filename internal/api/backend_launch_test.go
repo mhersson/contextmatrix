@@ -377,3 +377,139 @@ func TestLaunch_QueuedWriteIsACompareAndSet(t *testing.T) {
 
 	assert.Len(t, cb.triggers, rounds, "one trigger per card")
 }
+
+const boardConfigRemoteExecCancellable = `name: test-project
+prefix: TEST
+next_id: 1
+repo: https://github.com/example/project.git
+states: [todo, in_progress, done, stalled, not_planned]
+types: [task, bug, feature]
+priorities: [low, medium, high]
+transitions:
+  todo: [in_progress, not_planned]
+  in_progress: [done, todo]
+  done: [todo]
+  stalled: [todo, in_progress]
+  not_planned: [todo]
+remote_execution:
+  worker_image: my-worker:latest
+`
+
+// dependentCard creates a todo card that depends_on the given cards.
+func dependentCard(t *testing.T, svc *service.CardService, deps ...string) *board.Card {
+	t.Helper()
+
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Dependent", Type: "task", Priority: "medium", DependsOn: deps,
+	})
+	require.NoError(t, err)
+
+	return card
+}
+
+func TestLaunch_RefusesUnmetDependencies(t *testing.T) {
+	svc, _, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecCancellable)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	depA, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "A", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+	depB, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "B", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	card := dependentCard(t, svc, depA.ID, depB.ID)
+
+	cb := newCaptureBackend(t)
+	h := newLaunchHandlers(t, svc, cb)
+
+	_, err = h.launch(ctx, "test-project", card.ID, launchOptions{})
+
+	lf, ok := errors.AsType[*launchFailure](err)
+	require.True(t, ok, "got %v", err)
+	assert.Equal(t, http.StatusConflict, lf.status)
+	assert.Equal(t, ErrCodeDependenciesNotMet, lf.code)
+	assert.Equal(t, "dependencies not met: blocked by "+depA.ID+", "+depB.ID, lf.Error())
+
+	cb.mu.Lock()
+	assert.Empty(t, cb.triggers, "no trigger is sent")
+	cb.mu.Unlock()
+
+	got, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Empty(t, got.WorkerStatus, "a refused launch leaves no queued status behind")
+
+	// A cancelled dependency does not satisfy the gate.
+	_, err = svc.TransitionTo(ctx, "test-project", depA.ID, board.StateNotPlanned)
+	require.NoError(t, err)
+	_, err = svc.TransitionTo(ctx, "test-project", depB.ID, board.StateDone)
+	require.NoError(t, err)
+
+	_, err = h.launch(ctx, "test-project", card.ID, launchOptions{})
+	lf, ok = errors.AsType[*launchFailure](err)
+	require.True(t, ok, "got %v", err)
+	assert.Equal(t, ErrCodeDependenciesNotMet, lf.code)
+	assert.Equal(t, "dependencies not met: blocked by "+depA.ID, lf.Error())
+
+	// Once every dependency is done the launch goes through.
+	_, err = svc.TransitionTo(ctx, "test-project", depA.ID, board.StateTodo)
+	require.NoError(t, err)
+	_, err = svc.TransitionTo(ctx, "test-project", depA.ID, board.StateDone)
+	require.NoError(t, err)
+
+	_, err = h.launch(ctx, "test-project", card.ID, launchOptions{})
+	require.NoError(t, err)
+
+	cb.mu.Lock()
+	assert.Len(t, cb.triggers, 1)
+	cb.mu.Unlock()
+}
+
+func TestPlaybookLaunch_PassesUnmetDependenciesThrough(t *testing.T) {
+	svc, _, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	dep, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "A", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	card := dependentCard(t, svc, dep.ID)
+	h := newLaunchHandlers(t, svc, newCaptureBackend(t))
+
+	err = h.playbookLaunch(ctx, "test-project", card.ID, playbookrun.LaunchOptions{})
+	require.Error(t, err)
+	assert.Equal(t, "dependencies not met: blocked by "+dep.ID, err.Error())
+}
+
+func TestRunCard_RefusedForUnmetDependencies(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	dep, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "A", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	card := dependentCard(t, svc, dep.ID)
+	cb := newCaptureBackend(t)
+
+	router := newTestRouter(RouterConfig{
+		Service: svc, Bus: bus, Backend: cb.client(),
+		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		MCPAPIKey:       "test-mcp-key",
+	})
+	server := httptest.NewServer(router)
+
+	defer server.Close()
+
+	resp := doJSON(t, http.MethodPost, server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil, "human:alice")
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeDependenciesNotMet, apiErr.Code)
+	assert.Contains(t, apiErr.Details, "blocked by "+dep.ID)
+}

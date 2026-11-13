@@ -73,3 +73,26 @@ func TestMCPRunCard_PlaybookLockRefused(t *testing.T) {
 	require.ErrorAs(t, err, &lf)
 	assert.Equal(t, ErrCodePlaybookRunActive, lf.code)
 }
+
+func TestMCPRunCard_UnmetDependenciesRefused(t *testing.T) {
+	ctx := context.Background()
+	run, cb, svc, _ := mcpRunner(t)
+
+	dep, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "A", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Dependent", Type: "task", Priority: "medium", DependsOn: []string{dep.ID},
+	})
+	require.NoError(t, err)
+
+	_, err = run(ctx, "test-project", card.ID)
+
+	var lf *launchFailure
+	require.ErrorAs(t, err, &lf)
+	assert.Equal(t, ErrCodeDependenciesNotMet, lf.code)
+
+	cb.mu.Lock()
+	assert.Empty(t, cb.triggers)
+	cb.mu.Unlock()
+}

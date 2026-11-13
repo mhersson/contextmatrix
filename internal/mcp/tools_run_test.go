@@ -73,17 +73,24 @@ func TestRunCardTool(t *testing.T) {
 
 	for _, tc := range []struct {
 		name, state, workerStatus string
-		imported                  bool
+		imported, unmetDependency bool
 	}{
 		{name: "a card not in todo", state: "in_progress"},
 		{name: "a queued worker", workerStatus: "queued"},
 		{name: "a running worker", workerStatus: "running"},
 		{name: "an unvetted import", imported: true},
+		{name: "an unmet dependency", unmetDependency: true},
 	} {
 		t.Run(tc.name+" is left untouched and the refusal reaches the caller", func(t *testing.T) {
 			env, f := setupRunCard(t, errors.New("launch refused"))
 
 			input := service.CreateCardInput{Title: "Run me", Type: "task", Priority: "medium"}
+
+			if tc.unmetDependency {
+				dep := createTestCard(t, env, "Blocker", "task", "medium")
+				input.DependsOn = []string{dep.ID}
+			}
+
 			if tc.imported {
 				input.Source = &board.Source{System: "jira", ExternalID: "PROJ-7", ExternalURL: "https://acme.atlassian.net/browse/PROJ-7"}
 			}
