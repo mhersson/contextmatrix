@@ -96,7 +96,7 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 	}
 
 	// GetCard already applied the dependency rule (done only) to DependenciesMet and BlockedBy.
-	if card.DependenciesMet != nil && !*card.DependenciesMet {
+	if card.DependenciesBlocked() {
 		return nil, launchRefused(http.StatusConflict, ErrCodeDependenciesNotMet,
 			"dependencies not met", "blocked by "+strings.Join(card.BlockedBy, ", "))
 	}

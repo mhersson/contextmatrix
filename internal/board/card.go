@@ -259,6 +259,12 @@ func (c *Card) NeedsVetting() bool {
 	return c.Source != nil && !c.Vetted
 }
 
+// DependenciesBlocked reports whether the read-time enrichment found an unmet
+// dependency; nil (not computed, or no dependencies) is not blocked.
+func (c *Card) DependenciesBlocked() bool {
+	return c.DependenciesMet != nil && !*c.DependenciesMet
+}
+
 var (
 	// ErrMissingFrontmatter is returned when a card file lacks YAML frontmatter.
 	ErrMissingFrontmatter = errors.New("missing YAML frontmatter")

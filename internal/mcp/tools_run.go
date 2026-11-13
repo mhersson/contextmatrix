@@ -73,7 +73,7 @@ func registerRunCard(server *mcp.Server, svc *service.CardService, slot *RunnerS
 		// Launch always refuses a run in flight (possibly HITL), an unvetted import or unmet dependencies; those stay as they are.
 		runInFlight := card.WorkerStatus == "queued" || card.WorkerStatus == "running"
 		if card.State == board.StateTodo && !card.Autonomous && !runInFlight && !card.NeedsVetting() &&
-			(card.DependenciesMet == nil || *card.DependenciesMet) {
+			!card.DependenciesBlocked() {
 			yes := true
 			if _, err := svc.PatchCard(ctx, project, input.CardID, service.PatchCardInput{Autonomous: &yes, AgentID: input.AgentID}); err != nil {
 				return nil, nil, fmt.Errorf("run_card %s: set autonomous: %w", input.CardID, err)
