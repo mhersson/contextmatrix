@@ -20,4 +20,7 @@ import (
 type TokenGenerator interface {
 	GenerateToken(ctx context.Context) (token string, expiresAt time.Time, err error)
 	GenerateRepoToken(ctx context.Context, repo string) (token string, expiresAt time.Time, err error)
+	// GenerateRepoReadToken covers one repository with contents read only; a PAT
+	// cannot be narrowed and is returned unchanged.
+	GenerateRepoReadToken(ctx context.Context, repo string) (token string, expiresAt time.Time, err error)
 }

@@ -26,6 +26,7 @@ type CachingProvider struct {
 	// slow scoped mint never blocks the broad token.
 	repoMu     sync.Mutex
 	repoTokens map[string]cachedToken
+	readTokens map[string]cachedToken
 }
 
 type cachedToken struct {
@@ -42,6 +43,7 @@ func NewCachingProvider(inner TokenGenerator) *CachingProvider {
 		inner:       inner,
 		refreshSkew: defaultRefreshSkew,
 		repoTokens:  make(map[string]cachedToken),
+		readTokens:  make(map[string]cachedToken),
 	}
 }
 
@@ -72,16 +74,31 @@ func (c *CachingProvider) GenerateToken(ctx context.Context) (string, time.Time,
 // GenerateRepoToken is GenerateToken for a single repository, cached per
 // repo name (case-insensitive) apart from the broad token.
 func (c *CachingProvider) GenerateRepoToken(ctx context.Context, repo string) (string, time.Time, error) {
+	return c.scoped(ctx, c.repoTokens, repo, c.inner.GenerateRepoToken)
+}
+
+// GenerateRepoReadToken is GenerateRepoToken for contents-read tokens, cached
+// apart so a write mint never returns a read token or the reverse.
+func (c *CachingProvider) GenerateRepoReadToken(ctx context.Context, repo string) (string, time.Time, error) {
+	return c.scoped(ctx, c.readTokens, repo, c.inner.GenerateRepoReadToken)
+}
+
+func (c *CachingProvider) scoped(
+	ctx context.Context,
+	cache map[string]cachedToken,
+	repo string,
+	mint func(context.Context, string) (string, time.Time, error),
+) (string, time.Time, error) {
 	c.repoMu.Lock()
 	defer c.repoMu.Unlock()
 
 	key := strings.ToLower(repo)
 
-	if e, ok := c.repoTokens[key]; ok && e.token != "" && time.Until(e.expires) > c.refreshSkew {
+	if e, ok := cache[key]; ok && e.token != "" && time.Until(e.expires) > c.refreshSkew {
 		return e.token, e.expires, nil
 	}
 
-	token, exp, err := c.inner.GenerateRepoToken(ctx, repo)
+	token, exp, err := mint(ctx, repo)
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -92,7 +109,7 @@ func (c *CachingProvider) GenerateRepoToken(ctx context.Context, repo string) (s
 		return token, exp, nil
 	}
 
-	c.repoTokens[key] = cachedToken{token: token, expires: exp}
+	cache[key] = cachedToken{token: token, expires: exp}
 
 	return token, exp, nil
 }

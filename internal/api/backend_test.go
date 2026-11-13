@@ -61,6 +61,10 @@ func (f *fakeTokenProvider) GenerateToken(_ context.Context) (string, time.Time,
 	return f.token, f.expiresAt, f.err
 }
 
+func (f *fakeTokenProvider) GenerateRepoReadToken(ctx context.Context, repo string) (string, time.Time, error) {
+	return f.GenerateRepoToken(ctx, repo)
+}
+
 func (f *fakeTokenProvider) GenerateRepoToken(_ context.Context, repo string) (string, time.Time, error) {
 	f.repoCalls.Add(1)
 

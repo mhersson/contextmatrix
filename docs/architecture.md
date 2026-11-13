@@ -187,7 +187,11 @@ are refused the boards and task-skills repos. A GitHub App token is an
 installation token limited to that repo; a PAT cannot be narrowed and is handed
 over as is. A failed mint fails the request; there is no fallback to the broad
 token. CM's own GitHub use (boards push, task-skills pull, issue import, branch
-listing) keeps the broad installation token. Contract:
+listing) keeps the broad installation token. Run kinds get no MCP key, and the
+git token CM mints for them is a contents-read token for one repository
+(`GenerateRepoReadToken`, cached apart from write tokens). On a PAT install the
+run kind gets the PAT with whatever scope it has: the model has no git-writing
+tool but can read the token file. Contract:
 [API reference](api-reference.md) and [remote execution](remote-execution.md).
 
 The LLM key is kept out of workers by the backends, not by CM. CM still sends
