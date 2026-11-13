@@ -1,17 +1,10 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useOptionalAuth } from '../../hooks/useAuth';
+import { usePopover } from '../../hooks/usePopover';
 import { useSentinel } from '../../hooks/useSentinel';
 import { stripText, stripTone } from '../../lib/sentinel';
 import { ShieldCheckIcon } from '../ShieldCheckIcon';
+import { Chevron } from './Chevron';
 import { SentinelDetails } from './SentinelDetails';
-
-function Chevron() {
-  return (
-    <svg aria-hidden="true" width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M3 6l5 5 5-5" />
-    </svg>
-  );
-}
 
 /** Admin in multi mode, anyone in none mode. UX only: the settings page is admin-gated server-side. */
 function useIsAdmin(): boolean {
@@ -27,34 +20,7 @@ function useIsAdmin(): boolean {
 export function SentinelStrip() {
   const { info } = useSentinel();
   const isAdmin = useIsAdmin();
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const stripRef = useRef<HTMLButtonElement>(null);
-  const popoverId = useId();
-
-  const close = useCallback(() => setOpen(false), []);
-
-  useEffect(() => {
-    if (!open) return;
-    const onMouseDown = (e: MouseEvent) => {
-      if (containerRef.current?.contains(e.target as Node)) return;
-      if (containerRef.current?.contains(document.activeElement)) stripRef.current?.focus();
-      close();
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      // One Escape closes only the popover, not the mobile drawer's window listener too.
-      e.stopPropagation();
-      stripRef.current?.focus();
-      close();
-    };
-    document.addEventListener('mousedown', onMouseDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onMouseDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open, close]);
+  const { open, toggle, containerRef, triggerRef, popoverId, onBlur } = usePopover();
 
   const status = info?.status;
   if (!status?.enabled) return null;
@@ -63,18 +29,16 @@ export function SentinelStrip() {
   return (
     <div
       ref={containerRef}
-      onBlur={(e) => {
-        if (open && e.relatedTarget && !e.currentTarget.contains(e.relatedTarget)) close();
-      }}
+      onBlur={onBlur}
     >
       <button
-        ref={stripRef}
+        ref={triggerRef}
         type="button"
         className="llm-strip"
         aria-label={`Sentinel: ${text}`}
         aria-expanded={open}
         aria-controls={popoverId}
-        onClick={() => (open ? close() : setOpen(true))}
+        onClick={toggle}
       >
         <span className={`sentinel-tone--${stripTone(status)} inline-flex`} aria-hidden="true">
           <ShieldCheckIcon />
