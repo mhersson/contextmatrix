@@ -77,6 +77,16 @@ describe('AdminSentinelPage', () => {
     await screen.findByRole('switch', { name: 'Sentinel' });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('daily_cap_usd out of range');
+    expect(screen.getByLabelText('Daily spend cap (USD)')).toHaveValue(20);
+    expect(mocks.refresh).not.toHaveBeenCalled();
+  });
+
+  it('blocks the save and shows an error when a number field is empty', async () => {
+    render(<AdminSentinelPage />);
+    fireEvent.change(await screen.findByLabelText('Daily spend cap (USD)'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(mocks.putSentinelSettings).not.toHaveBeenCalled();
   });
 
   it('shows who last updated the settings', async () => {

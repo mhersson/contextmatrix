@@ -110,6 +110,10 @@ export function AdminSentinelPage() {
 
   const save = async () => {
     if (!draft) return;
+    if (![draft.daily_cap_usd, draft.investigate_ceiling_usd, draft.headroomPercent].every(Number.isFinite)) {
+      setError('Enter a number in every field.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
