@@ -109,6 +109,11 @@ const (
 	StateNotPlanned = "not_planned"
 )
 
+// MaxReviewAttempts is the lifetime ceiling on a card's review_attempts. The
+// shipped workflow skills halt at 3 review cycles; the server-side cap is
+// higher to allow manual overrides while still preventing runaway agents.
+const MaxReviewAttempts = 7
+
 // IsTerminalState reports whether a card in this state has finished its
 // lifecycle and will not move again on its own: done or not_planned. Every
 // shipped template treats done as an end state, and board validation makes

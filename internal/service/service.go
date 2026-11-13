@@ -39,10 +39,7 @@ import (
 
 const (
 	// maxReviewAttempts caps the review_attempts counter as defense-in-depth.
-	// The shipped workflow skills halt at 3 review cycles. This server-side
-	// cap is higher to allow manual overrides while still preventing runaway
-	// agents.
-	maxReviewAttempts = 7
+	maxReviewAttempts = board.MaxReviewAttempts
 
 	// Field length limits to prevent abuse.
 	maxTitleLen = 500

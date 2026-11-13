@@ -140,6 +140,50 @@ while Sentinel is off or has no controller), `daily_cap_usd`, `headroom`, and
 on Claude Code the `windows` that have not reset. `healing`, `healed_today` and
 `spent_today_usd` are 0 at present, so the state is never `working`.
 
+## The cause table
+
+`causeTable` in `internal/sentinel/causes.go` maps each cause to a response.
+A new cause is one row in `causes.go` plus its test row. A key the table lacks
+(a newer agent's stop cause) reads as `unknown`. Nothing acts on the table at
+present.
+
+| Cause                                                                                                   | Response           | Park reason                                         |
+| ------------------------------------------------------------------------------------------------------- | ------------------ | --------------------------------------------------- |
+| `toolchain_missing`, `verify_parked`, `empty_subtask`, `max_turns`, `context_limit`, `review_parked`    | `investigate_fix`  |                                                     |
+| `review_cap`                                                                                            | `park`             | `review rounds used up`                             |
+| `usage_limit`                                                                                           | `usage_rerun`      |                                                     |
+| `forward_fix_failed`                                                                                    | `park`             | `a fix Sentinel forwarded to this card did not hold` |
+| `budget_exceeded`                                                                                       | `park`             | `budget exceeded`                                   |
+| `no_model`                                                                                              | `park`             | `no model available`                                |
+| `split_overflow`                                                                                        | `park`             | `the split overflowed`                              |
+| `gates_parked`, `error`, `shutdown`, `timeout`, `infrastructure`, `killed`, `ended`, `stalled`, `unknown` | `investigate_park` |                                                     |
+| `done`, `human_stop`                                                                                    | `ignore`           |                                                     |
+
+`stalled`, `unknown`, `human_stop`, `review_cap` and `forward_fix_failed` are
+CM's own keys; the rest are the stop causes the backend reports.
+
+### Triggers
+
+`causeKey` (`internal/sentinel/trigger.go`) names a run's cause once it has
+settled:
+
+- A stalled card is `stalled`.
+- A card whose worker is queued or running is not settled.
+- Otherwise the run is settled when its terminal status arrived (`stopped_at`),
+  or when the worker is `failed`, `killed` or `parked` and the card has gone
+  unwritten for the settle grace (10 minutes, `backend.StaleWorkerGrace`). The
+  agent parks a card before its container exits, so a parked card waits for the
+  callback's stop cause.
+- A human Stop is `human_stop`. `review_parked` on a card with 7 or more
+  review attempts (`board.MaxReviewAttempts`) is `review_cap`. Any stop but
+  `done` on a card whose forwarded fix is still on trial and was forwarded
+  before the run started is `forward_fix_failed`. An empty cause is `unknown`;
+  otherwise the cause is the stop cause.
+
+`eligible` says whether Sentinel may act on a settled run: the run was launched
+autonomous, and the card is not finished, does not need vetting, is not
+claimed, and is not claimed by another instance.
+
 ## Where things live
 
 | File                                        | Holds                                                                                                                                                        |
@@ -148,6 +192,8 @@ on Claude Code the `windows` that have not reset. `healing`, `healed_today` and
 | `internal/sentinel/state.go`                | The durable-state types: the run row (`Run`, `LaunchFacts`), launch origins, the caps, and the heal records (`Heal`, the stages, `Finding`, `RunKindReport`) |
 | `internal/sentinel/controller.go`           | The loop: `Start`, `Shutdown`, `Nudge`, `Status`, the panic-safe pass and the wake-up filter                                                                 |
 | `internal/sentinel/pass.go`                 | One pass: read settings, mode and windows; record the status and publish a change                                                                            |
+| `internal/sentinel/causes.go`               | The cause table: one row per cause, `responseFor`                                                                                                            |
+| `internal/sentinel/trigger.go`              | The pure triggers: `causeKey` (settled and cause), `eligible`                                                                                                |
 | `internal/sentinel/gate.go`                 | The pure budget gate and the worker-slot check (`roomFor`)                                                                                                   |
 | `internal/sentinel/status.go`               | `Status`, the states and the pure summary                                                                                                                    |
 | `internal/opstore/sqlite/sentinel.go`       | The settings row and the subscription windows the controller reads                                                                                           |
