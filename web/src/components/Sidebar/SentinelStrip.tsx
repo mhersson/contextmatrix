@@ -34,7 +34,7 @@ export function SentinelStrip() {
       <button
         ref={triggerRef}
         type="button"
-        className="llm-strip"
+        className="llm-strip sentinel-strip"
         aria-label={`Sentinel: ${text}`}
         aria-expanded={open}
         aria-controls={popoverId}
@@ -43,8 +43,8 @@ export function SentinelStrip() {
         <span className={`sentinel-tone--${stripTone(status)} inline-flex`} aria-hidden="true">
           <ShieldCheckIcon />
         </span>
-        <span className="llm-strip__label">Sentinel</span>
-        <span className={`llm-strip__pct sentinel-tone--${stripTone(status)}`}>{text}</span>
+        <span className="sentinel-strip__label">Sentinel</span>
+        <span className={`sentinel-strip__status sentinel-tone--${stripTone(status)}`}>{text}</span>
         <span className="llm-strip__chev">
           <Chevron />
         </span>

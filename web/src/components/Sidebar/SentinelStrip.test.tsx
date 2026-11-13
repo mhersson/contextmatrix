@@ -78,6 +78,14 @@ describe('SentinelStrip', () => {
     expect(screen.getByRole('group', { name: 'Sentinel' })).toHaveTextContent('3 cards healed today');
   });
 
+  it('shows the label and the full reason for a long pause reason', async () => {
+    getMock.mockResolvedValue(info({ state: 'paused', reason: 'waiting for subscription headroom' }));
+    renderStrip();
+    const strip = await screen.findByRole('button', { name: /Sentinel/ });
+    expect(strip).toHaveTextContent('Sentinel');
+    expect(strip).toHaveTextContent('waiting for subscription headroom');
+  });
+
   it('shows the settings link only to admins in multi mode', async () => {
     getMock.mockResolvedValue(info());
     setAuth('multi', false);

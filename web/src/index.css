@@ -5664,6 +5664,18 @@ textarea {
   color: var(--grey2);
   font-weight: 500;
 }
+.sentinel-strip__label {
+  flex-shrink: 0;
+}
+/* The reason is never truncated: it wraps right-aligned inside the pill. */
+.sentinel-strip__status {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
 .sentinel-tone--active {
   color: var(--purple);
 }
