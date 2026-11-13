@@ -13,6 +13,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/githubauth"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/sentinel"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -61,7 +62,7 @@ type ClaudeCodeCatalog interface {
 // CardRunRecorder stores the LLM channel mode each card run started in.
 // Implemented by opstore/sqlite.Store.
 type CardRunRecorder interface {
-	OpenCardRun(ctx context.Context, project, cardID, mode string, at time.Time) error
+	OpenCardRun(ctx context.Context, project, cardID, mode string, at time.Time, facts sentinel.LaunchFacts) error
 }
 
 // blacklistReader returns the set of OpenRouter slugs that must never be

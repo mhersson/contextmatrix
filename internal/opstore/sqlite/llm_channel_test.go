@@ -12,6 +12,7 @@ import (
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
 
+	"github.com/mhersson/contextmatrix/internal/sentinel"
 	"github.com/mhersson/contextmatrix/internal/sqliteutil"
 )
 
@@ -72,8 +73,8 @@ func TestCardRun_OpenCloseRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, runs)
 
-	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "claude_code", t0))
-	require.NoError(t, st.OpenCardRun(ctx, "p", "P-002", "endpoint", t0))
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "claude_code", t0, sentinel.LaunchFacts{}))
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-002", "endpoint", t0, sentinel.LaunchFacts{}))
 
 	runs, err = st.OpenCardRuns(ctx)
 	require.NoError(t, err)
@@ -98,9 +99,9 @@ func TestCardRun_RerunReplacesRow(t *testing.T) {
 	ctx := context.Background()
 	t0 := time.Unix(1_700_000_000, 0).UTC()
 
-	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", t0))
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", t0, sentinel.LaunchFacts{}))
 	require.NoError(t, st.CloseCardRun(ctx, "p", "P-001", t0, t0.Add(time.Minute)))
-	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "claude_code", t0.Add(time.Hour)))
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "claude_code", t0.Add(time.Hour), sentinel.LaunchFacts{}))
 
 	runs, err := st.OpenCardRuns(ctx)
 	require.NoError(t, err)
@@ -208,8 +209,8 @@ func TestCardRun_CloseIsBoundedByStart(t *testing.T) {
 	t0 := time.Unix(1_700_000_000, 123_000_000).UTC()
 	rerun := t0.Add(300 * time.Millisecond) // same second as t0
 
-	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", t0))
-	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "claude_code", rerun))
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", t0, sentinel.LaunchFacts{}))
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "claude_code", rerun, sentinel.LaunchFacts{}))
 
 	runs, err := st.OpenCardRuns(ctx)
 	require.NoError(t, err)

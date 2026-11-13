@@ -16,6 +16,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
 	"github.com/mhersson/contextmatrix/internal/playbookrun"
+	"github.com/mhersson/contextmatrix/internal/sentinel"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -270,7 +271,7 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 	// Best-effort: the record feeds in-flight counts and must not fail a run
 	// the backend already accepted.
 	if h.cardRuns != nil {
-		if err := h.cardRuns.OpenCardRun(ctx, project, id, string(runMode), time.Now()); err != nil {
+		if err := h.cardRuns.OpenCardRun(ctx, project, id, string(runMode), time.Now(), sentinel.LaunchFacts{}); err != nil {
 			ctxlog.Logger(ctx).Warn("failed to record card run mode",
 				"card_id", id, "project", project, "error", err)
 		}

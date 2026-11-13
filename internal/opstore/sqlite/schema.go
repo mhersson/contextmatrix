@@ -197,6 +197,21 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 
+	for _, col := range []struct{ name, decl string }{
+		{"edit_snapshot", "TEXT NOT NULL DEFAULT ''"},
+		{"autonomous", "INTEGER NOT NULL DEFAULT 0"},
+		{"origin", "TEXT NOT NULL DEFAULT ''"},
+		{"attempts", "INTEGER NOT NULL DEFAULT 0"},
+		{"run_id", "TEXT NOT NULL DEFAULT ''"},
+		{"stop_cause", "TEXT NOT NULL DEFAULT ''"},
+		{"stopped_at", "INTEGER"},
+		{"human_stop", "INTEGER NOT NULL DEFAULT 0"},
+	} {
+		if err := addColumnIfMissing(ctx, db, "card_run_modes", col.name, col.decl); err != nil {
+			return err
+		}
+	}
+
 	// After the column loop: an upgraded database has the columns only now.
 	if _, err := db.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_sessions_origin
 		ON chat_sessions(origin_chat, origin_seq) WHERE origin_chat != ''`); err != nil {
