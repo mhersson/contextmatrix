@@ -373,7 +373,7 @@ stage waits.
    rest of the pass. It does not apply a fix, rerun after a usage limit or
    settle a rerun at present; such a heal keeps its stage.
 4. While `healing` is on, it considers every undecided run whose card has no
-   open heal. A run that has not settled waits. One that is not eligible, or
+   open heal (`consider.go`). A run that has not settled waits. One that is not eligible, or
    whose cause is ignored, is marked decided. Otherwise a heal opens at
    `investigate` (either investigate response) or `usage_wait`, or parked at
    once: for a `park` row with its reason, for `investigate_fix` once the card
@@ -413,6 +413,7 @@ heal's detail stay on its `sentinel_heals` row.
 | `internal/sentinel/limits.go`               | `ValidateRunKindStatus`: the run-kind status values and size limits                                                                                          |
 | `internal/sentinel/spend.go`                | `Pricer` and `priceUsage`: what a run kind's usage costs                                                                                                     |
 | `internal/sentinel/pass.go`                 | One pass: read the gate's inputs and the open heals, build each heal's view and act on its step, consider undecided runs, record the status                 |
+| `internal/sentinel/consider.go`             | Considering undecided runs: open a heal for a settled, eligible run, parked at once or at its stage, or mark the run decided                                 |
 | `internal/sentinel/causes.go`               | The cause table: one row per cause, `responseFor`                                                                                                            |
 | `internal/sentinel/checks.go`               | `fixContext`, the two check lists, `vetFix` and `vetForward`                                                                                                 |
 | `internal/sentinel/check_*.go`              | One check per file: shape, section, retire, edits, verify, text                                                                                                            |

@@ -61,8 +61,6 @@ type Cards interface {
 	GetCard(ctx context.Context, project, id string) (*board.Card, error)
 	ListCards(ctx context.Context, project string, f storage.CardFilter) ([]*board.Card, error)
 	ClaimedElsewhere(card *board.Card) bool
-	PatchCard(ctx context.Context, project, id string, in service.PatchCardInput) (*board.Card, error)
-	TransitionTo(ctx context.Context, project, id, state string) (*board.Card, error)
 	AddSystemLogEntry(ctx context.Context, project, id string, e board.ActivityEntry) (*board.Card, error)
 	GetProject(ctx context.Context, project string) (*board.ProjectConfig, error)
 }

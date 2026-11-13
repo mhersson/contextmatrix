@@ -3,7 +3,6 @@ package sentinel
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"slices"
 	"sync"
 	"time"
@@ -413,24 +412,10 @@ type fakeCards struct {
 	onGet    func()
 }
 
-var errNotFaked = errors.New("not faked")
-
 func (f *fakeCards) ClaimedElsewhere(*board.Card) bool {
 	f.calls++
 
 	return false
-}
-
-func (f *fakeCards) PatchCard(context.Context, string, string, service.PatchCardInput) (*board.Card, error) {
-	f.calls++
-
-	return nil, errNotFaked
-}
-
-func (f *fakeCards) TransitionTo(context.Context, string, string, string) (*board.Card, error) {
-	f.calls++
-
-	return nil, errNotFaked
 }
 
 func (f *fakeCards) AddSystemLogEntry(_ context.Context, _, id string, e board.ActivityEntry) (*board.Card, error) {
