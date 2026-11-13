@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -176,9 +177,15 @@ func runReconcileSweep(
 			"source", sourceSweep,
 			"project", c.Project, "card_id", c.CardID,
 			"container_id", truncate(c.ContainerID),
-			"container_state", c.State,
+			"container_state", c.State, "kind", c.Kind,
 			"reason", reason,
 		)
+
+		if c.Kind != "" {
+			killRunKind(ctx, client, logger, c)
+
+			continue
+		}
 
 		endSessionAndKill(ctx, client, logger, c.Project, c.CardID, "", "", sourceSweep)
 	}
@@ -194,6 +201,15 @@ func runReconcileSweep(
 	return missing
 }
 
+// killRunKind kills one run kind's container. A run kind has no session, so
+// there is no end-session first.
+func killRunKind(ctx context.Context, client EndSessionClient, logger *slog.Logger, c ContainerInfo) {
+	if err := client.Kill(ctx, protocol.KillPayload{CardID: c.CardID, Project: c.Project, Kind: c.Kind}); err != nil {
+		logger.Warn("run kind kill webhook failed",
+			"source", sourceSweep, "project", c.Project, "card_id", c.CardID, "kind", c.Kind, "error", err)
+	}
+}
+
 // failLostWorkers marks failed every queued or running card that this listing
 // and prev, the previous successful one's misses, both lack a container for,
 // once the card has gone unwritten for StaleWorkerGrace. One miss is not enough: the
@@ -205,7 +221,7 @@ func failLostWorkers(
 ) (int, map[string]struct{}) {
 	listed := make(map[string]struct{}, len(containers))
 	for _, c := range containers {
-		if c.CardID != "" {
+		if c.CardID != "" && c.Kind == "" {
 			listed[c.Project+"/"+c.CardID] = struct{}{}
 		}
 	}

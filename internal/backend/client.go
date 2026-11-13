@@ -50,7 +50,15 @@ type ContainerInfo struct {
 	State       string
 	StartedAt   time.Time
 	Tracked     bool
+	// Kind is the run kind; empty for a card run.
+	Kind string
 }
+
+var (
+	ErrRunKindsUnavailable = errors.New("agent has no run kinds") // 404
+	ErrRunKindBusy         = errors.New("agent busy")             // 429, 503
+	ErrRunKindRejected     = errors.New("run kind rejected")      // any other 4xx
+)
 
 // Client sends signed webhooks to the task backend.
 type Client struct {
@@ -94,6 +102,28 @@ func (c *Client) Trigger(ctx context.Context, p protocol.TriggerPayload) error {
 			"card_id", p.CardID,
 		)
 	})
+}
+
+// RunKind dispatches a run kind. A 5xx other than 503 comes back as the
+// retried transport error, not a rejection: the run may still be dispatchable.
+func (c *Client) RunKind(ctx context.Context, p protocol.RunKindPayload) error {
+	err := c.send(ctx, c.baseURL+"/run-kind", p, nil)
+
+	we, ok := errors.AsType[*webhookError](err)
+	if !ok {
+		return err
+	}
+
+	switch {
+	case we.statusCode == http.StatusNotFound:
+		return ErrRunKindsUnavailable
+	case we.statusCode == http.StatusTooManyRequests, we.statusCode == http.StatusServiceUnavailable:
+		return ErrRunKindBusy
+	case we.statusCode >= 400 && we.statusCode < 500:
+		return fmt.Errorf("%w: %s", ErrRunKindRejected, we.body)
+	}
+
+	return err
 }
 
 // Kill sends a kill webhook to stop a specific task.
@@ -184,6 +214,7 @@ func (c *Client) ListContainers(ctx context.Context) ([]ContainerInfo, error) {
 			State:       c.State,
 			StartedAt:   started,
 			Tracked:     c.Tracked,
+			Kind:        c.Kind,
 		})
 	}
 

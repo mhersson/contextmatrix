@@ -115,8 +115,9 @@ All POSTs carry `Content-Type: application/json` and go to
 | Method + path       | Purpose                                                                                                                                |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /trigger`     | Start a card run.                                                                                                                      |
-| `POST /kill`        | Stop the container for one card. Idempotent.                                                                                           |
-| `POST /stop-all`    | Stop every container for a project.                                                                                                    |
+| `POST /run-kind`    | Start a Sentinel run kind (`check` or `investigate`) for one card.                                                                     |
+| `POST /kill`        | Stop the container for one card, or with `kind` set, that card's run kind. Idempotent.                                                 |
+| `POST /stop-all`    | Stop every container for a project; the agent also ends run kinds.                                                                     |
 | `POST /message`     | Deliver a human message to a running HITL card.                                                                                        |
 | `POST /promote`     | Switch a running HITL card to autonomous mode.                                                                                         |
 | `POST /end-session` | Close a HITL container's stdin so the worker sees EOF.                                                                                 |
@@ -242,6 +243,19 @@ Idempotent: the backend answers `200` whether it stopped a container or found
 nothing to do, so CM's cleanup paths never distinguish "not found" from
 "killed".
 
+#### POST {agent_url}/run-kind
+
+Dispatches a run kind: a sandboxed run for one card that carries no MCP key
+and never writes the card. The body is `protocol.RunKindPayload`. `202` means
+the agent accepted it and launches asynchronously. CM's client maps `404` to
+`ErrRunKindsUnavailable` (the agent has no run kinds), `429` and `503` to
+`ErrRunKindBusy`, and any other `4xx` to `ErrRunKindRejected` wrapping the
+agent's detail. Any other `5xx` is retried like every other webhook and then
+returned as a plain transport error, never as a rejection. The agent keys a
+run kind on (project, card ID, kind), so it coexists with the card's own run.
+Run kinds share the agent's `max_concurrent` and count in `/health`
+`running_containers`.
+
 #### GET {agent_url}/containers
 
 Signed GET, empty body. Returns the worker containers the backend manages.
@@ -269,7 +283,8 @@ The agent builds the list from its in-memory tracker, so `tracked` is always
 compatibility. `started_at` (RFC3339) feeds the sweep's age cap; a missing or
 malformed value is non-fatal and only disables that check. Chat containers
 carry `session_id` instead of `card_id`; the sweep skips entries without a
-`card_id`.
+`card_id`. A run-kind container carries `kind` (absent for a card run); the
+lost-worker check ignores it, so it never hides a card whose worker is gone.
 
 #### GET {agent_url}/images
 
@@ -829,7 +844,9 @@ CM explicitly.
    Each tick calls `GET /containers` and kills every card container whose
    card is missing, is in `done` / `not_planned`, or is older than
    `DefaultContainerMaxAge` (150 minutes). These kills reason only from the
-   backend's list and the card store, never from `worker_status`. The same
+   backend's list and the card store, never from `worker_status`. A run kind
+   of a missing or terminal card dies the same way, by a kind-scoped
+   `/kill` with no `/end-session` first. The same
    tick then marks a lost worker `failed`, with an activity entry: a card
    whose `worker_status` is `queued` or `running`, that two consecutive
    successful listings show no container for, and that has not changed for
