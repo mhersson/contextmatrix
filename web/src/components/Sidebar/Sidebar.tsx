@@ -18,6 +18,7 @@ import { UserMenu } from './UserMenu';
 import { SettingsMenu } from './SettingsMenu';
 import { RepoSection } from './RepoSection';
 import { LLMChannelRailDot, LLMChannelStrip } from './LLMChannelStrip';
+import { SentinelRailIcon, SentinelStrip } from './SentinelStrip';
 
 interface SidebarProps {
   onNewProject: () => void;
@@ -203,6 +204,7 @@ export function Sidebar({ onNewProject, onNewSession, mobileOpen = false, onMobi
           )}
         </div>
         <LLMChannelStrip />
+        <SentinelStrip />
       </div>
 
       <nav aria-label="Projects" className="flex-1 overflow-y-auto py-1.5">
@@ -325,6 +327,7 @@ export function Sidebar({ onNewProject, onNewSession, mobileOpen = false, onMobi
           </svg>
         </button>
         <LLMChannelRailDot />
+        <SentinelRailIcon />
       </div>
     );
   }

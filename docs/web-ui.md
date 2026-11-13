@@ -206,6 +206,27 @@ for what the channel does.
   the token is set it also refreshes on LLM channel and worker events and
   every minute.
 
+## Sentinel
+
+While Sentinel is enabled, a strip under the LLM channel strip names it: a
+shield, "Sentinel" and its state on the right. The text is "watching",
+"healing N" while N cards are being healed, the pause reason while paused, or
+"not running". The shield and text are purple while watching or healing,
+yellow while paused and red while not running. Nothing shows while Sentinel
+is off. The collapsed sidebar shows the shield alone in the same colour, with
+the state as its label.
+
+- Clicking the strip opens a popover; Escape, a click outside it or moving
+  focus out of it closes it.
+- The popover shows the state, then on the endpoint channel today's spend
+  against the daily cap ("$1.20 of $20.00 today"), or on Claude Code one line
+  per window that has not reset ("five_hour 62% of 85%", the window's use
+  against the headroom threshold), then the count of cards healed today.
+- Viewers who may change settings, an admin in `multi` mode or anyone in
+  `none` mode, also get a "Sentinel settings" link to `/admin/sentinel`.
+- The strip loads with the page and on every event-stream reconnect, and
+  refreshes on Sentinel events and every minute.
+
 ## Global chat
 
 `/chat` hosts board-aware chat sessions that outlive any card.

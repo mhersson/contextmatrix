@@ -242,7 +242,8 @@ export type EventType =
   | 'playbook.deleted'
   | 'jira_import.progress'
   | 'jira_import.done'
-  | 'llm_channel.changed';
+  | 'llm_channel.changed'
+  | 'sentinel.changed';
 
 export interface SyncResolution {
   path: string;
@@ -863,6 +864,39 @@ export interface LLMChannelView {
   /** Backends not listed in `claude_code.backends`: they stay on the endpoint, or with none configured (`none`) cannot run. */
   exceptions: { backend: 'agent' | 'chat' | 'architect'; runs_on: 'endpoint' | 'none' }[];
   usage: LLMChannelUsage[];
+  updated_at?: string;
+  updated_by?: string;
+}
+
+export type SentinelState = 'off' | 'watching' | 'working' | 'paused' | 'not_running';
+
+/** Sentinel's live status. `mode` is empty while it is off; `windows` is sent only on Claude Code. */
+export interface SentinelStatus {
+  enabled: boolean;
+  state: SentinelState;
+  reason?: string;
+  mode: LLMChannel | '';
+  healing: number;
+  healed_today: number;
+  spent_today_usd: number;
+  daily_cap_usd: number;
+  headroom: number;
+  windows?: Pick<LLMChannelUsage, 'window' | 'utilization'>[];
+}
+
+export interface SentinelSettings {
+  enabled: boolean;
+  healing: boolean;
+  friction: boolean;
+  daily_cap_usd: number;
+  investigate_ceiling_usd: number;
+  headroom: number;
+}
+
+/** Shape of GET /api/sentinel and PUT /api/admin/sentinel. */
+export interface SentinelInfo {
+  status: SentinelStatus;
+  settings: SentinelSettings;
   updated_at?: string;
   updated_by?: string;
 }

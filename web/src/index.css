@@ -5664,6 +5664,15 @@ textarea {
   color: var(--grey2);
   font-weight: 500;
 }
+.sentinel-tone--active {
+  color: var(--purple);
+}
+.sentinel-tone--paused {
+  color: var(--yellow);
+}
+.sentinel-tone--stopped {
+  color: var(--red);
+}
 .llm-pop {
   position: absolute;
   top: calc(100% + 1px);
