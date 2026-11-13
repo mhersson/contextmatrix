@@ -205,7 +205,8 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			relaunched_at            INTEGER,
 			cost_base_usd            REAL NOT NULL,
 			source_card              TEXT NOT NULL,
-			updated_at               INTEGER NOT NULL
+			updated_at               INTEGER NOT NULL,
+			version                  INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_sentinel_heals_run
 			ON sentinel_heals(project, card_id, run_started) WHERE kind = 'heal'`,

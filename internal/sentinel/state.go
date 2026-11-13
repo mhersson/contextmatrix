@@ -1,6 +1,7 @@
 package sentinel
 
 import (
+	"errors"
 	"time"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
@@ -93,6 +94,10 @@ type Change struct {
 	Fresh                       bool
 }
 
+// ErrHealChanged is SaveHeal's answer when the row was written after the heal
+// was read.
+var ErrHealChanged = errors.New("heal changed since it was read")
+
 // Heal is one heal or forward row.
 type Heal struct {
 	ID                         int64
@@ -109,6 +114,7 @@ type Heal struct {
 	CostBaseUSD                float64 // the card's cost at relaunch
 	SourceCard                 string  // forward rows: the card the fix came from
 	SpendUSD                   float64 // read-only: sum of the heal's ledger rows
+	Version                    int64   // read-only: bumped by every write to the row
 	CreatedAt, UpdatedAt       time.Time
 }
 

@@ -113,6 +113,10 @@ charges one ledger row: its usage, or the dispatch's ceiling when a model kind
 reported none. A repeat of the status, or one with no such heal, records and
 charges nothing. Recording never moves the stage.
 
+Every write to a heal row bumps its version, and a save carries the version it
+read: one made from a stale read is refused (`ErrHealChanged`), so a pass never
+overwrites an answer recorded since it read the heal.
+
 ## Status
 
 `Controller.Status` summarizes the last pass as of the moment it is asked, so

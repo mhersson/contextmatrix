@@ -24,7 +24,7 @@ const healMutable = `run_id, cause, response, stage, reason,
 const healMutableParams = `?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?`
 
 const healSelect = `SELECT id, kind, project, card_id, run_started, created_at, ` + healMutable + `,
-	(SELECT COALESCE(SUM(usd), 0) FROM sentinel_spend WHERE heal_id = h.id)
+	(SELECT COALESCE(SUM(usd), 0) FROM sentinel_spend WHERE heal_id = h.id), version
 	FROM sentinel_heals h`
 
 const insertSpend = `INSERT INTO sentinel_spend (heal_id, mode, usd, at) VALUES (?, ?, ?, ?)`
@@ -78,17 +78,30 @@ func (s *Store) OpenHeal(ctx context.Context, h sentinel.Heal) (int64, error) {
 }
 
 // SaveHeal rewrites every column of the heal but its identity, run start and
-// creation time.
+// creation time, leaving the row at version h.Version+1. A row written since h
+// was read is left alone and ErrHealChanged returned, so a save from a stale
+// read never wipes an answer RecordRunKindStatus stored meanwhile.
 func (s *Store) SaveHeal(ctx context.Context, h sentinel.Heal) error {
 	vals, err := healValues(h)
 	if err != nil {
 		return fmt.Errorf("save heal: %w", err)
 	}
 
-	if _, err := s.db.ExecContext(ctx,
-		`UPDATE sentinel_heals SET (`+healMutable+`) = (`+healMutableParams+`) WHERE id = ?`,
-		append(vals, h.ID)...); err != nil {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE sentinel_heals SET (`+healMutable+`) = (`+healMutableParams+`), version = version + 1
+		 WHERE id = ? AND version = ?`,
+		append(vals, h.ID, h.Version)...)
+	if err != nil {
 		return fmt.Errorf("save heal: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("save heal: %w", err)
+	}
+
+	if n == 0 {
+		return sentinel.ErrHealChanged
 	}
 
 	return nil
@@ -168,7 +181,8 @@ func (s *Store) RecordRunKindStatus(ctx context.Context, r sentinel.RunKindRepor
 
 	err = tx.QueryRowContext(ctx,
 		`UPDATE sentinel_heals SET dispatch_answered_run_id = ?, dispatch_failure = ?,
-		   investigation = COALESCE(?, investigation), check_result = COALESCE(?, check_result)
+		   investigation = COALESCE(?, investigation), check_result = COALESCE(?, check_result),
+		   version = version + 1
 		 WHERE id = (SELECT id FROM sentinel_heals
 		             WHERE project = ? AND card_id = ? AND dispatch_kind = ?
 		               AND dispatch_answered_run_id = '' AND dispatch_failure = ''
@@ -348,7 +362,7 @@ func scanHeal(sc scanner) (sentinel.Heal, error) {
 		&h.RunID, &h.Cause, &h.Response, &h.Stage, &h.Reason,
 		&d.Kind, &d.Mode, &d.CeilingUSD, &dispatchAt, &d.AnsweredRunID, &d.Failure,
 		&inv, &check, &subtasks, &siblings, &chng,
-		&relaunched, &h.CostBaseUSD, &h.SourceCard, &updated, &h.SpendUSD); err != nil {
+		&relaunched, &h.CostBaseUSD, &h.SourceCard, &updated, &h.SpendUSD, &h.Version); err != nil {
 		return sentinel.Heal{}, fmt.Errorf("scan heal: %w", err)
 	}
 

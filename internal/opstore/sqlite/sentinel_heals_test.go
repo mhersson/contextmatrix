@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -167,7 +168,54 @@ func TestSaveHealRoundTripsEveryField(t *testing.T) {
 	}
 	require.NoError(t, st.SaveHeal(ctx, want))
 
+	want.Version = 1
 	assert.Equal(t, want, onlyHeal(t, st, "P-001"))
+}
+
+func TestSaveHealWithCurrentVersionBumpsIt(t *testing.T) {
+	st := openLadderStore(t)
+	ctx := context.Background()
+
+	openDispatchedHeal(t, st, "P-001", sentinel.StageInvestigate, "endpoint")
+
+	for want := int64(1); want <= 2; want++ {
+		h := onlyHeal(t, st, "P-001")
+		h.Reason = fmt.Sprint(want)
+		require.NoError(t, st.SaveHeal(ctx, h))
+
+		got := onlyHeal(t, st, "P-001")
+		assert.Equal(t, want, got.Version)
+		assert.Equal(t, h.Reason, got.Reason)
+	}
+}
+
+func TestSaveHealRefusesAStaleVersion(t *testing.T) {
+	st := openLadderStore(t)
+	ctx := context.Background()
+
+	openDispatchedHeal(t, st, "P-001", sentinel.StageInvestigate, "endpoint")
+	stale := onlyHeal(t, st, "P-001")
+
+	_, recorded, err := st.RecordRunKindStatus(ctx, investigateReport("P-001"))
+	require.NoError(t, err)
+	require.True(t, recorded)
+
+	stale.Stage = sentinel.StageParked
+	stale.Dispatch.Failure = "the investigate run did not report"
+	require.ErrorIs(t, st.SaveHeal(ctx, stale), sentinel.ErrHealChanged)
+
+	h := onlyHeal(t, st, "P-001")
+	assert.Equal(t, sentinel.StageInvestigate, h.Stage)
+	assert.Equal(t, "k1", h.Dispatch.AnsweredRunID)
+	assert.Empty(t, h.Dispatch.Failure)
+	assert.NotNil(t, h.Investigation)
+
+	// The agent's retry of the same status is still a repeat.
+	_, recorded, err = st.RecordRunKindStatus(ctx, investigateReport("P-001"))
+	require.NoError(t, err)
+	assert.False(t, recorded)
+	assert.Equal(t, 1, ledgerRows(t, st))
+	assert.InDelta(t, 0.4, h.SpendUSD, 1e-9)
 }
 
 func TestCardHealsNewestFirstWithSpend(t *testing.T) {
