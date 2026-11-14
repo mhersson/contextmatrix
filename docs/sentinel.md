@@ -538,20 +538,23 @@ parks before the fix is written, so the card gets only the park's activity
 entry.
 
 `applyFix` writes the fix as `system:sentinel` in one `PatchCard` guarded on
-the card's `updated` as the pass read it. The write holds the body with the
-`## Sentinel` section upserted (`writtenBody`) when the fix changes the
-section, the verify fields when the fix has them, and a cleared `phase` for a
+the card's `updated` and its body as the pass read it (`ExpectUpdated` and
+`ExpectBody`, checked by the card service under its write lock). A board-repo
+reload can change the body without changing `updated`, so the body guard is
+what keeps a human edit in between from being reverted. The write holds the
+body with the `## Sentinel` section upserted (`writtenBody`) when the fix
+changes the section, the verify fields when the fix has them, and a cleared `phase` for a
 fresh rerun. `writtenBody` first demotes every line the card-body parser reads
 as a section boundary (`## ` at column 0 outside a code fence) to an H3 line
 (`board.DemoteHeadings`). `checkSection` judged that same body, built by the
 same function, from the card the write is guarded on (see
 [The fix checks](#the-fix-checks)), so no section text that passes it can
 start, hide or swallow a section, crafted or not. Whether the section changes
-is judged on the section as `writtenBody` writes it. A fix whose section vetting dropped (see
-[Dropping a section](#dropping-a-section)) writes only its verify. A human
-edit in between refuses the write
-(`ErrCardChanged`); the heal stays at `apply` and the next pass decides again,
-parking it when the edit check finds the edit. Any other refusal parks the
+is judged on the section as `writtenBody` writes it. A fix whose section
+vetting dropped (see [Dropping a section](#dropping-a-section)) writes only
+its verify. A human edit in between, whether it moved `updated` or only the
+body, refuses the write (`ErrCardChanged`); the heal stays at `apply` and the
+next pass decides again, parking it when the edit check finds the edit. Any other refusal parks the
 heal with `cannot write the fix: <class>` (see [Refusals](#refusals)), so a
 write the card service rejects is never retried. Each subtask the fix retires
 then moves to `not_planned`, one guarded write per subtask on a fresh read, so
@@ -668,7 +671,7 @@ against the target's own card and its project's verify, with the healed heal's
 check result: the check ran on the playbook's base branch, which every card of
 the run shares. A target the checks refuse is skipped, and so is one written or
 claimed since it was read. Otherwise `writeFix` writes the fix as
-`system:sentinel` in one `PatchCard` guarded on the target's `updated`, as at
+`system:sentinel` in one `PatchCard` guarded on the target's `updated` and body, as at
 `apply` (see [Applying a fix](#applying-a-fix)), with no snapshot to refresh:
 the target's own launch takes one. Each target then gets a forward row (kind
 `forward`, stage `forwarded`, the source card and the change) and one activity

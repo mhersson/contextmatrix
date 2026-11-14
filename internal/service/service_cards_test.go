@@ -1012,6 +1012,63 @@ func TestPatchCardExpectUpdated(t *testing.T) {
 	assert.Equal(t, "human", got.Title)
 }
 
+func TestPatchCardExpectBody(t *testing.T) {
+	tests := []struct {
+		name    string
+		reload  bool // a board-repo reload rewrites the body, keeping Updated
+		wantErr error
+	}{
+		{"the body as read writes", false, nil},
+		{"a body changed under the same updated refuses", true, ErrCardChanged},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, _, cleanup := setupTest(t)
+			defer cleanup()
+
+			ctx := context.Background()
+
+			created, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "orig", Type: "task", Priority: "low", Body: "as read\n"})
+			require.NoError(t, err)
+
+			read, err := svc.GetCard(ctx, "test-project", created.ID)
+			require.NoError(t, err)
+
+			if tt.reload {
+				stored, err := svc.store.GetCard(ctx, "test-project", created.ID)
+				require.NoError(t, err)
+
+				stored.Body = "as reloaded\n"
+				require.NoError(t, svc.store.UpdateCard(ctx, "test-project", stored))
+			}
+
+			before, err := svc.GetCard(ctx, "test-project", created.ID)
+			require.NoError(t, err)
+			require.True(t, before.Updated.Equal(read.Updated))
+
+			written := "as written\n"
+			_, err = svc.PatchCard(ctx, "test-project", created.ID, PatchCardInput{
+				Body: &written, ExpectUpdated: &read.Updated, ExpectBody: &read.Body,
+			})
+
+			got, getErr := svc.GetCard(ctx, "test-project", created.ID)
+			require.NoError(t, getErr)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				assert.Equal(t, before.Body, got.Body, "the card is left as the reload wrote it")
+				assert.True(t, got.Updated.Equal(read.Updated))
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, written, got.Body)
+		})
+	}
+}
+
 func TestTransitionToAs(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()

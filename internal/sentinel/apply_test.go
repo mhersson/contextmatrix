@@ -210,6 +210,27 @@ func TestApplyFixHumanEditInBetween(t *testing.T) {
 	assert.Zero(t, e.store.refreshes)
 }
 
+func TestApplyRefusesASectionWriteOnABodyChangedSinceTheCheck(t *testing.T) {
+	e, h, card, run := applyEnv(t, protocol.DiagnosisCard, sectionFix())
+
+	// A board-repo reload rewrites the body after the pass read it, keeping updated.
+	reloaded := *card
+	reloaded.Body = card.Body + "\nA human line.\n"
+	e.cards.cards[0] = &reloaded
+
+	err := e.ctl.apply(context.Background(), h, card, run, subtasksOf(t, e, "ALPHA-001"))
+	require.ErrorIs(t, err, service.ErrCardChanged)
+
+	assert.Equal(t, state.StageApply, e.store.heal(h.ID).Stage, "the next pass decides again")
+	assert.Equal(t, reloaded.Body, storedCard(t, e, "ALPHA-001").Body, "the human edit stands")
+	require.Len(t, e.cards.patches, 1)
+	require.NotNil(t, e.cards.patches[0].In.ExpectBody)
+	assert.Equal(t, card.Body, *e.cards.patches[0].In.ExpectBody, "the body the check was built from")
+	assert.Empty(t, e.relaunched)
+	assert.Empty(t, e.cards.logged)
+	assert.Zero(t, e.store.refreshes)
+}
+
 func TestApplyFixRetiresAsSentinel(t *testing.T) {
 	fix := sectionFix()
 	fix.RetireSubtasks = []string{"ALPHA-011"}

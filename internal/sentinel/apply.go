@@ -122,11 +122,12 @@ func (c *Controller) writeFix(ctx context.Context, card *board.Card, fix protoco
 }
 
 // fixPatch is the fix as one write guarded on card, the body only when its
-// section changes; a fresh rerun also clears the saved phase. The guard makes
-// the body written exactly the one checkSection judged.
+// section changes; a fresh rerun also clears the saved phase. The guard on
+// updated and body makes the body written exactly the one checkSection judged,
+// since a board-repo reload can change the body and keep updated.
 func fixPatch(card *board.Card, fix protocol.CardFix, fresh bool) service.PatchCardInput {
-	updated := card.Updated
-	in := service.PatchCardInput{AgentID: Agent, ExpectUpdated: &updated}
+	updated, body := card.Updated, card.Body
+	in := service.PatchCardInput{AgentID: Agent, ExpectUpdated: &updated, ExpectBody: &body}
 
 	if sectionChanges(card, fix.Section) {
 		in.Body = new(writtenBody(card.Body, fix.Section))

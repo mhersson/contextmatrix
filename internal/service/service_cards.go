@@ -139,6 +139,10 @@ type PatchCardInput struct {
 	// ExpectUpdated, when set, refuses the write with ErrCardChanged unless the
 	// stored card's Updated equals it. In-process only; REST and MCP never set it.
 	ExpectUpdated *time.Time
+	// ExpectBody, when set, refuses the write with ErrCardChanged unless the
+	// stored card's Body equals it: a board-repo reload can change the body
+	// without changing Updated. In-process only; REST and MCP never set it.
+	ExpectBody *string
 }
 
 // ErrCardChanged is returned when a guarded write finds the card newer than
@@ -1142,6 +1146,10 @@ func validatePatchFieldLimits(input PatchCardInput) error {
 func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput) func(*board.Card, *board.ProjectConfig) error {
 	return func(card *board.Card, cfg *board.ProjectConfig) error {
 		if input.ExpectUpdated != nil && !card.Updated.Equal(*input.ExpectUpdated) {
+			return ErrCardChanged
+		}
+
+		if input.ExpectBody != nil && card.Body != *input.ExpectBody {
 			return ErrCardChanged
 		}
 
