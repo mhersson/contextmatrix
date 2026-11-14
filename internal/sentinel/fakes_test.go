@@ -596,22 +596,29 @@ func (f fakePlaybooks) Get(_ context.Context, id string) (*service.PlaybookDetai
 }
 
 // fakeRunner keeps every Stop and Play as "<call> <playbook> <agent>" and
-// answers each with err.
+// answers each with err; onCall runs first with the call.
 type fakeRunner struct {
-	calls []string
-	err   error
+	calls  []string
+	err    error
+	onCall func(call string)
 }
 
 func (f *fakeRunner) Stop(_ context.Context, id, agentID string) (*service.PlaybookDetail, error) {
-	f.calls = append(f.calls, "stop "+id+" "+agentID)
-
-	return nil, f.err
+	return nil, f.call("stop " + id + " " + agentID)
 }
 
 func (f *fakeRunner) Play(_ context.Context, id, agentID string) (*service.PlaybookDetail, error) {
-	f.calls = append(f.calls, "play "+id+" "+agentID)
+	return nil, f.call("play " + id + " " + agentID)
+}
 
-	return nil, f.err
+func (f *fakeRunner) call(c string) error {
+	if f.onCall != nil {
+		f.onCall(c)
+	}
+
+	f.calls = append(f.calls, c)
+
+	return f.err
 }
 
 func enabledSettings() Settings {

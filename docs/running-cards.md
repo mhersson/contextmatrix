@@ -225,9 +225,9 @@ without a human (which stop causes qualify is in
   when Sentinel wrote the card's `## Sentinel` section or retired subtasks. When
   it changed only verify, or nothing on the card, the rerun resumes where the
   run stopped.
-- Outside a playbook run the card is moved back to `todo` and run as Run Auto
-  runs it. Inside one, Sentinel reruns it through the playbook run's Stop then
-  Run, and only while the run is still on that card (see
+- The card is moved back to `todo` first. Outside a playbook run it then runs
+  as Run Auto runs it. Inside one, Sentinel reruns it through the playbook
+  run's Stop then Run, and only while the run is still on that card (see
   [playbooks](playbooks.md#run-and-stop)); a card an active playbook run holds
   is never rerun on its own. When Sentinel cannot rerun a card, it writes no
   fix to it.

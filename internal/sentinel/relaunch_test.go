@@ -117,18 +117,37 @@ func TestRelaunchSavesRerunBeforeLaunching(t *testing.T) {
 }
 
 func TestRelaunchPlaybookStopsThenPlays(t *testing.T) {
-	e, h, card, run := applyEnv(t, protocol.DiagnosisModel, nil)
-	card.PlaybookLock = rolloutLock(board.RunStatusWaiting)
-	run.Launch.Origin = OriginPlaybook
-	e.pbs["rollout"] = rollout(board.RunStatusWaiting, "lap-a")
+	tests := []struct {
+		name        string
+		state       string
+		transitions []string
+	}{
+		// A completed run leaves no worker status, which the walker relaunches only from todo.
+		{"a completed run in review moves to todo first", board.StateReview, []string{"ALPHA-001 todo"}},
+		{"a card in todo stays put", board.StateTodo, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e, h, card, run := applyEnv(t, protocol.DiagnosisModel, nil)
+			card.State, card.WorkerStatus = tc.state, "" // what the completed callback stores
+			card.PlaybookLock = rolloutLock(board.RunStatusWaiting)
+			run.Launch.Origin = OriginPlaybook
+			e.pbs["rollout"] = rollout(board.RunStatusWaiting, "lap-a")
 
-	require.NoError(t, e.relaunch(t, h, card, run))
+			stateAt := map[string]string{}
+			e.runner.onCall = func(call string) { stateAt[call] = storedCard(t, e, "ALPHA-001").State }
 
-	assert.Equal(t, []string{"stop rollout " + Agent, "play rollout " + Agent}, e.runner.calls)
-	assert.Empty(t, e.relaunched)
-	assert.Empty(t, e.cards.transitions, "the playbook run moves its card to todo")
-	assert.Equal(t, StageRerun, e.store.heal(h.ID).Stage)
-	assert.Equal(t, 1, e.store.run("alpha", "ALPHA-001").Attempts)
+			require.NoError(t, e.relaunch(t, h, card, run))
+
+			stop, play := "stop rollout "+Agent, "play rollout "+Agent
+			assert.Equal(t, []string{stop, play}, e.runner.calls)
+			assert.Equal(t, tc.transitions, e.cards.transitions)
+			assert.Equal(t, board.StateTodo, stateAt[stop], "the card is in todo before Stop")
+			assert.Empty(t, e.relaunched)
+			assert.Equal(t, StageRerun, e.store.heal(h.ID).Stage)
+			assert.Equal(t, 1, e.store.run("alpha", "ALPHA-001").Attempts)
+		})
+	}
 }
 
 func TestRelaunchErrorParks(t *testing.T) {
@@ -147,6 +166,12 @@ func TestRelaunchErrorParks(t *testing.T) {
 			e.relaunchErr = errors.New("card is already being executed by a worker")
 		}, []string{"card is already being executed by a worker"}, nil},
 		{"the move to todo is refused", func(e *dispatchEnv, _ *board.Card, _ *Run) {
+			e.cards.refuse = map[string]error{"ALPHA-001": noPath}
+		}, []string{"ALPHA-001", refusedByProject}, nil},
+		{"the move to todo before a playbook rerun is refused", func(e *dispatchEnv, card *board.Card, run *Run) {
+			card.PlaybookLock = rolloutLock(board.RunStatusWaiting)
+			run.Launch.Origin = OriginPlaybook
+			e.pbs["rollout"] = rollout(board.RunStatusWaiting, "lap-a")
 			e.cards.refuse = map[string]error{"ALPHA-001": noPath}
 		}, []string{"ALPHA-001", refusedByProject}, nil},
 		{"the playbook run stopped meanwhile", func(e *dispatchEnv, card *board.Card, run *Run) {

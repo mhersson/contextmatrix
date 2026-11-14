@@ -108,10 +108,18 @@ func (c *Controller) relaunch(ctx context.Context, h *Heal, card *board.Card, ru
 	return logErr
 }
 
-// rerun launches the card alone from todo, or through its playbook run's Stop
-// then Play, whose walker moves the card to todo itself. Every error's text is
-// safe to commit: the launch's is sanitized where it is made.
+// rerun moves the card to todo, then launches it alone or through its
+// playbook run's Stop then Play. The walker relaunches a resumed run's card
+// only from todo or after a failed, killed, parked or stalled run, and a run
+// that ended completed without a park leaves no worker status. Every error's
+// text is safe to commit: the launch's is sanitized where it is made.
 func (c *Controller) rerun(ctx context.Context, plan relaunchPlan, card *board.Card) error {
+	if card.State != board.StateTodo {
+		if _, err := c.cfg.Cards.TransitionTo(ctx, card.Project, card.ID, board.StateTodo); err != nil {
+			return refused(ctx, "cannot move "+card.ID+" to todo", err)
+		}
+	}
+
 	if plan.route == routePlaybook {
 		pb := plan.playbook
 
@@ -132,12 +140,6 @@ func (c *Controller) rerun(ctx context.Context, plan relaunchPlan, card *board.C
 
 	if launch == nil {
 		return errors.New("no relauncher is wired")
-	}
-
-	if card.State != board.StateTodo {
-		if _, err := c.cfg.Cards.TransitionTo(ctx, card.Project, card.ID, board.StateTodo); err != nil {
-			return refused(ctx, "cannot move "+card.ID+" to todo", err)
-		}
 	}
 
 	return launch(ctx, card.Project, card.ID)
