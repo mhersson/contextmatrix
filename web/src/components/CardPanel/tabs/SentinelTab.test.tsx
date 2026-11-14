@@ -92,6 +92,34 @@ describe('SentinelTab', () => {
     expect(await screen.findByText(/Retired subtasks: T-002/)).toBeInTheDocument();
   });
 
+  it('says whether the rerun starts fresh or resumes', async () => {
+    const { unmount } = renderTab({ run, heals: [heal] });
+    expect(await screen.findByText(/resumes/)).toBeInTheDocument();
+    expect(screen.queryByText(/starts fresh/)).not.toBeInTheDocument();
+    unmount();
+
+    renderTab({ run, heals: [{ ...heal, change: { ...heal.change!, fresh: true } }] });
+    expect(await screen.findByText(/starts fresh/)).toBeInTheDocument();
+    expect(screen.queryByText(/resumes/)).not.toBeInTheDocument();
+  });
+
+  it.each(['rerun', 'healed', 'rerun_failed', 'closed'])('shows the rerun mode at stage %s', async (stage) => {
+    renderTab({ run, heals: [{ ...heal, stage }] });
+    expect(await screen.findByText(/resumes/)).toBeInTheDocument();
+  });
+
+  it('shows no rerun mode when Sentinel did not rerun the card', async () => {
+    renderTab({
+      run,
+      heals: [
+        { ...heal, id: 2, stage: 'parked', change: { ...heal.change!, fresh: true } },
+        { ...heal, id: 3, kind: 'forward', stage: 'forwarded', source_card: 'T-009' },
+      ],
+    });
+    expect(await screen.findByText(/Forwarded from T-009/)).toBeInTheDocument();
+    expect(screen.queryByText(/starts fresh|resumes/)).not.toBeInTheDocument();
+  });
+
   it('lists why the section was dropped', async () => {
     renderTab({ run, heals: [{ ...heal, dropped: ['introduces gen-tool', 'introduces gen.yaml'] }] });
     expect(await screen.findByRole('heading', { name: /section dropped/i })).toBeInTheDocument();

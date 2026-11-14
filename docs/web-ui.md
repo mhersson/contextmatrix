@@ -238,7 +238,9 @@ the state as its label.
   facts, each heal shows a header (cause and stage, age, spend), its
   diagnosis, a line diff of the card's `## Sentinel` section and of the verify
   change (additions on a green tint, removals on a red one, text in the
-  foreground colour, long lines wrapped), the subtasks it retired, and, when
+  foreground colour, long lines wrapped), the subtasks it retired, whether
+  the rerun that followed its investigation started fresh or resumed (once
+  that rerun has launched), and, when
   the fix's proposed section failed the section checks and was not written,
   "Section dropped" with the reasons. Then
   come Friction (guidance, code, ecosystem) and Notes (card advice, project

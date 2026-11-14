@@ -69,8 +69,12 @@ function Diff({ label, before, after }: { label: string; before: string; after: 
   );
 }
 
+// A heal records its change before it reruns the card: a parked heal never reran, and a forward row has no rerun.
+const RERAN_STAGES = new Set(['rerun', 'healed', 'rerun_failed', 'closed']);
+
 function Heal({ heal }: { heal: SentinelHealView }) {
   const change = heal.change;
+  const reran = RERAN_STAGES.has(heal.stage);
   const title = heal.kind === 'forward' ? `Forwarded from ${heal.source_card}` : heal.cause;
   return (
     <section className="flex flex-col gap-2 pb-3" style={{ borderBottom: '1px solid var(--bg3)' }}>
@@ -101,9 +105,9 @@ function Heal({ heal }: { heal: SentinelHealView }) {
               Retired subtasks: {change.retired.join(', ')}
             </p>
           )}
-          {change.fresh && (
+          {reran && (
             <p className="text-sm" style={{ color: 'var(--grey1)' }}>
-              The rerun starts fresh.
+              {change.fresh ? 'The rerun starts fresh.' : 'The rerun resumes where the run stopped.'}
             </p>
           )}
         </>
