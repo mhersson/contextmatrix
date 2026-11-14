@@ -10,9 +10,10 @@ progress, opens heals for stopped runs and derives Sentinel's status (see
 the card (see [Applying a fix](#applying-a-fix)); one at `usage_wait` reruns
 the card once the usage limit resets (see
 [Usage-limit reruns](#usage-limit-reruns)). A heal whose rerun ends settles
-and charges what the rerun cost (see [Settling a rerun](#settling-a-rerun)).
-The status callback hands the controller run kinds' results, which it records
-and charges.
+and charges what the rerun cost (see [Settling a rerun](#settling-a-rerun)),
+and a healed one forwards its fix to the unstarted cards of its playbook run
+that share the cause (see [Fix forward](#fix-forward)). The status callback
+hands the controller run kinds' results, which it records and charges.
 
 ## Settings
 
@@ -108,8 +109,9 @@ run-kind intake records results, findings and spend on them.
   another card. Opening a heal marks its run decided in the same transaction.
   The row holds the stage, the run kind in flight and its answer, the
   investigation and check results, the subtasks and siblings sent, and the
-  change made to the card. `healed`, `rerun_failed`, `parked` and `closed` end
-  a heal; `forward_passed` and `forward_failed` end a forward row.
+  change made to the card; a forward row also holds the card the fix came
+  from. `healed`, `rerun_failed`, `parked` and `closed` end a heal;
+  `forward_passed` and `forward_failed` end a forward row.
 - `sentinel_findings`: the friction findings an investigation reported.
 - `sentinel_spend`: the spend ledger, one row per charge with the LLM channel
   mode it ran on and, for a run kind's status, its run ID.
@@ -295,8 +297,9 @@ A fix is vetted by plain functions in `internal/sentinel`, each taking a
 `fixContext` and returning its violations (none means it passes). `vetFix`
 runs `healChecks` and `vetForward` runs `forwardChecks`, and each concatenates
 the violations. A new check is one function in `checks.go`'s list. The pass
-runs `checkEdits` on every open heal and `vetFix` at stage `apply`; nothing
-calls `vetForward` at present.
+runs `checkEdits` on every open heal and `vetFix` at stage `apply`; fix
+forward runs `vetForward` on each card it forwards to (see
+[Fix forward](#fix-forward)).
 
 | Check          | Refuses                                                                                                  | Lists                |
 | -------------- | -------------------------------------------------------------------------------------------------------- | -------------------- |
@@ -386,14 +389,15 @@ stage waits.
    the stage, parks or closes. A run kind it sends takes a worker slot for the
    rest of the pass. At `apply` it writes the fix and reruns the card, at
    `usage_wait` it reruns the card to resume, and at `rerun` it settles the
-   heal once the rerun ends.
+   heal once the rerun ends, forwarding a healed heal's fix.
 4. While `healing` is on, it considers every undecided run whose card has no
    open heal (`consider.go`). A run that has not settled waits. One that is not eligible, or
    whose cause is ignored, is marked decided. Otherwise a heal opens at
    `investigate` (either investigate response) or `usage_wait`, or parked at
    once: for a `park` row with its reason, for `investigate_fix` once the card
    has used its 2 heal attempts, and for an investigation of a run with no run
-   ID, which left no log.
+   ID, which left no log. Then it judges the fixes forwarded to the run's card
+   (see [The circuit breaker](#the-circuit-breaker)).
 5. It records the status.
 
 A heal whose read or step fails is logged and decided again on the next pass.
@@ -419,10 +423,12 @@ action `sentinel`, cut to the card service's 2000-byte limit:
 - when it reruns the card from `usage_wait`, `Sentinel rerunning to resume
   after a usage limit, usage-limit rerun N of 3`;
 - when it parks, `Sentinel left this for a human: <reason>`. A rerun that is
-  refused or never starts parks, so its heal writes both.
+  refused or never starts parks, so its heal writes both;
+- when a healed heal forwards its fix, on each card it forwarded to,
+  `Sentinel applied a fix from <SOURCE>`, the healed card's ID.
 
-Closing or settling a heal writes none. The activity log carries only those
-lines; the full reason and the rest of the heal's detail stay on its
+Closing or settling a heal writes none on its card. The activity log carries
+only those lines; the full reason and the rest of the heal's detail stay on its
 `sentinel_heals` row.
 
 ## Applying a fix
@@ -505,14 +511,56 @@ closes the heal instead), `settle` (`settle.go`) saves the heal at
 `healed` or `rerun_failed`, then charges the ledger one row for the rerun:
 the card's cost with its subtasks' now, less the cost base taken at the
 relaunch, never below zero (`rerunCharge`), on the mode the rerun's run row
-records. The stage is saved first, so a save refused because the heal changed
-since the pass read it charges nothing, and the next pass settles and charges
-once.
+records. A healed heal then forwards its fix (see [Fix forward](#fix-forward)).
+The stage is saved first, so a save refused because the heal changed since the
+pass read it charges and forwards nothing, and the next pass settles, charges
+and forwards once.
 
 A rerun's run row is a new run, which stays undecided while its heal is open.
 Once the heal settles, the same pass considers that run like any other while
 `healing` is on (see [One pass](#one-pass)): a failed rerun opens the card's
 next heal, parked at once when the card has used its 2 heal attempts.
+
+## Fix forward
+
+A fix that held on its card goes to the cards that share its cause, which the
+investigation names in `forward_to` among the siblings it was sent. When a
+heal settles `healed`, `forward` (`forward.go`) acts only on a `card`
+diagnosis with a fix and only inside the card's active playbook run on this
+instance; fixing forward outside a playbook run is not done. `forwardTargets`
+keeps the named cards that were sent as siblings and are still unstarted
+entries of that run, by the rule the siblings were chosen by (`siblings` in
+`payload.go`): card entries in the card's project that are incomplete, in
+`todo` and with no worker status.
+
+Each target is read fresh with its project's `todo` cards. `forwardFix` drops
+the subtasks the fix retires, which belong to the healed card, and
+`vetForward` runs the forward checks (see [The fix checks](#the-fix-checks))
+against the target's own card and its project's verify, with the healed heal's
+check result: the check ran on the playbook's base branch, which every card of
+the run shares. A target the checks refuse is skipped, and so is one written or
+claimed since it was read. Otherwise `writeFix` writes the fix as
+`system:sentinel` in one `PatchCard` guarded on the target's `updated`, as at
+`apply` (see [Applying a fix](#applying-a-fix)), with no snapshot to refresh:
+the target's own launch takes one. Each target then gets a forward row (kind
+`forward`, stage `forwarded`, the source card and the change) and one activity
+entry. The row's creation time is taken before the write, so every run that
+can carry the fix started after it.
+
+### The circuit breaker
+
+A forward row is on trial (stage `forwarded`) until a run of its card that
+started after it settles with a verdict. The pass considers that run like any
+other (see [One pass](#one-pass)): `causeKey` reads any stop but `done` or
+`usage_limit` as `forward_fix_failed` (see [Triggers](#triggers)), whose row
+parks an eligible run's card for a human, and the playbook runner holds the
+run on the failed card as it does on any. Then `forwardOutcome` judges the
+card's rows on trial: `forward_passed` when the run stopped `done` or the card
+is `done`, `forward_failed` when the cause is `forward_fix_failed`. Any other
+cause (a usage limit, a human stop, a stall, the review cap) leaves them on
+trial for the card's next run. The rows are judged after the run is decided,
+so a run that a failed write left undecided still finds its fix on trial on
+the next pass.
 
 ## Where things live
 
@@ -524,15 +572,16 @@ next heal, parked at once when the card has used its 2 heal attempts.
 | `internal/sentinel/payload.go`              | The pure run-kind payloads: `investigatePayload` under the 1 MiB cap, `checkPayload`, and `siblings`                                                         |
 | `internal/sentinel/dispatch.go`             | Reading a run kind's inputs, `dispatch` (record, then send, then act on the agent's answer) and the no-run-kinds hold                                         |
 | `internal/sentinel/outcome.go`              | The ends of a heal: `park` (with its activity entry, `activityText`), `parkUnreported` (and the ceiling charge) and `closeHeal`                              |
-| `internal/sentinel/apply.go`                | Applying a fix: the route first, then `applyFix` (the guarded write, retiring subtasks, the snapshot refresh) and `freshRerun`                              |
-| `internal/sentinel/relaunch.go`             | Rerunning a card: `planRelaunch` and the pure `relaunchRoute`, `usageRerun`, `relaunch` (counting the rerun, rerun stage, activity entry, then the move to `todo` and launch or Stop then Play) and the activity texts |
-| `internal/sentinel/settle.go`               | Settling a rerun: `settle` (the stage, then the charge) and the pure `rerunCharge`                                                                           |
+| `internal/sentinel/apply.go`                | Applying a fix: the route first, then `applyFix` (the guarded write `writeFix`, retiring subtasks, the snapshot refresh) and `freshRerun`                   |
+| `internal/sentinel/relaunch.go`             | Rerunning a card: `planRelaunch` (through `activePlaybook`, the playbook whose active run holds a card) and the pure `relaunchRoute`, `usageRerun`, `relaunch` (counting the rerun, rerun stage, activity entry, then the move to `todo` and launch or Stop then Play) and the activity texts |
+| `internal/sentinel/settle.go`               | Settling a rerun: `settle` (the stage, then the charge, then a healed heal's fix forward) and the pure `rerunCharge`                                        |
+| `internal/sentinel/forward.go`              | Fix forward: `forward`, the pure `forwardTargets`, `forwardFix` and `forwardOutcome`, `forwardTo` (vet, guarded write, forward row, activity entry), and the circuit breaker's `onTrial` and `judge` |
 | `internal/sentinel/refused.go`              | Refused writes: `refusal`, the class a park reason names, and `refused`, which logs the raw error                                                            |
 | `internal/sentinel/intake.go`               | `RunKindStatus`: record a run kind's terminal status, its windows and findings                                                                               |
 | `internal/sentinel/limits.go`               | `ValidateRunKindStatus`: the run-kind status values and size limits                                                                                          |
 | `internal/sentinel/spend.go`                | `Pricer` and `priceUsage`: what a run kind's usage costs                                                                                                     |
 | `internal/sentinel/pass.go`                 | One pass: read the gate's inputs and the open heals, build each heal's view and act on its step, consider undecided runs, record the status                 |
-| `internal/sentinel/consider.go`             | Considering undecided runs: open a heal for a settled, eligible run, parked at once or at its stage, or mark the run decided                                 |
+| `internal/sentinel/consider.go`             | Considering undecided runs: open a heal for a settled, eligible run, parked at once or at its stage, or mark the run decided; then judge its card's forwarded fixes |
 | `internal/sentinel/causes.go`               | The cause table: one row per cause, `responseFor`                                                                                                            |
 | `internal/sentinel/checks.go`               | `fixContext`, the two check lists, `vetFix` and `vetForward`                                                                                                 |
 | `internal/sentinel/check_*.go`              | One check per file: shape, section, retire, edits, verify, text                                                                                                            |

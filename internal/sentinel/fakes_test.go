@@ -236,6 +236,26 @@ func (f *fakeStore) OpenHeals(context.Context) ([]Heal, error) {
 	return heals, nil
 }
 
+// CardHeals returns the card's rows, newest first.
+func (f *fakeStore) CardHeals(_ context.Context, project, cardID string) ([]Heal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	var heals []Heal
+
+	for _, h := range f.heals {
+		if h.Project == project && h.CardID == cardID {
+			heals = append(heals, h)
+		}
+	}
+
+	slices.SortFunc(heals, func(a, b Heal) int { return int(b.ID - a.ID) })
+
+	return heals, nil
+}
+
 func (f *fakeStore) Charge(_ context.Context, healID int64, mode string, usd float64, at time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

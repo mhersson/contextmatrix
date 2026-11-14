@@ -168,14 +168,14 @@ func TestCheckPayload(t *testing.T) {
 }
 
 func TestSiblings(t *testing.T) {
-	card := &board.Card{ID: "ALPHA-002", Project: "alpha"}
-	todo := []*board.Card{
-		{ID: "ALPHA-001", State: board.StateTodo},
-		{ID: "ALPHA-002", State: board.StateTodo},
-		{ID: "ALPHA-003", State: board.StateTodo},
-		{ID: "ALPHA-004", State: board.StateTodo, WorkerStatus: "failed"},
-		{ID: "ALPHA-005", State: board.StateInProgress},
-		{ID: "ALPHA-007", State: board.StateTodo},
+	card := cardRef{"alpha", "ALPHA-002"}
+	todo := map[string]*board.Card{
+		"ALPHA-001": {ID: "ALPHA-001", State: board.StateTodo},
+		"ALPHA-002": {ID: "ALPHA-002", State: board.StateTodo},
+		"ALPHA-003": {ID: "ALPHA-003", State: board.StateTodo},
+		"ALPHA-004": {ID: "ALPHA-004", State: board.StateTodo, WorkerStatus: "failed"},
+		"ALPHA-005": {ID: "ALPHA-005", State: board.StateInProgress},
+		"ALPHA-007": {ID: "ALPHA-007", State: board.StateTodo},
 	}
 	entry := func(id, typ, project, cardID string, complete bool) service.PlaybookEntryDetail {
 		return service.PlaybookEntryDetail{

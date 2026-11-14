@@ -32,18 +32,29 @@ type relaunchPlan struct {
 // planRelaunch reads the playbook the card's active lock names and decides
 // the rerun's route.
 func (c *Controller) planRelaunch(ctx context.Context, card *board.Card, run Run) (relaunchPlan, error) {
-	var pb *service.PlaybookDetail
-
-	if c.cfg.Playbooks != nil && card.PlaybookLock.Active() {
-		var err error
-		if pb, err = c.cfg.Playbooks.Get(ctx, card.PlaybookLock.ID); err != nil {
-			return relaunchPlan{}, fmt.Errorf("read playbook %s: %w", card.PlaybookLock.ID, err)
-		}
+	pb, err := c.activePlaybook(ctx, card)
+	if err != nil {
+		return relaunchPlan{}, err
 	}
 
 	rt, reason := relaunchRoute(run, card, pb, c.cfg.Instance)
 
 	return relaunchPlan{route: rt, reason: reason, playbook: pb}, nil
+}
+
+// activePlaybook reads the playbook the card's active lock names; nil when
+// playbooks are off or no active run holds the card.
+func (c *Controller) activePlaybook(ctx context.Context, card *board.Card) (*service.PlaybookDetail, error) {
+	if c.cfg.Playbooks == nil || !card.PlaybookLock.Active() {
+		return nil, nil //nolint:nilnil // no active playbook run holds the card
+	}
+
+	pb, err := c.cfg.Playbooks.Get(ctx, card.PlaybookLock.ID)
+	if err != nil {
+		return nil, fmt.Errorf("read playbook %s: %w", card.PlaybookLock.ID, err)
+	}
+
+	return pb, nil
 }
 
 // relaunchRoute picks the rerun's route. A playbook origin reruns only through

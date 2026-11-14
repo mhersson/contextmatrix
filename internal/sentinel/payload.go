@@ -115,22 +115,17 @@ func investigateStopCause(cause string) string {
 
 // siblings are the cards of pb's active run on instance that have not started:
 // card entries in card's project that are incomplete, in todo with no worker
-// status, and not card itself, in entry order. cards holds the candidates.
-func siblings(pb *service.PlaybookDetail, instance string, card *board.Card, cards []*board.Card) []*board.Card {
+// status, and not card itself, in entry order. todo holds the candidates by ID.
+func siblings(pb *service.PlaybookDetail, instance string, card cardRef, todo map[string]*board.Card) []*board.Card {
 	if pb == nil || !pb.Runnable || !pb.Run.Active() || pb.Run.Instance != instance {
 		return nil
-	}
-
-	byID := make(map[string]*board.Card, len(cards))
-	for _, c := range cards {
-		byID[c.ID] = c
 	}
 
 	var out []*board.Card
 
 	for _, e := range pb.Entries {
-		c := byID[e.Card]
-		if e.Type != board.EntryTypeCard || e.Project != card.Project || e.Complete || e.Card == card.ID ||
+		c := todo[e.Card]
+		if e.Type != board.EntryTypeCard || e.Project != card.project || e.Complete || e.Card == card.id ||
 			c == nil || c.State != board.StateTodo || c.WorkerStatus != "" {
 			continue
 		}

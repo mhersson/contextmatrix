@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 )
 
@@ -40,9 +41,9 @@ func (c *Controller) considerRuns(ctx context.Context, now time.Time, open map[c
 	return opened, nil
 }
 
-// consider decides a run once it has settled: it opens a heal for the run,
-// opens one parked at once, or leaves the run alone, marking it decided. It
-// reports whether it opened a heal that is still open.
+// consider decides a run once it has settled, then judges the fixes forwarded
+// to its card that the run tried. It reports whether it opened a heal that is
+// still open.
 func (c *Controller) consider(ctx context.Context, now time.Time, run Run) (bool, error) {
 	card, err := c.cfg.Cards.GetCard(ctx, run.Project, run.CardID)
 
@@ -53,11 +54,35 @@ func (c *Controller) consider(ctx context.Context, now time.Time, run Run) (bool
 		return false, fmt.Errorf("read card: %w", err)
 	}
 
-	key, settled := causeKey(run, card, nil, now)
+	trial, err := c.onTrial(ctx, run)
+	if err != nil {
+		return false, err
+	}
+
+	var forward *Heal
+	if len(trial) > 0 {
+		forward = &trial[0]
+	}
+
+	key, settled := causeKey(run, card, forward, now)
 	if !settled {
 		return false, nil
 	}
 
+	opened, err := c.decide(ctx, now, run, card, key)
+	if err != nil {
+		return false, err
+	}
+
+	// Judged after deciding: a run a failed write left undecided must still
+	// find its fix on trial next pass.
+	return opened, c.judge(ctx, trial, forwardOutcome(key, card))
+}
+
+// decide opens a heal for a settled run by its cause, parked at once when its
+// row says so, or leaves the run alone, marking it decided. It reports whether
+// it opened a heal that is still open.
+func (c *Controller) decide(ctx context.Context, now time.Time, run Run, card *board.Card, key string) (bool, error) {
 	row := responseFor(key)
 	if ok, why := eligible(run, card, c.cfg.Cards.ClaimedElsewhere(card)); !ok || row.Response == RespIgnore {
 		ctxlog.Logger(ctx).Debug("sentinel: run left alone", "project", run.Project, "card_id", run.CardID, "cause", key, "why", why)
@@ -71,9 +96,12 @@ func (c *Controller) consider(ctx context.Context, now time.Time, run Run) (bool
 	}
 	h.Stage, h.Reason = openStage(row, run)
 
-	if h.ID, err = c.cfg.Store.OpenHeal(ctx, h); err != nil {
+	id, err := c.cfg.Store.OpenHeal(ctx, h)
+	if err != nil {
 		return false, fmt.Errorf("open heal: %w", err)
 	}
+
+	h.ID = id
 
 	if h.Stage == StageParked {
 		return false, c.logActivity(ctx, &h, activityText(h))

@@ -54,14 +54,9 @@ func (c *Controller) applyFix(ctx context.Context, h *Heal, card *board.Card) (C
 		return Change{}, nil
 	}
 
-	written, err := c.cfg.Cards.PatchCard(ctx, card.Project, card.ID, fixPatch(card, *fix))
+	written, change, err := c.writeFix(ctx, card, *fix)
 	if err != nil {
-		return Change{}, fmt.Errorf("write the fix: %w", err)
-	}
-
-	change := Change{
-		SectionBefore: sentinelSection(card), SectionAfter: sentinelSection(written),
-		VerifyBefore: card.Verify, VerifyAfter: written.Verify, Fresh: freshRerun(fix),
+		return Change{}, err
 	}
 
 	for _, id := range fix.RetireSubtasks {
@@ -77,6 +72,20 @@ func (c *Controller) applyFix(ctx context.Context, h *Heal, card *board.Card) (C
 	}
 
 	return change, nil
+}
+
+// writeFix writes the fix's section and verify in one write guarded on card,
+// and returns the written card and what changed.
+func (c *Controller) writeFix(ctx context.Context, card *board.Card, fix protocol.CardFix) (*board.Card, Change, error) {
+	written, err := c.cfg.Cards.PatchCard(ctx, card.Project, card.ID, fixPatch(card, fix))
+	if err != nil {
+		return nil, Change{}, fmt.Errorf("write the fix: %w", err)
+	}
+
+	return written, Change{
+		SectionBefore: sentinelSection(card), SectionAfter: sentinelSection(written),
+		VerifyBefore: card.Verify, VerifyAfter: written.Verify, Fresh: freshRerun(&fix),
+	}, nil
 }
 
 // fixPatch is the fix as one write guarded on card; a fresh rerun also clears

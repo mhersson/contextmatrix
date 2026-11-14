@@ -33,6 +33,8 @@ type Store interface {
 	// OpenHeal also marks a heal's run decided.
 	OpenHeal(ctx context.Context, h Heal) (int64, error)
 	OpenHeals(ctx context.Context) ([]Heal, error)
+	// CardHeals returns the card's heal and forward rows, newest first.
+	CardHeals(ctx context.Context, project, cardID string) ([]Heal, error)
 	UndecidedRuns(ctx context.Context) ([]Run, error)
 	MarkRunDecided(ctx context.Context, project, cardID string, started time.Time) error
 	// CardRunRow answers nil when this instance never launched the card.

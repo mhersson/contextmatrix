@@ -97,21 +97,32 @@ func (c *Controller) investigateInput(ctx context.Context, h *Heal) (protocol.In
 // unstartedSiblings reads the playbook run holding card and the project's todo
 // cards; a card outside an active playbook run has no siblings.
 func (c *Controller) unstartedSiblings(ctx context.Context, card *board.Card) ([]*board.Card, error) {
-	if c.cfg.Playbooks == nil || !card.PlaybookLock.Active() {
-		return nil, nil
+	pb, err := c.activePlaybook(ctx, card)
+	if err != nil || pb == nil {
+		return nil, err
 	}
 
-	pb, err := c.cfg.Playbooks.Get(ctx, card.PlaybookLock.ID)
+	todo, err := c.todoCards(ctx, card.Project)
 	if err != nil {
-		return nil, fmt.Errorf("read playbook %s: %w", card.PlaybookLock.ID, err)
+		return nil, err
 	}
 
-	todo, err := c.cfg.Cards.ListCards(ctx, card.Project, storage.CardFilter{State: board.StateTodo})
+	return siblings(pb, c.cfg.Instance, cardRef{card.Project, card.ID}, todo), nil
+}
+
+// todoCards reads the project's todo cards by ID.
+func (c *Controller) todoCards(ctx context.Context, project string) (map[string]*board.Card, error) {
+	cards, err := c.cfg.Cards.ListCards(ctx, project, storage.CardFilter{State: board.StateTodo})
 	if err != nil {
-		return nil, fmt.Errorf("list todo cards of %s: %w", card.Project, err)
+		return nil, fmt.Errorf("list todo cards of %s: %w", project, err)
 	}
 
-	return siblings(pb, c.cfg.Instance, card, todo), nil
+	byID := make(map[string]*board.Card, len(cards))
+	for _, card := range cards {
+		byID[card.ID] = card
+	}
+
+	return byID, nil
 }
 
 // dispatchCheck sends the check run for the fix h's investigation proposed,
