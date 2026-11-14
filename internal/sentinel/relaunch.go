@@ -79,8 +79,19 @@ func runOn(pb *service.PlaybookDetail, card *board.Card) bool {
 	})
 }
 
+// usageRerun reruns the card after a usage limit, resuming where its run
+// stopped: nothing is written to the card.
+func (c *Controller) usageRerun(ctx context.Context, h *Heal, card *board.Card, run Run) error {
+	plan, err := c.planRelaunch(ctx, card, run)
+	if err != nil {
+		return err
+	}
+
+	return c.relaunch(ctx, h, card, run, plan)
+}
+
 // relaunch reruns the card on plan's route; a plan with no route parks. The
-// attempt is counted and the heal saved at rerun, with RelaunchedAt taken,
+// rerun is counted and the heal saved at rerun, with RelaunchedAt taken,
 // before anything launches, so the rerun's run row starts at or after it. A
 // refused rerun parks the heal.
 func (c *Controller) relaunch(ctx context.Context, h *Heal, card *board.Card, run Run, plan relaunchPlan) error {
@@ -88,8 +99,9 @@ func (c *Controller) relaunch(ctx context.Context, h *Heal, card *board.Card, ru
 		return c.park(ctx, h, plan.reason)
 	}
 
-	if err := c.cfg.Store.IncrementAttempts(ctx, h.Project, h.CardID); err != nil {
-		return fmt.Errorf("count the heal attempt: %w", err)
+	text, err := c.countRerun(ctx, h, run)
+	if err != nil {
+		return err
 	}
 
 	now := c.cfg.Clock.Now()
@@ -99,13 +111,31 @@ func (c *Controller) relaunch(ctx context.Context, h *Heal, card *board.Card, ru
 		return fmt.Errorf("save the rerun: %w", err)
 	}
 
-	logErr := c.logActivity(ctx, h, relaunchText(h.Change, run.Attempts+1))
+	logErr := c.logActivity(ctx, h, text)
 
 	if err := c.rerun(ctx, plan, card); err != nil {
 		return errors.Join(logErr, c.park(ctx, h, "rerun refused: "+err.Error()))
 	}
 
 	return logErr
+}
+
+// countRerun counts h's rerun on the card's run row and returns its activity
+// entry. A usage-limit rerun has its own cap, so it spends no heal attempt.
+func (c *Controller) countRerun(ctx context.Context, h *Heal, run Run) (string, error) {
+	if h.Response == RespUsageRerun {
+		if err := c.cfg.Store.IncrementUsageReruns(ctx, h.Project, h.CardID); err != nil {
+			return "", fmt.Errorf("count the usage-limit rerun: %w", err)
+		}
+
+		return usageRerunText(run.UsageReruns + 1), nil
+	}
+
+	if err := c.cfg.Store.IncrementAttempts(ctx, h.Project, h.CardID); err != nil {
+		return "", fmt.Errorf("count the heal attempt: %w", err)
+	}
+
+	return relaunchText(h.Change, run.Attempts+1), nil
 }
 
 // rerun moves the card to todo, then launches it alone or through its
@@ -165,6 +195,12 @@ func relaunchText(change *Change, attempt int) string {
 
 	return clipActivity(fmt.Sprintf("Sentinel %s; rerunning %s, attempt %d of %d",
 		changeText(change), how, attempt, MaxHealAttempts))
+}
+
+// usageRerunText is the activity entry of a heal that reruns its card after a
+// usage limit.
+func usageRerunText(rerun int) string {
+	return fmt.Sprintf("Sentinel rerunning to resume after a usage limit, usage-limit rerun %d of %d", rerun, MaxUsageReruns)
 }
 
 // changeText names what a fix changed on the card.

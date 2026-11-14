@@ -276,10 +276,10 @@ func (c *Controller) act(ctx context.Context, r *passReads, v *healView, s step)
 		return c.closeHeal(ctx, h, s.Reason)
 	case stepApply:
 		return c.apply(ctx, h, v.Card, v.Run)
-	case stepUsageRerun, stepSettle:
-		// A usage-limit rerun and settling a rerun have no effect here; the
-		// heal keeps its stage.
-		ctxlog.Logger(ctx).Debug("sentinel: no effect for this step", "project", h.Project, "card_id", h.CardID, "stage", h.Stage)
+	case stepUsageRerun:
+		return c.usageRerun(ctx, h, v.Card, v.Run)
+	case stepSettle:
+		return c.settle(ctx, h, v.Card, v.Run, s.Stage)
 	}
 
 	return nil

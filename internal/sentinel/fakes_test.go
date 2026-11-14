@@ -326,6 +326,21 @@ func (f *fakeStore) IncrementAttempts(_ context.Context, project, cardID string)
 	return nil
 }
 
+func (f *fakeStore) IncrementUsageReruns(_ context.Context, project, cardID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	for i, r := range f.runs {
+		if r.Project == project && r.CardID == cardID {
+			f.runs[i].UsageReruns++
+		}
+	}
+
+	return nil
+}
+
 // putRun replaces the card's run row, as a launch does.
 func (f *fakeStore) putRun(r Run) {
 	f.mu.Lock()

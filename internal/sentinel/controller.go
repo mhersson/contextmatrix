@@ -39,6 +39,7 @@ type Store interface {
 	CardRunRow(ctx context.Context, project, cardID string) (*Run, error)
 	RefreshEditSnapshot(ctx context.Context, project, cardID string, snap board.EditSnapshot) error
 	IncrementAttempts(ctx context.Context, project, cardID string) error
+	IncrementUsageReruns(ctx context.Context, project, cardID string) error
 	Charge(ctx context.Context, healID int64, mode string, usd float64, at time.Time) error
 	SpentSince(ctx context.Context, mode string, since time.Time) (float64, error)
 	HealedSince(ctx context.Context, since time.Time) (int, error)
