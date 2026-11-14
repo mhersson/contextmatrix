@@ -45,6 +45,7 @@ func (c *Controller) apply(ctx context.Context, h *state.Heal, card *board.Card,
 // freshRerun reports whether a fix restarts the rerun from planning: it
 // changes card's own section or retires subtasks while none of subtasks has
 // started, as a fresh run plans again from base and would strand started work.
+// checkRetire already refuses a retire once a subtask has started.
 func freshRerun(card *board.Card, fix protocol.CardFix, subtasks []*board.Card) bool {
 	return (sectionChanges(card, fix.Section) || len(fix.RetireSubtasks) > 0) && !slices.ContainsFunc(subtasks, started)
 }

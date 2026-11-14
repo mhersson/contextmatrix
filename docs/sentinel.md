@@ -331,7 +331,7 @@ forward runs `vetForward` on each card it forwards to (see
 | -------------- | -------------------------------------------------------------------------------------------------------- | -------------------- |
 | `checkShape`   | A fix that sets no field, or retires an ID the investigation was not sent                                | heal, forward        |
 | `checkSection` | A `## Sentinel` section with an H2 line or an unbalanced code fence (``` or ~~~)                         | heal, forward        |
-| `checkRetire`  | Retiring a subtask that is not this card's, is not in `todo`, is claimed, or has a queued or running worker | heal              |
+| `checkRetire`  | Retiring a subtask that is not this card's, is not in `todo`, is claimed, or has a queued or running worker, or retiring any subtask once a subtask of the card has started (`cannot re-split: subtasks have started`) | heal              |
 | `checkEdits`   | Any change since launch: `title edited`, `verify edited`, `autonomous changed`, `intro edited`, `section "X" edited`, `added` or `removed`; no launch snapshot is also refused | heal |
 | `checkVerify`  | A verify change that adds an env name (`adds env NAME`), drops the command (`removes the verify command`), changes the command for a cause verify did not stop (`changes the verify command, which did not stop the run`) or to one the check run kind did not list as a candidate (`command not declared by the repo`), was never trial-run (`verify not trial-run`), whose trial did not finish (`trial run: <trial>`), or that the card service would refuse, such as a command over one line or a timeout over 7200 seconds (`verify <rule>`, from `service.ValidateVerifyConfig`) | heal, forward |
 | `checkText`    | A fix with a `## Sentinel` section when the check run kind did not run (`text not checked`), or when it reports text absent from the repo that is also absent from the card's human-written title and body (`introduces <entry>`) | heal, forward |
@@ -518,7 +518,10 @@ and after, the retired subtasks, and fresh or resume.
 A rerun is fresh, its saved phase cleared so the agent plans again from the
 base branch, when the fix changed the section or retired subtasks and none of
 the card's subtasks, as the fix checks read them, has started (left `todo` for
-anything but `not_planned`). Otherwise it resumes: the saved phase stays,
+anything but `not_planned`). A fix that retires subtasks once any subtask has
+started is refused by `checkRetire` and parks for a human, since a re-split
+needs the planner and a resume would skip it. A section-only or verify fix on
+such a card resumes: the saved phase stays,
 so the agent adopts the work branch with its started work and keeps its
 recorded escalation and sizing, and the section reaches it as card text. A
 forward decides the same way from its target's subtasks. A section that

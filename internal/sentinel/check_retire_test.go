@@ -50,3 +50,33 @@ func TestCheckRetire(t *testing.T) {
 		assert.Len(t, got, 1)
 	})
 }
+
+func TestCheckRetireStartedSubtasks(t *testing.T) {
+	sub := func(id, state string) *board.Card {
+		return &board.Card{ID: id, Parent: "P-1", State: state}
+	}
+
+	tests := []struct {
+		name   string
+		other  string
+		retire []string
+		bad    bool
+	}{
+		{"retire, others todo", board.StateTodo, []string{"P-2"}, false},
+		{"retire, another in progress", board.StateInProgress, []string{"P-2"}, true},
+		{"retire, another done", board.StateDone, []string{"P-2"}, true},
+		{"retire, another not planned", board.StateNotPlanned, []string{"P-2"}, false},
+		{"no retire, a started subtask", board.StateInProgress, nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := checkRetire(fixContext{
+				Card:     &board.Card{ID: "P-1"},
+				Subtasks: []*board.Card{sub("P-2", board.StateTodo), sub("P-3", tt.other)},
+				Fix:      protocol.CardFix{RetireSubtasks: tt.retire},
+			})
+			assert.Equal(t, tt.bad, len(got) > 0, "%v", got)
+		})
+	}
+}
