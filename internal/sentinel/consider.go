@@ -99,7 +99,7 @@ func (c *Controller) decide(ctx context.Context, now time.Time, run state.Run, c
 	}
 	h.Stage, h.Reason = openStage(row, run)
 
-	id, err := c.cfg.Store.OpenHeal(ctx, h)
+	id, err := c.openHeal(ctx, h)
 	if err != nil {
 		return false, fmt.Errorf("open heal: %w", err)
 	}

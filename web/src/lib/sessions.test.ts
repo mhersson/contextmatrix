@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sessionKind, isLive, sessionProjects, sessionCostUSD, formatSessionCost } from './sessions';
+import { sessionKind, isLive, sessionProjects, sessionCostUSD, formatSessionCost, sessionsTab, SESSIONS_TAB } from './sessions';
 import type { ChatSession } from '../types';
 
 function sess(o: Partial<ChatSession> = {}): ChatSession {
@@ -50,6 +50,19 @@ describe('formatSessionCost subscription share', () => {
     expect(
       formatSessionCost(sess({ kind: 'architect', spent_usd: 2, subscription_cost_usd: 0.5, llm_channel: 'endpoint' })),
     ).toBe('$2.00 (≈ $0.50 subscription)');
+  });
+});
+
+describe('sessionsTab', () => {
+  it('reads each tab back from its own value', () => {
+    for (const tab of ['chat', 'architect', 'playbooks'] as const) {
+      expect(sessionsTab(SESSIONS_TAB[tab])).toBe(tab);
+    }
+  });
+
+  it('falls back to chats for a missing or unknown value', () => {
+    expect(sessionsTab(null)).toBe('chat');
+    expect(sessionsTab('bogus')).toBe('chat');
   });
 });
 

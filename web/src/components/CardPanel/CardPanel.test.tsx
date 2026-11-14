@@ -59,6 +59,15 @@ vi.mock('../../api/client', () => ({
     err != null && typeof err === 'object' && 'error' in err,
 }));
 
+const sentinelHook = vi.hoisted(() => ({ enabled: false }));
+vi.mock('../../hooks/useSentinel', () => ({
+  useSentinel: () => ({
+    info: { status: { enabled: sentinelHook.enabled } },
+    refresh: () => undefined,
+  }),
+  useCardSentinel: () => null,
+}));
+
 vi.mock('./CardChat', () => ({
   CardChat: () => <div data-testid="card-chat-mock" />,
 }));
@@ -1074,5 +1083,56 @@ describe('CardPanel - close hardening', () => {
 
     expect(dialog.contains(document.activeElement)).toBe(true);
     expect(document.activeElement).not.toBe(document.body);
+  });
+});
+
+describe('CardPanel - initialTab', () => {
+  afterEach(() => {
+    sentinelHook.enabled = false;
+  });
+
+  function renderPanel(initialTab?: 'sentinel') {
+    return render(
+      <MemoryRouter>
+        <CardPanel {...makeProps({ initialTab })} />
+      </MemoryRouter>,
+    );
+  }
+
+  it('opens on the Sentinel tab when Sentinel is on', () => {
+    sentinelHook.enabled = true;
+    renderPanel('sentinel');
+    expect(screen.getByRole('tab', { name: 'Sentinel' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('opens on the default tab without initialTab', () => {
+    sentinelHook.enabled = true;
+    renderPanel();
+    expect(screen.getByRole('tab', { name: 'Sentinel' })).toHaveAttribute('aria-selected', 'false');
+  });
+
+  it('returns to the default tab, not the initial one, after an interactive chat ends', () => {
+    sentinelHook.enabled = true;
+    const running = { ...baseCard, state: 'in_progress', worker_status: 'running' as const, autonomous: false };
+    const promoted = { ...running, autonomous: true };
+    const panel = (card: Card) => (
+      <MemoryRouter>
+        <CardPanel {...makeProps({ card, initialTab: 'sentinel' })} />
+      </MemoryRouter>
+    );
+    const { rerender } = render(panel(baseCard));
+    rerender(panel(running));
+    expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
+
+    rerender(panel(promoted));
+    rerender(panel({ ...promoted, updated: '2026-01-02T00:00:00Z' }));
+    rerender(panel({ ...promoted, updated: '2026-01-03T00:00:00Z' }));
+    expect(screen.getByRole('tab', { name: /Automation/ })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('falls back to the default tab when Sentinel is off', () => {
+    renderPanel('sentinel');
+    expect(screen.queryByRole('tab', { name: 'Sentinel' })).toBeNull();
+    expect(screen.getAllByRole('tab', { selected: true })).toHaveLength(1);
   });
 });

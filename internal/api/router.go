@@ -328,6 +328,9 @@ type RouterConfig struct {
 	Playbooks *service.PlaybookService
 	// PlaybookRunner drives runnable playbooks; nil disables Play and Stop.
 	PlaybookRunner *playbookrun.Runner
+	// PlaybookPins serves the per-user playbook pin routes and the list's
+	// pinned flag; nil disables both.
+	PlaybookPins PlaybookPinStore
 	// MCPCardRunner is the slot the run_card MCP tool's runner is bound into;
 	// the router fills it with mcpRunCard when a task backend is configured.
 	// MCP is built before the router, so the slot starts empty.
@@ -345,6 +348,8 @@ type RouterConfig struct {
 	// is not configured or playbooks are disabled; the routes then answer
 	// 404 JIRA_NOT_CONFIGURED. Assign only a non-nil service, as with Jira.
 	JiraImport JiraImporter
+	// Attention serves GET /api/attention; the route is registered only when set.
+	Attention AttentionLister
 }
 
 // EndpointModelView is the api-package projection of modelcatalog.EndpointModel
@@ -451,6 +456,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mobExecuteCheckpoints:  cfg.Mob.ExecuteCheckpoints(),
 		chatEnabled:            chatBackendConfigured,
 		architectEnabled:       architectBackendConfigured,
+		jiraEnabled:            cfg.Jira != nil,
 		instanceID:             cfg.InstanceID,
 		sharedBoards:           cfg.SharedBoards,
 		boardsRepos:            cfg.BoardsRepos,
@@ -504,7 +510,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// (see RouterConfig.Playbooks; nil in single-binary configs where the
 	// boards dir cannot host a playbooks/ directory).
 	if cfg.Playbooks != nil {
-		pbh := &playbookHandlers{svc: cfg.Playbooks, runner: cfg.PlaybookRunner}
+		pbh := &playbookHandlers{svc: cfg.Playbooks, runner: cfg.PlaybookRunner, pins: cfg.PlaybookPins}
 		mux.HandleFunc("GET /api/playbooks", pbh.list)
 		mux.HandleFunc("POST /api/playbooks", pbh.create)
 		mux.HandleFunc("GET /api/playbooks/{id}", pbh.get)
@@ -518,6 +524,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("DELETE /api/playbooks/{id}/followups/{followupId}", pbh.deleteFollowup)
 		mux.HandleFunc("POST /api/playbooks/{id}/run", pbh.run)
 		mux.HandleFunc("POST /api/playbooks/{id}/stop", pbh.stop)
+
+		if cfg.PlaybookPins != nil {
+			mux.HandleFunc("PUT /api/playbooks/{id}/pin", pbh.pin(true))
+			mux.HandleFunc("DELETE /api/playbooks/{id}/pin", pbh.pin(false))
+		}
 	}
 
 	// Agent routes
@@ -607,6 +618,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		}
 		mux.HandleFunc("GET /api/llm-channel", lh.get)
 		mux.HandleFunc("PUT /api/admin/llm-channel", lh.put)
+	}
+
+	if cfg.Attention != nil {
+		mux.HandleFunc("GET /api/attention", (&attentionHandlers{attn: cfg.Attention}).list)
 	}
 
 	if cfg.SentinelStore != nil {

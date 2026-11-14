@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { sessionsTabHref } from '../../lib/sessions';
 import type { PlaybookDetail } from '../../types';
 import { sourceIcon } from '../icons';
 import { isSafeHttpUrl } from '../CardPanel/utils';
@@ -34,7 +35,7 @@ export function PlaybookDetailHeader({
   return (
     <>
       <p className="font-mono text-xs" style={{ color: 'var(--grey1)' }}>
-        <Link to="/playbooks" style={{ color: 'inherit' }}>playbooks</Link> / {detail.id}
+        <Link to={sessionsTabHref('playbooks')} style={{ color: 'inherit' }}>playbooks</Link> / {detail.id}
       </p>
 
       <div className="flex items-baseline gap-4 mt-1 mb-2">

@@ -21,20 +21,21 @@ function generateAgentId(): string {
   return `human:web-${suffix}`;
 }
 
+/** This browser's stored agent ID, generated and stored on first use. When
+ *  storage throws, every call returns a fresh one. */
+export function browserAgentId(): string {
+  const existing = safeGetString(STORAGE_KEY);
+  if (existing) return existing;
+
+  const fresh = generateAgentId();
+  safeSetString(STORAGE_KEY, fresh);
+  return fresh;
+}
+
 export function useAgentId(enabled: boolean) {
-  // When storage throws, fall back to a per-session in-memory id - the only
-  // loss is id continuity across page reloads; the CSRF/UI-origin signal is
-  // unaffected.
-  const [agentId] = useState<string | null>(() => {
-    if (!enabled) return null;
-
-    const existing = safeGetString(STORAGE_KEY);
-    if (existing) return existing;
-
-    const fresh = generateAgentId();
-    safeSetString(STORAGE_KEY, fresh);
-    return fresh;
-  });
+  // Reusing the client's id keeps one per-session id even when storage throws;
+  // the only loss then is continuity across page reloads.
+  const [agentId] = useState<string | null>(() => (enabled ? (api.getAgentId() ?? browserAgentId()) : null));
 
   useEffect(() => {
     api.setAgentId(agentId);

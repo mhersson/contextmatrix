@@ -88,7 +88,9 @@ export function PlaybookRunCard({
                 {chip.label}
               </span>
             )}
-            <span className="text-sm" style={{ color: 'var(--fg)' }}>{describeRun(detail)}</span>
+            <span className="text-sm" style={{ color: detail.run?.status === 'waiting' ? 'var(--wait-yellow)' : 'var(--fg)' }}>
+              {describeRun(detail)}
+            </span>
           </div>
 
           <div className="mt-2 flex gap-2">

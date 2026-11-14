@@ -5,6 +5,7 @@ import { api, describeApiError } from '../../api/client';
 import { useSSEBus } from '../../hooks/useSSEBus';
 import { useToast } from '../../hooks/useToast';
 import { usePlaybookBranches } from '../../hooks/usePlaybookBranches';
+import { sessionsTabHref } from '../../lib/sessions';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 import type { NewPlaybookEntry, PlaybookDetail, PlaybookSegment } from '../../types';
 import { arrayMoveLocal, followupsFinished, isRunActive, persistReorder } from './playbookUtils';
@@ -205,7 +206,7 @@ export function PlaybookDetailPage() {
     if (!detail) return;
     try {
       await api.deletePlaybook(detail.id);
-      navigate('/playbooks');
+      navigate(sessionsTabHref('playbooks'));
     } catch (err) {
       showToast(describeApiError(err, 'Failed to delete playbook'), 'error');
     }
@@ -216,7 +217,7 @@ export function PlaybookDetailPage() {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-2" style={{ color: 'var(--grey1)' }}>
         <p>Playbook not found.</p>
-        <Link to="/playbooks" style={{ color: 'var(--aqua)' }}>Back to playbooks</Link>
+        <Link to={sessionsTabHref('playbooks')} style={{ color: 'var(--aqua)' }}>Back to playbooks</Link>
       </div>
     );
   }

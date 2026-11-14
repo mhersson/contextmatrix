@@ -53,16 +53,17 @@ nor `total`.
 
 ## Detail view
 
-`/playbooks` lists playbooks still in progress as rows, each with a miniature
+The Playbooks tab of the Sessions page (`/sessions?tab=playbooks`, where
+`/playbooks` redirects) lists every playbook as a table row with a miniature
 of the detail rail: one node per entry (manual steps as gates), solid green
 where a step is complete, an aqua pulse on an `in_progress` card, a purple
 ring on the first pending entry, a dashed red node for a broken reference.
-Longer playbooks (over 20 entries) fall back to the segmented meter. Each row
-also names its next entry. Completed playbooks sit under a "Completed" rule as
-one-line receipts, open by default. "New playbook" opens a ghost row at the
-top of the list: name it, optionally describe it, pick the boards repo on a
-multi-repo instance, and Enter creates. The sidebar link jumps straight to the
-detail page when exactly one playbook exists.
+Longer playbooks (over 20 entries) fall back to the segmented meter. Until
+the playbook is complete, the row also names its next entry. Completed
+playbooks are rows like the rest, found through the Status filter. "New
+playbook" opens a create row at the top of the table: name it, optionally
+describe it, pick the boards repo on a multi-repo instance, and Enter creates.
+See [Sessions](web-ui.md#playbooks-tab).
 
 When Jira is configured, the title also takes a Jira epic key or URL and
 **Import from Jira** builds the playbook from the epic instead (see
@@ -282,7 +283,7 @@ required on mutations for `created_by` and `done_by` attribution.
 
 | MCP tool                | REST                                           | Does                                                                     |
 | ----------------------- | ---------------------------------------------- | ------------------------------------------------------------------------ |
-| `list_playbooks`        | `GET /api/playbooks`                           | Summaries: progress, segments, project count, gates, next entry          |
+| `list_playbooks`        | `GET /api/playbooks`                           | Summaries: progress, segments, project names, source, gates, next entry  |
 | `get_playbook`          | `GET /api/playbooks/{id}`                      | Full detail with every entry resolved against the card store             |
 | `create_playbook`       | `POST /api/playbooks`                          | `title`, `description`, `boards_repo`, initial `entries` and (MCP only) `followups`; all-or-nothing |
 | `update_playbook`       | `PATCH /api/playbooks/{id}`                    | Title, description; humans also set runnable and base_branch             |
@@ -294,6 +295,13 @@ required on mutations for `created_by` and `done_by` attribution.
 | `update_playbook_followup` | `PATCH /api/playbooks/{id}/followups/{followupId}` | `done`, `text`, `cards`, `position`; allowed during a run          |
 | `remove_playbook_followup` | `DELETE /api/playbooks/{id}/followups/{followupId}` | Removes one follow-up                                             |
 | `run_playbook`          | `PATCH /api/playbooks/{id}` (`runnable`) then `POST /api/playbooks/{id}/run` | Human-only; makes it runnable if it is not, then runs it  |
+
+Pins are personal and REST-only (`PUT` and `DELETE /api/playbooks/{id}/pin`,
+no MCP tool). They live per user in `ops.db`, keyed by the session user in
+`multi` mode and shared in `none` mode, and `GET /api/playbooks` marks the
+viewer's pins as `pinned`. Deleting a playbook on this instance drops its pins;
+a delete that arrives on a shared boards repo from another instance leaves
+invisible orphan pins here.
 
 `position` is the entry's final index after the move; values past the end
 clamp, negative values are rejected, and no move is accepted while a run is

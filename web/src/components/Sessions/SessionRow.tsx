@@ -1,9 +1,10 @@
 import type { MouseEvent } from 'react';
-import type { ChatSession } from '../../types';
+import type { AttentionItem, ChatSession } from '../../types';
 import { formatSessionCost, sessionProjects, sessionSubscriptionCostUSD, statusDotColor } from '../../lib/sessions';
 import { SUBSCRIPTION_TOOLTIP } from '../../lib/subscription';
-import { formatRelativeTime } from '../../lib/format';
+import { formatExactTime, formatRelativeTime } from '../../lib/format';
 import { PinIcon } from '../SessionIcons';
+import { WaitBadge } from '../WaitBadge';
 
 export interface SessionRowProps {
   session: ChatSession;
@@ -12,6 +13,7 @@ export interface SessionRowProps {
   onToggle: (id: string) => void;
   onPin: (session: ChatSession) => void;
   onOpen: (id: string) => void;
+  waiting?: AttentionItem;
 }
 
 // The row opens its session on click; the tick box and pin cells must not.
@@ -22,12 +24,7 @@ function modeTone(mode: string): string {
   return mode.startsWith('auto') ? ' ssn-tag--auto' : '';
 }
 
-function exactTime(iso: string): string | undefined {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? undefined : d.toLocaleString();
-}
-
-export function SessionRow({ session: s, showMode, ticked, onToggle, onPin, onOpen }: SessionRowProps) {
+export function SessionRow({ session: s, showMode, ticked, onToggle, onPin, onOpen, waiting }: SessionRowProps) {
   const title = s.title || '(untitled)';
   const projects = sessionProjects(s);
   const pinned = s.pinned === true;
@@ -64,6 +61,12 @@ export function SessionRow({ session: s, showMode, ticked, onToggle, onPin, onOp
           />
           <span className="ssn-open-title">{title}</span>
         </button>
+        {waiting && (
+          <>
+            <WaitBadge />
+            <span className="ssn-wait-reason">{waiting.reason}</span>
+          </>
+        )}
       </td>
       <td>{projects.length > 0 ? projects.join(', ') : '-'}</td>
       {showMode && (
@@ -72,7 +75,7 @@ export function SessionRow({ session: s, showMode, ticked, onToggle, onPin, onOp
       <td className="ssn-mono" title={sessionSubscriptionCostUSD(s) > 0 ? SUBSCRIPTION_TOOLTIP : undefined}>
         {formatSessionCost(s)}
       </td>
-      <td className="ssn-muted" title={exactTime(s.last_active)}>{formatRelativeTime(s.last_active)}</td>
+      <td className="ssn-muted" title={formatExactTime(s.last_active)}>{formatRelativeTime(s.last_active)}</td>
     </tr>
   );
 }

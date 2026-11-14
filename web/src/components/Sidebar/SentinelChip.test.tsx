@@ -4,7 +4,8 @@ import { MemoryRouter } from 'react-router';
 import { api } from '../../api/client';
 import type { SentinelInfo, SentinelStatus } from '../../types';
 import { SentinelProvider } from '../../hooks/useSentinel';
-import { SentinelRailIcon, SentinelStrip } from './SentinelStrip';
+import { chipText, stripText } from '../../lib/sentinel';
+import { SentinelChip, SentinelRailIcon } from './SentinelChip';
 
 vi.mock('../../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api/client')>();
@@ -47,7 +48,7 @@ function info(over: Partial<SentinelStatus> = {}): SentinelInfo {
 
 const getMock = vi.mocked(api.getSentinel);
 
-function renderStrip(ui = <SentinelStrip />) {
+function renderStrip(ui = <SentinelChip />) {
   return render(
     <MemoryRouter>
       <SentinelProvider>{ui}</SentinelProvider>
@@ -60,7 +61,7 @@ beforeEach(() => {
   setAuth('none');
 });
 
-describe('SentinelStrip', () => {
+describe('SentinelChip', () => {
   it('renders nothing while Sentinel is off', async () => {
     getMock.mockResolvedValue(info({ enabled: false, state: 'off', mode: '' }));
     const { container } = renderStrip();
@@ -68,22 +69,37 @@ describe('SentinelStrip', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('shows the state text and opens the popover', async () => {
-    getMock.mockResolvedValue(info({ state: 'working', healing: 2 }));
+  it('shows the state word and opens the popover', async () => {
+    const i = info({ state: 'working', healing: 2 });
+    getMock.mockResolvedValue(i);
     renderStrip();
-    const strip = await screen.findByRole('button', { name: /Sentinel/ });
-    expect(strip).toHaveTextContent('healing 2');
+    const chip = await screen.findByRole('button', { name: /Sentinel/ });
+    expect(chip).toHaveTextContent(chipText(i.status));
     expect(screen.queryByRole('group', { name: 'Sentinel' })).toBeNull();
-    fireEvent.click(strip);
+    fireEvent.click(chip);
     expect(screen.getByRole('group', { name: 'Sentinel' })).toHaveTextContent('3 cards healed today');
   });
 
-  it('shows the label and the full reason for a long pause reason', async () => {
-    getMock.mockResolvedValue(info({ state: 'paused', reason: 'waiting for subscription headroom' }));
+  it('says "paused" on the chip and keeps the reason in the tooltip, the name and the popover', async () => {
+    const i = info({ state: 'paused', reason: 'waiting for subscription headroom' });
+    getMock.mockResolvedValue(i);
     renderStrip();
-    const strip = await screen.findByRole('button', { name: /Sentinel/ });
-    expect(strip).toHaveTextContent('Sentinel');
-    expect(strip).toHaveTextContent('waiting for subscription headroom');
+    const chip = await screen.findByRole('button', { name: /Sentinel/ });
+    expect(chipText(i.status)).toBe('paused');
+    expect(chip).toHaveTextContent('paused');
+    expect(chip).not.toHaveTextContent(i.status.reason as string);
+    expect(chip).toHaveAttribute('title', stripText(i.status));
+    expect(chip).toHaveAccessibleName(`Sentinel: ${stripText(i.status)}`);
+    fireEvent.click(chip);
+    expect(screen.getByRole('group', { name: 'Sentinel' })).toHaveTextContent(i.status.reason as string);
+  });
+
+  it('closes the popover on Escape', async () => {
+    getMock.mockResolvedValue(info());
+    renderStrip();
+    fireEvent.click(await screen.findByRole('button', { name: /Sentinel/ }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('group', { name: 'Sentinel' })).toBeNull();
   });
 
   it('shows the settings link only to admins in multi mode', async () => {

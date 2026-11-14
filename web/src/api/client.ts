@@ -54,6 +54,7 @@ import type {
   LLMChannel,
   LLMChannelView,
   SentinelCardView,
+  AttentionItem,
   SentinelInfo,
   SentinelSettings,
 } from '../types';
@@ -454,6 +455,10 @@ class APIClient {
     return this.request<LLMChannelView>('/llm-channel');
   }
 
+  async getAttention(): Promise<AttentionItem[]> {
+    return this.request<AttentionItem[]>('/attention');
+  }
+
   async getSentinel(): Promise<SentinelInfo> {
     return this.request<SentinelInfo>('/sentinel');
   }
@@ -768,6 +773,11 @@ class APIClient {
 
   async deletePlaybook(id: string): Promise<void> {
     return this.request<void>(`/playbooks/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  /** Pins or unpins a playbook for the viewer. */
+  async pinPlaybook(id: string, pinned: boolean): Promise<void> {
+    return this.request<void>(`/playbooks/${encodeURIComponent(id)}/pin`, { method: pinned ? 'PUT' : 'DELETE' });
   }
 
   async addPlaybookEntry(id: string, entry: NewPlaybookEntry): Promise<PlaybookDetail> {

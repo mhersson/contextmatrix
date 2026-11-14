@@ -116,7 +116,7 @@ export function runStatusChip(status: PlaybookRunStatus): EntryStateChip {
     case 'running':
       return { label: 'running', bg: 'var(--bg-aqua)', color: 'var(--aqua)' };
     case 'waiting':
-      return { label: 'waiting for you', bg: 'var(--bg-yellow)', color: 'var(--yellow)' };
+      return { label: 'waiting for you', bg: 'var(--bg-yellow)', color: 'var(--wait-yellow)' };
     case 'completed':
       return { label: 'completed', bg: 'var(--bg-green)', color: 'var(--green)' };
     default:

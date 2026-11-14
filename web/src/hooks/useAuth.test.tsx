@@ -14,7 +14,7 @@ vi.mock('../api/client', async (importOriginal) => {
   const orig = await importOriginal<typeof import('../api/client')>();
   return {
     ...orig,
-    api: { ...orig.api, getAppConfig: mocks.getAppConfig, getAuthSession: mocks.getAuthSession, logout: mocks.logout },
+    api: { ...orig.api, getAppConfig: mocks.getAppConfig, getAuthSession: mocks.getAuthSession, logout: mocks.logout, setAgentId: () => {} },
   };
 });
 

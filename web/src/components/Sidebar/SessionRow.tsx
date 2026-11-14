@@ -3,14 +3,16 @@ import { statusDotColor } from '../../lib/sessions';
 import { isTouchDevice } from '../../utils/isTouchDevice';
 import { CHAT_DRAG_START_EVENT, CHAT_DRAG_END_EVENT } from '../ChatLayout/dragProtocol';
 import { BlueprintIcon, PinIcon } from '../SessionIcons';
+import { WaitBadge } from '../WaitBadge';
 
 interface SessionRowProps {
   session: ChatSession;
   onOpen: (id: string) => void;
   onTogglePin: (session: ChatSession) => void;
+  waiting?: boolean;
 }
 
-export function SessionRow({ session: s, onOpen, onTogglePin }: SessionRowProps) {
+export function SessionRow({ session: s, onOpen, onTogglePin, waiting }: SessionRowProps) {
   const title = s.title || '(untitled)';
   const pinned = s.pinned === true;
   // Touch has no hover, so the pin stays visible there.
@@ -40,6 +42,7 @@ export function SessionRow({ session: s, onOpen, onTogglePin }: SessionRowProps)
           </span>
         )}
         <span className="truncate flex-1">{title}</span>
+        {waiting && <WaitBadge />}
         {dot && <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: dot }} />}
       </button>
       <button

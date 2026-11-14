@@ -73,6 +73,11 @@ type Store interface {
 	// ErrSessionNotFound if no row matches.
 	UpdateSessionSpend(ctx context.Context, sessionID string, spentUSD float64) error
 
+	// UpdateSessionWaiting writes only the waiting columns; "" clears both,
+	// and a set keeps waiting_since while already waiting. changed is false
+	// for a no-op and for a missing row.
+	UpdateSessionWaiting(ctx context.Context, sessionID, kind string, at time.Time) (changed bool, err error)
+
 	// UpdateSessionMode writes only the mode column. Returns
 	// ErrSessionNotFound if no row matches.
 	UpdateSessionMode(ctx context.Context, sessionID, mode string) error

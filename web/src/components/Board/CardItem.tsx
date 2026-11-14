@@ -132,7 +132,7 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
   const borderClass = isStalled || isWorkerFailed
     ? 'border-l-[3px] border-l-[var(--red)]'
     : isParked
-      ? 'border-l-[3px] border-l-[var(--yellow)]'
+      ? 'border-l-[3px] border-l-[var(--wait-yellow)]'
       : isNotPlanned
         ? 'border-l-[3px] border-l-[var(--bg4)]'
         : isAgentActive

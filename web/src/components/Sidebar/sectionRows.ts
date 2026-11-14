@@ -1,7 +1,7 @@
 import type { ChatSession } from '../../types';
 import { isLive, sessionKind } from '../../lib/sessions';
 
-export const SECTION_ROW_CAP = 5;
+export const SECTION_ROW_CAP = 3;
 
 function activeAt(s: ChatSession): number {
   const t = Date.parse(s.last_active);

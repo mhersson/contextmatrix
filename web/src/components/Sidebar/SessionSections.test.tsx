@@ -97,7 +97,7 @@ describe('SessionSections', () => {
     renderSections();
     await screen.findByText('c17');
     const chats = region('Chats');
-    expect(within(chats).getAllByRole('listitem')).toHaveLength(5);
+    expect(within(chats).getAllByRole('listitem')).toHaveLength(3);
     const chatsLink = within(chats).getByRole('link');
     expect(chatsLink).toHaveAttribute('href', '/sessions?tab=chats');
     expect(chatsLink).toHaveTextContent('18');

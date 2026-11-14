@@ -18,6 +18,7 @@ vi.mock('../../api/client', async (importOriginal) => {
     api: {
       ...orig.api,
       getAppConfig: mocks.getAppConfig,
+      setAgentId: () => {},
       getAuthSession: mocks.getAuthSession,
       inspectToken: mocks.inspectToken,
     },

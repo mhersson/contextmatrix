@@ -1,5 +1,6 @@
 import type { DashboardData } from '../../types';
 import { POC_TOOLTIP } from '../../lib/poc';
+import { WaitBadge } from '../WaitBadge';
 
 interface ProjectCardProps {
   name: string;
@@ -7,9 +8,11 @@ interface ProjectCardProps {
   summary?: DashboardData;
   isActive: boolean;
   poc?: boolean;
+  /** Shared items waiting on the viewer in this project. */
+  waiting?: number;
 }
 
-export function ProjectCard({ name, displayName, summary, isActive, poc }: ProjectCardProps) {
+export function ProjectCard({ name, displayName, summary, isActive, poc, waiting = 0 }: ProjectCardProps) {
   const activeAgentCount = summary?.active_agents.length ?? 0;
   const inProgressCount = summary?.state_counts?.in_progress ?? 0;
 
@@ -57,11 +60,14 @@ export function ProjectCard({ name, displayName, summary, isActive, poc }: Proje
             </svg>
           )}
         </div>
-        {activeAgentCount > 0 && (
-          <span className="text-xs px-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: 'var(--bg-blue)', color: 'var(--aqua)' }}>
-            {activeAgentCount}
-          </span>
-        )}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {waiting > 0 && <WaitBadge count={waiting} />}
+          {activeAgentCount > 0 && (
+            <span className="text-xs px-1.5 rounded-full" style={{ backgroundColor: 'var(--bg-blue)', color: 'var(--aqua)' }}>
+              {activeAgentCount}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );

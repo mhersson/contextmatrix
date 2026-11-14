@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
+	"github.com/mhersson/contextmatrix/internal/jira"
 )
 
 func TestGetAppConfig(t *testing.T) {
@@ -386,6 +388,52 @@ func TestAppConfig_ArchitectEnabled(t *testing.T) {
 			assert.Equal(t, tc.want, got.ArchitectEnabled)
 		})
 	}
+}
+
+// probeFailJira fails the test if anything probes Jira.
+type probeFailJira struct{ t *testing.T }
+
+func (f probeFailJira) Myself(context.Context) (jira.Account, error) {
+	f.t.Error("app config must not probe Jira")
+
+	return jira.Account{}, nil
+}
+
+func TestAppConfig_JiraEnabled(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	t.Cleanup(cleanup)
+
+	for name, tc := range map[string]struct {
+		client JiraStatusClient
+		want   bool
+	}{
+		"not configured": {nil, false},
+		"configured":     {probeFailJira{t}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(newTestRouter(RouterConfig{Service: svc, Bus: bus, Jira: tc.client}))
+			t.Cleanup(server.Close)
+
+			resp := doGet(t, server.URL+"/api/app/config")
+			defer closeBody(t, resp.Body)
+
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			var got map[string]any
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+			assert.Equal(t, tc.want, got["jira_enabled"])
+		})
+	}
+
+	t.Run("slim payload omits it", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		h := &appConfigHandlers{theme: "everforest", authMode: "multi", jiraEnabled: true}
+		h.getAppConfig(w, httptest.NewRequest(http.MethodGet, "/api/app/config", nil))
+
+		var got map[string]any
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&got))
+		assert.NotContains(t, got, "jira_enabled")
+	})
 }
 
 func TestMobGuestNames(t *testing.T) {

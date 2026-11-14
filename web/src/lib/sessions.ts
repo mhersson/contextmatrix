@@ -2,8 +2,19 @@ import type { ChatSession, ChatStatus, SessionKind } from '../types';
 import { formatCost } from './format';
 import { sessionCostText, sessionSubscriptionUSD } from './subscription';
 
-/** The `?tab=` value of each kind's Sessions page tab. */
-export const SESSIONS_TAB: Record<SessionKind, string> = { chat: 'chats', architect: 'blueprints' };
+export type SessionsTab = SessionKind | 'playbooks';
+
+/** The `?tab=` value of each Sessions page tab. */
+export const SESSIONS_TAB: Record<SessionsTab, string> = { chat: 'chats', architect: 'blueprints', playbooks: 'playbooks' };
+
+export function sessionsTabHref(tab: SessionsTab): string {
+  return `/sessions?tab=${SESSIONS_TAB[tab]}`;
+}
+
+/** The tab a `?tab=` value names; Chats for a missing or unknown value. */
+export function sessionsTab(value: string | null): SessionsTab {
+  return (Object.keys(SESSIONS_TAB) as SessionsTab[]).find((t) => SESSIONS_TAB[t] === value) ?? 'chat';
+}
 
 export function sessionKind(s: ChatSession): SessionKind {
   return s.kind === 'architect' ? 'architect' : 'chat';

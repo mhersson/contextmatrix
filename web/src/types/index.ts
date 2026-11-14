@@ -681,6 +681,8 @@ export interface AppConfig {
    * in the New Chat dialog. Full-payload-only, same posture as chat_enabled.
    */
   architect_enabled?: boolean;
+  /** Whether Jira is configured (never probed); shows Import from Jira in the Playbooks tab toolbar. */
+  jira_enabled?: boolean;
   /**
    * Operator-configured favorite model slugs per tier (key = tier name,
    * value = All slugs for that tier). Only present when the agent backend
@@ -1254,6 +1256,8 @@ export interface PlaybookSummary {
   total: number;
   segments: PlaybookSegment[];
   projects: number;
+  /** The distinct projects the card entries reference, sorted. */
+  project_names: string[];
   /** Indexes of manual entries, omitted when there are none. */
   gates?: number[];
   /** Omitted once every entry is complete. */
@@ -1263,6 +1267,10 @@ export interface PlaybookSummary {
   boards_repo?: string;
   runnable?: boolean;
   run_status?: PlaybookRunStatus;
+  /** The viewer's own pin. */
+  pinned?: boolean;
+  /** Present on a playbook imported from a Jira epic. */
+  source?: Source;
 }
 
 export interface PlaybookCardRef {
@@ -1671,4 +1679,17 @@ export interface LogMarker {
   persona?: string;
   version?: number;
   note?: string;
+}
+
+/** One thing waiting for the viewer (`GET /api/attention`). */
+export interface AttentionItem {
+  kind: 'blueprint' | 'playbook' | 'card' | 'sentinel';
+  id: string;
+  project?: string;
+  title: string;
+  reason: string;
+  since: string;
+  mine?: boolean;
+  /** The waiting run a card item holds. */
+  playbook?: { id: string; title: string };
 }

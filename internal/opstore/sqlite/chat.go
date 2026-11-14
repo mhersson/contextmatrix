@@ -22,7 +22,8 @@ const sessionColumns = `id, title, project, status, created_at, last_active, cre
     container_id, workspace, model, context_tokens, context_tokens_updated_at, rehydration_active,
     rehydration_started_at, prompt_tokens, completion_tokens, cache_read_tokens,
     cache_creation_tokens, estimated_cost_usd, kind, mode, cost_cap_usd, plain_language, unattended,
-    origin_chat, origin_seq, pinned, spent_usd, llm_channel, subscription_cost_usd`
+    origin_chat, origin_seq, pinned, spent_usd, llm_channel, subscription_cost_usd, waiting_kind,
+    waiting_since`
 
 func (s *Store) CreateSession(ctx context.Context, sess chat.Session) error {
 	workspaceJSON, err := json.Marshal(sess.Workspace)
@@ -367,6 +368,31 @@ func (s *Store) UpdateSessionSpend(ctx context.Context, sessionID string, spentU
 	return nil
 }
 
+// UpdateSessionWaiting writes only the waiting columns. The WHERE clause makes
+// a write that changes nothing affect no row, so changed is the rows affected.
+func (s *Store) UpdateSessionWaiting(ctx context.Context, sessionID, kind string, at time.Time) (bool, error) {
+	q, args := `UPDATE chat_sessions SET waiting_kind = '', waiting_since = NULL
+        WHERE id = ? AND waiting_kind != ''`, []any{sessionID}
+
+	if kind != "" {
+		q, args = `UPDATE chat_sessions SET waiting_kind = ?,
+            waiting_since = CASE WHEN waiting_kind = '' THEN ? ELSE waiting_since END
+        WHERE id = ? AND waiting_kind != ?`, []any{kind, at.Unix(), sessionID, kind}
+	}
+
+	res, err := s.db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return false, fmt.Errorf("chat: update session waiting: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("chat: update session waiting: %w", err)
+	}
+
+	return n > 0, nil
+}
+
 // UpdateSessionMode writes only the mode column, so a concurrent status flip
 // is not overwritten by a stale row snapshot.
 func (s *Store) UpdateSessionMode(ctx context.Context, sessionID, mode string) error {
@@ -662,6 +688,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 		pinned                      int
 		spentUSD                    sql.NullFloat64
 		subscriptionCostUSD         float64
+		waitingSince                sql.NullInt64
 	)
 
 	if err := sc.Scan(
@@ -672,6 +699,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 		&promptTokens, &completionTokens, &cacheReadTokens, &cacheCreationTokens,
 		&estimatedCostUSD, &kind, &mode, &costCapUSD, &plainLanguage, &unattended,
 		&s.OriginChat, &s.OriginSeq, &pinned, &spentUSD, &llmChannel, &subscriptionCostUSD,
+		&s.WaitingKind, &waitingSince,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return chat.Session{}, chat.ErrSessionNotFound
@@ -694,6 +722,11 @@ func scanSession(sc scanner) (chat.Session, error) {
 	if spentUSD.Valid {
 		v := spentUSD.Float64
 		s.SpentUSD = &v
+	}
+
+	if waitingSince.Valid {
+		t := time.Unix(waitingSince.Int64, 0).UTC()
+		s.WaitingSince = &t
 	}
 
 	s.CreatedAt = time.Unix(createdAt, 0).UTC()

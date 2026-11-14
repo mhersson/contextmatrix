@@ -11,9 +11,10 @@ Auto-loaded when working in `web/`. Backend conventions live in the root
 - Styling is Tailwind utility classes + CSS custom properties only. No CSS
   modules, no styled-components, no hardcoded hex (see Color palettes).
   `black` and `white` are palette-independent lightness anchors, allowed in
-  `index.css` only inside the `--blueprint-ink-*` definitions and never as a
-  text or surface colour in a component (modal backdrops keep their
-  `bg-black/50` scrim; the full-size mockup overlay uses `bg-black/80`).
+  `index.css` only inside the `--blueprint-ink-*` and `--wait-yellow`
+  definitions and never as a text or surface colour in a component (modal
+  backdrops keep their `bg-black/50` scrim; the full-size mockup overlay uses
+  `bg-black/80`).
 - Files: `PascalCase.tsx` components, `useX.ts` hooks, `types/index.ts` shared
   types. One job per component; split when a component does two jobs.
 - **One EventSource per distinct URL.** `SSEProvider`
@@ -28,8 +29,9 @@ Auto-loaded when working in `web/`. Backend conventions live in the root
   `useTheme()`. Don't add a parallel theme mechanism.
 - `vite.config.ts` proxies `/api` → `http://localhost:8080` for dev.
 - **No `localStorage` outside the documented allowlist:** theme, `palette`, human
-  agent ID, `last_chat_id`, Chats and Blueprints section collapse
-  (`sidebar.chat_section_collapsed`, `sidebar.blueprint_section_collapsed`),
+  agent ID, `last_chat_id`, Chats, Blueprints and Playbooks section collapse
+  (`sidebar.chat_section_collapsed`, `sidebar.blueprint_section_collapsed`,
+  `sidebar.playbook_section_collapsed`),
   `chat_layout`, collapsed column/card state, `chat_filter_prefs`, rail-expanded,
   NowRail-open, column-sort preferences, `contextmatrix-manual-order-<project>`,
   `contextmatrix-board-header-collapsed`,
@@ -92,6 +94,7 @@ keeps the hamburger and a way back to the board.
 | Chat         | `--chat-assistant-bg/-ring`, `--chat-user-ring`        | Chat bubble fill and rings, shared by every palette                |
 | Prompt       | `--prompt-question-accent`, `--prompt-question-bg`, `--prompt-question-hover-bg`, `--prompt-question-ring`, `--chat-option-hover-bg` | Architect question accent (pink dark, rose to maroon light) and the light wash of the red/purple hue over the bubble for the bubble and option hover; neutral option hover mixes `--fg` into the bubble |
 | Blueprint    | `--blueprint-done`, `--blueprint-cloud`, `--blueprint-quiet`, `--blueprint-quiet-strong`, `--blueprint-ink-red/-orange/-green/-aqua/-blue/-accent` | Blueprint pane and architect prompt colours, plus link, alert-title and quote text on every markdown surface; derived from palette tokens; muted/tone text meets 4.5:1 |
+| Waiting      | `--wait-yellow`                                        | The "waiting for you" signal: `--yellow` in dark palettes, deepened toward `black` in light ones, so its text and `--bg0` text on its badge meet 4.5:1 on `--bg0` to `--bg2` |
 
 **UI semantic mapping:**
 
@@ -116,6 +119,17 @@ keeps the hamburger and a way back to the board.
   unassigned = `--bg3`.
 - Card clock (`CardTiming/CardClock.tsx`): `--aqua` icon, the agent-active
   tone.
+- Waiting for a human takes `--wait-yellow`, never `--yellow`: the badge
+  (`WaitBadge.tsx`, `--bg0` text on it), the waiting-row icons and the rail
+  bell, wait reasons (Sessions tables, a playbook entry's reason on the detail
+  page), the sidebar playbook "waiting" status, the playbook run pill "waiting
+  for you" (`runStatusChip`, `.pbl-pill-run-waiting`: the ink on its
+  `--bg-yellow` tint), the detail page's "Waiting for you: <reason>" run
+  status line (`--fg` in every other run state), and a worker-parked card's
+  chip, signal icon and board border. Queued, warnings, warm-idle dots and the
+  LLM chip keep `--yellow`. Muted text on the waiting tint is
+  `--blueprint-quiet-strong`, the one muted token at 4.5:1 there in every
+  palette.
 - Primary action = `--green`; secondary = `--aqua`; destructive = `--red`.
 - Parent-ID badge (subtasks only): `--bg-blue` bg + `--aqua` text - same as the
   active-agent indicator.
@@ -187,8 +201,10 @@ interactions.
   paths, so unknown-URL handling is React Router's job.
 - **URL state:** for bookmarkable UI state use `useSearchParams` with the
   updater-callback form and `{ replace: true }`; validate the value against the
-  known set and fall back gracefully on unknown. Current params: `?card=<id>`,
-  `?project=<slug>`, `?new=1|blueprint`, `?tab=<chats|blueprints>` (Sessions page).
+  known set and fall back gracefully on unknown. Current params: `?card=<id>` (with `&tab=sentinel` for the card's
+  Sentinel tab), `?project=<slug>`, `?new=1|blueprint` (chat),
+  `?tab=<chats|blueprints|playbooks>` (Sessions page; `?tab=playbooks&new=1`
+  opens the create row once, then drops `new`).
 - **Delivery-unit metrics:** headline counters (MetricsRibbon, KpiRow, BoardBand)
   count only cards where `parent === ""` (standalone + parent tasks); subtasks are
   excluded so decomposition doesn't inflate throughput. Backend source:

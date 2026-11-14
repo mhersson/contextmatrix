@@ -70,7 +70,7 @@ GET    /api/chats/{id}/blueprint/artifacts/{stage}/{version}  # one artifact ver
 POST   /api/sync                                       ?repo=                # trigger git sync
 GET    /api/sync                                       # sync status per boards repo
 
-GET    /api/playbooks                                  # list playbook summaries (optional subsystem; see below)
+GET    /api/playbooks                                  # list playbook summaries, `pinned` set for the viewer's pins (optional subsystem; see below)
 POST   /api/playbooks                                  # create playbook (title, description?, entries?)
 GET    /api/playbooks/{id}                             # resolved detail
 PATCH  /api/playbooks/{id}                             # update title/description; humans: runnable, base_branch
@@ -81,6 +81,8 @@ DELETE /api/playbooks/{id}/entries/{entryId}            # remove entry
 POST   /api/playbooks/{id}/followups                   # add follow-up (text, cards?, position?)
 PATCH  /api/playbooks/{id}/followups/{followupId}       # update follow-up (done/text/cards/position)
 DELETE /api/playbooks/{id}/followups/{followupId}       # remove follow-up
+PUT    /api/playbooks/{id}/pin                         # pin for the viewer (204; 404 unknown playbook)
+DELETE /api/playbooks/{id}/pin                         # unpin for the viewer (204)
 POST   /api/playbooks/{id}/run                         # run or resume a runnable playbook (human-only; MCP equivalent: `run_playbook`)
 POST   /api/playbooks/{id}/stop                        # stop the run and kill every live worker of its cards on this instance (human-only)
 
@@ -132,6 +134,8 @@ PUT    /api/admin/llm-channel                               # switch the LLM cha
 GET    /api/sentinel                                        # Sentinel status and settings (any session in multi mode)
 PUT    /api/admin/sentinel                                  # replace Sentinel settings (both auth modes; admin-gated only in multi)
 GET    /api/projects/{project}/cards/{id}/sentinel          # the card's last run facts as Sentinel sees them
+
+GET    /api/attention                                       # what waits for a person, newest first (any session in multi mode; blueprints scoped to the caller)
 
 GET    /api/events                                     ?project=             # SSE stream of board events
 GET    /healthz                                        # liveness probe (shallow)
@@ -1236,6 +1240,62 @@ stores no new ones and keeps those already stored, which are still returned. `ki
 `project_verify` findings are returned to admins in `multi` mode and to every
 caller in `none` mode.
 
+## Attention Endpoints
+
+### GET /api/attention
+
+Everything waiting on a person: blueprints waiting on their owner, waiting
+playbook runs, worker-parked cards and Sentinel parks. Always an array, `[]`
+when nothing waits.
+
+```json
+[
+  {
+    "kind": "card",
+    "id": "ALPHA-012",
+    "project": "alpha",
+    "title": "Add the export button",
+    "reason": "needs a decision on the file format",
+    "since": "2026-11-14T10:00:00Z",
+    "playbook": { "id": "rollout", "title": "Rollout" }
+  },
+  {
+    "kind": "blueprint",
+    "id": "01JCQ4Z8V3M5N7P9R2T4W6Y8A0",
+    "title": "Billing redesign",
+    "reason": "The architect waits for your sign-off",
+    "since": "2026-11-14T09:30:00Z",
+    "mine": true
+  }
+]
+```
+
+| Field      | Meaning                                                                                                                                                  |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kind`     | `blueprint`, `playbook`, `card` (the worker parked it) or `sentinel` (Sentinel parked it)                                                                |
+| `id`       | The session ID, playbook ID or card ID                                                                                                                   |
+| `project`  | The card's project; omitted on blueprint and playbook items                                                                                              |
+| `title`    | The session, playbook or card title                                                                                                                      |
+| `reason`   | What the architect's open prompt asks for, the run's reason, the latest `parked` log entry's message (empty without one), or Sentinel's board mark label |
+| `since`    | When the wait began: the prompt opening, the run's last update, the `parked` entry (the card's last update without one), or Sentinel's park              |
+| `mine`     | The caller's own blueprint, or a run the caller started; omitted otherwise. Card items are shared and never `mine`                                       |
+| `playbook` | On a card item: the waiting run stuck on that card; omitted otherwise                                                                                    |
+
+Items are newest `since` first. A card yields at most one item: a Sentinel
+park replaces the worker park, and a card Sentinel is still healing, or one in
+`done` or `not_planned`, yields none. A waiting run whose current entry is a
+card item folds into that item as `playbook`; on a card Sentinel is healing it
+yields nothing; otherwise it is its own `playbook` item.
+
+In `multi` mode the list is scoped like `GET /api/chats`: blueprint items are
+only the session user's own, while card and playbook items are shared. In
+`none` mode every waiting blueprint is listed and `mine` follows
+`X-Agent-ID`.
+
+**Errors:** `401 UNAUTHORIZED` (no session in `multi` mode), `500
+INTERNAL_ERROR` (a source could not be read; the list is never served
+partial).
+
 ## Health Endpoints
 
 ### GET /healthz
@@ -1596,6 +1656,7 @@ payload.
   "mob_execute_checkpoints": true,
   "chat_enabled": true,
   "architect_enabled": false,
+  "jira_enabled": true,
   "instance_id": "laptop-3f9a2c",
   "shared_boards": true,
   "boards_repos": [{ "name": "team", "shared": true }, { "name": "private", "shared": false }]
@@ -1616,6 +1677,7 @@ payload.
 | `mob_execute_checkpoints`                          | full, omitempty | `true` when `mob.execute_checkpoints_enabled` is on; absent (not `false`) when off                 |
 | `chat_enabled`                                     | full, always    | A chat backend entry is enabled with `url` and `api_key` set                                       |
 | `architect_enabled`                                | full, always    | An architect backend entry is enabled with `url` and `api_key` set; gates the blueprint option in the New Chat dialog |
+| `jira_enabled`                                     | full, always    | `jira.site_url` is set; never probes Jira (`GET /api/jira/status` does). Shows **Import from Jira** in the Playbooks tab toolbar |
 | `instance_id`, `shared_boards`                     | full, omitempty | `instance.id` and whether any boards repo is shared; both drop out on a private board              |
 | `boards_repos`                                     | full, omitempty | Every configured boards repository in config order, `{name, shared}`                               |
 
@@ -2072,7 +2134,7 @@ syncer is wired).
 
 Server-Sent Events stream of every board mutation. `?project=<slug>` limits
 the stream to that project; events with an empty `project` (sync, playbook,
-Jira import, LLM channel) pass every filter.
+Jira import, LLM channel, attention) pass every filter.
 
 - The handler sends `: connected\n\n` on subscribe, then `: keepalive\n\n`
   every 30 seconds. `X-Accel-Buffering: no` is set to bypass nginx proxy
@@ -2121,8 +2183,8 @@ originate from a shared-board pull carry `data.source: "sync"`.
 | `project.updated`     | none                                                                                                                                                                                |                                                                                        |
 | `project.deleted`     | none                                                                                                                                                                                |                                                                                        |
 | `playbook.created`    | `{id}` (`project` empty)                                                                                                                                                            |                                                                                        |
-| `playbook.updated`    | `{id}`                                                                                                                                                                              | Any playbook or entry mutation                                                         |
-| `playbook.deleted`    | `{id}`                                                                                                                                                                              |                                                                                        |
+| `playbook.updated`    | `{id, run_status?, run_entry?}`; the run keys ride along once a run exists                                                                                                          | Any playbook or entry mutation                                                         |
+| `playbook.deleted`    | `{id, run_status?, run_entry?}`                                                                                                                                                     |                                                                                        |
 | `sync.started`        | `{trigger, repo}` (`project` empty)                                                                                                                                                 | `trigger` is `startup`, `manual`, or `periodic`                                        |
 | `sync.completed`      | `{trigger, repo, changes_pulled, duration_ms}`                                                                                                                                      | Cycle finished; refetch when `changes_pulled` is true                                  |
 | `sync.conflict`       | `{trigger, repo, error}` or `{trigger, repo, resolved}`                                                                                                                             | Merge conflict hit, or `resolved` resolver actions applied                             |
@@ -2130,7 +2192,8 @@ originate from a shared-board pull carry `data.source: "sync"`.
 | `jira_import.progress` | `{import_id, key, status, project, card_id, reason}`                                                                                                                                | One selected issue of a Jira import finished; the event's own `project` is empty       |
 | `jira_import.done`    | `{import_id, status, playbook_id, results, error}`                                                                                                                                  | A Jira import finished or stopped; the event's own `project` is empty                  |
 | `llm_channel.changed` | `{mode}` (`project` empty)                                                                                                                                                          | The LLM channel mode was switched, or a worker reported subscription usage (a subscription `report_usage`, a chat usage frame, a usage-limit frame, `report_parked` naming a window and a reset time, or a recorded run-kind status carrying windows), whether or not it replaced the stored reading |
-| `sentinel.changed`    | none (`project` empty, or the card's `project` and `card_id`)                                                                                                                       | Sentinel's status changed (`project` empty), or a run kind's result for the card was recorded |
+| `sentinel.changed`    | none (`project` empty, or the card's `project` and `card_id`)                                                                                                                       | Sentinel's status changed (`project` empty), a heal on the card was opened or saved, or a run kind's result for the card was recorded |
+| `attention.changed`   | none (`project` empty)                                                                                                                                                              | The waiting list changed; refetch `GET /api/attention`. It names nothing, since the list can hold another user's blueprint |
 
 A shared-board pull publishes per-card `card.created` / `card.updated` /
 `card.state_changed` / `card.deleted` diffs (with `source: "sync"`) only when
@@ -2161,6 +2224,7 @@ List-view summary of every playbook, sorted by id.
     "total": 3,
     "segments": ["complete", "active", "pending"],
     "projects": 2,
+    "project_names": ["alpha", "beta"],
     "gates": [2],
     "next": { "type": "card", "project": "alpha", "card": "ALPHA-002", "title": "Wire the flag" },
     "updated_at": "2026-08-20T10:30:00Z"
@@ -2170,7 +2234,10 @@ List-view summary of every playbook, sorted by id.
 
 `segments` is one status per entry in playbook order (`complete` | `active`
 | `missing` | `pending`; `active` means the card is `in_progress`);
-`projects` counts the distinct projects referenced by card entries.
+`projects` counts the distinct projects referenced by card entries and
+`project_names` lists them, sorted (an empty array when there are none).
+`source` is the external origin (`system`, `external_id`, `external_url`) of an
+imported playbook and is omitted otherwise.
 `gates` lists the indexes of manual entries (omitted when there are none).
 `next` is the first incomplete entry - `title` is the card title (empty when
 the card is missing), or the step text for a manual entry - and is omitted
@@ -2874,7 +2941,7 @@ management lives under `/api/admin/chats`.
 | `estimated_cost_usd`                                                               | omitempty | Running cost: per usage frame the gateway's `cost_usd` when reported, else the `report_usage` cache-tier formula. A subscription frame always takes the formula, never a gateway cost; see [Claude Code cost](remote-execution.md#cost) for its rates |
 | `subscription_cost_usd`                                                            | omitempty | The part of `estimated_cost_usd` that is an API-equivalent estimate of Claude Code subscription usage, not billed spend |
 | `pinned`                                                                           | omitempty | `true` once pinned; set through `PATCH /api/chats/{id}`                                    |
-| `spent_usd`                                                                        | omitempty | Architect sessions only: the architect's `cost.spent_usd` as CM last read it; absent until the first read. CM reads it on each blueprint view read, after each architect run, and once at startup for a blueprint without one |
+| `spent_usd`                                                                        | omitempty | Architect sessions only: the architect's `cost.spent_usd` as CM last read it; absent until the first read. CM reads it on each blueprint view read, after each architect run, and once at startup for a blueprint without one or with a stored wait |
 | `assistant_working`, `assistant_working_since`                                     | omitempty | In-memory presence derived from `status` log frames                                        |
 | `llm_channel`                                                                      | always    | `endpoint` or `claude_code`: the LLM channel mode the session starts in, set at creation and at every cold open (an `/open` or a send to a cold session). The session keeps it until it goes cold; a cold open adopts the current mode |
 

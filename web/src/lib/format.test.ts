@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatCost, formatRelativeTime, formatTokens } from './format';
+import { formatCost, formatExactTime, formatRelativeTime, formatTokens } from './format';
 
 describe('formatCost', () => {
   it('keeps 4 decimals below 10 cents', () => {
@@ -27,6 +27,13 @@ describe('formatTokens', () => {
 
   it('leaves small counts as-is', () => {
     expect(formatTokens(150)).toBe('150');
+  });
+});
+
+describe('formatExactTime', () => {
+  it('reads a stamp in the locale and gives nothing for an unparseable one', () => {
+    expect(formatExactTime('2026-09-10T11:59:40Z')).toBe(new Date('2026-09-10T11:59:40Z').toLocaleString());
+    expect(formatExactTime('soon')).toBeUndefined();
   });
 });
 

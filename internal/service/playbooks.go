@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -105,6 +106,11 @@ type PlaybookCardForcer interface {
 	ForcePlaybookSettings(ctx context.Context, project, id, playbookID, branch, agentID string) (*board.Card, error)
 }
 
+// PlaybookPinCleaner drops every user's pin on a deleted playbook.
+type PlaybookPinCleaner interface {
+	DeletePlaybookPins(ctx context.Context, id string) error
+}
+
 // PlaybookEntryInput is one entry as submitted by an API/MCP caller.
 type PlaybookEntryInput struct {
 	Type    string
@@ -187,6 +193,8 @@ type PlaybookSummary struct {
 	// Projects is the count of distinct projects referenced by card
 	// entries (the list row shows "N entries across M projects").
 	Projects int `json:"projects"`
+	// ProjectNames is those distinct projects, sorted; always an array.
+	ProjectNames []string `json:"project_names"`
 	// Gates lists the indexes of manual entries so the list page's route
 	// track can draw them as gates without fetching the detail.
 	Gates []int `json:"gates,omitempty"`
@@ -198,6 +206,10 @@ type PlaybookSummary struct {
 	Runnable  bool      `json:"runnable"`
 	RunStatus string    `json:"run_status,omitempty"`
 	Updated   time.Time `json:"updated_at"`
+	// Source is the external origin of an imported playbook, nil otherwise.
+	Source *board.Source `json:"source,omitempty"`
+	// Pinned is set by the REST list for its viewer; the service never sets it.
+	Pinned bool `json:"pinned,omitempty"`
 }
 
 // PlaybookNext names a playbook's frontier entry for the list page. Title
@@ -305,6 +317,8 @@ type PlaybookService struct {
 	// forcer applies forced settings to cards for make-runnable; nil until
 	// wired, which makes make-runnable fail rather than silently skip.
 	forcer PlaybookCardForcer
+	// pinCleaner drops a deleted playbook's pins; nil leaves them.
+	pinCleaner PlaybookPinCleaner
 	// defaultBranch looks up a repository's default branch for the compare
 	// links of a playbook without a base branch. Nil leaves the links
 	// naming only the playbook branch. Results are cached in
@@ -368,6 +382,11 @@ func (s *PlaybookService) SetOnCommitFor(repo string, fn func()) error {
 // SetCardForcer wires the card mutation make-runnable uses to force settings.
 func (s *PlaybookService) SetCardForcer(f PlaybookCardForcer) {
 	s.forcer = f
+}
+
+// SetPinCleaner wires the per-user pin cleanup that follows a delete.
+func (s *PlaybookService) SetPinCleaner(c PlaybookPinCleaner) {
+	s.pinCleaner = c
 }
 
 // DefaultBranchResolver returns the default branch of the GitHub repository
@@ -1197,6 +1216,13 @@ func (s *PlaybookService) Delete(ctx context.Context, id, agentID string) error 
 
 	s.publish(events.PlaybookDeleted, snapshot, agentID, now)
 
+	// An orphan pin is invisible, so a cleanup failure is logged, not returned.
+	if s.pinCleaner != nil {
+		if err := s.pinCleaner.DeletePlaybookPins(ctx, id); err != nil {
+			ctxlog.Logger(ctx).Error("drop playbook pins failed", "playbook", id, "error", err)
+		}
+	}
+
 	return nil
 }
 
@@ -1834,23 +1860,30 @@ func SummarizeDetail(d *PlaybookDetail) PlaybookSummary {
 		}
 	}
 
+	projectNames := slices.Sorted(maps.Keys(projects))
+	if projectNames == nil {
+		projectNames = []string{}
+	}
+
 	runStatus := ""
 	if d.Run != nil {
 		runStatus = d.Run.Status
 	}
 
 	return PlaybookSummary{
-		ID:         d.ID,
-		BoardsRepo: d.BoardsRepo,
-		Title:      d.Title,
-		Complete:   d.Complete,
-		Total:      d.Total,
-		Segments:   segments,
-		Projects:   len(projects),
-		Gates:      gates,
-		Next:       next,
-		Runnable:   d.Runnable,
-		RunStatus:  runStatus,
-		Updated:    d.Updated,
+		ID:           d.ID,
+		BoardsRepo:   d.BoardsRepo,
+		Title:        d.Title,
+		Complete:     d.Complete,
+		Total:        d.Total,
+		Segments:     segments,
+		Projects:     len(projectNames),
+		ProjectNames: projectNames,
+		Gates:        gates,
+		Next:         next,
+		Runnable:     d.Runnable,
+		RunStatus:    runStatus,
+		Updated:      d.Updated,
+		Source:       d.Source.Clone(),
 	}
 }

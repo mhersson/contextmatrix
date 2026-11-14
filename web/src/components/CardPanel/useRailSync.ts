@@ -94,9 +94,10 @@ export function useRailSync(
   isChatInteractive: boolean,
   defaultTab: RailTabKey,
   setEditedCard: React.Dispatch<React.SetStateAction<Card>>,
+  initialTab?: RailTabKey,
 ): RailSync {
   const [railMode, setRailMode] = useState<RailMode>(() => restoreMode(isChatInteractive));
-  const [activeTab, setActiveTab] = useState<RailTabKey>(defaultTab);
+  const [activeTab, setActiveTab] = useState<RailTabKey>(initialTab ?? defaultTab);
   const [sync, setSync] = useState({
     cardId: card.id,
     card,

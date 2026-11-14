@@ -47,6 +47,7 @@ type CardFilter struct {
 	Parent        string
 	ExternalID    string
 	SourceSystem  string
+	WorkerStatus  string
 	Vetted        *bool
 }
 

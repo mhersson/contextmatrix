@@ -2,7 +2,7 @@ import type { SentinelStatus, SentinelVerify } from '../types';
 
 export type SentinelTone = 'active' | 'paused' | 'stopped';
 
-/** The strip's right-hand status text. */
+/** Full state text: the tooltip and accessible name of the chip, and the popover's state. */
 export function stripText(s: SentinelStatus): string {
   switch (s.state) {
     case 'working':
@@ -16,6 +16,11 @@ export function stripText(s: SentinelStatus): string {
     default:
       return 'watching';
   }
+}
+
+/** The chip's state word: the pause reason is too long for the row, so it stays in the tooltip. */
+export function chipText(s: SentinelStatus): string {
+  return s.state === 'paused' ? 'paused' : stripText(s);
 }
 
 export function stripTone(s: SentinelStatus): SentinelTone {

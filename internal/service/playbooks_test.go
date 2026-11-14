@@ -2526,3 +2526,66 @@ func TestPlaybookService_CardIDsAreUpperCased(t *testing.T) {
 	assert.Equal(t, "ALPHA-002", detail.Followups[0].Cards[0].Card)
 	assert.Equal(t, "alpha-002", refs[0].Card, "the caller's slice is not rewritten")
 }
+
+type recordingPinCleaner struct {
+	dropped []string
+	err     error
+}
+
+func (c *recordingPinCleaner) DeletePlaybookPins(_ context.Context, id string) error {
+	c.dropped = append(c.dropped, id)
+
+	return c.err
+}
+
+func TestPlaybookDelete_DropsPins(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+	cleaner := &recordingPinCleaner{}
+	env.svc.SetPinCleaner(cleaner)
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{Title: "Pinned", AgentID: "human:a"})
+	require.NoError(t, err)
+
+	env.committer.fail = errors.New("boom")
+	require.Error(t, env.svc.Delete(ctx, "pinned", "human:a"))
+	assert.Empty(t, cleaner.dropped, "a delete that rolled back keeps its pins")
+
+	env.committer.fail = nil
+	require.NoError(t, env.svc.Delete(ctx, "pinned", "human:a"))
+	assert.Equal(t, []string{"pinned"}, cleaner.dropped)
+}
+
+func TestPlaybookDelete_PinCleanupFailureDoesNotFailDelete(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	env.svc.SetPinCleaner(&recordingPinCleaner{err: errors.New("db down")})
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{Title: "Pinned", AgentID: "human:a"})
+	require.NoError(t, err)
+	require.NoError(t, env.svc.Delete(ctx, "pinned", "human:a"))
+}
+
+func TestSummarizeDetail_ProjectNames(t *testing.T) {
+	card := func(project string) PlaybookEntryDetail {
+		return PlaybookEntryDetail{Type: board.EntryTypeCard, Project: project}
+	}
+
+	s := SummarizeDetail(&PlaybookDetail{Entries: []PlaybookEntryDetail{
+		card("beta"), card("alpha"), card("beta"), {Type: board.EntryTypeManual, Text: "ship"},
+	}})
+	assert.Equal(t, []string{"alpha", "beta"}, s.ProjectNames, "distinct and sorted")
+	assert.Equal(t, 2, s.Projects)
+
+	s = SummarizeDetail(&PlaybookDetail{Entries: []PlaybookEntryDetail{{Type: board.EntryTypeManual, Text: "ship"}}})
+	assert.NotNil(t, s.ProjectNames, "a manual-only playbook still serializes an array")
+	assert.Empty(t, s.ProjectNames)
+}
+
+func TestSummarizeDetail_CarriesSource(t *testing.T) {
+	src := &board.Source{System: "jira", ExternalID: "ABC-1", ExternalURL: "https://example.atlassian.net/browse/ABC-1"}
+
+	assert.Equal(t, src, SummarizeDetail(&PlaybookDetail{Source: src}).Source)
+	assert.Nil(t, SummarizeDetail(&PlaybookDetail{}).Source)
+}

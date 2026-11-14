@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { PlaybookRunCard } from './PlaybookRunCard';
-import type { PlaybookDetail } from '../../types';
+import { describeRun, runStatusChip } from './playbookUtils';
+import type { PlaybookDetail, PlaybookRun } from '../../types';
 
 function detail(overrides: Partial<PlaybookDetail> = {}): PlaybookDetail {
   return {
@@ -109,6 +110,18 @@ describe('PlaybookRunCard', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /^run$/i }));
     expect(h.onRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives the status line the waiting pill ink only while the run waits', () => {
+    const line = (run: PlaybookRun) => {
+      cleanup();
+      renderCard(detail({ runnable: true, branch: 'playbook/roll', run }));
+      return screen.getByText(describeRun(detail({ run })));
+    };
+    const waitingInk = runStatusChip('waiting').color;
+    expect(line({ status: 'waiting', started_at: 'x', updated_at: 'x', reason: 'r' }).style.color).toBe(waitingInk);
+    expect(line({ status: 'stopped', started_at: 'x', updated_at: 'x', reason: 'r' }).style.color).not.toBe(waitingInk);
+    expect(line({ status: 'running', started_at: 'x', updated_at: 'x' }).style.color).not.toBe(waitingInk);
   });
 
   it('offers Run again after a stop', () => {

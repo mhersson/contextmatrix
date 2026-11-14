@@ -750,12 +750,12 @@ func TestBlueprintView_CutShortRelayRecordsNothing(t *testing.T) {
 	assert.Nil(t, got.SpentUSD)
 }
 
-func TestArchitectSpendReader(t *testing.T) {
+func TestArchitectViewReader(t *testing.T) {
 	fa := newFakeArchitect(t, map[string]http.HandlerFunc{
 		"GET /blueprints/{id}": func(w http.ResponseWriter, r *http.Request) {
 			switch r.PathValue("id") {
-			case "costed":
-				_, _ = io.WriteString(w, `{"id":"costed","cost":{"spent_usd":2.5,"cap_usd":0}}`)
+			case "waiting":
+				_, _ = io.WriteString(w, `{"id":"waiting","state":"waiting","open":{"prompt_id":"Q1","kind":"question"},"cost":{"spent_usd":2.5,"cap_usd":0}}`)
 			case "uncosted":
 				_, _ = io.WriteString(w, `{}`)
 			default:
@@ -766,31 +766,29 @@ func TestArchitectSpendReader(t *testing.T) {
 	})
 
 	tests := []struct {
-		name      string
-		key       string
-		id        string
-		wantSpent float64
-		wantOK    bool
-		wantErr   bool
+		name    string
+		key     string
+		id      string
+		want    chat.BlueprintStatus
+		wantErr bool
 	}{
 		// The fake answers 401 to a bad signature, so an ok read proves the request was signed.
-		{"cost present", testArchitectKey, "costed", 2.5, true, false},
-		{"view without a cost", testArchitectKey, "uncosted", 0, false, false},
-		{"unknown blueprint", testArchitectKey, "gone", 0, false, true},
-		{"refused signature", "another-key-0123456789abcdef012345", "costed", 0, false, true},
+		{"waiting with a spend", testArchitectKey, "waiting", chat.BlueprintStatus{SpentUSD: new(2.5), Waiting: "question"}, false},
+		{"view without a cost", testArchitectKey, "uncosted", chat.BlueprintStatus{}, false},
+		{"unknown blueprint", testArchitectKey, "gone", chat.BlueprintStatus{}, true},
+		{"refused signature", "another-key-0123456789abcdef012345", "waiting", chat.BlueprintStatus{}, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			spent, ok, err := ArchitectSpendReader(fa.URL, tt.key)(t.Context(), tt.id)
+			got, err := ArchitectViewReader(fa.URL, tt.key)(t.Context(), tt.id)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
 			}
 
-			assert.Equal(t, tt.wantOK, ok)
-			assert.InDelta(t, tt.wantSpent, spent, 1e-9)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 
@@ -798,4 +796,47 @@ func TestArchitectSpendReader(t *testing.T) {
 		assert.True(t, strings.HasPrefix(uri, "/blueprints/"), uri)
 		assert.Contains(t, uri, "?nonce=", "each read signs a distinct URI")
 	}
+}
+
+func TestReadBlueprintStatus(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want chat.BlueprintStatus
+	}{
+		{"waiting on a question", `{"state":"waiting","open":{"prompt_id":"Q1","kind":"question"}}`, chat.BlueprintStatus{Waiting: "question"}},
+		{"waiting at a gate", `{"state":"waiting","open":{"prompt_id":"gate:design:v1","kind":"gate"}}`, chat.BlueprintStatus{Waiting: "gate"}},
+		{"waiting with no open prompt", `{"state":"waiting"}`, chat.BlueprintStatus{Waiting: "other"}},
+		{"running with an open prompt", `{"state":"running","open":{"prompt_id":"Q1","kind":"question"}}`, chat.BlueprintStatus{}},
+		{"spend present", `{"state":"idle","cost":{"spent_usd":1.25}}`, chat.BlueprintStatus{SpentUSD: new(1.25)}},
+		{"zero spend is a spend", `{"cost":{"spent_usd":0,"cap_usd":2}}`, chat.BlueprintStatus{SpentUSD: new(0.0)}},
+		{"cost without a spend", `{"cost":{"cap_usd":2}}`, chat.BlueprintStatus{}},
+		{"waiting with a spend", `{"state":"waiting","open":{"kind":"mockup"},"cost":{"spent_usd":1.25}}`, chat.BlueprintStatus{SpentUSD: new(1.25), Waiting: "mockup"}},
+		{"invalid JSON", `not json`, chat.BlueprintStatus{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, readBlueprintStatus([]byte(tt.body)))
+		})
+	}
+}
+
+func TestBlueprintView_RecordsNoWait(t *testing.T) {
+	fa := newFakeArchitect(t, map[string]http.HandlerFunc{
+		"GET /blueprints/{id}": func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = io.WriteString(w, `{"state":"waiting","open":{"prompt_id":"Q1","kind":"question"},"cost":{"spent_usd":1.5}}`)
+		},
+	})
+	mux, mgr := newChatFixture(t, blueprintFixtureOpts(fa.URL))
+	bp := seedBlueprint(t, mgr, "human:web")
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, http.MethodGet, "/api/chats/"+bp.ID+"/blueprint", ""))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	got, err := mgr.GetSession(t.Context(), bp.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.SpentUSD, "the browser's read records the spend")
+	assert.Empty(t, got.WaitingKind, "only the idle frame's read records a wait")
 }

@@ -494,6 +494,33 @@ func TestFilesystemStore_ListCards_FilterByVetted(t *testing.T) {
 	})
 }
 
+func TestFilesystemStore_ListCards_FilterByWorkerStatus(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	card1 := testCard("TEST-001", "in_progress")
+	card1.WorkerStatus = "parked"
+	card2 := testCard("TEST-002", "in_progress")
+	card2.WorkerStatus = "running"
+	card3 := testCard("TEST-003", "todo")
+
+	for _, c := range []*board.Card{card1, card2, card3} {
+		require.NoError(t, store.CreateCard(context.Background(), "test-project", c))
+	}
+
+	cards, err := store.ListCards(context.Background(), "test-project", CardFilter{WorkerStatus: "parked"})
+	require.NoError(t, err)
+	require.Len(t, cards, 1)
+	assert.Equal(t, "TEST-001", cards[0].ID)
+
+	cards, err = store.ListCards(context.Background(), "test-project", CardFilter{})
+	require.NoError(t, err)
+	assert.Len(t, cards, 3)
+}
+
 func TestFilesystemStore_ListCards_MultipleFilters(t *testing.T) {
 	dir := t.TempDir()
 	setupTestProject(t, dir, "test-project", "TEST")

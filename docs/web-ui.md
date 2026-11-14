@@ -10,11 +10,12 @@ reference for people using the UI; execution semantics live in
 | Route                                       | View                                                     |
 | ------------------------------------------- | -------------------------------------------------------- |
 | `/`, `/all`                                 | All-projects dashboard                                   |
-| `/projects/:project`                        | Board. `?card=ID` opens that card's detail panel         |
+| `/projects/:project`                        | Board. `?card=ID` opens that card's detail panel (`&tab=sentinel`: Sentinel tab) |
 | `/projects/:project/settings`               | Project settings                                         |
 | `/chat`, `/chat/:id`                        | Global chat surface. `/chat?new=1` opens the New Chat dialog on Chat, `?new=blueprint` on Blueprint |
-| `/playbooks`, `/playbooks/:id`              | Playbook list and detail (see [playbooks](playbooks.md)) |
-| `/sessions`                                 | Sessions page. `?tab=chats` or `?tab=blueprints` picks the tab |
+| `/playbooks`                                | Redirects to `/sessions?tab=playbooks`                   |
+| `/playbooks/:id`                            | Playbook detail (see [playbooks](playbooks.md))          |
+| `/sessions`                                 | Sessions page. `?tab=chats`, `?tab=blueprints` or `?tab=playbooks` picks the tab; `?tab=playbooks&new=1` opens the create row |
 | `/admin/users`, `/admin/credentials`        | Admin pages, `multi` auth mode only                      |
 | `/admin/chats`                              | Chat administration (admin; open in `none` mode)         |
 | `/admin/model-selection`                    | Tier ladders (admin; open in `none` mode)                |
@@ -160,25 +161,27 @@ board. Promote-to-autonomous lives in that tab.
 
 ## LLM channel
 
-When `claude_code.oauth_token` is set, a strip under the ContextMatrix
-wordmark in the sidebar names the active LLM channel: Claude Code, or the
-endpoint (OpenRouter for an `openrouter` endpoint, Endpoint otherwise).
-Without the token there is no strip. The collapsed sidebar shows a dot in the
-mode's colour instead. See
+When `claude_code.oauth_token` is set, a chip in the status row under the
+build line in the sidebar names the active LLM channel: Claude Code, or the
+endpoint (OpenRouter for an `openrouter` endpoint, Endpoint otherwise), with a
+dot in the mode's colour. Without the token there is no chip. The collapsed
+sidebar shows the dot alone instead. See
 [Claude Code subscription mode](remote-execution.md#claude-code-subscription-mode)
 for what the channel does.
 
-- On Claude Code the strip also shows the most-used subscription window with
-  a current reading, as "62% wk" or "40% 5h": yellow from 80 percent, and a
-  red "limit" once the vendor rejects that window. A window whose reset time
-  has passed has no current reading.
-- A line under the strip says only what needs saying, in this order: "Limit
+- The chip carries no usage figure. On Claude Code its dot, name and border turn
+  yellow once the most-used subscription window with a current reading reaches
+  80 percent, and red once the vendor rejects it; the figure ("62% wk",
+  "40% 5h" or "limit") is in the chip's accessible name and the popover. A
+  window whose reset time has passed has no current reading. A dashed border
+  means the viewer cannot switch.
+- A line under the status row says only what needs saying, in this order: "Limit
   reached · resets Thu 14:00" while a window is rejected on Claude Code, how
   much live work is still on the other mode ("2 still on OpenRouter"), and on
   Claude Code each backend not in `claude_code.backends`: "Blueprints stay on
   OpenRouter", or with no endpoint configured "Blueprints unavailable". The
   line's tooltip adds each backend's reason.
-- Clicking the strip opens a popover. Escape, a click outside it or moving
+- Clicking the chip opens a popover. Escape, a click outside it or moving
   focus out of it closes it.
   - Viewers who may switch, an admin in `multi` mode or anyone in `none`
     mode, get a switch between the endpoint and Claude Code when both are
@@ -203,21 +206,54 @@ for what the channel does.
     endpoint is configured and the architect is not set to run Claude Code".
 - A switch governs new work only (see
   [sticky runs](remote-execution.md#sticky-runs)).
-- The strip loads with the page and on every event-stream reconnect. While
+- The chip loads with the page and on every event-stream reconnect. While
   the token is set it also refreshes on LLM channel and worker events and
   every minute.
 
+## Waiting for you
+
+A "Waiting for you" section sits at the top of the sidebar, above Work, and
+exists only while something waits. The mobile drawer shows the same content.
+
+- **What counts:** blueprints waiting on their owner, waiting playbook runs,
+  cards a worker parked and cards Sentinel parked (see
+  [GET /api/attention](api-reference.md#get-apiattention) for the exact rules).
+- **For whom:** in `multi` mode the list is the session user's own blueprints
+  plus shared card and playbook waits; in `none` mode every waiting blueprint
+  shows. Rows for waits the viewer does not own say "shared" before the age.
+- **Folding:** a waiting playbook run stuck on a parked card folds into that
+  card's row, which names the playbook after the reason. A card yields one row.
+- **Rows:** newest first, each with a kind icon, the title (cards lead with
+  their ID), the reason and the age. A click opens the item: a blueprint in
+  Chat, a playbook on its detail page, a card in its project with the card
+  panel open, a Sentinel park on the card's Sentinel tab. In the drawer it also
+  closes the drawer.
+- **Signals elsewhere:** while an item waits, its sidebar row (a blueprint or
+  playbook), its row in the [Sessions](#sessions) tables and the tab holding it
+  carry a yellow `!` badge, and a project row carries the count of its waiting
+  shared items. Each disappears when the item leaves the list.
+- **Tab title:** "(N) ContextMatrix" while N items wait, "ContextMatrix"
+  otherwise, in every view.
+- **Collapsed sidebar:** a bell with the count sits above the LLM channel dot
+  and the Sentinel shield, only while something waits; clicking it expands the
+  sidebar.
+- **Freshness:** the list loads with the page, refetches when the server
+  reports a change and on every event-stream reconnect, and is never polled. A
+  failed refetch keeps the last list.
+
 ## Sentinel
 
-While Sentinel is enabled, a strip under the LLM channel strip names it: a
-shield, "Sentinel" and its state on the right. The text is "watching",
-"healing N" while N cards are being healed, the pause reason while paused, or
-"not running". The shield and text are purple while watching or healing,
-yellow while paused and red while not running. Nothing shows while Sentinel
-is off. The collapsed sidebar shows the shield alone in the same colour, with
-the state as its label.
+While Sentinel is enabled, a chip in the status row, beside the LLM channel
+chip, names it: a solid shield with a check and its state word. The word is
+"watching", "healing N" while N cards are being healed, "paused" while paused
+or "not running". The chip's tooltip and the popover carry the full state,
+including the pause reason. The shield and word are purple while watching or
+healing, yellow while paused and red while not running. Nothing shows while
+Sentinel is off. Every Sentinel surface uses the same solid shield. The
+collapsed sidebar shows the shield alone in the same colour, with the state as
+its label.
 
-- Clicking the strip opens a popover; Escape, a click outside it or moving
+- Clicking the chip opens a popover; Escape, a click outside it or moving
   focus out of it closes it.
 - The popover shows the state, then on the endpoint channel today's spend
   against the daily cap ("$1.20 of $20.00 today"), or on Claude Code one line
@@ -225,7 +261,7 @@ the state as its label.
   against the headroom threshold), then the count of cards healed today.
 - Viewers who may change settings, an admin in `multi` mode or anyone in
   `none` mode, also get a "Sentinel settings" link to `/admin/sentinel`.
-- The strip loads with the page and on every event-stream reconnect, and
+- The chip loads with the page and on every event-stream reconnect, and
   refreshes on Sentinel events and every minute.
 - While Sentinel is enabled, a card's rail gains a Sentinel tab between Info
   and Danger, and the collapsed rail widens from 340 to 420 px to fit the five
@@ -251,7 +287,8 @@ the state as its label.
   label. The server sends no mark while Sentinel is off. A card is marked
   healing while a heal is in flight or a rerun is pending, healed once its
   rerun passed, edited when a fix from another card was applied to it, and
-  parked when a rerun failed or Sentinel left it for a human.
+  parked when a rerun failed or Sentinel left it for a human, until the card is
+  launched again.
 
 The settings page at `/admin/sentinel` (admin only in `multi` mode) has three
 switches (Sentinel, Healing, Friction analysis), the daily spend cap in USD
@@ -259,27 +296,37 @@ switches (Sentinel, Healing, Friction analysis), the daily spend cap in USD
 subscription headroom threshold. The threshold is shown as a percent (85) and
 saved as a fraction (0.85). Healing and Friction analysis are disabled while
 Sentinel is off. Turning Sentinel or Healing on starts fresh: runs launched
-before then are left for a human. Save shows the server's validation message inline and refreshes
-the strip; the footer names who last saved and when, once someone has.
+before then are left for a human. Save shows the server's validation message
+inline and refreshes the sidebar chip; the footer names who last saved and
+when, once someone has.
 
 ## Global chat
 
 `/chat` hosts board-aware chat sessions that outlive any card.
 
-- The sidebar lists sessions in two sections between Workspace and Projects,
-  **Chats** and **Blueprints**. A row's dot is green while the session is active
-  and yellow while it is warm-idle. Each section shows its pinned sessions, then
-  its live ones, then the most recently active of the rest, up to five rows in
-  all; pinned and live rows always show, even past five. A live chat is active
-  or warm-idle. A live blueprint is active or mid-turn; a warm-idle blueprint
-  counts among the rest, since blueprints are never ended for idleness. A
-  section that holds any session ends with **All chats →** or
-  **All blueprints →** and the kind's total, linking to that tab of the
-  [Sessions](#sessions) page. **+ new** opens the New chat dialog on the
-  section's kind. Without an architect backend the Blueprints section shows only
-  while blueprint sessions exist, and then without **+ new**. Each section
+- The sidebar is ordered by the work flow: a **Work** group (Chats,
+  Blueprints, Playbooks, under a quiet "chat → blueprint → playbook" hint),
+  then **Boards** (the Dashboard, then the projects). A row's dot is green while
+  the session is active and yellow while it is warm-idle. Each Work section
+  shows its pinned rows, then its live ones, then the most recently active of
+  the rest, up to three rows in all; pinned and live rows always show, even
+  past three. A live chat is active or warm-idle. A live blueprint is active
+  or mid-turn; a warm-idle blueprint counts among the rest, since blueprints
+  are never ended for idleness. A section that holds any row ends with
+  **All chats →**, **All blueprints →** or **All playbooks →** and the total,
+  each linking to its tab of the [Sessions](#sessions) page. **+ new** on
+  Chats and Blueprints opens the New chat dialog on the section's kind; on
+  Playbooks it opens the Playbooks tab with the
+  [create row](#playbooks-tab) open. Without an architect backend the Blueprints
+  section shows only while blueprint sessions exist, and then without
+  **+ new**. The Playbooks section lists the viewer's pinned playbooks, then
+  running and waiting ones, then the newest, each with a status on the right:
+  `n of m` while running, or while not started with some entries already
+  complete, else completed, waiting, stopped or not started; a pinned row
+  shows a filled pin (see [Playbooks](playbooks.md) for pins). Each section
   collapses on its own, remembered per browser under
-  `sidebar.chat_section_collapsed` and `sidebar.blueprint_section_collapsed`.
+  `sidebar.chat_section_collapsed`, `sidebar.blueprint_section_collapsed` and
+  `sidebar.playbook_section_collapsed`.
   Clicking a row opens the session (`/chat/:id`) and closes the mobile drawer.
 - A sidebar row's pin button shows on hover or keyboard focus, and always on
   touch screens; a pinned row shows a filled orange pin. Pins are stored with
@@ -672,36 +719,66 @@ the strip; the footer names who last saved and when, once someone has.
 ## Sessions
 
 `/sessions` lists the chat and blueprint sessions `GET /api/chats` returns to
-you, in the main area like the dashboard and playbooks.
+you and the playbooks `GET /api/playbooks` returns, in the main area like the
+dashboard.
 
-- Two tabs, **Chats** and **Blueprints**, each with its kind's total. The tab
-  is kept in the URL as `?tab=chats` or `?tab=blueprints`; a missing or unknown
-  value opens Chats.
-- Search matches titles, ignoring case. The filters are Project (a chat's
-  project, or any project in a blueprint's workspace), Status (live is active
-  or warm-idle, not live is everything else) and Pinned only; they combine. A
-  tab without sessions and filters that hide every row each show an empty
-  state, the latter with Clear filters.
-- Rows sort newest activity first. The columns are a tick box, the pin, the
-  title with a status dot (green while active and yellow while warm-idle, as in
-  the sidebar), the project or projects, the mode as stored (Blueprints only),
-  the cost and the last activity. The cost follows the one-cost rule: a chat's
-  is the gateway's reported cost per turn, else CM's estimate from token
-  counts; a blueprint's is the architect's recorded spend and "-" until one is
-  recorded, never CM's estimate. A Claude subscription share is labelled as in
-  the pane header.
-- Clicking a row, or its title from the keyboard, opens the session on `/chat`,
-  as the sidebar does. The tick box and the pin do not open it; the
-  pin pins or unpins the session.
+- Three tabs, **Chats**, **Blueprints** and **Playbooks**, each with its total.
+  The tab is kept in the URL as `?tab=chats`, `?tab=blueprints` or
+  `?tab=playbooks`; a missing or unknown value opens Chats.
+- Search matches titles, ignoring case. On Chats and Blueprints the filters
+  are Project (a chat's project, or any project in a blueprint's workspace),
+  Status (live is active or warm-idle, not live is everything else; Blueprints
+  adds waiting, since a chat never waits) and Pinned only; on Playbooks they
+  are Project (any project a card entry is on), Status and Pinned only. The
+  filters combine. A tab without rows and filters that hide every row each
+  show an empty state, the latter with Clear filters.
+- A tab holding a waiting item carries the yellow `!` badge. A waiting
+  blueprint or playbook row carries it too, with the wait's reason in yellow
+  after the title.
+- Rows sort newest activity first. On Chats and Blueprints the columns are a
+  tick box, the pin, the title with a status dot (green while active and
+  yellow while warm-idle, as in the sidebar), the project or projects, the
+  mode as stored (Blueprints only), the cost and the last activity. The cost
+  follows the one-cost rule: a chat's is the gateway's reported cost per turn,
+  else CM's estimate from token counts; a blueprint's is the architect's
+  recorded spend and "-" until one is recorded, never CM's estimate. A Claude
+  subscription share is labelled as in the pane header.
+- Clicking a row, or its title from the keyboard, opens it: a session on
+  `/chat`, as the sidebar does, a playbook on `/playbooks/:id`. The tick box
+  and the pin do not open it; the pin pins or unpins the row (playbook pins
+  are personal, see [Playbooks](playbooks.md)).
 - Ticking rows shows a bar with the count and **Pin**, **Unpin** and
   **Delete…**; the header tick box ticks every row shown. The bar acts only on
   ticked rows that are shown: a row that stops showing, through a tab switch, a
   filter or a refresh, loses its tick. **Delete…** asks first, naming the
-  count, then deletes each session (removing its transcript) and refreshes the
-  list once. Deletes that fail are reported in one message with their count,
-  and their rows stay ticked.
+  count, then deletes each row (a session with its transcript) and refreshes
+  the list once. Deletes that fail, such as a playbook whose run is active,
+  are reported in one message with their count, and their rows stay ticked.
 - Until the list first loads the page shows a loading line; a failed load
   shows the error instead of an empty state.
+
+### Playbooks tab
+
+- Status is any, running, waiting, stopped, not started or completed.
+  Completed means every entry is complete, whatever the run says, so a
+  playbook finished by hand stays completed; running, waiting and stopped
+  follow the run; not started is everything else. Finished playbooks are rows
+  like the rest, found through Status.
+- The columns are a tick box, the pin, the title, the projects, the run, the
+  progress and the last update. The title carries the playbook icon, a Jira
+  chip with the epic key on an imported playbook and a `missing card` pill
+  while an entry points at a card that is gone; until the playbook is
+  complete, a muted second line names the next entry. The run is the run's
+  status pill, plus `agent active` while a card entry is `in_progress`, and
+  "-" when neither applies. The progress is the route track (manual steps
+  drawn as gates) and done / total.
+- **New playbook** in the toolbar opens a create row at the top of the
+  table: the title, an optional description, and the boards repo on a
+  multi-repo instance. Enter or **Create playbook** creates the playbook and
+  opens it; Escape or **Cancel** closes the row and drops the draft. With
+  Jira configured, **Import from Jira** sits beside it and opens the same
+  row, which then imports an epic (see [Playbooks](#playbooks)). Jira's
+  status is checked only once the row opens.
 
 ## Image attachments
 
@@ -801,10 +878,11 @@ opens. The server caches backend answers for 2 seconds and bounds each probe at
 
 ## Playbooks
 
-When Jira is configured, the "New playbook" form's title also takes a Jira epic
-key or URL, and **Import from Jira** sits next to **Create playbook** (Enter
-still creates). It is enabled only for a key or a URL on the configured site,
-and disabled only while Jira rejects the token or a login CAPTCHA blocks it.
+When Jira is configured, the [create row](#playbooks-tab)'s title also takes
+a Jira epic key or URL, and **Import from Jira** sits next to **Create
+playbook** (Enter still creates). It is enabled only for a key or a URL on the
+configured site, and disabled only while Jira rejects the token or a login
+CAPTCHA blocks it.
 The import dialog shows the epic's children and their sub-tasks with checkboxes
 (open, never-imported issues preselected; issues already in the playbook
 disabled), a project picker per
@@ -841,8 +919,8 @@ on the run's entry (while a run is held on an unvetted card, on the first
 incomplete entry). Removing the run's current entry, dragging any entry, or
 unchecking a done manual entry is refused until the run is stopped; a
 refused drag snaps the order back and a refused uncheck stays checked. The
-toasts carry the server's reason. The list page shows a run pill. See
-[playbooks](playbooks.md#running-a-playbook).
+toasts carry the server's reason. The [Playbooks tab](#playbooks-tab) shows
+the run pill. See [playbooks](playbooks.md#running-a-playbook).
 
 The detail page's **How to verify what was built** section lists the
 playbook's follow-ups.

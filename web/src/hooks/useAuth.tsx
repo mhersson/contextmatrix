@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { api, isAPIError, SESSION_EXPIRED_EVENT } from '../api/client';
 import type { AppConfig, AuthMode, SessionUser } from '../types';
 import { APP_CONFIG_RETRY_BACKOFFS_MS } from './appConfigRetry';
+import { browserAgentId } from './useAgentId';
 
 export type AuthStatus = 'loading' | 'anonymous' | 'authenticated';
 
@@ -90,6 +91,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const controller = new AbortController();
     const cancelled = () => controller.signal.aborted;
+    // None mode identifies by the browser's agent ID. Set it before the gate
+    // opens: the providers behind it fetch on mount, before any useIdentity effect.
+    const authenticateBrowser = () => {
+      api.setAgentId(browserAgentId());
+      setStatus('authenticated');
+    };
 
     getAppConfigWithRetry(controller.signal)
       .then((config) => {
@@ -100,7 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setVersion(config.version || null);
 
         if (m !== 'multi') {
-          setStatus('authenticated');
+          authenticateBrowser();
           return;
         }
 
@@ -120,7 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // App-config unreachable: fall back to none so the app still tries
         // to render (matching today's behavior when the API is down).
         if (cancelled()) return;
-        setStatus('authenticated');
+        authenticateBrowser();
       });
 
     return () => {

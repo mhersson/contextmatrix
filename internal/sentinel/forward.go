@@ -110,7 +110,7 @@ func (c *Controller) forwardTo(ctx context.Context, h *state.Heal, target *board
 		SourceCard: h.CardID, Change: &change, CreatedAt: now, UpdatedAt: now,
 	}
 
-	if row.ID, err = c.cfg.Store.OpenHeal(ctx, row); err != nil {
+	if row.ID, err = c.openHeal(ctx, row); err != nil {
 		return fmt.Errorf("record the fix forwarded to %s: %w", target.ID, err)
 	}
 

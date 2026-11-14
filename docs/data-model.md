@@ -1331,6 +1331,8 @@ and a unique index on `(session_id, seq)`.
 | `pinned`                    | INTEGER | `0`     | `1` keeps the session in its sidebar section. |
 | `spent_usd`                 | REAL    | `NULL`  | The architect's recorded spend for a blueprint; `NULL` until CM first reads the blueprint view. |
 | `llm_channel`               | TEXT    | `endpoint` | The LLM channel mode the session starts in, `endpoint` or `claude_code`: the current mode at creation and at every cold open, kept until the session goes cold. |
+| `waiting_kind`              | TEXT    | `''`    | A blueprint's open prompt kind while the architect waits on the operator (`other` without one); empty otherwise. |
+| `waiting_since`             | INTEGER | NULL    | Unix epoch when that wait began; NULL while `waiting_kind` is empty. |
 
 A partial unique index on `(origin_chat, origin_seq) WHERE origin_chat != ''`
 allows one blueprint per hand-off; deleting the blueprint frees the hand-off.

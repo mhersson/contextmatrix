@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -7089,58 +7090,76 @@ func TestSendMessage_ChatKeeps8192(t *testing.T) {
 	assert.Equal(t, []string{fits}, sentContents(chatStub))
 }
 
-// spendCalls records the session ids a stub ArchitectSpend was asked for.
-type spendCalls struct {
+// viewCalls records the session ids a stub ArchitectView was asked for.
+type viewCalls struct {
 	mu  sync.Mutex
 	ids []string
 }
 
-func (c *spendCalls) add(id string) {
+func (c *viewCalls) add(id string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.ids = append(c.ids, id)
 }
 
-func (c *spendCalls) seen() []string {
+func (c *viewCalls) seen() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	return append([]string(nil), c.ids...)
 }
 
-// spendSpyStore counts spend writes, including any a cancelled ctx would fail.
-type spendSpyStore struct {
+// viewSpy wraps the store: it counts spend writes, including any a cancelled
+// ctx would fail, signals each waiting clear once written, and counts the
+// manager's WaitingChanged calls.
+type viewSpy struct {
 	chat.Store
 
-	writes atomic.Int64
+	writes   atomic.Int64
+	clears   chan struct{}
+	notified atomic.Int64
 }
 
-func (s *spendSpyStore) UpdateSessionSpend(ctx context.Context, sessionID string, spentUSD float64) error {
+func (s *viewSpy) UpdateSessionSpend(ctx context.Context, sessionID string, spentUSD float64) error {
 	s.writes.Add(1)
 
 	return s.Store.UpdateSessionSpend(ctx, sessionID, spentUSD)
 }
 
-// newSpendManager builds a manager whose chat and architect backends both
-// replay entries, with spend as its ArchitectSpend.
-func newSpendManager(t *testing.T, entries []chat.LogEntry,
-	spend func(ctx context.Context, sessionID string) (float64, bool, error),
-) (*chat.Manager, *spendSpyStore) {
+func (s *viewSpy) UpdateSessionWaiting(ctx context.Context, sessionID, kind string, at time.Time) (bool, error) {
+	changed, err := s.Store.UpdateSessionWaiting(ctx, sessionID, kind, at)
+
+	if kind == "" {
+		select {
+		case s.clears <- struct{}{}:
+		default:
+		}
+	}
+
+	return changed, err
+}
+
+// newViewManager builds a manager whose chat and architect backends both
+// replay entries, with view as its ArchitectView.
+func newViewManager(t *testing.T, entries []chat.LogEntry,
+	view func(ctx context.Context, sessionID string) (chat.BlueprintStatus, error),
+) (*chat.Manager, *viewSpy) {
 	t.Helper()
 
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	spy := &spendSpyStore{Store: store}
+	spy := &viewSpy{Store: store, clears: make(chan struct{}, 1)}
 	streaming := &usageStreamingBackend{entries: entries}
 
 	mgr := newManager(t, chat.Config{
 		Store:            spy,
 		Backend:          streaming,
 		ArchitectBackend: streaming,
-		ArchitectSpend:   spend,
+		ArchitectView:    view,
+		WaitingChanged:   func() { spy.notified.Add(1) },
 		Clock:            clock.Real(),
 		IdleTTL:          time.Hour,
 		ResolveProjectExec: func(context.Context, string) (chat.ProjectExecInfo, error) {
@@ -7174,14 +7193,34 @@ func spentUSD(t *testing.T, mgr *chat.Manager, sessionID string) *float64 {
 	return sess.SpentUSD
 }
 
-func TestManager_IdleFrameRecordsBlueprintSpend(t *testing.T) {
-	var calls spendCalls
+// waitingKind reads the stored wait without failing the test, so a
+// require.Eventually or require.Never condition can call it.
+func waitingKind(mgr *chat.Manager, sessionID string) string {
+	sess, err := mgr.GetSession(context.Background(), sessionID)
+	if err != nil {
+		return "error: " + err.Error()
+	}
 
-	mgr, _ := newSpendManager(t, []chat.LogEntry{{Type: "status", Content: "idle"}},
-		func(_ context.Context, id string) (float64, bool, error) {
+	return sess.WaitingKind
+}
+
+// seedWait stores a wait directly, past the spy, so it is never counted.
+func seedWait(t *testing.T, spy *viewSpy, sessionID, kind string) {
+	t.Helper()
+
+	changed, err := spy.Store.UpdateSessionWaiting(context.Background(), sessionID, kind, time.Now())
+	require.NoError(t, err)
+	require.True(t, changed)
+}
+
+func TestManager_IdleFrameRecordsBlueprintSpend(t *testing.T) {
+	var calls viewCalls
+
+	mgr, _ := newViewManager(t, []chat.LogEntry{{Type: "status", Content: "idle"}},
+		func(_ context.Context, id string) (chat.BlueprintStatus, error) {
 			calls.add(id)
 
-			return 3.25, true, nil
+			return chat.BlueprintStatus{SpentUSD: new(3.25)}, nil
 		})
 	bp := createKind(t, mgr, chat.KindArchitect)
 
@@ -7205,23 +7244,22 @@ func TestManager_IdleFrameSpendFetch_Rows(t *testing.T) {
 	tests := []struct {
 		name      string
 		kind      chat.SessionKind
-		spent     float64
-		ok        bool
+		status    chat.BlueprintStatus
 		err       error
 		wantCalls int
 	}{
-		{"chat session idle frame never fetches", chat.KindChat, 9, true, nil, 0},
-		{"fetch error leaves the spend unrecorded", chat.KindArchitect, 7, true, errors.New("architect down"), 1},
-		{"no spend in the view", chat.KindArchitect, 0, false, nil, 1},
+		{"chat session idle frame never fetches", chat.KindChat, chat.BlueprintStatus{SpentUSD: new(9.0), Waiting: "question"}, nil, 0},
+		{"fetch error leaves the spend unrecorded", chat.KindArchitect, chat.BlueprintStatus{SpentUSD: new(7.0), Waiting: "question"}, errors.New("architect down"), 1},
+		{"no spend in the view", chat.KindArchitect, chat.BlueprintStatus{}, nil, 1},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var calls spendCalls
+			var calls viewCalls
 
 			release := make(chan struct{})
 
-			mgr, spy := newSpendManager(t, entries, func(ctx context.Context, id string) (float64, bool, error) {
+			mgr, spy := newViewManager(t, entries, func(ctx context.Context, id string) (chat.BlueprintStatus, error) {
 				calls.add(id)
 
 				select {
@@ -7229,7 +7267,7 @@ func TestManager_IdleFrameSpendFetch_Rows(t *testing.T) {
 				case <-ctx.Done():
 				}
 
-				return tt.spent, tt.ok, tt.err
+				return tt.status, tt.err
 			})
 			sess := createKind(t, mgr, tt.kind)
 
@@ -7252,31 +7290,362 @@ func TestManager_IdleFrameSpendFetch_Rows(t *testing.T) {
 			assert.Len(t, calls.seen(), tt.wantCalls)
 			assert.Zero(t, spy.writes.Load())
 			assert.Nil(t, spentUSD(t, mgr, sess.ID))
+			assert.Empty(t, waitingKind(mgr, sess.ID))
 		})
 	}
 }
 
-func TestManager_BackfillBlueprintSpend(t *testing.T) {
+func TestManager_IdleFrameRecordsBlueprintWait(t *testing.T) {
+	mgr, spy := newViewManager(t, []chat.LogEntry{{Type: "status", Content: "idle"}},
+		func(context.Context, string) (chat.BlueprintStatus, error) {
+			return chat.BlueprintStatus{Waiting: "gate"}, nil
+		})
+	bp := createKind(t, mgr, chat.KindArchitect)
+
+	_, err := mgr.OpenSession(context.Background(), bp.ID)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return waitingKind(mgr, bp.ID) == "gate" }, 2*time.Second, 10*time.Millisecond)
+	require.NoError(t, mgr.Close(context.Background()))
+
+	got, err := mgr.GetSession(context.Background(), bp.ID)
+	require.NoError(t, err)
+	assert.NotNil(t, got.WaitingSince)
+	assert.Equal(t, int64(1), spy.notified.Load())
+}
+
+func TestManager_WorkingFrameClearsWait(t *testing.T) {
+	mgr, spy := newViewManager(t, []chat.LogEntry{{Type: "status", Content: "working"}},
+		func(context.Context, string) (chat.BlueprintStatus, error) {
+			return chat.BlueprintStatus{Waiting: "question"}, nil
+		})
+	bp := createKind(t, mgr, chat.KindArchitect)
+	seedWait(t, spy, bp.ID, "question")
+
+	_, err := mgr.OpenSession(context.Background(), bp.ID)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return waitingKind(mgr, bp.ID) == "" }, 2*time.Second, 10*time.Millisecond)
+	require.NoError(t, mgr.Close(context.Background()))
+
+	got, err := mgr.GetSession(context.Background(), bp.ID)
+	require.NoError(t, err)
+	assert.Nil(t, got.WaitingSince)
+	assert.Equal(t, int64(1), spy.notified.Load())
+}
+
+func TestManager_StaleViewReadDoesNotResurrectWait(t *testing.T) {
+	answered := make(chan struct{})
+
+	var (
+		mgr *chat.Manager
+		spy *viewSpy
+	)
+
+	// The idle frame's read answers "waiting" only after the working frame
+	// that follows it has cleared the wait: the answer is stale on arrival.
+	mgr, spy = newViewManager(t, []chat.LogEntry{
+		{Type: "status", Content: "idle"},
+		{Type: "status", Content: "working"},
+	}, func(ctx context.Context, _ string) (chat.BlueprintStatus, error) {
+		select {
+		case <-spy.clears:
+		case <-ctx.Done():
+			return chat.BlueprintStatus{}, ctx.Err()
+		}
+
+		defer close(answered)
+
+		return chat.BlueprintStatus{Waiting: "question"}, nil
+	})
+	bp := createKind(t, mgr, chat.KindArchitect)
+
+	_, err := mgr.OpenSession(context.Background(), bp.ID)
+	require.NoError(t, err)
+
+	select {
+	case <-answered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the idle frame's view read never answered")
+	}
+
+	require.Never(t, func() bool { return waitingKind(mgr, bp.ID) != "" }, 200*time.Millisecond, 10*time.Millisecond)
+	require.NoError(t, mgr.Close(context.Background()))
+	assert.Empty(t, waitingKind(mgr, bp.ID))
+	assert.Zero(t, spy.notified.Load())
+}
+
+func TestManager_EndAndDeleteClearWait(t *testing.T) {
+	tests := []struct {
+		name         string
+		open         bool
+		waiting      bool
+		del          bool
+		wantNotified int64
+	}{
+		{"end clears the wait", true, true, false, 1},
+		{"delete of an open waiting blueprint", true, true, true, 1},
+		{"delete of a cold waiting blueprint", false, true, true, 1},
+		{"delete of a blueprint with no wait", true, false, true, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mgr, spy := newViewManager(t, nil, nil)
+			bp := createKind(t, mgr, chat.KindArchitect)
+
+			if tt.open {
+				_, err := mgr.OpenSession(context.Background(), bp.ID)
+				require.NoError(t, err)
+			}
+
+			if tt.waiting {
+				seedWait(t, spy, bp.ID, "question")
+			}
+
+			if tt.del {
+				require.NoError(t, mgr.DeleteSession(context.Background(), bp.ID))
+			} else {
+				require.NoError(t, mgr.EndSession(context.Background(), bp.ID))
+			}
+
+			require.NoError(t, mgr.Close(context.Background()))
+			assert.Equal(t, tt.wantNotified, spy.notified.Load())
+
+			got, err := mgr.GetSession(context.Background(), bp.ID)
+			if tt.del {
+				assert.ErrorIs(t, err, chat.ErrSessionNotFound)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Empty(t, got.WaitingKind)
+			assert.Nil(t, got.WaitingSince)
+		})
+	}
+}
+
+func TestManager_BackfillClearsAnEndedWait(t *testing.T) {
+	var calls viewCalls
+
+	views := map[string]chat.BlueprintStatus{}
+
+	mgr, spy := newViewManager(t, nil, func(_ context.Context, id string) (chat.BlueprintStatus, error) {
+		calls.add(id)
+
+		return views[id], nil
+	})
+
+	ended := createKind(t, mgr, chat.KindArchitect)
+	fresh := createKind(t, mgr, chat.KindArchitect)
+	settled := createKind(t, mgr, chat.KindArchitect)
+
+	for _, id := range []string{ended.ID, fresh.ID, settled.ID} {
+		_, err := mgr.OpenSession(context.Background(), id)
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, mgr.RecordBlueprintSpend(context.Background(), ended.ID, 2.0))
+	seedWait(t, spy, ended.ID, "question")
+	require.NoError(t, mgr.RecordBlueprintSpend(context.Background(), settled.ID, 3.0))
+
+	views[ended.ID] = chat.BlueprintStatus{SpentUSD: new(2.5)}
+	views[fresh.ID] = chat.BlueprintStatus{SpentUSD: new(1.0), Waiting: "gate"}
+
+	mgr.BackfillBlueprintViews(context.Background())
+
+	assert.Empty(t, waitingKind(mgr, ended.ID), "a wait that ended while CM was down clears")
+	assert.Equal(t, "gate", waitingKind(mgr, fresh.ID), "the startup read records a wait")
+	assert.Empty(t, waitingKind(mgr, settled.ID))
+	assert.ElementsMatch(t, []string{ended.ID, fresh.ID}, calls.seen(), "a blueprint with a spend and no wait is never re-read")
+	assert.Equal(t, int64(2), spy.notified.Load())
+}
+
+// A cold blueprint was ended or never opened, and a wait clears when the
+// session ends: the backfill records its spend but never a wait.
+func TestManager_BackfillNeverRecordsAWaitOnAnEndedBlueprint(t *testing.T) {
+	waiting := chat.BlueprintStatus{SpentUSD: new(1.5), Waiting: "gate"}
+
+	mgr, spy := newViewManager(t, nil, func(context.Context, string) (chat.BlueprintStatus, error) {
+		return waiting, nil
+	})
+
+	unspent := createKind(t, mgr, chat.KindArchitect)
+	stored := createKind(t, mgr, chat.KindArchitect)
+
+	require.NoError(t, mgr.RecordBlueprintSpend(context.Background(), stored.ID, 1.0))
+	seedWait(t, spy, stored.ID, "question")
+
+	mgr.BackfillBlueprintViews(context.Background())
+
+	require.NotNil(t, spentUSD(t, mgr, unspent.ID))
+	assert.InDelta(t, 1.5, *spentUSD(t, mgr, unspent.ID), 1e-9)
+	assert.Empty(t, waitingKind(mgr, unspent.ID))
+	assert.Empty(t, waitingKind(mgr, stored.ID), "a stored wait on a cold row clears")
+	assert.Equal(t, int64(1), spy.notified.Load())
+}
+
+// Six candidates fill the four read slots: the fifth waits for a slot and the
+// loop reaches the sixth only once one frees. An End or an Open of either
+// meanwhile must win over the pass's stale snapshot.
+func TestManager_BackfillLosesToAnEndOrOpenWhileWaitingForASlot(t *testing.T) {
+	const blueprints = 6
+
+	// startBackfill starts the pass and, once four reads are held, returns the
+	// blueprints not yet read plus a func that waits the pass out.
+	startBackfill := func(t *testing.T, mgr *chat.Manager, calls *viewCalls, inFlight *atomic.Int64, ids []string) ([]string, func()) {
+		t.Helper()
+
+		done := make(chan struct{})
+
+		go func() {
+			defer close(done)
+
+			mgr.BackfillBlueprintViews(context.Background())
+		}()
+
+		require.Eventually(t, func() bool { return inFlight.Load() == 4 }, 2*time.Second, 5*time.Millisecond)
+
+		var unread []string
+
+		for _, id := range ids {
+			if !slices.Contains(calls.seen(), id) {
+				unread = append(unread, id)
+			}
+		}
+
+		require.Len(t, unread, 2)
+
+		return unread, func() {
+			t.Helper()
+
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("backfill did not return")
+			}
+		}
+	}
+
+	t.Run("an end leaves no wait on the cold row", func(t *testing.T) {
+		var (
+			calls    viewCalls
+			inFlight atomic.Int64
+		)
+
+		release := make(chan struct{})
+
+		mgr, _ := newViewManager(t, nil, func(ctx context.Context, id string) (chat.BlueprintStatus, error) {
+			calls.add(id)
+
+			inFlight.Add(1)
+			defer inFlight.Add(-1)
+
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+
+			return chat.BlueprintStatus{SpentUSD: new(1.0), Waiting: "gate"}, nil
+		})
+
+		ids := make([]string, 0, blueprints)
+
+		for range blueprints {
+			bp := createKind(t, mgr, chat.KindArchitect)
+			_, err := mgr.OpenSession(context.Background(), bp.ID)
+			require.NoError(t, err)
+
+			ids = append(ids, bp.ID)
+		}
+
+		targets, wait := startBackfill(t, mgr, &calls, &inFlight, ids)
+		for _, id := range targets {
+			require.NoError(t, mgr.EndSession(context.Background(), id))
+		}
+
+		close(release)
+		wait()
+
+		for _, id := range targets {
+			assert.Empty(t, waitingKind(mgr, id), id)
+		}
+
+		assert.ElementsMatch(t, ids, calls.seen(), "every candidate was still read")
+	})
+
+	t.Run("an open keeps the live wait", func(t *testing.T) {
+		var (
+			calls    viewCalls
+			inFlight atomic.Int64
+			n        atomic.Int64
+		)
+
+		release := make(chan struct{})
+
+		// The first four reads are the backfill's held ones; any later read
+		// (an opened blueprint's idle frame, then its backfill read) answers at once.
+		mgr, _ := newViewManager(t, []chat.LogEntry{{Type: "status", Content: "idle"}},
+			func(ctx context.Context, id string) (chat.BlueprintStatus, error) {
+				calls.add(id)
+
+				if n.Add(1) <= 4 {
+					inFlight.Add(1)
+					defer inFlight.Add(-1)
+
+					select {
+					case <-release:
+					case <-ctx.Done():
+					}
+				}
+
+				return chat.BlueprintStatus{SpentUSD: new(1.0), Waiting: "gate"}, nil
+			})
+
+		ids := make([]string, 0, blueprints)
+		for range blueprints {
+			ids = append(ids, createKind(t, mgr, chat.KindArchitect).ID)
+		}
+
+		targets, wait := startBackfill(t, mgr, &calls, &inFlight, ids)
+		for _, id := range targets {
+			_, err := mgr.OpenSession(context.Background(), id)
+			require.NoError(t, err)
+			require.Eventually(t, func() bool { return waitingKind(mgr, id) == "gate" }, 2*time.Second, 5*time.Millisecond)
+		}
+
+		close(release)
+		wait()
+
+		for _, id := range targets {
+			assert.Equal(t, "gate", waitingKind(mgr, id), id)
+		}
+
+		assert.Len(t, calls.seen(), blueprints+len(targets), "each opened blueprint was read by its idle frame and by the backfill")
+	})
+}
+
+func TestManager_BackfillBlueprintViews(t *testing.T) {
 	type result struct {
-		spent float64
-		ok    bool
-		err   error
+		status chat.BlueprintStatus
+		err    error
 	}
 
 	t.Run("records each blueprint without a spend", func(t *testing.T) {
-		var calls spendCalls
+		var calls viewCalls
 
 		results := map[string]result{}
 
-		mgr, _ := newSpendManager(t, nil, func(_ context.Context, id string) (float64, bool, error) {
+		mgr, _ := newViewManager(t, nil, func(_ context.Context, id string) (chat.BlueprintStatus, error) {
 			calls.add(id)
 
 			r, found := results[id]
 			if !found {
-				return 99, true, nil
+				return chat.BlueprintStatus{SpentUSD: new(99.0)}, nil
 			}
 
-			return r.spent, r.ok, r.err
+			return r.status, r.err
 		})
 
 		a := createKind(t, mgr, chat.KindArchitect)
@@ -7284,12 +7653,12 @@ func TestManager_BackfillBlueprintSpend(t *testing.T) {
 		c := createKind(t, mgr, chat.KindArchitect)
 		d := createKind(t, mgr, chat.KindChat)
 
-		results[a.ID] = result{spent: 1.5, ok: true}
-		results[b.ID] = result{spent: 7, ok: true, err: errors.New("architect no longer holds it")}
+		results[a.ID] = result{status: chat.BlueprintStatus{SpentUSD: new(1.5)}}
+		results[b.ID] = result{status: chat.BlueprintStatus{SpentUSD: new(7.0)}, err: errors.New("architect no longer holds it")}
 
 		require.NoError(t, mgr.RecordBlueprintSpend(context.Background(), c.ID, 4.0))
 
-		mgr.BackfillBlueprintSpend(context.Background())
+		mgr.BackfillBlueprintViews(context.Background())
 
 		require.NotNil(t, spentUSD(t, mgr, a.ID))
 		assert.InDelta(t, 1.5, *spentUSD(t, mgr, a.ID), 1e-9)
@@ -7301,29 +7670,29 @@ func TestManager_BackfillBlueprintSpend(t *testing.T) {
 	})
 
 	t.Run("cancelled ctx starts no read", func(t *testing.T) {
-		var calls spendCalls
+		var calls viewCalls
 
-		mgr, _ := newSpendManager(t, nil, func(_ context.Context, id string) (float64, bool, error) {
+		mgr, _ := newViewManager(t, nil, func(_ context.Context, id string) (chat.BlueprintStatus, error) {
 			calls.add(id)
 
-			return 1, true, nil
+			return chat.BlueprintStatus{SpentUSD: new(1.0)}, nil
 		})
 		a := createKind(t, mgr, chat.KindArchitect)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		mgr.BackfillBlueprintSpend(ctx)
+		mgr.BackfillBlueprintViews(ctx)
 
 		assert.Empty(t, calls.seen())
 		assert.Nil(t, spentUSD(t, mgr, a.ID))
 	})
 
 	t.Run("no reader configured", func(t *testing.T) {
-		mgr, spy := newSpendManager(t, nil, nil)
+		mgr, spy := newViewManager(t, nil, nil)
 		a := createKind(t, mgr, chat.KindArchitect)
 
-		mgr.BackfillBlueprintSpend(context.Background())
+		mgr.BackfillBlueprintViews(context.Background())
 
 		assert.Zero(t, spy.writes.Load())
 		assert.Nil(t, spentUSD(t, mgr, a.ID))
@@ -7336,7 +7705,7 @@ func TestManager_BackfillBlueprintSpend(t *testing.T) {
 
 		release := make(chan struct{})
 
-		mgr, _ := newSpendManager(t, nil, func(ctx context.Context, _ string) (float64, bool, error) {
+		mgr, _ := newViewManager(t, nil, func(ctx context.Context, _ string) (chat.BlueprintStatus, error) {
 			n := inFlight.Add(1)
 			defer inFlight.Add(-1)
 
@@ -7352,7 +7721,7 @@ func TestManager_BackfillBlueprintSpend(t *testing.T) {
 			case <-ctx.Done():
 			}
 
-			return 2, true, nil
+			return chat.BlueprintStatus{SpentUSD: new(2.0)}, nil
 		})
 
 		ids := make([]string, 0, blueprints)
@@ -7365,7 +7734,7 @@ func TestManager_BackfillBlueprintSpend(t *testing.T) {
 		go func() {
 			defer close(done)
 
-			mgr.BackfillBlueprintSpend(context.Background())
+			mgr.BackfillBlueprintViews(context.Background())
 		}()
 
 		require.Eventually(t, func() bool { return inFlight.Load() >= 4 }, 2*time.Second, 5*time.Millisecond)

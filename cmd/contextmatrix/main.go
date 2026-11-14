@@ -26,6 +26,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/githubauth"
 
 	"github.com/mhersson/contextmatrix/internal/api"
+	"github.com/mhersson/contextmatrix/internal/attention"
 	"github.com/mhersson/contextmatrix/internal/auth"
 	"github.com/mhersson/contextmatrix/internal/authstore"
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -499,6 +500,10 @@ func main() {
 	svc.SetParkResetStore(opStore)
 	svc.SetEditSnapshotStore(opStore)
 
+	if pbSvc != nil {
+		pbSvc.SetPinCleaner(opStore)
+	}
+
 	// Model catalog builder: constructed whenever there is a rate source. The
 	// AA+agent path also yields selection candidates (routerCfg.Catalog below);
 	// the endpoint-only path (chat-only deployments) yields pricing only.
@@ -591,7 +596,9 @@ func main() {
 	// Chat: manager + SSE hub + idle reaper + warm-idle grace timer. The chat
 	// store is the shared operational store (opStore) opened above.
 	// ContextWindow is nil-receiver safe: a deployment without a catalog sends a window only for Claude Code IDs.
-	chatMgr, chatHub, chatCleanup, chatWorkerAPIKey := wireChat(ctx, cfg, svc, opStore, catalogBuilder.ContextWindow, llmChannel, llmChannel)
+	attn := attention.New(bus)
+
+	chatMgr, chatHub, chatCleanup, chatWorkerAPIKey := wireChat(ctx, cfg, svc, opStore, catalogBuilder.ContextWindow, llmChannel, llmChannel, attn.Notify)
 	defer chatCleanup()
 
 	// Wire backend subsystems: client, end-session subscriber, reconcile sweep,
@@ -625,6 +632,18 @@ func main() {
 		sentinelCtl = sentinel.New(sentinelCfg)
 		svc.SetSentinelMarks(sentinelCtl)
 	}
+
+	// A nil *PlaybookService or *Controller must stay a nil interface.
+	attnSources := attention.Sources{Blueprints: chatMgr, Cards: svc}
+	if pbSvc != nil {
+		attnSources.Playbooks = pbSvc
+	}
+
+	if sentinelCtl != nil {
+		attnSources.Holds = sentinelCtl
+	}
+
+	attn.Start(ctx, attnSources)
 
 	// Attribute backend-generated audit-trail entries to the agent backend
 	// when it resolves. Left unset otherwise - the affected service paths are
@@ -812,7 +831,9 @@ func main() {
 		KnowledgeProviders:     cfg.Knowledge.ProviderNames(),
 		Playbooks:              pbSvc,
 		PlaybookRunner:         pbRunner,
+		PlaybookPins:           opStore,
 		MCPCardRunner:          runnerSlot,
+		Attention:              attn,
 	}
 
 	routerCfg.JiraInfo = api.JiraInfo{

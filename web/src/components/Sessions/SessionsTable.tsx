@@ -1,4 +1,4 @@
-import type { ChatSession } from '../../types';
+import type { AttentionItem, ChatSession } from '../../types';
 import { SessionRow } from './SessionRow';
 
 interface SessionsTableProps {
@@ -10,9 +10,10 @@ interface SessionsTableProps {
   onToggleAll: () => void;
   onPin: (session: ChatSession) => void;
   onOpen: (id: string) => void;
+  waiting: ReadonlyMap<string, AttentionItem>;
 }
 
-export function SessionsTable({ rows, showMode, selected, onToggle, onToggleAll, onPin, onOpen }: SessionsTableProps) {
+export function SessionsTable({ rows, showMode, selected, onToggle, onToggleAll, onPin, onOpen, waiting }: SessionsTableProps) {
   const ticked = rows.filter((s) => selected.has(s.id)).length;
   const all = rows.length > 0 && ticked === rows.length;
 
@@ -51,6 +52,7 @@ export function SessionsTable({ rows, showMode, selected, onToggle, onToggleAll,
               onToggle={onToggle}
               onPin={onPin}
               onOpen={onOpen}
+              waiting={waiting.get(s.id)}
             />
           ))}
         </tbody>

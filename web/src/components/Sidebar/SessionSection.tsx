@@ -1,12 +1,12 @@
-import { useId, useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { useNavigate } from 'react-router';
 import { useMobileSidebar } from '../../context/MobileSidebarContext';
+import { useAttention } from '../../hooks/useAttention';
 import { useSessionPin } from '../../hooks/useSessionPin';
-import { SESSIONS_TAB } from '../../lib/sessions';
-import { safeGetString, safeSetString } from '../../utils/safeStorage';
+import { sessionsTabHref } from '../../lib/sessions';
 import type { ChatSession, SessionKind } from '../../types';
 import { sectionRows } from './sectionRows';
 import { SessionRow } from './SessionRow';
+import { WorkSection } from './WorkSection';
 
 const SECTIONS = {
   chat: {
@@ -39,17 +39,7 @@ export function SessionSection({ kind, sessions, onNew, loaded = true }: Session
   const navigate = useNavigate();
   const mobileSidebar = useMobileSidebar();
   const setPinned = useSessionPin();
-  const headerId = useId();
-  const listId = useId();
-  const [collapsed, setCollapsed] = useState<boolean>(() => safeGetString(cfg.storageKey) === '1');
-
-  const toggle = () => {
-    setCollapsed((c) => {
-      const next = !c;
-      safeSetString(cfg.storageKey, next ? '1' : '0');
-      return next;
-    });
-  };
+  const { blueprints } = useAttention();
 
   const handleOpen = (id: string) => {
     // ChatPage opens /chat/<id> on top of the persisted layout.
@@ -57,61 +47,27 @@ export function SessionSection({ kind, sessions, onNew, loaded = true }: Session
     mobileSidebar.close();
   };
 
-  const handleNew = () => {
-    onNew?.();
-    mobileSidebar.close();
-  };
-
   return (
-    <section className="sb-chat-dock my-1.5 px-2 py-1" aria-labelledby={headerId}>
-      <div className="flex items-center justify-between px-3 py-1">
-        <button
-          id={headerId}
-          type="button"
-          onClick={toggle}
-          className="sb-eyebrow flex items-center gap-1.5"
-          aria-expanded={!collapsed}
-          aria-controls={listId}
-        >
-          <span aria-hidden="true" className="text-[8px]">{collapsed ? '▸' : '▼'}</span>
-          {cfg.label}
-        </button>
-        {onNew && (
-          <button type="button" onClick={handleNew} className="sb-eyebrow-btn" aria-label={cfg.newLabel} title={cfg.newLabel}>
-            + new
-          </button>
-        )}
-      </div>
-      {!collapsed && (
-        <div id={listId} className="mt-0.5 pb-0.5">
-          {sessions.length === 0 ? (
-            loaded && (
-              <p className="px-3 py-2 text-xs italic" style={{ color: 'var(--grey1)' }}>
-                {cfg.empty}
-              </p>
-            )
-          ) : (
-            <>
-              <ul className="space-y-0.5">
-                {sectionRows(sessions).map((s) => (
-                  <SessionRow
-                    key={s.id}
-                    session={s}
-                    onOpen={handleOpen}
-                    onTogglePin={(row) => void setPinned([row.id], row.pinned !== true)}
-                  />
-                ))}
-              </ul>
-              <Link to={`/sessions?tab=${SESSIONS_TAB[kind]}`} onClick={mobileSidebar.close} className="sb-all">
-                <span>
-                  {cfg.all} <span aria-hidden="true">→</span>
-                </span>
-                <span className="sb-all__count">{sessions.length}</span>
-              </Link>
-            </>
-          )}
-        </div>
-      )}
-    </section>
+    <WorkSection
+      label={cfg.label}
+      storageKey={cfg.storageKey}
+      emptyText={cfg.empty}
+      allLabel={cfg.all}
+      allHref={sessionsTabHref(kind)}
+      total={sessions.length}
+      onNew={onNew}
+      newLabel={cfg.newLabel}
+      loaded={loaded}
+    >
+      {sectionRows(sessions).map((s) => (
+        <SessionRow
+          key={s.id}
+          session={s}
+          waiting={kind === 'architect' && blueprints.has(s.id)}
+          onOpen={handleOpen}
+          onTogglePin={(row) => void setPinned([row.id], row.pinned !== true)}
+        />
+      ))}
+    </WorkSection>
   );
 }

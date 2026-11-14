@@ -990,7 +990,7 @@ cross-reporter double counting, is in the
 The LLM channel decides how workers reach their model: through `llm_endpoint`
 (mode `endpoint`), or by running the `claude` binary on a Claude subscription
 token (mode `claude_code`). One global mode governs new work on every
-backend. It is switched at runtime from the sidebar strip (see
+backend. It is switched at runtime from the sidebar's status row (see
 [web UI](web-ui.md#llm-channel)) or `PUT /api/admin/llm-channel` (see the
 [API reference](api-reference.md#llm-channel-endpoints)), with no restart.
 
@@ -1029,8 +1029,8 @@ The block is read once at startup.
 
 | Configured                         | Mode                                                                                                  |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `llm_endpoint` only                | Always `endpoint`; the UI shows no strip.                                                             |
-| `claude_code.oauth_token` only     | Always `claude_code`; the strip shows status with no switch. A backend not in `claude_code.backends` gets no `llm_endpoint` and fails closed. |
+| `llm_endpoint` only                | Always `endpoint`; the UI shows no LLM chip.                                                             |
+| `claude_code.oauth_token` only     | Always `claude_code`; the chip shows status with no switch. A backend not in `claude_code.backends` gets no `llm_endpoint` and fails closed. |
 | both                               | Switchable. With no saved mode it starts on `endpoint`; after that the last saved mode wins.         |
 
 The mode is saved in ops.db (`llm_channel`). A saved mode whose side is no

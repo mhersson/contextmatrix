@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { api } from '../../api/client';
 import { notifyChatSessionsChanged, useChatSessions } from '../../hooks/useChatSessions';
+import { useAttention } from '../../hooks/useAttention';
+import { usePlaybooks } from '../../hooks/usePlaybooks';
 import { useSessionPin } from '../../hooks/useSessionPin';
-import { useToast } from '../../hooks/useToast';
-import { SESSIONS_TAB, sessionKind } from '../../lib/sessions';
-import type { SessionKind } from '../../types';
+import { SESSIONS_TAB, sessionKind, sessionsTab, type SessionsTab } from '../../lib/sessions';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
+import { EMPTY_PLAYBOOK_FILTER, type PlaybookFilter } from '../Playbooks/playbookFilter';
+import { PlaybooksTab } from '../Playbooks/PlaybooksTab';
 import { PageBar } from '../SidebarMenuButton/PageBar';
 import { EMPTY_FILTER, filterSessions, isEmptyFilter, newestActivityFirst, type SessionFilter } from './sessionFilter';
 import { SessionsBulkBar } from './SessionsBulkBar';
@@ -14,38 +16,41 @@ import { SessionsEmpty } from './SessionsEmpty';
 import { SESSIONS_PANEL_ID, SessionsTabs } from './SessionsTabs';
 import { SessionsTable } from './SessionsTable';
 import { SessionsToolbar } from './SessionsToolbar';
+import { useBulkActions } from './useBulkActions';
+import { useRowSelection } from './useRowSelection';
 
 const plural = (n: number) => `${n} session${n === 1 ? '' : 's'}`;
 
 export function SessionsPage() {
   const [params, setParams] = useSearchParams();
-  const tab: SessionKind = params.get('tab') === SESSIONS_TAB.architect ? 'architect' : 'chat';
+  const tab = sessionsTab(params.get('tab'));
   const navigate = useNavigate();
   const { sessions, error, loaded } = useChatSessions();
+  const { playbooks, loaded: playbooksLoaded, error: playbooksError } = usePlaybooks();
   const pin = useSessionPin();
-  const { showToast } = useToast();
+  const { blueprints, playbooks: waitingPlaybooks } = useAttention();
   const [filter, setFilter] = useState<SessionFilter>(EMPTY_FILTER);
-  const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set());
+  const [playbookFilter, setPlaybookFilter] = useState<PlaybookFilter>(EMPTY_PLAYBOOK_FILTER);
   const [confirming, setConfirming] = useState(false);
-  const [busy, setBusy] = useState(false);
 
   const tabSessions = sessions.filter((s) => sessionKind(s) === tab);
-  const rows = newestActivityFirst(filterSessions(tabSessions, filter));
-  // Bulk actions only ever touch ticked rows the user can see.
-  const selected = rows.filter((s) => picked.has(s.id)).map((s) => s.id);
-  // A tick on a row that stops showing (tab, filters or a refresh) is dropped, never kept hidden.
-  const visibleKey = rows.map((s) => s.id).join(' ');
-  const [prunedFor, setPrunedFor] = useState(visibleKey);
-  if (prunedFor !== visibleKey) {
-    setPrunedFor(visibleKey);
-    setPicked(new Set(selected));
-  }
-  const counts: Record<SessionKind, number> = {
+  // Status waiting exists on Blueprints only; the tab comes from the URL, so derive rather than reset.
+  const sessionFilter: SessionFilter =
+    tab !== 'architect' && filter.status === 'waiting' ? { ...filter, status: 'any' } : filter;
+  const rows = newestActivityFirst(filterSessions(tabSessions, sessionFilter, new Set(blueprints.keys())));
+  const { picked, selected, toggle, toggleAll, tickOnly } = useRowSelection(rows.map((s) => s.id));
+  const { busy, run, deleteTicked } = useBulkActions({ selected, tickOnly });
+  const counts: Record<SessionsTab, number> = {
     chat: sessions.filter((s) => sessionKind(s) === 'chat').length,
     architect: sessions.filter((s) => sessionKind(s) === 'architect').length,
+    playbooks: playbooks.length,
   };
 
-  const switchTab = (next: SessionKind) => {
+  const waitingTabs = new Set<SessionsTab>();
+  if (blueprints.size > 0) waitingTabs.add('architect');
+  if (waitingPlaybooks.size > 0) waitingTabs.add('playbooks');
+
+  const switchTab = (next: SessionsTab) => {
     setParams((prev) => {
       const p = new URLSearchParams(prev);
       p.set('tab', SESSIONS_TAB[next]);
@@ -53,74 +58,57 @@ export function SessionsPage() {
     }, { replace: true });
   };
 
-  const toggle = (id: string) =>
-    setPicked((prev) => {
-      const next = new Set(prev);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
-
-  const toggleAll = () =>
-    setPicked(selected.length === rows.length ? new Set() : new Set(rows.map((s) => s.id)));
-
-  const bulk = async (action: () => Promise<void>) => {
-    setBusy(true);
-    try {
-      await action();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const deleteSelected = () =>
-    bulk(async () => {
-      setConfirming(false);
-      const ids = selected;
-      const results = await Promise.allSettled(ids.map((id) => api.deleteChat(id)));
-      const failed = ids.filter((_, i) => results[i].status === 'rejected');
-      setPicked(new Set(failed));
-      notifyChatSessionsChanged();
-      if (failed.length > 0) showToast(`Could not delete ${plural(failed.length)}`, 'error');
-    });
-
   return (
     <div className="h-full overflow-y-auto">
       <PageBar title="Sessions" />
       <div className="ssn-page">
         <h1 className="ssn-title">Sessions</h1>
-        <SessionsTabs active={tab} counts={counts} onChange={switchTab} />
-        <div id={SESSIONS_PANEL_ID} role="tabpanel" aria-labelledby={`sessions-tab-${tab}`} aria-busy={!loaded}>
-          <SessionsToolbar sessions={tabSessions} filter={filter} onChange={setFilter} />
-          {error && <p className="ssn-error" role="alert">Could not load sessions: {error}</p>}
-          {selected.length > 0 && (
-            <SessionsBulkBar
-              count={selected.length}
-              busy={busy}
-              onPin={() => void bulk(() => pin(selected, true))}
-              onUnpin={() => void bulk(() => pin(selected, false))}
-              onDelete={() => setConfirming(true)}
-            />
-          )}
-          {!loaded ? (
-            <p className="ssn-loading">Loading…</p>
-          ) : rows.length > 0 ? (
-            <SessionsTable
-              rows={rows}
-              showMode={tab === 'architect'}
-              selected={picked}
-              onToggle={toggle}
-              onToggleAll={toggleAll}
-              onPin={(s) => void pin([s.id], !s.pinned)}
-              onOpen={(id) => navigate(`/chat/${id}`)}
-            />
+        <SessionsTabs active={tab} counts={counts} onChange={switchTab} waiting={waitingTabs} />
+        <div
+          id={SESSIONS_PANEL_ID}
+          role="tabpanel"
+          aria-labelledby={`sessions-tab-${tab}`}
+          aria-busy={tab === 'playbooks' ? !playbooksLoaded && !playbooksError : !loaded}
+        >
+          {tab === 'playbooks' ? (
+            <PlaybooksTab filter={playbookFilter} onFilterChange={setPlaybookFilter} />
           ) : (
-            !error && (
-              <SessionsEmpty
-                kind={tab}
-                filtered={tabSessions.length > 0 && !isEmptyFilter(filter)}
-                onClear={() => setFilter(EMPTY_FILTER)}
-              />
-            )
+            <>
+              <SessionsToolbar sessions={tabSessions} filter={sessionFilter} onChange={setFilter} offerWaiting={tab === 'architect'} />
+              {error && <p className="ssn-error" role="alert">Could not load sessions: {error}</p>}
+              {selected.length > 0 && (
+                <SessionsBulkBar
+                  label="Selected sessions"
+                  count={selected.length}
+                  busy={busy}
+                  onPin={() => void run(() => pin(selected, true))}
+                  onUnpin={() => void run(() => pin(selected, false))}
+                  onDelete={() => setConfirming(true)}
+                />
+              )}
+              {!loaded ? (
+                <p className="ssn-loading">Loading…</p>
+              ) : rows.length > 0 ? (
+                <SessionsTable
+                  rows={rows}
+                  showMode={tab === 'architect'}
+                  selected={picked}
+                  onToggle={toggle}
+                  onToggleAll={toggleAll}
+                  onPin={(s) => void pin([s.id], !s.pinned)}
+                  onOpen={(id) => navigate(`/chat/${id}`)}
+                  waiting={blueprints}
+                />
+              ) : (
+                !error && (
+                  <SessionsEmpty
+                    emptyText={tab === 'architect' ? 'No blueprints yet.' : 'No chats yet.'}
+                    filtered={tabSessions.length > 0 && !isEmptyFilter(sessionFilter)}
+                    onClear={() => setFilter(EMPTY_FILTER)}
+                  />
+                )
+              )}
+            </>
           )}
         </div>
       </div>
@@ -130,7 +118,10 @@ export function SessionsPage() {
         message="This removes each session and its transcript permanently."
         confirmLabel="Delete"
         variant="danger"
-        onConfirm={() => void deleteSelected()}
+        onConfirm={() => {
+          setConfirming(false);
+          void deleteTicked((id) => api.deleteChat(id), notifyChatSessionsChanged, plural);
+        }}
         onCancel={() => setConfirming(false)}
       />
     </div>

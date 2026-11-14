@@ -193,40 +193,59 @@ func (h *chatHandlers) getBlueprint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	spent, ok := readSpend(view.Bytes())
-	if !ok {
+	// Only the spend: a wait is recorded behind the status generation, which this read is not.
+	spent := readBlueprintStatus(view.Bytes()).SpentUSD
+	if spent == nil {
 		return
 	}
 
 	// The response is already written, so a caller leaving now must not cancel the write.
-	if err := h.mgr.RecordBlueprintSpend(context.WithoutCancel(r.Context()), sess.ID, spent); err != nil {
+	if err := h.mgr.RecordBlueprintSpend(context.WithoutCancel(r.Context()), sess.ID, *spent); err != nil {
 		ctxlog.Logger(r.Context()).Warn("blueprint view: record spend failed", "session_id", sess.ID, "error", err)
 	}
 }
 
-// readSpend reads cost.spent_usd from a blueprint view body; ok is false when
-// the body is not JSON or carries no cost or no spend.
-func readSpend(body []byte) (float64, bool) {
+// readBlueprintStatus reads what CM keeps from a blueprint view body; a body
+// that is not JSON reads as the zero value.
+func readBlueprintStatus(body []byte) chat.BlueprintStatus {
 	var view struct {
+		State string `json:"state"`
+		Open  *struct {
+			Kind string `json:"kind"`
+		} `json:"open"`
 		Cost *struct {
 			SpentUSD *float64 `json:"spent_usd"`
 		} `json:"cost"`
 	}
 
-	if err := json.Unmarshal(body, &view); err != nil || view.Cost == nil || view.Cost.SpentUSD == nil {
-		return 0, false
+	if err := json.Unmarshal(body, &view); err != nil {
+		return chat.BlueprintStatus{}
 	}
 
-	return *view.Cost.SpentUSD, true
+	var status chat.BlueprintStatus
+
+	if view.Cost != nil {
+		status.SpentUSD = view.Cost.SpentUSD
+	}
+
+	if view.State == "waiting" {
+		status.Waiting = "other"
+
+		if view.Open != nil && view.Open.Kind != "" {
+			status.Waiting = view.Open.Kind
+		}
+	}
+
+	return status
 }
 
-// ArchitectSpendReader reads a blueprint's cost.spent_usd with one signed
-// GET /blueprints/{id}, bounded by architectReadTimeout. A non-200 answer is
-// an error; ok is false when the view carries no spend.
-func ArchitectSpendReader(baseURL, key string) func(ctx context.Context, sessionID string) (float64, bool, error) {
+// ArchitectViewReader reads what CM keeps from a blueprint view with one
+// signed GET /blueprints/{id}, bounded by architectReadTimeout. A non-200
+// answer is an error.
+func ArchitectViewReader(baseURL, key string) func(context.Context, string) (chat.BlueprintStatus, error) {
 	upstream := newArchitectUpstream(baseURL, key)
 
-	return func(ctx context.Context, sessionID string) (float64, bool, error) {
+	return func(ctx context.Context, sessionID string) (chat.BlueprintStatus, error) {
 		ctx, cancel := context.WithTimeout(ctx, upstream.readTimeout)
 		defer cancel()
 
@@ -234,22 +253,20 @@ func ArchitectSpendReader(baseURL, key string) func(ctx context.Context, session
 
 		resp, err := upstream.get(ctx, path, nil, "application/json")
 		if err != nil {
-			return 0, false, err
+			return chat.BlueprintStatus{}, err
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			return 0, false, fmt.Errorf("architect GET %s: status %d", path, resp.StatusCode)
+			return chat.BlueprintStatus{}, fmt.Errorf("architect GET %s: status %d", path, resp.StatusCode)
 		}
 
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return 0, false, fmt.Errorf("architect GET %s: read body: %w", path, err)
+			return chat.BlueprintStatus{}, fmt.Errorf("architect GET %s: read body: %w", path, err)
 		}
 
-		spent, ok := readSpend(body)
-
-		return spent, ok, nil
+		return readBlueprintStatus(body), nil
 	}
 }
 

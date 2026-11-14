@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { Sidebar } from './Sidebar';
+import { PlaybooksProvider } from '../../hooks/usePlaybooks';
 import { api } from '../../api/client';
 import type { LLMChannelView, PlaybookSummary } from '../../types';
 import type { AuthContextValue } from '../../hooks/useAuth';
@@ -49,6 +50,21 @@ vi.mock('../../hooks/useAuth', () => ({
   useOptionalAuth: () => authState.current,
 }));
 
+vi.mock('../../context/MobileSidebarContext', () => ({
+  useMobileSidebar: () => ({ isOpen: true, toggle: () => {}, close: () => {} }),
+}));
+
+const attentionState = vi.hoisted(() => ({ items: [] as import('../../types').AttentionItem[] }));
+vi.mock('../../hooks/useAttention', () => ({
+  useAttention: () => ({
+    items: attentionState.items,
+    loaded: true,
+    blueprints: new Map(),
+    playbooks: new Map(),
+    projectCounts: new Map(),
+  }),
+}));
+
 vi.mock('./SessionSections', () => ({
   SessionSections: () => null,
 }));
@@ -60,7 +76,9 @@ const mockUseProjects = vi.mocked(useProjects);
 function renderSidebar(props?: { mobileOpen?: boolean; onMobileClose?: () => void }) {
   return render(
     <MemoryRouter>
-      <Sidebar onNewProject={() => {}} onNewSession={() => {}} {...props} />
+      <PlaybooksProvider>
+        <Sidebar onNewProject={() => {}} onNewSession={() => {}} {...props} />
+      </PlaybooksProvider>
     </MemoryRouter>
   );
 }
@@ -72,7 +90,7 @@ const defaultProjects = [
 ];
 
 function playbook(id: string): PlaybookSummary {
-  return { id, title: id, complete: 0, total: 2, segments: [], projects: 1, updated_at: '' };
+  return { id, title: id, complete: 0, total: 2, segments: [], projects: 1, project_names: [], updated_at: '' };
 }
 
 function channel(claudeCode: boolean): LLMChannelView {
@@ -166,7 +184,7 @@ describe('Sidebar', () => {
     expect(labels[0]).toHaveAttribute('title', expect.stringMatching(/\S/));
   });
 
-  describe('playbooks shortcut', () => {
+  describe('work flow order', () => {
     beforeEach(() => {
       mockUseProjects.mockReturnValue({
         projects: defaultProjects,
@@ -177,33 +195,29 @@ describe('Sidebar', () => {
       });
     });
 
-    const playbooksLink = () =>
-      screen.getAllByRole('link').find((link) => link.getAttribute('href')?.startsWith('/playbooks'));
+    const before = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
-    it('links directly to the single playbook when exactly one exists', async () => {
+    it('lists Work, then Boards with the Dashboard under it, and no Workspace group', async () => {
       vi.spyOn(api, 'listPlaybooks').mockResolvedValue([playbook('pb-1')]);
       renderSidebar();
-      await waitFor(() => {
-        expect(playbooksLink()?.getAttribute('href')).toBe('/playbooks/pb-1');
-      });
+      const playbooks = await screen.findByRole('region', { name: 'Playbooks' });
+      const work = screen.getByText('Work');
+      const boards = screen.getByText('Boards');
+      const dashboard = screen.getByRole('link', { name: 'Dashboard' });
+      const firstProject = screen.getByRole('link', { name: 'alpha' });
+      expect(before(work, playbooks)).toBe(true);
+      expect(before(playbooks, boards)).toBe(true);
+      expect(before(boards, dashboard)).toBe(true);
+      expect(before(dashboard, firstProject)).toBe(true);
+      expect(screen.queryByText('Workspace')).not.toBeInTheDocument();
     });
 
-    it('links to the list when multiple playbooks exist', async () => {
-      vi.spyOn(api, 'listPlaybooks').mockResolvedValue([playbook('pb-1'), playbook('pb-2')]);
+    it('never jumps straight to a lone playbook from the Playbooks section', async () => {
+      vi.spyOn(api, 'listPlaybooks').mockResolvedValue([playbook('pb-1')]);
       renderSidebar();
-      await waitFor(() => {
-        expect(api.listPlaybooks).toHaveBeenCalled();
-      });
-      expect(playbooksLink()?.getAttribute('href')).toBe('/playbooks');
-    });
-
-    it('links to the list when the playbook fetch fails', async () => {
-      vi.spyOn(api, 'listPlaybooks').mockRejectedValue(new Error('boom'));
-      renderSidebar();
-      await waitFor(() => {
-        expect(api.listPlaybooks).toHaveBeenCalled();
-      });
-      expect(playbooksLink()?.getAttribute('href')).toBe('/playbooks');
+      const section = await screen.findByRole('region', { name: 'Playbooks' });
+      await within(section).findByText('pb-1');
+      expect(within(section).getByRole('link', { name: /All playbooks/ })).toHaveAttribute('href', '/sessions?tab=playbooks');
     });
   });
 
@@ -378,7 +392,7 @@ describe('boards repo sections', () => {
     themeState.boardsRepos = [{ name: 'boards', shared: false }];
     renderSidebar();
     expect(screen.getByText('Projects')).toBeInTheDocument();
-    expect(screen.queryByRole('region')).toBeNull();
+    expect(screen.queryByRole('region', { name: /Boards repo/ })).toBeNull();
   });
 
   it('renders a project with an unknown boards_repo under the first repo', () => {
@@ -405,7 +419,7 @@ describe('Sidebar LLM channel', () => {
     const strip = await screen.findByRole('button', { name: /LLM channel: Claude Code/ });
     const follows = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(follows(screen.getByRole('heading', { level: 1 }), strip)).toBe(true);
-    expect(follows(strip, screen.getByRole('navigation', { name: 'Projects' }))).toBe(true);
+    expect(follows(strip, screen.getByRole('navigation', { name: 'Sidebar' }))).toBe(true);
 
     fireEvent.click(screen.getByTitle('Collapse sidebar'));
     expect(await screen.findByRole('img', { name: 'LLM channel: Claude Code' })).toBeInTheDocument();
@@ -425,5 +439,34 @@ describe('Sidebar LLM channel', () => {
 
     fireEvent.keyDown(strip, { key: 'Escape' });
     expect(onMobileClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Sidebar waiting bell', () => {
+  beforeEach(() => {
+    vi.spyOn(api, 'listPlaybooks').mockResolvedValue([]);
+    mockUseProjects.mockReturnValue({ projects: defaultProjects, loading: false, error: null, connected: true, refreshProjects: async () => {} });
+  });
+  afterEach(() => {
+    attentionState.items = [];
+    vi.restoreAllMocks();
+  });
+
+  const waiting = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ kind: 'blueprint' as const, id: `s${i}`, title: 't', reason: 'r', since: '2026-01-01T00:00:00Z', mine: true }));
+
+  it('shows the bell on the collapsed rail only while something waits, and expands on click', () => {
+    attentionState.items = waiting(2);
+    renderSidebar();
+    fireEvent.click(screen.getByTitle('Collapse sidebar'));
+    fireEvent.click(screen.getByRole('button', { name: /^2 / }));
+    expect(screen.getByTitle('Collapse sidebar')).toBeInTheDocument();
+  });
+
+  it('has no bell on the collapsed rail with nothing waiting', () => {
+    renderSidebar();
+    fireEvent.click(screen.getByTitle('Collapse sidebar'));
+    expect(screen.queryByRole('button', { name: /waiting/i })).toBeNull();
+    expect(screen.queryByRole('region')).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, act, waitFor, within } from '@testing-library/react';
+import { render, screen, act, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { ProjectShell } from './ProjectShell';
 import { useToast } from '../../hooks/useToast';
@@ -161,11 +161,14 @@ vi.mock('../ProjectSettings/ProjectSettings', () => ({
 }));
 
 vi.mock('../CardPanel', () => ({
-  CardPanel: ({ card, cardLogs, onClose }: { card: Card; cardLogs?: readonly unknown[]; onClose: () => void }) => (
-    <div data-testid={`card-panel-${card.id}`}>
+  CardPanel: ({ card, cardLogs, onClose, onSubtaskClick, initialTab }: { card: Card; cardLogs?: readonly unknown[]; onClose: () => void; onSubtaskClick: (id: string) => void; initialTab?: string }) => (
+    <div data-testid={`card-panel-${card.id}`} data-initial-tab={initialTab ?? ''}>
       <span data-testid="card-panel-title">{card.title}</span>
       <span data-testid="card-panel-log-count">{cardLogs?.length ?? 0}</span>
       <button onClick={onClose}>Close</button>
+      {card.subtasks?.map((id) => (
+        <button key={id} onClick={() => onSubtaskClick(id)}>{`Open ${id}`}</button>
+      ))}
     </div>
   ),
 }));
@@ -459,6 +462,56 @@ describe('ProjectShell - ?card= deep-link', () => {
 
     expect(await screen.findByTestId('card-panel-TEST-1')).toBeInTheDocument();
     expect(screen.getByTestId('card-panel-title').textContent).toBe('Deep-linked card');
+  });
+
+  describe('?tab= on the deep link', () => {
+    function renderAt(url: string) {
+      function Probe() {
+        const loc = useLocation();
+        return <span data-testid="search-probe">{loc.search}</span>;
+      }
+      return render(
+        <MemoryRouter initialEntries={[url]}>
+          <Probe />
+          <Routes>
+            <Route path="/projects/:project/*" element={<ProjectShell />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    }
+
+    beforeEach(async () => {
+      const { useBoard } = await import('../../hooks/useBoard');
+      vi.mocked(useBoard).mockReturnValue(useBoardReturn as unknown as ReturnType<typeof useBoard>);
+    });
+
+    it('opens the panel on the Sentinel tab for tab=sentinel', async () => {
+      renderAt('/projects/test?card=TEST-1&tab=sentinel');
+      expect(await screen.findByTestId('card-panel-TEST-1')).toHaveAttribute('data-initial-tab', 'sentinel');
+    });
+
+    it('opens a card reached from the deep-linked panel on its default tab', async () => {
+      const { useBoard } = await import('../../hooks/useBoard');
+      const parent = { ...deepLinkCard, subtasks: ['TEST-2'] };
+      const subtask = { ...deepLinkCard, id: 'TEST-2', title: 'Subtask', parent: 'TEST-1' };
+      vi.mocked(useBoard).mockReturnValue({ ...useBoardReturn, cards: [parent, subtask] } as unknown as ReturnType<typeof useBoard>);
+
+      renderAt('/projects/test?card=TEST-1&tab=sentinel');
+      fireEvent.click(await screen.findByText('Open TEST-2'));
+      expect(await screen.findByTestId('card-panel-TEST-2')).toHaveAttribute('data-initial-tab', '');
+    });
+
+    it('ignores any other tab value', async () => {
+      renderAt('/projects/test?card=TEST-1&tab=bogus');
+      expect(await screen.findByTestId('card-panel-TEST-1')).toHaveAttribute('data-initial-tab', '');
+    });
+
+    it('strips tab together with card when the panel closes', async () => {
+      renderAt('/projects/test?card=TEST-1&tab=sentinel');
+      await screen.findByTestId('card-panel-TEST-1');
+      fireEvent.click(screen.getByText('Close'));
+      await waitFor(() => expect(screen.getByTestId('search-probe').textContent).toBe(''));
+    });
   });
 
   it('tells the Board a card panel is open only while one is', async () => {

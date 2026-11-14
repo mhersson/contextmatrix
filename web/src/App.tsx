@@ -1,5 +1,5 @@
 import { useState, useCallback, lazy, Suspense } from 'react';
-import { Routes, Route, useNavigate } from 'react-router';
+import { Navigate, Routes, Route, useNavigate } from 'react-router';
 import { SSEProvider } from './hooks/useSSEBus';
 import { SyncProvider } from './hooks/useSync';
 import { ProjectsProvider } from './hooks/useProjects';
@@ -7,6 +7,8 @@ import { ProjectSummariesProvider } from './hooks/ProjectSummariesProvider';
 import { ThemeProvider } from './hooks/useTheme';
 import { AboutProvider } from './hooks/useAbout';
 import { SentinelProvider } from './hooks/useSentinel';
+import { AttentionProvider } from './hooks/useAttention';
+import { PlaybooksProvider } from './hooks/usePlaybooks';
 import { AuthProvider } from './hooks/useAuth';
 import { ToastContext, useToastState } from './hooks/useToast';
 import { MobileSidebarProvider, useMobileSidebar } from './context/MobileSidebarContext';
@@ -15,6 +17,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { Sidebar } from './components/Sidebar';
 import { ToastContainer } from './components/Toast';
 import { AuthGate } from './components/Auth';
+import { sessionsTabHref } from './lib/sessions';
 import type { ProjectConfig } from './types';
 
 // Lazy-load top-level routes so the initial bundle only contains the shell.
@@ -51,9 +54,6 @@ const AdminSentinelPage = lazy(() =>
 const AdminGuard = lazy(() =>
   import('./components/Admin').then((m) => ({ default: m.AdminGuard }))
 );
-const PlaybooksPage = lazy(() =>
-  import('./components/Playbooks/PlaybooksPage').then((m) => ({ default: m.PlaybooksPage }))
-);
 const PlaybookDetailPage = lazy(() =>
   import('./components/Playbooks/PlaybookDetailPage').then((m) => ({ default: m.PlaybookDetailPage }))
 );
@@ -89,6 +89,8 @@ function AppInner() {
     <ToastContext.Provider value={toastState}>
       <SSEProvider>
         <SentinelProvider>
+        <AttentionProvider>
+        <PlaybooksProvider>
         <SyncProvider>
           <ProjectsProvider>
             <ProjectSummariesProvider>
@@ -110,7 +112,7 @@ function AppInner() {
                           <Route path="all" element={<AllProjectsDashboard onNewProject={() => setNewProjectOpen(true)} />} />
                           <Route path="chat" element={<ChatPage />} />
                           <Route path="chat/:id" element={<ChatPage />} />
-                          <Route path="playbooks" element={<PlaybooksPage />} />
+                          <Route path="playbooks" element={<Navigate to={sessionsTabHref('playbooks')} replace />} />
                           <Route path="playbooks/:id" element={<PlaybookDetailPage />} />
                           <Route path="sessions" element={<SessionsPage />} />
                           <Route path="admin/users" element={<AdminGuard><AdminUsersPage /></AdminGuard>} />
@@ -139,6 +141,8 @@ function AppInner() {
             </ProjectSummariesProvider>
           </ProjectsProvider>
         </SyncProvider>
+        </PlaybooksProvider>
+        </AttentionProvider>
         </SentinelProvider>
       </SSEProvider>
     </ToastContext.Provider>
