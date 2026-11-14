@@ -27,10 +27,8 @@ type passReads struct {
 	now        time.Time
 	mode       llmchannel.Mode
 	windows    []protocol.SubscriptionUsage
-	charged    float64 // the endpoint ledger since 00:00 UTC
-	spent      float64 // what the daily cap counts: charged, plus work in flight, kept current through the pass
-	budget     bool    // the gate as the pass began
-	gateReason string
+	charged    float64                 // the endpoint ledger since 00:00 UTC
+	spent      float64                 // what the daily cap counts: charged, plus work in flight, kept current through the pass
 	heals      []state.Heal            // the open heals
 	inFlight   []state.Heal            // every heal with a run kind in flight, whatever its stage
 	containers []backend.ContainerInfo // listed only while a dispatch is in flight
@@ -127,7 +125,6 @@ func (c *Controller) read(ctx context.Context, set state.Settings, now time.Time
 		set: set, now: now, mode: c.cfg.Channel.Effective(config.BackendNameAgent),
 		windows: windows, charged: charged, spent: charged + inFlightReserve(inFlight), heals: heals, inFlight: inFlight,
 	}
-	r.budget, r.gateReason = r.gate()
 	log := ctxlog.Logger(ctx)
 
 	if len(inFlight) > 0 {
@@ -138,7 +135,10 @@ func (c *Controller) read(ctx context.Context, set state.Settings, now time.Time
 		}
 	}
 
-	if set.Healing && slices.ContainsFunc(heals, func(h state.Heal) bool { return mayDispatch(h, r.budget) }) {
+	// The gate only shuts as the pass counts more spend, so it is never more
+	// open than now.
+	budget, _ := r.gate()
+	if set.Healing && slices.ContainsFunc(heals, func(h state.Heal) bool { return mayDispatch(h, budget) }) {
 		if r.health, err = c.cfg.Backend.Health(ctx); err != nil {
 			log.Warn("sentinel: reading the agent's health failed", "error", err)
 		}
