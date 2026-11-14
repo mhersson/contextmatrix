@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,6 +30,9 @@ var ErrRateLimited = errors.New("github: rate limit exceeded")
 // as configuration problems rather than silently retrying on the next cycle
 // the way it does for transient rate-limit responses.
 var ErrPermissionDenied = errors.New("github: permission denied")
+
+// ErrNotFound is returned when GitHub answers 404 for the requested resource.
+var ErrNotFound = errors.New("github: not found")
 
 const (
 	defaultBaseURL  = "https://api.github.com"
@@ -247,6 +251,10 @@ func (c *Client) get(ctx context.Context, rawURL string) (*http.Response, error)
 		return nil, fmt.Errorf("%w: status 403: %s", ErrPermissionDenied, sanitizeBody(body))
 	}
 
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, sanitizeBody(body))
+	}
+
 	return nil, fmt.Errorf("github api: status %d: %s", resp.StatusCode, sanitizeBody(body))
 }
 
@@ -276,6 +284,81 @@ func (c *Client) FetchDefaultBranch(ctx context.Context, owner, repo string) (st
 	}
 
 	return item.DefaultBranch, nil
+}
+
+// Pull is the subset of a pull request Sentinel reads.
+type Pull struct {
+	State          string // "open" or "closed"
+	Merged         bool
+	HeadSHA        string
+	MergeCommitSHA string
+}
+
+type pullItem struct {
+	State          string `json:"state"`
+	Merged         bool   `json:"merged"`
+	MergeCommitSHA string `json:"merge_commit_sha"`
+	Head           struct {
+		SHA string `json:"sha"`
+	} `json:"head"`
+}
+
+// FetchPull returns a pull request's state, head and merge commit.
+func (c *Client) FetchPull(ctx context.Context, owner, repo string, number int) (Pull, error) {
+	rawURL := fmt.Sprintf("%s/repos/%s/%s/pulls/%d", c.baseURL, url.PathEscape(owner), url.PathEscape(repo), number)
+
+	resp, err := c.get(ctx, rawURL)
+	if err != nil {
+		return Pull{}, err
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	var item pullItem
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBody)).Decode(&item); err != nil {
+		return Pull{}, fmt.Errorf("decode response: %w", err)
+	}
+
+	return Pull{State: item.State, Merged: item.Merged, HeadSHA: item.Head.SHA, MergeCommitSHA: item.MergeCommitSHA}, nil
+}
+
+type contentItem struct {
+	Encoding string `json:"encoding"`
+	Content  string `json:"content"`
+}
+
+// FetchFile returns a file's text at a ref. A missing file is ErrNotFound.
+func (c *Client) FetchFile(ctx context.Context, owner, repo, path, ref string) (string, error) {
+	segments := strings.Split(path, "/")
+	for i, s := range segments {
+		segments[i] = url.PathEscape(s)
+	}
+
+	rawURL := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=%s",
+		c.baseURL, url.PathEscape(owner), url.PathEscape(repo), strings.Join(segments, "/"), url.QueryEscape(ref))
+
+	resp, err := c.get(ctx, rawURL)
+	if err != nil {
+		return "", err
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	var item contentItem
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBody)).Decode(&item); err != nil {
+		return "", fmt.Errorf("decode response: %w", err)
+	}
+
+	if item.Encoding != "base64" {
+		return "", fmt.Errorf("github api: %s is not a file (encoding %q)", path, item.Encoding)
+	}
+
+	raw, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(item.Content, "\n", ""))
+	if err != nil {
+		return "", fmt.Errorf("decode file content: %w", err)
+	}
+
+	return string(raw), nil
 }
 
 // pageDecoder is an interface satisfied by any type that can be JSON-decoded

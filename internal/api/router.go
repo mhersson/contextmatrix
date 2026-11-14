@@ -730,6 +730,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	if cfg.Sentinel != nil {
 		cfg.Sentinel.SetRunKindBase(rh.runKindBase)
+		cfg.Sentinel.SetGuidanceBase(rh.guidanceBase)
+		cfg.Sentinel.SetGitHub(&sentinelGitHub{providerForProject: rh.providerForProject})
 		cfg.Sentinel.SetRelauncher(rh.sentinelRelaunch)
 	}
 

@@ -247,7 +247,7 @@ func TestFetchDefaultBranch_Errors(t *testing.T) {
 
 		_, err := newTestClient(t, srv).FetchDefaultBranch(context.Background(), "o", "r")
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "status 404")
+		assert.ErrorIs(t, err, ErrNotFound)
 	})
 
 	t.Run("missing field", func(t *testing.T) {
@@ -512,4 +512,59 @@ func TestClient_UsesProviderToken(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "Bearer test-token", gotAuth)
+}
+
+func TestFetchPull(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want Pull
+	}{
+		{
+			"open", `{"state":"open","merged":false,"merge_commit_sha":null,"head":{"sha":"h1"}}`,
+			Pull{State: "open", HeadSHA: "h1"},
+		},
+		{
+			"merged", `{"state":"closed","merged":true,"merge_commit_sha":"m1","head":{"sha":"h2"}}`,
+			Pull{State: "closed", Merged: true, HeadSHA: "h2", MergeCommitSHA: "m1"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "/repos/o/r/pulls/7", r.URL.Path)
+
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+
+			got, err := newTestClient(t, srv).FetchPull(context.Background(), "o", "r", 7)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestFetchFileDecodesAndMaps404(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/o/r/contents/docs/AGENTS.md":
+			assert.Equal(t, "abc", r.URL.Query().Get("ref"))
+			// GitHub wraps base64 content at 60 columns.
+			_, _ = w.Write([]byte(`{"encoding":"base64","content":"aGVsbG8g\nd29ybGQ=\n"}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"Not Found"}`))
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+
+	got, err := c.FetchFile(context.Background(), "o", "r", "docs/AGENTS.md", "abc")
+	require.NoError(t, err)
+	assert.Equal(t, "hello world", got)
+
+	_, err = c.FetchFile(context.Background(), "o", "r", "AGENTS.md", "abc")
+	require.ErrorIs(t, err, ErrNotFound)
 }

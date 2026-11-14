@@ -144,6 +144,8 @@ type Controller struct {
 	last            statusInput    // from the last pass that completed
 	published       Status
 	runKindBase     RunKindBase
+	github          GitHub
+	guidanceBase    GuidanceBase
 	relauncher      func(ctx context.Context, project, cardID string) error
 	noRunKindsUntil time.Time            // the agent answered that it has no run kinds
 	heldKinds       map[string]time.Time // run kinds the agent does not know, held until then
@@ -217,6 +219,39 @@ func (c *Controller) SetRunKindBase(b RunKindBase) {
 	defer c.mu.Unlock()
 
 	c.runKindBase = b
+}
+
+// PullState is what a standing guidance PR looks like on GitHub.
+type PullState struct {
+	Open, Merged bool
+	HeadSHA      string
+	MergeSHA     string
+}
+
+// GitHub reads a project's standing guidance PR and the file it carries.
+type GitHub interface {
+	PullState(ctx context.Context, project, prURL string) (PullState, error)
+	FileAt(ctx context.Context, project, prURL, path, ref string) (content string, found bool, err error)
+}
+
+// GuidanceBase fills a guidance_pr run's payload fields for a project: repo,
+// worker image and a token that can push and open pull requests.
+type GuidanceBase func(ctx context.Context, project string) (protocol.RunKindPayload, error)
+
+// SetGitHub wires the reader of standing guidance PRs.
+func (c *Controller) SetGitHub(g GitHub) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.github = g
+}
+
+// SetGuidanceBase wires what fills a guidance_pr run's payload fields.
+func (c *Controller) SetGuidanceBase(b GuidanceBase) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.guidanceBase = b
 }
 
 // SetRelauncher wires what reruns a card outside a playbook run.

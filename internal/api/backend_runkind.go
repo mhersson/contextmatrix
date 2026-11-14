@@ -59,6 +59,40 @@ func (h *backendHandlers) runKindBase(ctx context.Context, project, cardID strin
 	return p, choice.mode, nil
 }
 
+// guidanceBase fills a guidance_pr run's payload fields: the project's
+// repository and worker image and a token that can push and open pull requests
+// on that one repository. It fails closed as runKindBase does and has no card.
+func (h *backendHandlers) guidanceBase(ctx context.Context, project string) (protocol.RunKindPayload, error) {
+	var none protocol.RunKindPayload
+
+	projectCfg, err := h.svc.GetProject(ctx, project)
+	if err != nil {
+		return none, fmt.Errorf("read project: %w", err)
+	}
+
+	provider, _, err := h.providerForProject(ctx, project)
+	if err != nil {
+		return none, fmt.Errorf("project credential unavailable: %w", err)
+	}
+
+	repoName, _ := repoNameFromURL(projectCfg.Repo)
+
+	token, _, err := provider.GenerateRepoPRToken(ctx, repoName)
+	if err != nil {
+		return none, fmt.Errorf("mint a pull request token: %w", err)
+	}
+
+	p := protocol.RunKindPayload{
+		Kind: protocol.RunKindGuidancePR, Project: project, RepoURL: projectCfg.Repo, GitToken: token,
+	}
+
+	if projectCfg.RemoteExecution != nil {
+		p.WorkerImage = projectCfg.RemoteExecution.WorkerImage
+	}
+
+	return p, nil
+}
+
 // sentinelRelaunch is Sentinel's rerun of a card outside a playbook run: a
 // hand run's checks and launch, recorded with origin sentinel, which keeps the
 // card's heal attempts.
