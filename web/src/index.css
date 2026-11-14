@@ -10219,3 +10219,56 @@ button.bp-rv-head {
 .tl-panel-body .tl-provider-row {
   margin: 4px 0 8px;
 }
+
+/* Waiting for you: yellow-tinted band above Work; the badge is shared with row, tab and project signals. */
+.wait-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background-color: var(--yellow);
+  color: var(--bg0);
+  font: 600 10px/16px var(--font-mono);
+}
+.sb-waiting {
+  margin: 6px 0 2px;
+  padding: 4px 8px 6px;
+  border-bottom: 1px solid var(--bg2);
+  background-color: color-mix(in srgb, var(--bg-yellow) 55%, var(--bg0));
+}
+.sb-waiting__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: 5px;
+  text-align: left;
+}
+.sb-waiting__item:hover {
+  background-color: var(--bg1);
+}
+.sb-waiting__icon {
+  display: inline-flex;
+  margin-top: 1px;
+  color: var(--yellow);
+}
+.sb-waiting__title {
+  display: block;
+  font-size: 12.5px;
+  line-height: 1.25;
+  color: var(--fg);
+}
+.sb-waiting__who {
+  margin-left: 5px;
+  font: 9.5px var(--font-mono);
+  color: var(--grey0);
+}
+.sb-waiting__reason {
+  display: block;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--grey1);
+}

@@ -1674,3 +1674,16 @@ export interface LogMarker {
   version?: number;
   note?: string;
 }
+
+/** One thing waiting for the viewer (`GET /api/attention`). */
+export interface AttentionItem {
+  kind: 'blueprint' | 'playbook' | 'card' | 'sentinel';
+  id: string;
+  project?: string;
+  title: string;
+  reason: string;
+  since: string;
+  mine?: boolean;
+  /** The waiting run a card item holds. */
+  playbook?: { id: string; title: string };
+}

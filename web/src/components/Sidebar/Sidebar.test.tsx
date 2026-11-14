@@ -54,6 +54,17 @@ vi.mock('../../context/MobileSidebarContext', () => ({
   useMobileSidebar: () => ({ isOpen: true, toggle: () => {}, close: () => {} }),
 }));
 
+const attentionState = vi.hoisted(() => ({ items: [] as import('../../types').AttentionItem[] }));
+vi.mock('../../hooks/useAttention', () => ({
+  useAttention: () => ({
+    items: attentionState.items,
+    loaded: true,
+    blueprints: new Map(),
+    playbooks: new Map(),
+    projectCounts: new Map(),
+  }),
+}));
+
 vi.mock('./SessionSections', () => ({
   SessionSections: () => null,
 }));
@@ -428,5 +439,34 @@ describe('Sidebar LLM channel', () => {
 
     fireEvent.keyDown(strip, { key: 'Escape' });
     expect(onMobileClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Sidebar waiting bell', () => {
+  beforeEach(() => {
+    vi.spyOn(api, 'listPlaybooks').mockResolvedValue([]);
+    mockUseProjects.mockReturnValue({ projects: defaultProjects, loading: false, error: null, connected: true, refreshProjects: async () => {} });
+  });
+  afterEach(() => {
+    attentionState.items = [];
+    vi.restoreAllMocks();
+  });
+
+  const waiting = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ kind: 'blueprint' as const, id: `s${i}`, title: 't', reason: 'r', since: '2026-01-01T00:00:00Z', mine: true }));
+
+  it('shows the bell on the collapsed rail only while something waits, and expands on click', () => {
+    attentionState.items = waiting(2);
+    renderSidebar();
+    fireEvent.click(screen.getByTitle('Collapse sidebar'));
+    fireEvent.click(screen.getByRole('button', { name: /^2 / }));
+    expect(screen.getByTitle('Collapse sidebar')).toBeInTheDocument();
+  });
+
+  it('has no bell on the collapsed rail with nothing waiting', () => {
+    renderSidebar();
+    fireEvent.click(screen.getByTitle('Collapse sidebar'));
+    expect(screen.queryByRole('button', { name: /waiting/i })).toBeNull();
+    expect(screen.queryByRole('region')).toBeNull();
   });
 });

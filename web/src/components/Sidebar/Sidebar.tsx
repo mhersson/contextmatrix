@@ -19,6 +19,9 @@ import { RepoSection } from './RepoSection';
 import { LLMChannelRailDot } from './LLMChannelChip';
 import { SentinelRailIcon } from './SentinelChip';
 import { StatusRow } from './StatusRow';
+import { WaitingSection } from './WaitingSection';
+import { WaitBadge } from '../WaitBadge';
+import { useAttention } from '../../hooks/useAttention';
 
 interface SidebarProps {
   onNewProject: () => void;
@@ -87,6 +90,7 @@ export function Sidebar({ onNewProject, onNewSession, mobileOpen = false, onMobi
     [projects, boardsRepos]
   );
   const { summaries } = useProjectSummariesContext();
+  const { items: waiting } = useAttention();
 
   const renderProject = (p: ProjectConfig) => (
     <NavLink
@@ -179,6 +183,7 @@ export function Sidebar({ onNewProject, onNewSession, mobileOpen = false, onMobi
       </div>
 
       <nav aria-label="Projects" className="flex-1 overflow-y-auto py-1.5">
+        <WaitingSection />
         <div className="sb-eyebrow flex items-baseline justify-between px-5 pt-2 pb-0.5">
           Work
           <span className="normal-case tracking-normal" style={{ fontSize: '10px' }}>chat → blueprint → playbook</span>
@@ -295,6 +300,24 @@ export function Sidebar({ onNewProject, onNewSession, mobileOpen = false, onMobi
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
         </button>
+        {waiting.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setCollapsed(false)}
+            className="relative mt-2 p-1 rounded hover:opacity-80"
+            style={{ color: 'var(--yellow)' }}
+            title={`${waiting.length} waiting for you`}
+            aria-label={`${waiting.length} waiting for you`}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+              <path d="M10.3 21a1.9 1.9 0 0 0 3.4 0" />
+            </svg>
+            <span className="absolute -top-0.5 -right-1">
+              <WaitBadge count={waiting.length} />
+            </span>
+          </button>
+        )}
         <LLMChannelRailDot />
         <SentinelRailIcon />
       </div>

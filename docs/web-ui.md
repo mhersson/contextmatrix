@@ -209,6 +209,33 @@ for what the channel does.
   the token is set it also refreshes on LLM channel and worker events and
   every minute.
 
+## Waiting for you
+
+A "Waiting for you" section sits at the top of the sidebar, above Work, and
+exists only while something waits. The mobile drawer shows the same content.
+
+- **What counts:** blueprints waiting on their owner, waiting playbook runs,
+  cards a worker parked and cards Sentinel parked (see
+  [GET /api/attention](api-reference.md#get-apiattention) for the exact rules).
+- **For whom:** in `multi` mode the list is the session user's own blueprints
+  plus shared card and playbook waits; in `none` mode every waiting blueprint
+  shows. Rows for waits the viewer does not own say "shared" before the age.
+- **Folding:** a waiting playbook run stuck on a parked card folds into that
+  card's row, which names the playbook after the reason. A card yields one row.
+- **Rows:** newest first, each with a kind icon, the title (cards lead with
+  their ID), the reason and the age. A click opens the item: a blueprint in
+  Chat, a playbook on its detail page, a card in its project with the card
+  panel open, a Sentinel park on the card's Sentinel tab. In the drawer it also
+  closes the drawer.
+- **Tab title:** "(N) ContextMatrix" while N items wait, "ContextMatrix"
+  otherwise, in every view.
+- **Collapsed sidebar:** a bell with the count sits above the LLM channel dot
+  and the Sentinel shield, only while something waits; clicking it expands the
+  sidebar.
+- **Freshness:** the list loads with the page, refetches when the server
+  reports a change and on every event-stream reconnect, and is never polled. A
+  failed refetch keeps the last list.
+
 ## Sentinel
 
 While Sentinel is enabled, a chip in the status row, beside the LLM channel

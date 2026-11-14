@@ -54,6 +54,7 @@ import type {
   LLMChannel,
   LLMChannelView,
   SentinelCardView,
+  AttentionItem,
   SentinelInfo,
   SentinelSettings,
 } from '../types';
@@ -452,6 +453,10 @@ class APIClient {
 
   async getLLMChannel(): Promise<LLMChannelView> {
     return this.request<LLMChannelView>('/llm-channel');
+  }
+
+  async getAttention(): Promise<AttentionItem[]> {
+    return this.request<AttentionItem[]>('/attention');
   }
 
   async getSentinel(): Promise<SentinelInfo> {
