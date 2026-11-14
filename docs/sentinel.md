@@ -730,7 +730,7 @@ the next pass.
 | `internal/sentinel/heal.go`                 | The pure heal flow: `nextStep` over a `healView`, one rule per stage and exit; `healFix`                                                                     |
 | `internal/sentinel/gate.go`                 | The pure budget gate, what work in flight counts against the cap (`inFlightReserve`, `rerunAccrued`), the daily cap's day (`dayStart`) and the worker-slot check (`roomFor`) |
 | `internal/sentinel/status.go`               | `Status`, the states and the pure summary                                                                                                                    |
-| `internal/sentinel/marks.go` | `SentinelMarks`: each card's board mark from its latest heal, `markFor`, and `CardHolds`: whether a card is being healed or parked for a human |
+| `internal/sentinel/marks.go`                | `SentinelMarks`: each card's board mark from its latest heal, `markFor`, and `CardHolds`: whether a card is being healed or parked for a human               |
 | `internal/opstore/sqlite/sentinel.go`       | The settings row and the subscription windows the controller reads                                                                                           |
 | `internal/opstore/sqlite/card_runs.go`      | The run row                                                                                                                                                  |
 | `internal/opstore/sqlite/sentinel_heals.go` | Heals, findings and the spend ledger                                                                                                                         |

@@ -10,7 +10,7 @@ reference for people using the UI; execution semantics live in
 | Route                                       | View                                                     |
 | ------------------------------------------- | -------------------------------------------------------- |
 | `/`, `/all`                                 | All-projects dashboard                                   |
-| `/projects/:project`                        | Board. `?card=ID` opens that card's detail panel (`&tab=sentinel` on its Sentinel tab) |
+| `/projects/:project`                        | Board. `?card=ID` opens that card's detail panel (`&tab=sentinel`: Sentinel tab) |
 | `/projects/:project/settings`               | Project settings                                         |
 | `/chat`, `/chat/:id`                        | Global chat surface. `/chat?new=1` opens the New Chat dialog on Chat, `?new=blueprint` on Blueprint |
 | `/playbooks`                                | Redirects to `/sessions?tab=playbooks`                   |
@@ -249,8 +249,9 @@ chip, names it: a solid shield with a check and its state word. The word is
 or "not running". The chip's tooltip and the popover carry the full state,
 including the pause reason. The shield and word are purple while watching or
 healing, yellow while paused and red while not running. Nothing shows while
-Sentinel is off. Every Sentinel surface uses the same solid shield. The collapsed sidebar shows the shield alone in the same colour, with
-the state as its label.
+Sentinel is off. Every Sentinel surface uses the same solid shield. The
+collapsed sidebar shows the shield alone in the same colour, with the state as
+its label.
 
 - Clicking the chip opens a popover; Escape, a click outside it or moving
   focus out of it closes it.
@@ -295,8 +296,9 @@ switches (Sentinel, Healing, Friction analysis), the daily spend cap in USD
 subscription headroom threshold. The threshold is shown as a percent (85) and
 saved as a fraction (0.85). Healing and Friction analysis are disabled while
 Sentinel is off. Turning Sentinel or Healing on starts fresh: runs launched
-before then are left for a human. Save shows the server's validation message inline and refreshes
-the strip; the footer names who last saved and when, once someone has.
+before then are left for a human. Save shows the server's validation message
+inline and refreshes the sidebar chip; the footer names who last saved and
+when, once someone has.
 
 ## Global chat
 
@@ -725,9 +727,10 @@ dashboard.
 - Search matches titles, ignoring case. On Chats and Blueprints the filters
   are Project (a chat's project, or any project in a blueprint's workspace),
   Status (live is active or warm-idle, not live is everything else; Blueprints
-  adds waiting, since a chat never waits) and Pinned only; on Playbooks they are Project (any project a card entry is on), Status
-  and Pinned only. The filters combine. A tab without rows and filters that
-  hide every row each show an empty state, the latter with Clear filters.
+  adds waiting, since a chat never waits) and Pinned only; on Playbooks they
+  are Project (any project a card entry is on), Status and Pinned only. The
+  filters combine. A tab without rows and filters that hide every row each
+  show an empty state, the latter with Clear filters.
 - A tab holding a waiting item carries the yellow `!` badge. A waiting
   blueprint or playbook row carries it too, with the wait's reason in yellow
   after the title.
