@@ -651,7 +651,7 @@ the next pass.
 | `internal/sentinel/check_text.go` | `checkText` |
 | `internal/sentinel/trigger.go`              | The pure triggers: `causeKey` (settled and cause), `eligible`, and `openStage` (the stage a new heal opens at)                                               |
 | `internal/sentinel/heal.go`                 | The pure heal flow: `nextStep` over a `healView`, one rule per stage and exit; `healFix`                                                                     |
-| `internal/sentinel/gate.go`                 | The pure budget gate, the daily cap's day (`dayStart`) and the worker-slot check (`roomFor`)                                                                 |
+| `internal/sentinel/gate.go`                 | The pure budget gate, what work in flight counts against the cap (`inFlightReserve`, `rerunAccrued`), the daily cap's day (`dayStart`) and the worker-slot check (`roomFor`) |
 | `internal/sentinel/status.go`               | `Status`, the states and the pure summary                                                                                                                    |
 | `internal/sentinel/marks.go` | `SentinelMarks`: each card's board mark from its latest heal, and `markFor` |
 | `internal/opstore/sqlite/sentinel.go`       | The settings row and the subscription windows the controller reads                                                                                           |
