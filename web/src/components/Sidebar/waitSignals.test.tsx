@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import type { AttentionItem, ChatSession, PlaybookSummary } from '../../types';
+import type { AttentionItem, ChatSession, DashboardData, PlaybookSummary } from '../../types';
 import { PlaybookNavRow } from './PlaybookNavRow';
 import { ProjectCard } from './ProjectCard';
 import { SessionSection } from './SessionSection';
@@ -93,5 +93,13 @@ describe('sidebar wait signals', () => {
     expect(document.querySelectorAll('.wait-badge')).toHaveLength(0);
     rerender(<ProjectCard name="p" isActive={false} />);
     expect(document.querySelectorAll('.wait-badge')).toHaveLength(0);
+  });
+
+  it('a project row keeps the count beside the active-agents pill, not between the name and it', () => {
+    const summary = { active_agents: [{}, {}], state_counts: {} } as unknown as DashboardData;
+    render(<ProjectCard name="proj" isActive={false} waiting={3} summary={summary} />);
+    const group = screen.getByText('3').parentElement;
+    expect(group).toContainElement(screen.getByText('2'));
+    expect(group).not.toContainElement(screen.getByText('proj'));
   });
 });

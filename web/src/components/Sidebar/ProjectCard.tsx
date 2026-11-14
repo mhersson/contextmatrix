@@ -60,12 +60,14 @@ export function ProjectCard({ name, displayName, summary, isActive, poc, waiting
             </svg>
           )}
         </div>
-        {waiting > 0 && <WaitBadge count={waiting} />}
-        {activeAgentCount > 0 && (
-          <span className="text-xs px-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: 'var(--bg-blue)', color: 'var(--aqua)' }}>
-            {activeAgentCount}
-          </span>
-        )}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {waiting > 0 && <WaitBadge count={waiting} />}
+          {activeAgentCount > 0 && (
+            <span className="text-xs px-1.5 rounded-full" style={{ backgroundColor: 'var(--bg-blue)', color: 'var(--aqua)' }}>
+              {activeAgentCount}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );

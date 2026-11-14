@@ -304,8 +304,8 @@ export function Sidebar({ onNewProject, onNewSession, mobileOpen = false, onMobi
           <button
             type="button"
             onClick={() => setCollapsed(false)}
-            className="relative mt-2 p-1 rounded hover:opacity-80"
-            style={{ color: 'var(--yellow)' }}
+            className="relative mt-3 p-1 rounded hover:opacity-80"
+            style={{ color: 'var(--wait-yellow)' }}
             title={`${waiting.length} waiting for you`}
             aria-label={`${waiting.length} waiting for you`}
           >
@@ -313,7 +313,7 @@ export function Sidebar({ onNewProject, onNewSession, mobileOpen = false, onMobi
               <path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
               <path d="M10.3 21a1.9 1.9 0 0 0 3.4 0" />
             </svg>
-            <span className="absolute -top-0.5 -right-1">
+            <span className="absolute -top-2 -right-2.5">
               <WaitBadge count={waiting.length} />
             </span>
           </button>

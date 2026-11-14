@@ -7,7 +7,7 @@ import { WaitBadge } from '../WaitBadge';
 
 const STATUS_TONE = {
   running: 'var(--aqua)',
-  waiting: 'var(--yellow)',
+  waiting: 'var(--wait-yellow)',
   stopped: 'var(--red)',
   completed: 'var(--green)',
   'not started': 'var(--grey1)',

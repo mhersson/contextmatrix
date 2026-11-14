@@ -5291,6 +5291,10 @@ textarea {
   gap: 5px;
   margin-top: 10px;
 }
+/* Flex wrappers keep each chip off its line box, whose baseline differs per chip. */
+.sb-status-row > div {
+  display: flex;
+}
 .sb-chip {
   display: inline-flex;
   align-items: center;
@@ -9578,6 +9582,9 @@ button.bp-rv-head {
   font-weight: 400;
   color: var(--grey1);
 }
+.ssn-tab-count + .wait-badge {
+  margin-left: 5px;
+}
 
 .ssn-bar {
   display: flex;
@@ -10045,6 +10052,14 @@ button.bp-rv-head {
 }
 
 /* Waiting for you: yellow-tinted band above Work; the badge is shared with row, tab and project signals. */
+:root {
+  --wait-yellow: var(--yellow);
+}
+/* Light palettes' yellows are too pale for text (about 2:1 in three of them); deepened toward
+   black, the signal's text and --bg0 text on the badge clear 4.5:1 on --bg0 to --bg2. */
+[data-theme="light"] {
+  --wait-yellow: color-mix(in oklab, var(--yellow) 65%, black);
+}
 .wait-badge {
   display: inline-flex;
   align-items: center;
@@ -10052,7 +10067,7 @@ button.bp-rv-head {
   min-width: 16px;
   padding: 0 5px;
   border-radius: 99px;
-  background-color: var(--yellow);
+  background-color: var(--wait-yellow);
   color: var(--bg0);
   font: 600 10px/16px var(--font-mono);
 }
@@ -10077,7 +10092,7 @@ button.bp-rv-head {
 .sb-waiting__icon {
   display: inline-flex;
   margin-top: 1px;
-  color: var(--yellow);
+  color: var(--wait-yellow);
 }
 .sb-waiting__title {
   display: block;
@@ -10088,17 +10103,18 @@ button.bp-rv-head {
 .sb-waiting__who {
   margin-left: 5px;
   font: 9.5px var(--font-mono);
-  color: var(--grey0);
+  white-space: nowrap;
+  color: var(--blueprint-quiet-strong);
 }
 .sb-waiting__reason {
   display: block;
   font-size: 11px;
   line-height: 1.3;
-  color: var(--grey1);
+  color: var(--blueprint-quiet-strong);
 }
 
 .ssn-wait-reason {
-  color: var(--yellow);
+  color: var(--wait-yellow);
   font-size: 12px;
   margin-left: 6px;
 }
