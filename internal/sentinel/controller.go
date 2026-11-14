@@ -34,6 +34,9 @@ type Store interface {
 	// OpenHeal also marks a heal's run decided.
 	OpenHeal(ctx context.Context, h state.Heal) (int64, error)
 	OpenHeals(ctx context.Context) ([]state.Heal, error)
+	// InFlightHeals returns every heal with a run kind in flight, whatever its
+	// stage, oldest first.
+	InFlightHeals(ctx context.Context) ([]state.Heal, error)
 	// CardHeals returns the card's heal and forward rows, newest first.
 	CardHeals(ctx context.Context, project, cardID string) ([]state.Heal, error)
 	// LatestHeals returns each card's newest heal or forward row in the project.

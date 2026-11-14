@@ -127,6 +127,19 @@ func (s *Store) OpenHeals(ctx context.Context) ([]state.Heal, error) {
 	return heals, nil
 }
 
+// InFlightHeals returns every heal whose run kind was sent and is neither
+// answered nor failed, whatever its stage, oldest first.
+func (s *Store) InFlightHeals(ctx context.Context) ([]state.Heal, error) {
+	heals, err := s.queryHeals(ctx,
+		`kind = ? AND dispatch_at IS NOT NULL AND dispatch_answered_run_id = '' AND dispatch_failure = '' ORDER BY id`,
+		state.HealKindHeal)
+	if err != nil {
+		return nil, fmt.Errorf("list in-flight heals: %w", err)
+	}
+
+	return heals, nil
+}
+
 // CardHeals returns the card's heal and forward rows, newest first.
 func (s *Store) CardHeals(ctx context.Context, project, cardID string) ([]state.Heal, error) {
 	heals, err := s.queryHeals(ctx, `project = ? AND card_id = ? ORDER BY id DESC`, project, cardID)
@@ -154,12 +167,12 @@ func (s *Store) LatestHeals(ctx context.Context, project string) (map[string]sta
 	return latest, nil
 }
 
-// RecordRunKindStatus records a run kind's terminal status on the card's
-// newest heal whose dispatch of that kind is neither answered nor failed, and
-// charges its ledger once, whatever the heal's stage. A run ID already on the
-// ledger is a repeat and records and charges nothing, even while an older heal
-// of the card still has that kind open; so does a report matching no heal, or
-// one without a kind or run ID.
+// RecordRunKindStatus records a run kind's terminal status on the card's heal
+// whose dispatch of that kind is neither answered nor failed, and charges its
+// ledger once, whatever the heal's stage. Sentinel keeps at most one such heal
+// per card and kind; should there be more, the newest answers. A run ID already
+// on the ledger is a repeat and records and charges nothing; so does a report
+// matching no heal, or one without a kind or run ID.
 func (s *Store) RecordRunKindStatus(ctx context.Context, r state.RunKindReport) (healID int64, recorded bool, err error) {
 	if r.Kind == "" || r.RunID == "" {
 		return 0, false, nil
@@ -307,8 +320,9 @@ func (s *Store) SpentSince(ctx context.Context, mode string, since time.Time) (f
 }
 
 // HealedSince counts the distinct cards with a heal saved as healed at or
-// after since. Only SaveHeal writes updated_at and a terminal heal is never
-// saved again, so a healed heal's updated_at is when it reached healed.
+// after since. Only SaveHeal writes updated_at, and the one later save of a
+// terminal heal (failing a run kind that never reported) keeps it, so a
+// healed heal's updated_at is when it reached healed.
 func (s *Store) HealedSince(ctx context.Context, since time.Time) (int, error) {
 	var n int
 	if err := s.db.QueryRowContext(ctx,

@@ -237,6 +237,25 @@ func (f *fakeStore) OpenHeals(context.Context) ([]state.Heal, error) {
 	return heals, nil
 }
 
+func (f *fakeStore) InFlightHeals(context.Context) ([]state.Heal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	var heals []state.Heal
+
+	for _, h := range f.heals {
+		if h.Kind == state.HealKindHeal && inFlight(h.Dispatch) {
+			heals = append(heals, h)
+		}
+	}
+
+	slices.SortFunc(heals, func(a, b state.Heal) int { return int(a.ID - b.ID) })
+
+	return heals, nil
+}
+
 // CardHeals returns the card's rows, newest first.
 func (f *fakeStore) CardHeals(_ context.Context, project, cardID string) ([]state.Heal, error) {
 	f.mu.Lock()

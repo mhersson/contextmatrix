@@ -51,6 +51,7 @@ func TestNextStep(t *testing.T) {
 	budgetShut := func(v *healView) { v.Budget = false }
 	noRoom := func(v *healView) { v.Room = false }
 	listed := func(v *healView) { v.Listed = true }
+	held := func(kinds ...string) func(*healView) { return func(v *healView) { v.Held = kinds } }
 	edited := func(items ...string) func(*healView) { return func(v *healView) { v.Edited = items } }
 	rejected := func(items ...string) func(*healView) { return func(v *healView) { v.Rejected = items } }
 	response := func(r string) func(*healView) { return func(v *healView) { v.Heal.Response = r } }
@@ -167,6 +168,12 @@ func TestNextStep(t *testing.T) {
 		{"investigate dispatched", with(), step{Kind: stepDispatch, RunKind: protocol.RunKindInvestigate}, nil},
 		{"investigate waits for the budget", with(budgetShut), wait, nil},
 		{"investigate waits for a worker slot", with(noRoom), wait, nil},
+		{"investigate waits while another heal of the card has one in flight", with(held(protocol.RunKindInvestigate)), wait, nil},
+		{
+			"investigate dispatched while another heal has a check in flight", with(held(protocol.RunKindCheck)),
+			step{Kind: stepDispatch, RunKind: protocol.RunKindInvestigate},
+			nil,
+		},
 		{
 			"investigation answered without a result", with(answeredWithout(protocol.RunKindInvestigate, "run log not found")),
 			park,
@@ -192,6 +199,10 @@ func TestNextStep(t *testing.T) {
 			nil,
 		},
 		{"check waits for a worker slot", with(atStage(state.StageCheck), investigated(protocol.DiagnosisCard, "d", verifyFix), noRoom), wait, nil},
+		{
+			"check waits while another heal of the card has one in flight",
+			with(atStage(state.StageCheck), investigated(protocol.DiagnosisCard, "d", verifyFix), held(protocol.RunKindCheck)), wait, nil,
+		},
 		{
 			"check answered without a result", with(atStage(state.StageCheck), investigated(protocol.DiagnosisCard, "d", verifyFix), answeredWithout(protocol.RunKindCheck, "clone failed")),
 			park,

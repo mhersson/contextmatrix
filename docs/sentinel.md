@@ -116,12 +116,13 @@ run-kind intake records results, findings and spend on them.
 - `sentinel_spend`: the spend ledger, one row per charge with the LLM channel
   mode it ran on and, for a run kind's status, its run ID.
 
-A run kind's terminal status is recorded on the card's newest heal with that
-kind in flight and not yet answered or failed, whatever the heal's stage, and
-charges one ledger row: its usage, or the dispatch's ceiling when a model kind
-reported none. A status whose run ID is already on the ledger is a repeat, so
-it records and charges nothing even when an older heal of the card still has
-such a dispatch open; so does one with no such heal. Recording never moves the
+A run kind's terminal status is recorded on the card's heal with that kind in
+flight and not yet answered or failed, whatever the heal's stage, and charges
+one ledger row: its usage, or the dispatch's ceiling when a model kind reported
+none. Sentinel keeps at most one run of each kind in flight per card (see
+[The heal flow](#the-heal-flow)), so the status has one dispatch to answer. A
+status whose run ID is already on the ledger is a repeat, so it records and
+charges nothing; so does one with no such heal. Recording never moves the
 stage.
 
 Every write to a heal row bumps its version, and a save carries the version it
@@ -323,8 +324,9 @@ earlier never whitelists itself.
 `nextStep` (`internal/sentinel/heal.go`) decides one open heal's next step
 from what a pass read: the heal, the card, the card's run row, the `healing`
 switch, the budget gate, whether a worker slot is free, whether the in-flight
-run kind's container is listed, the edit check's violations and, at stage
-`apply`, the fix checks' violations. It reads no clock and does no I/O. The
+run kind's container is listed, the run kinds the card's other heals still have
+in flight, the edit check's violations and, at stage `apply`, the fix checks'
+violations. It reads no clock and does no I/O. The
 pass calls it for every open heal.
 
 A step is to wait, dispatch a run kind, advance to a stage, apply the fix,
@@ -352,15 +354,17 @@ first matching rule wins:
    sent; then park, with the dispatch's ceiling marked to be charged.
 6. `healing` is off: wait.
 7. **Stage `investigate`:** dispatch `investigate` while the budget gate is
-   open and a worker slot is free, else wait. An answer without a result
+   open, a worker slot is free and no other heal of the card has an
+   `investigate` in flight, else wait. An answer without a result
    parks with the failure the intake recorded. A cause whose response is
    `investigate_park` parks with the diagnosis. Otherwise a `card` diagnosis
    with a fix advances to `check` when the fix has a section or verify, else
    to `apply`; `model` advances to `apply` holding no fix (`healFix` ignores
    any fix a diagnosis other than `card` carries); `environment` and
    `ecosystem` park with the diagnosis; anything else parks.
-8. **Stage `check`:** dispatch `check` while a worker slot is free; it runs no
-   model, so the budget gate does not hold it. An answer without a result
+8. **Stage `check`:** dispatch `check` while a worker slot is free and no
+   other heal of the card has a `check` in flight; it runs no model, so the
+   budget gate does not hold it. An answer without a result
    parks with its failure; a result advances to `apply`.
 9. **Stage `apply`:** park when the fix checks refuse the fix or the card has
    used its 2 heal attempts; wait while the budget gate is shut; else apply.
@@ -378,12 +382,16 @@ stage waits.
 1. It reads the settings. While `enabled` is off the status reads `off` and
    nothing else is read.
 2. It reads the agent's effective mode, the subscription windows and today's
-   spend, decides the budget gate, and reads the open heals. It lists the
-   agent's containers once, and only while a run kind is in flight, and reads
-   the agent's health once, and only while `healing` is on and a heal may
+   spend, decides the budget gate, and reads the open heals and every heal
+   with a run kind in flight, whatever its stage. It lists the agent's
+   containers once, and only while a run kind is in flight, and reads the
+   agent's health once, and only while `healing` is on and a heal may
    dispatch. A failed listing counts every run kind as listed, so none parks
    on it; a failed health read leaves no worker slot free.
-3. For every open heal it reads the card and the run row fresh, runs
+3. It fails each parked or closed heal's run kind that can no longer report
+   (its container not listed and the settle grace passed since it was sent)
+   and charges its ceiling, so the card's open heal may send that kind again.
+4. For every open heal it reads the card and the run row fresh, runs
    `checkEdits` against the launch snapshot and, at stage `apply`, `vetFix` on
    a `card` diagnosis's fix, so a retire-only fix that skipped the check run
    kind is still vetted. `nextStep` decides, and the pass dispatches, advances
@@ -391,7 +399,7 @@ stage waits.
    rest of the pass. At `apply` it writes the fix and reruns the card, at
    `usage_wait` it reruns the card to resume, and at `rerun` it settles the
    heal once the rerun ends, forwarding a healed heal's fix.
-4. While `healing` is on, it considers every undecided run whose card has no
+5. While `healing` is on, it considers every undecided run whose card has no
    open heal (`consider.go`). A run that has not settled waits. One that is not eligible, or
    whose cause is ignored, is marked decided. Otherwise a heal opens at
    `investigate` (either investigate response) or `usage_wait`, or parked at
@@ -399,18 +407,20 @@ stage waits.
    has used its 2 heal attempts, and for an investigation of a run with no run
    ID, which left no log. Then it judges the fixes forwarded to the run's card
    (see [The circuit breaker](#the-circuit-breaker)).
-5. It records the status.
+6. It records the status.
 
 A heal whose read or step fails is logged and decided again on the next pass.
 A pass that advanced a heal, opened one, or found one written since it read it
 (a run kind's status arrived) or its card written since it read the card (the
 guarded fix write was refused) nudges once, so the next step is decided at
-once. A pass reads only the heals still open, so a run kind's result that
+once. A pass acts only on the heals still open, so a run kind's result that
 arrives after its heal parked or closed is recorded and charged, never applied.
 
 A run kind that never reported parks its heal; the same save marks the
-dispatch failed, and the dispatch's ceiling is then charged. A late report
-matches no dispatch, so the ceiling is the only charge.
+dispatch failed, and the dispatch's ceiling is then charged. A parked or closed
+heal's run kind that never reported is marked failed and charged its ceiling
+the same way, keeping the heal's stage. A late report matches no dispatch, so
+the ceiling is the only charge.
 
 ### Activity entries
 
@@ -588,7 +598,7 @@ the next pass.
 | `internal/sentinel/controller.go`           | The loop: `Start`, `Shutdown`, `Nudge`, `Status`, the panic-safe pass and the wake-up filter; the `Store`, `Backend`, `Cards`, `Playbooks` and `PlaybookRunner` it uses |
 | `internal/sentinel/payload.go`              | The pure run-kind payloads: `investigatePayload` under the 1 MiB cap, `checkPayload`, and `siblings`                                                         |
 | `internal/sentinel/dispatch.go`             | Reading a run kind's inputs, `dispatch` (record, then send, then act on the agent's answer) and the no-run-kinds hold                                         |
-| `internal/sentinel/outcome.go`              | The ends of a heal: `park` (with its activity entry, `activityText`), `parkUnreported` (and the ceiling charge) and `closeHeal`                              |
+| `internal/sentinel/outcome.go`              | The ends of a heal: `park` (with its activity entry, `activityText`), `parkUnreported` and, for a finished heal, `failUnreported` (each with the ceiling charge), and `closeHeal`                              |
 | `internal/sentinel/apply.go`                | Applying a fix: the route first, then `applyFix` (the guarded write `writeFix`, retiring subtasks, the snapshot refresh) and `freshRerun`                   |
 | `internal/sentinel/relaunch.go`             | Rerunning a card: `planRelaunch` (through `activePlaybook`, the playbook whose active run holds a card) and the pure `relaunchRoute`, `usageRerun`, `relaunch` (counting the rerun, rerun stage, activity entry, then the move to `todo` and launch or Stop then Play) and the activity texts |
 | `internal/sentinel/settle.go`               | Settling a rerun: `settle` (the stage, then the charge, then a healed heal's fix forward) and the pure `rerunCharge`                                        |
@@ -597,7 +607,7 @@ the next pass.
 | `internal/sentinel/intake.go`               | `RunKindStatus`: record a run kind's terminal status, its windows and findings                                                                               |
 | `internal/sentinel/limits.go`               | `ValidateRunKindStatus`: the run-kind status values and size limits                                                                                          |
 | `internal/sentinel/spend.go`                | `Pricer` and `priceUsage`: what a run kind's usage costs                                                                                                     |
-| `internal/sentinel/pass.go`                 | One pass: read the gate's inputs and the open heals, build each heal's view and act on its step, consider undecided runs, record the status                 |
+| `internal/sentinel/pass.go`                 | One pass: read the gate's inputs, the open heals and the run kinds in flight, expire finished heals' silent run kinds, build each heal's view and act on its step, consider undecided runs, record the status |
 | `internal/sentinel/consider.go`             | Considering undecided runs: open a heal for a settled, eligible run, parked at once or at its stage, or mark the run decided; then judge its card's forwarded fixes |
 | `internal/sentinel/causes.go`               | The cause table: one row per cause, `responseFor`                                                                                                            |
 | `internal/sentinel/checks.go`               | `fixContext`, the two check lists, `vetFix` and `vetForward`                                                                                                 |

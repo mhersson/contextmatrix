@@ -338,6 +338,51 @@ func TestPassParksInvestigationThatNeverReported(t *testing.T) {
 	}
 }
 
+func TestPassHoldsARunKindAnotherHealOfTheCardHasInFlight(t *testing.T) {
+	e := newPassEnv(t)
+	ctx := context.Background()
+
+	e.stopped("ALPHA-001", protocol.StopCauseVerifyParked)
+
+	// A human's Run closed the first heal mid-investigation, and that run
+	// stopped too: the second heal must not send a second investigate.
+	first := state.Heal{
+		ID: 1, Kind: state.HealKindHeal, Project: "alpha", CardID: "ALPHA-001", RunStarted: runStarted.Add(-time.Hour),
+		Stage: state.StageClosed, Reason: reasonTakenOver, UpdatedAt: epoch.Add(-4 * time.Minute),
+	}
+	dispatchedAgo(protocol.RunKindInvestigate, 5*time.Minute)(&first)
+	e.store.putHeal(first)
+	second := e.openHeal(t, "ALPHA-001", state.StageInvestigate)
+
+	e.backend.containers = []backend.ContainerInfo{{Project: "alpha", CardID: "ALPHA-001", Kind: protocol.RunKindInvestigate}}
+
+	require.NoError(t, e.ctl.pass(ctx))
+	e.clk.Advance(20 * time.Minute)
+	require.NoError(t, e.ctl.pass(ctx))
+
+	assert.Empty(t, e.backend.sent, "the first heal's run is still listed")
+	assert.Equal(t, first, e.store.heal(first.ID))
+	assert.Empty(t, e.store.charges())
+
+	// The first heal's run is gone and never reported.
+	e.backend.containers = nil
+
+	require.NoError(t, e.ctl.pass(ctx))
+
+	silent := e.store.heal(first.ID)
+	assert.Equal(t, state.StageClosed, silent.Stage, "a finished heal keeps its stage")
+	assert.Equal(t, first.UpdatedAt, silent.UpdatedAt)
+	assert.False(t, inFlight(silent.Dispatch), "its dispatch is marked failed")
+	assert.Equal(t, []ledgerRow{{HealID: first.ID, Mode: "endpoint", USD: 2, At: e.clk.Now()}}, e.store.charges(), "its ceiling is charged once")
+	assert.Empty(t, e.cards.logged, "a finished heal writes no entry")
+
+	require.Len(t, e.backend.sent, 1, "the second heal now dispatches")
+	assert.Equal(t, protocol.RunKindInvestigate, e.store.heal(second.ID).Dispatch.Kind)
+
+	require.NoError(t, e.ctl.pass(ctx))
+	assert.Len(t, e.store.charges(), 1)
+}
+
 func TestPassNeverActsOnTerminalHeal(t *testing.T) {
 	e := newPassEnv(t)
 	ctx := context.Background()

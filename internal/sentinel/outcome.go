@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/sentinel/state"
@@ -55,12 +56,28 @@ func (c *Controller) parkUnreported(ctx context.Context, h *state.Heal, reason s
 		return fmt.Errorf("park the heal: %w", err)
 	}
 
-	var chargeErr error
-	if err := c.cfg.Store.Charge(ctx, h.ID, h.Dispatch.Mode, h.Dispatch.CeilingUSD, h.UpdatedAt); err != nil {
-		chargeErr = fmt.Errorf("charge the %s ceiling: %w", h.Dispatch.Kind, err)
+	return errors.Join(c.chargeCeiling(ctx, h, h.UpdatedAt), c.logActivity(ctx, h, activityText(*h)))
+}
+
+// failUnreported marks a finished heal's run kind that never reported failed
+// and charges its ceiling, as parkUnreported does for an open heal. The heal
+// keeps its stage, its updated time and its activity log.
+func (c *Controller) failUnreported(ctx context.Context, h *state.Heal) error {
+	h.Dispatch.Failure = unreportedReason(h.Dispatch.Kind)
+
+	if err := c.cfg.Store.SaveHeal(ctx, h); err != nil {
+		return fmt.Errorf("fail the unreported %s run: %w", h.Dispatch.Kind, err)
 	}
 
-	return errors.Join(chargeErr, c.logActivity(ctx, h, activityText(*h)))
+	return c.chargeCeiling(ctx, h, c.cfg.Clock.Now())
+}
+
+func (c *Controller) chargeCeiling(ctx context.Context, h *state.Heal, at time.Time) error {
+	if err := c.cfg.Store.Charge(ctx, h.ID, h.Dispatch.Mode, h.Dispatch.CeilingUSD, at); err != nil {
+		return fmt.Errorf("charge the %s ceiling: %w", h.Dispatch.Kind, err)
+	}
+
+	return nil
 }
 
 // closeHeal ends the heal without an activity entry: the card was closed or

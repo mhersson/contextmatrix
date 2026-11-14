@@ -2,6 +2,7 @@ package sentinel
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -49,6 +50,7 @@ type healView struct {
 	Budget   bool     // budget gate open for the effective mode
 	Room     bool     // a worker slot is free for a run kind
 	Listed   bool     // the in-flight dispatch's container is listed
+	Held     []string // run kinds another heal of the card still has in flight
 	Edited   []string // checkEdits violations
 	Rejected []string // vetFix violations, computed at stage apply when the heal holds a fix
 	Now      time.Time
@@ -141,18 +143,28 @@ func takenOver(v healView) bool {
 
 func inFlightStep(v healView) step {
 	d := v.Heal.Dispatch
-	if v.Listed || younger(d.At, settleGrace, v.Now) {
+	if !unreported(d, v.Listed, v.Now) {
 		return waitStep()
 	}
 
-	return step{Kind: stepPark, Reason: fmt.Sprintf("the %s run did not report", d.Kind), ChargeCeiling: true}
+	return step{Kind: stepPark, Reason: unreportedReason(d.Kind), ChargeCeiling: true}
+}
+
+// unreported reports whether an in-flight dispatch can no longer report: its
+// container is not listed and the settle grace since it was sent has passed.
+func unreported(d state.Dispatch, listed bool, now time.Time) bool {
+	return !listed && !younger(d.At, settleGrace, now)
+}
+
+func unreportedReason(kind string) string {
+	return fmt.Sprintf("the %s run did not report", kind)
 }
 
 func investigateStep(v healView) step {
 	h := v.Heal
 
 	switch {
-	case !dispatched(h, protocol.RunKindInvestigate) && v.Budget && v.Room:
+	case !dispatched(h, protocol.RunKindInvestigate) && v.Budget && sendable(v, protocol.RunKindInvestigate):
 		return dispatchStep(protocol.RunKindInvestigate)
 	case !dispatched(h, protocol.RunKindInvestigate):
 		return waitStep()
@@ -207,7 +219,7 @@ func checkStep(v healView) step {
 	h := v.Heal
 
 	switch {
-	case !dispatched(h, protocol.RunKindCheck) && v.Room:
+	case !dispatched(h, protocol.RunKindCheck) && sendable(v, protocol.RunKindCheck):
 		return dispatchStep(protocol.RunKindCheck)
 	case !dispatched(h, protocol.RunKindCheck):
 		return waitStep()
@@ -248,6 +260,13 @@ func usageWaitStep(v healView) step {
 // marked failed.
 func inFlight(d state.Dispatch) bool {
 	return d.At != nil && d.AnsweredRunID == "" && d.Failure == ""
+}
+
+// sendable reports whether a run of kind may go out: a worker slot is free and
+// no other heal of the card has one in flight, so a report always has one
+// dispatch to answer.
+func sendable(v healView, kind string) bool {
+	return v.Room && !slices.Contains(v.Held, kind)
 }
 
 // dispatched reports whether the heal's latest dispatch is of kind. At stage

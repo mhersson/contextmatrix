@@ -30,7 +30,8 @@ type passReads struct {
 	spent      float64 // the endpoint ledger since 00:00 UTC
 	budget     bool
 	gateReason string
-	heals      []state.Heal
+	heals      []state.Heal            // the open heals
+	inFlight   []state.Heal            // every heal with a run kind in flight, whatever its stage
 	containers []backend.ContainerInfo // listed only while a dispatch is in flight
 	listFailed bool                    // a failed listing counts every dispatch as listed
 	health     protocol.HealthResponse // read only when a dispatch may go out; zero leaves no room
@@ -61,6 +62,8 @@ func (c *Controller) pass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	c.expireDispatches(ctx, r)
 
 	open, again := c.advanceHeals(ctx, r)
 
@@ -109,14 +112,19 @@ func (c *Controller) read(ctx context.Context, set state.Settings, now time.Time
 		return nil, fmt.Errorf("list open heals: %w", err)
 	}
 
+	inFlight, err := c.cfg.Store.InFlightHeals(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list in-flight heals: %w", err)
+	}
+
 	r := &passReads{
 		set: set, now: now, mode: c.cfg.Channel.Effective(config.BackendNameAgent),
-		windows: windows, spent: spent, heals: heals,
+		windows: windows, spent: spent, heals: heals, inFlight: inFlight,
 	}
 	r.budget, r.gateReason = budgetGate(r.mode, set, spent, windows, now)
 	log := ctxlog.Logger(ctx)
 
-	if slices.ContainsFunc(heals, func(h state.Heal) bool { return inFlight(h.Dispatch) }) {
+	if len(inFlight) > 0 {
 		if r.containers, err = c.cfg.Backend.ListContainers(ctx); err != nil {
 			log.Warn("sentinel: listing the agent's containers failed", "error", err)
 
@@ -138,6 +146,46 @@ func (r *passReads) listed(h state.Heal) bool {
 	return r.listFailed || slices.ContainsFunc(r.containers, func(ci backend.ContainerInfo) bool {
 		return ci.Project == h.Project && ci.CardID == h.CardID && ci.Kind == h.Dispatch.Kind
 	})
+}
+
+// held lists the run kinds another heal of h's card still has in flight.
+func (r *passReads) held(h state.Heal) []string {
+	var kinds []string
+
+	for _, o := range r.inFlight {
+		if o.ID != h.ID && o.Project == h.Project && o.CardID == h.CardID {
+			kinds = append(kinds, o.Dispatch.Kind)
+		}
+	}
+
+	return kinds
+}
+
+// expireDispatches fails each finished heal's run kind that can no longer
+// report and charges its ceiling, so the card's open heal may send that kind
+// again. Open heals' run kinds are left to the heal flow.
+func (c *Controller) expireDispatches(ctx context.Context, r *passReads) {
+	kept := make([]state.Heal, 0, len(r.inFlight))
+
+	for _, h := range r.inFlight {
+		if !state.Terminal(h.Stage) || !unreported(h.Dispatch, r.listed(h), r.now) {
+			kept = append(kept, h)
+
+			continue
+		}
+
+		failed := h
+
+		// ErrHealChanged: its report arrived since the pass read it.
+		if err := c.failUnreported(ctx, &failed); err != nil && !errors.Is(err, state.ErrHealChanged) {
+			ctxlog.Logger(ctx).Warn("sentinel: unreported run kind not expired",
+				"project", h.Project, "card_id", h.CardID, "heal_id", h.ID, "error", err)
+
+			kept = append(kept, h)
+		}
+	}
+
+	r.inFlight = kept
 }
 
 // advanceHeals acts on each open heal's next step. It returns the cards whose
@@ -211,6 +259,7 @@ func (c *Controller) view(ctx context.Context, r *passReads, h state.Heal) (heal
 
 	v.Card = card
 	v.Listed = inFlight(h.Dispatch) && r.listed(h)
+	v.Held = r.held(h)
 	v.Edited = checkEdits(fixContext{Card: card, Snapshot: v.Run.Launch.Snapshot})
 
 	if fix := healFix(h); h.Stage == state.StageApply && fix != nil {

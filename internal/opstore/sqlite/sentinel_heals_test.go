@@ -133,6 +133,40 @@ func TestOpenHealsReturnsOnlyOpenHeals(t *testing.T) {
 	assert.ElementsMatch(t, open, stages)
 }
 
+func TestInFlightHealsAcrossStages(t *testing.T) {
+	st := openLadderStore(t)
+	ctx := context.Background()
+
+	open := openDispatchedHeal(t, st, "P-001", state.StageInvestigate, "endpoint")
+	closed := openDispatchedHeal(t, st, "P-002", state.StageClosed, "endpoint")
+	parked := openDispatchedHeal(t, st, "P-003", state.StageParked, "claude_code")
+
+	for _, edit := range []struct {
+		card string
+		edit func(*state.Heal)
+	}{
+		{"P-004", func(h *state.Heal) { h.Dispatch.AnsweredRunID = "k4" }},
+		{"P-005", func(h *state.Heal) { h.Dispatch.Failure = "the investigate run did not report" }},
+		{"P-006", func(h *state.Heal) { h.Dispatch = state.Dispatch{} }},
+	} {
+		openDispatchedHeal(t, st, edit.card, state.StageParked, "endpoint")
+
+		h := onlyHeal(t, st, edit.card)
+		edit.edit(&h)
+		require.NoError(t, st.SaveHeal(ctx, &h))
+	}
+
+	heals, err := st.InFlightHeals(ctx)
+	require.NoError(t, err)
+
+	ids := make([]int64, 0, len(heals))
+	for _, h := range heals {
+		ids = append(ids, h.ID)
+	}
+
+	assert.Equal(t, []int64{open, closed, parked}, ids, "every stage, oldest first; answered, failed and cleared dispatches are not in flight")
+}
+
 func TestSaveHealRoundTripsEveryField(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()
