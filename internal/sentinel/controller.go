@@ -15,6 +15,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -23,24 +24,24 @@ const defaultTick = 30 * time.Second
 
 // Store is the ops.db slice the controller reads and writes.
 type Store interface {
-	SentinelSettings(ctx context.Context) (Settings, time.Time, string, error)
+	SentinelSettings(ctx context.Context) (state.Settings, time.Time, string, error)
 	SubscriptionWindows(ctx context.Context) ([]protocol.SubscriptionUsage, error)
-	RecordRunKindStatus(ctx context.Context, r RunKindReport) (healID int64, recorded bool, err error)
+	RecordRunKindStatus(ctx context.Context, r state.RunKindReport) (healID int64, recorded bool, err error)
 	AddFindings(ctx context.Context, healID int64, project, cardID string, fs []protocol.FrictionFinding, at time.Time) error
 	// SaveHeal advances h.Version, or answers ErrHealChanged when the row was
 	// written since h was read.
-	SaveHeal(ctx context.Context, h *Heal) error
+	SaveHeal(ctx context.Context, h *state.Heal) error
 	// OpenHeal also marks a heal's run decided.
-	OpenHeal(ctx context.Context, h Heal) (int64, error)
-	OpenHeals(ctx context.Context) ([]Heal, error)
+	OpenHeal(ctx context.Context, h state.Heal) (int64, error)
+	OpenHeals(ctx context.Context) ([]state.Heal, error)
 	// CardHeals returns the card's heal and forward rows, newest first.
-	CardHeals(ctx context.Context, project, cardID string) ([]Heal, error)
+	CardHeals(ctx context.Context, project, cardID string) ([]state.Heal, error)
 	// LatestHeals returns each card's newest heal or forward row in the project.
-	LatestHeals(ctx context.Context, project string) (map[string]Heal, error)
-	UndecidedRuns(ctx context.Context) ([]Run, error)
+	LatestHeals(ctx context.Context, project string) (map[string]state.Heal, error)
+	UndecidedRuns(ctx context.Context) ([]state.Run, error)
 	MarkRunDecided(ctx context.Context, project, cardID string, started time.Time) error
 	// CardRunRow answers nil when this instance never launched the card.
-	CardRunRow(ctx context.Context, project, cardID string) (*Run, error)
+	CardRunRow(ctx context.Context, project, cardID string) (*state.Run, error)
 	RefreshEditSnapshot(ctx context.Context, project, cardID string, snap board.EditSnapshot) error
 	IncrementAttempts(ctx context.Context, project, cardID string) error
 	IncrementUsageReruns(ctx context.Context, project, cardID string) error

@@ -11,6 +11,7 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 // RunKindStatus records a validated run-kind terminal status on the card's
@@ -49,8 +50,8 @@ func (c *Controller) RunKindStatus(ctx context.Context, p protocol.StatusCallbac
 
 // runKindReport is the store's record of a run kind's terminal status. A model
 // kind that reported no usage is charged its ceiling.
-func runKindReport(p protocol.StatusCallbackPayload, pricer Pricer, at time.Time) (RunKindReport, error) {
-	r := RunKindReport{
+func runKindReport(p protocol.StatusCallbackPayload, pricer Pricer, at time.Time) (state.RunKindReport, error) {
+	r := state.RunKindReport{
 		Project: p.Project, CardID: p.CardID, Kind: p.Kind, RunID: p.RunID,
 		SpendUSD:      priceUsage(p.Usage, pricer),
 		ChargeCeiling: p.Kind == protocol.RunKindInvestigate && len(p.Usage) == 0,
@@ -66,7 +67,7 @@ func runKindReport(p protocol.StatusCallbackPayload, pricer Pricer, at time.Time
 
 	var err error
 	if r.Result, err = json.Marshal(result); err != nil {
-		return RunKindReport{}, fmt.Errorf("encode run kind result: %w", err)
+		return state.RunKindReport{}, fmt.Errorf("encode run kind result: %w", err)
 	}
 
 	return r, nil

@@ -6,15 +6,17 @@ import (
 	"testing"
 	"time"
 
-	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	protocol "github.com/mhersson/contextmatrix-protocol"
 
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
 	opsqlite "github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 	"github.com/mhersson/contextmatrix/internal/sentinel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 var now = time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
@@ -54,15 +56,15 @@ func (in *intake) dispatch(t *testing.T, stage, kind string) {
 	t.Helper()
 
 	at := now.Add(-time.Minute)
-	_, err := in.ops.OpenHeal(context.Background(), sentinel.Heal{
-		Kind: sentinel.HealKindHeal, Project: "alpha", CardID: "ALPHA-001", RunStarted: now.Add(-time.Hour), Stage: stage,
-		Dispatch:  sentinel.Dispatch{Kind: kind, Mode: "endpoint", CeilingUSD: 2, At: &at},
+	_, err := in.ops.OpenHeal(context.Background(), state.Heal{
+		Kind: state.HealKindHeal, Project: "alpha", CardID: "ALPHA-001", RunStarted: now.Add(-time.Hour), Stage: stage,
+		Dispatch:  state.Dispatch{Kind: kind, Mode: "endpoint", CeilingUSD: 2, At: &at},
 		CreatedAt: at, UpdatedAt: at,
 	})
 	require.NoError(t, err)
 }
 
-func (in *intake) heal(t *testing.T) sentinel.Heal {
+func (in *intake) heal(t *testing.T) state.Heal {
 	t.Helper()
 
 	heals, err := in.ops.CardHeals(context.Background(), "alpha", "ALPHA-001")
@@ -72,7 +74,7 @@ func (in *intake) heal(t *testing.T) sentinel.Heal {
 	return heals[0]
 }
 
-func (in *intake) findings(t *testing.T) []sentinel.Finding {
+func (in *intake) findings(t *testing.T) []state.Finding {
 	t.Helper()
 
 	fs, err := in.ops.CardFindings(context.Background(), "alpha", "ALPHA-001")
@@ -117,7 +119,7 @@ func sentinelEvents(ch <-chan events.Event) []events.Event {
 func TestRunKindStatusChargesOnceAndNudges(t *testing.T) {
 	ctx := context.Background()
 	in := newIntake(t)
-	in.dispatch(t, sentinel.StageInvestigate, protocol.RunKindInvestigate)
+	in.dispatch(t, state.StageInvestigate, protocol.RunKindInvestigate)
 
 	ch, unsubscribe := in.bus.Subscribe()
 	defer unsubscribe()
@@ -141,7 +143,7 @@ func TestRunKindStatusChargesOnceAndNudges(t *testing.T) {
 }
 
 func TestRunKindStatusAfterParkIsChargedNotApplied(t *testing.T) {
-	for _, stage := range []string{sentinel.StageParked, sentinel.StageClosed} {
+	for _, stage := range []string{state.StageParked, state.StageClosed} {
 		t.Run(stage, func(t *testing.T) {
 			ctx := context.Background()
 			in := newIntake(t)
@@ -173,9 +175,9 @@ func TestRunKindStatusStoresFindingsOnlyWithFriction(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			in := newIntake(t)
-			in.dispatch(t, sentinel.StageInvestigate, protocol.RunKindInvestigate)
+			in.dispatch(t, state.StageInvestigate, protocol.RunKindInvestigate)
 
-			set := sentinel.DefaultSettings()
+			set := state.DefaultSettings()
 			set.Friction = tt.friction
 			require.NoError(t, in.ops.PutSentinelSettings(ctx, set, "human:admin"))
 
@@ -197,7 +199,7 @@ func TestRunKindStatusStoresFindingsOnlyWithFriction(t *testing.T) {
 func TestRunKindStatusRecordsSubscriptionWindows(t *testing.T) {
 	ctx := context.Background()
 	in := newIntake(t)
-	in.dispatch(t, sentinel.StageInvestigate, protocol.RunKindInvestigate)
+	in.dispatch(t, state.StageInvestigate, protocol.RunKindInvestigate)
 
 	fiveHour := protocol.SubscriptionUsage{Window: "five_hour", Utilization: 0.4, Status: "allowed", ResetsAt: now.Add(time.Hour)}
 	sevenDay := protocol.SubscriptionUsage{Window: "seven_day", Utilization: 0.9, Status: "allowed_warning", ResetsAt: now.Add(48 * time.Hour)}
@@ -236,7 +238,7 @@ func TestRunKindStatusFailedWithoutUsageChargesCeiling(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			in := newIntake(t)
-			in.dispatch(t, sentinel.StageInvestigate, tt.kind)
+			in.dispatch(t, state.StageInvestigate, tt.kind)
 
 			require.NoError(t, in.ctl.RunKindStatus(ctx, protocol.StatusCallbackPayload{
 				CardID: "ALPHA-001", Project: "alpha", WorkerStatus: "failed", RunID: "k1",

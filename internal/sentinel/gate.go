@@ -6,6 +6,7 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 // Pause reasons the budget gate gives.
@@ -18,7 +19,7 @@ const (
 // channel is bounded by the daily cap. On Claude Code cost does not count:
 // every window that has not reset must be below the headroom threshold.
 func budgetGate(
-	mode llmchannel.Mode, s Settings, spentToday float64, windows []protocol.SubscriptionUsage, now time.Time,
+	mode llmchannel.Mode, s state.Settings, spentToday float64, windows []protocol.SubscriptionUsage, now time.Time,
 ) (open bool, reason string) {
 	if mode != llmchannel.ModeClaudeCode {
 		if spentToday < s.DailyCapUSD {

@@ -13,15 +13,16 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/sentinel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 // SentinelStore is the ops.db side of the Sentinel endpoints.
 type SentinelStore interface {
-	SentinelSettings(ctx context.Context) (sentinel.Settings, time.Time, string, error)
-	PutSentinelSettings(ctx context.Context, s sentinel.Settings, by string) error
-	CardRunRow(ctx context.Context, project, cardID string) (*sentinel.Run, error)
-	CardHeals(ctx context.Context, project, cardID string) ([]sentinel.Heal, error)
-	CardFindings(ctx context.Context, project, cardID string) ([]sentinel.Finding, error)
+	SentinelSettings(ctx context.Context) (state.Settings, time.Time, string, error)
+	PutSentinelSettings(ctx context.Context, s state.Settings, by string) error
+	CardRunRow(ctx context.Context, project, cardID string) (*state.Run, error)
+	CardHeals(ctx context.Context, project, cardID string) ([]state.Heal, error)
+	CardFindings(ctx context.Context, project, cardID string) ([]state.Finding, error)
 }
 
 type sentinelHandlers struct {
@@ -33,10 +34,10 @@ type sentinelHandlers struct {
 }
 
 type sentinelResponse struct {
-	Status    sentinel.Status   `json:"status"`
-	Settings  sentinel.Settings `json:"settings"`
-	UpdatedAt string            `json:"updated_at,omitempty"`
-	UpdatedBy string            `json:"updated_by,omitempty"`
+	Status    sentinel.Status `json:"status"`
+	Settings  state.Settings  `json:"settings"`
+	UpdatedAt string          `json:"updated_at,omitempty"`
+	UpdatedBy string          `json:"updated_by,omitempty"`
 }
 
 type cardSentinelRun struct {
@@ -87,7 +88,7 @@ func (h *sentinelHandlers) put(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var set sentinel.Settings
+	var set state.Settings
 	if !decodeJSON(w, r, &set) {
 		return
 	}
@@ -98,7 +99,7 @@ func (h *sentinelHandlers) put(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch err := h.store.PutSentinelSettings(r.Context(), set, by); {
-	case errors.Is(err, sentinel.ErrInvalidSettings):
+	case errors.Is(err, state.ErrInvalidSettings):
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, err.Error(), "")
 
 		return
@@ -151,7 +152,7 @@ type cardSentinelFinding struct {
 	CreatedAt string `json:"created_at"`
 }
 
-func healView(h sentinel.Heal) cardSentinelHeal {
+func healView(h state.Heal) cardSentinelHeal {
 	v := cardSentinelHeal{
 		ID: h.ID, Kind: h.Kind, Cause: h.Cause, Stage: h.Stage, Reason: h.Reason,
 		SourceCard: h.SourceCard, SpendUSD: h.SpendUSD,
@@ -239,7 +240,7 @@ func (h *sentinelHandlers) cardRun(w http.ResponseWriter, r *http.Request) {
 			Origin:      run.Launch.Origin,
 			Autonomous:  run.Launch.Autonomous,
 			Attempts:    run.Attempts,
-			MaxAttempts: sentinel.MaxHealAttempts,
+			MaxAttempts: state.MaxHealAttempts,
 			StartedAt:   run.StartedAt.UTC().Format(time.RFC3339),
 			StopCause:   run.StopCause,
 			HumanStop:   run.HumanStop,

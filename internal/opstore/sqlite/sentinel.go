@@ -9,14 +9,14 @@ import (
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
 
-	"github.com/mhersson/contextmatrix/internal/sentinel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 // SentinelSettings returns the stored settings, when they were written and by
 // whom. Defaults and a zero time mean nothing is stored.
-func (s *Store) SentinelSettings(ctx context.Context) (sentinel.Settings, time.Time, string, error) {
+func (s *Store) SentinelSettings(ctx context.Context) (state.Settings, time.Time, string, error) {
 	var (
-		set                           sentinel.Settings
+		set                           state.Settings
 		enabled, healing, friction, t int64
 		by                            string
 	)
@@ -26,11 +26,11 @@ func (s *Store) SentinelSettings(ctx context.Context) (sentinel.Settings, time.T
 		 FROM sentinel_settings WHERE id = 1`).
 		Scan(&enabled, &healing, &friction, &set.DailyCapUSD, &set.InvestigateCeilingUSD, &set.Headroom, &t, &by)
 	if errors.Is(err, sql.ErrNoRows) {
-		return sentinel.DefaultSettings(), time.Time{}, "", nil
+		return state.DefaultSettings(), time.Time{}, "", nil
 	}
 
 	if err != nil {
-		return sentinel.Settings{}, time.Time{}, "", fmt.Errorf("read sentinel settings: %w", err)
+		return state.Settings{}, time.Time{}, "", fmt.Errorf("read sentinel settings: %w", err)
 	}
 
 	set.Enabled, set.Healing, set.Friction = enabled != 0, healing != 0, friction != 0
@@ -40,7 +40,7 @@ func (s *Store) SentinelSettings(ctx context.Context) (sentinel.Settings, time.T
 
 // PutSentinelSettings validates and replaces the single row; nothing is stored
 // when the settings are invalid. The ecosystem column is left untouched.
-func (s *Store) PutSentinelSettings(ctx context.Context, set sentinel.Settings, by string) error {
+func (s *Store) PutSentinelSettings(ctx context.Context, set state.Settings, by string) error {
 	if err := set.Validate(); err != nil {
 		return err
 	}

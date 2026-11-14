@@ -11,7 +11,7 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
-	"github.com/mhersson/contextmatrix/internal/sentinel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 // handRunPreflight checks the backend, the card and its playbook lock for a human's run, via REST or MCP.
@@ -45,7 +45,7 @@ func (h *backendHandlers) mcpRunCard(ctx context.Context, project, id string) (*
 		return nil, err
 	}
 
-	return h.launch(ctx, project, id, launchOptions{handRun: true, origin: sentinel.OriginMCP})
+	return h.launch(ctx, project, id, launchOptions{handRun: true, origin: state.OriginMCP})
 }
 
 // runCard handles POST /api/projects/{project}/cards/{id}/run - "Run Now".
@@ -73,7 +73,7 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	card, err := h.launch(r.Context(), project, id, launchOptions{interactive: runBody.Interactive, handRun: true, origin: sentinel.OriginREST})
+	card, err := h.launch(r.Context(), project, id, launchOptions{interactive: runBody.Interactive, handRun: true, origin: state.OriginREST})
 	if err != nil {
 		writeLaunchError(w, r, err)
 

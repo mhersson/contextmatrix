@@ -4,10 +4,12 @@ import (
 	"testing"
 	"time"
 
-	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
+
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 func TestSummarize(t *testing.T) {
@@ -86,7 +88,7 @@ func TestSummarizeCarriesModeCapsAndLiveWindows(t *testing.T) {
 }
 
 func TestNotRunningStatus(t *testing.T) {
-	assert.Equal(t, StateOff, NotRunningStatus(DefaultSettings()).State)
+	assert.Equal(t, StateOff, NotRunningStatus(state.DefaultSettings()).State)
 
 	st := NotRunningStatus(enabledSettings())
 	assert.True(t, st.Enabled)

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 // Mark actions, as the board icon names them.
@@ -47,33 +48,33 @@ func (c *Controller) SentinelMarks(ctx context.Context, project string) (map[str
 }
 
 // markFor is the mark a card's latest heal earns; closed and failed forwards earn none.
-func markFor(h Heal) (board.SentinelMark, bool) {
+func markFor(h state.Heal) (board.SentinelMark, bool) {
 	mark := func(action, label string) (board.SentinelMark, bool) {
 		return board.SentinelMark{Action: action, Label: label}, true
 	}
 
 	switch h.Stage {
-	case StageInvestigate:
+	case state.StageInvestigate:
 		return mark(markHealing, "Sentinel is investigating why the run stopped")
-	case StageCheck:
+	case state.StageCheck:
 		return mark(markHealing, "Sentinel is checking a fix")
-	case StageApply:
+	case state.StageApply:
 		return mark(markHealing, "Sentinel is applying a fix")
-	case StageUsageWait:
+	case state.StageUsageWait:
 		return mark(markHealing, "Sentinel will rerun after the usage limit resets")
-	case StageRerun:
-		if h.Change != nil && h.Change.changed() {
+	case state.StageRerun:
+		if h.Change != nil && len(changeParts(*h.Change)) > 0 {
 			return mark(markHealing, "Sentinel changed the card and is rerunning it")
 		}
 
 		return mark(markHealing, "Sentinel is rerunning the card unchanged")
-	case StageHealed:
+	case state.StageHealed:
 		return mark(markHealed, "Sentinel healed this card")
-	case StageRerunFailed:
+	case state.StageRerunFailed:
 		return mark(markParked, "Sentinel's rerun did not pass")
-	case StageParked:
+	case state.StageParked:
 		return mark(markParked, "Sentinel left this for a human: "+firstLine(h.Reason, maxMarkReason))
-	case StageForwarded, StageForwardPassed:
+	case state.StageForwarded, state.StageForwardPassed:
 		return mark(markEdited, "Sentinel applied a fix from "+h.SourceCard)
 	}
 

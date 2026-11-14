@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 func TestMarkFor(t *testing.T) {
@@ -14,26 +16,26 @@ func TestMarkFor(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		heal       Heal
+		heal       state.Heal
 		action     string // "" = no mark
 		contains   string
 		notContain string
 	}{
-		{name: "investigate", heal: Heal{Stage: StageInvestigate}, action: "healing"},
-		{name: "check", heal: Heal{Stage: StageCheck}, action: "healing"},
-		{name: "apply", heal: Heal{Stage: StageApply}, action: "healing"},
-		{name: "usage wait", heal: Heal{Stage: StageUsageWait}, action: "healing"},
-		{name: "rerun unchanged", heal: Heal{Stage: StageRerun}, action: "healing"},
-		{name: "rerun empty change", heal: Heal{Stage: StageRerun, Change: &Change{}}, action: "healing"},
-		{name: "rerun section change", heal: Heal{Stage: StageRerun, Change: &Change{SectionAfter: "new"}}, action: "healing"},
-		{name: "healed", heal: Heal{Stage: StageHealed}, action: "healed"},
-		{name: "rerun failed", heal: Heal{Stage: StageRerunFailed}, action: "parked"},
-		{name: "parked", heal: Heal{Stage: StageParked, Reason: "needs a key\nsecond line"}, action: "parked", contains: "needs a key", notContain: "second line"},
-		{name: "parked long reason", heal: Heal{Stage: StageParked, Reason: long}, action: "parked", contains: strings.Repeat("x", 120), notContain: strings.Repeat("x", 121)},
-		{name: "forwarded", heal: Heal{Stage: StageForwarded, SourceCard: "PROJ-007"}, action: "edited", contains: "PROJ-007"},
-		{name: "forward passed", heal: Heal{Stage: StageForwardPassed, SourceCard: "PROJ-008"}, action: "edited", contains: "PROJ-008"},
-		{name: "closed", heal: Heal{Stage: StageClosed}},
-		{name: "forward failed", heal: Heal{Stage: StageForwardFailed}},
+		{name: "investigate", heal: state.Heal{Stage: state.StageInvestigate}, action: "healing"},
+		{name: "check", heal: state.Heal{Stage: state.StageCheck}, action: "healing"},
+		{name: "apply", heal: state.Heal{Stage: state.StageApply}, action: "healing"},
+		{name: "usage wait", heal: state.Heal{Stage: state.StageUsageWait}, action: "healing"},
+		{name: "rerun unchanged", heal: state.Heal{Stage: state.StageRerun}, action: "healing"},
+		{name: "rerun empty change", heal: state.Heal{Stage: state.StageRerun, Change: &state.Change{}}, action: "healing"},
+		{name: "rerun section change", heal: state.Heal{Stage: state.StageRerun, Change: &state.Change{SectionAfter: "new"}}, action: "healing"},
+		{name: "healed", heal: state.Heal{Stage: state.StageHealed}, action: "healed"},
+		{name: "rerun failed", heal: state.Heal{Stage: state.StageRerunFailed}, action: "parked"},
+		{name: "parked", heal: state.Heal{Stage: state.StageParked, Reason: "needs a key\nsecond line"}, action: "parked", contains: "needs a key", notContain: "second line"},
+		{name: "parked long reason", heal: state.Heal{Stage: state.StageParked, Reason: long}, action: "parked", contains: strings.Repeat("x", 120), notContain: strings.Repeat("x", 121)},
+		{name: "forwarded", heal: state.Heal{Stage: state.StageForwarded, SourceCard: "PROJ-007"}, action: "edited", contains: "PROJ-007"},
+		{name: "forward passed", heal: state.Heal{Stage: state.StageForwardPassed, SourceCard: "PROJ-008"}, action: "edited", contains: "PROJ-008"},
+		{name: "closed", heal: state.Heal{Stage: state.StageClosed}},
+		{name: "forward failed", heal: state.Heal{Stage: state.StageForwardFailed}},
 	}
 
 	for _, tt := range tests {
@@ -59,9 +61,9 @@ func TestMarkFor(t *testing.T) {
 		})
 	}
 
-	changed, _ := markFor(Heal{Stage: StageRerun, Change: &Change{SectionAfter: "new"}})
-	unchanged, _ := markFor(Heal{Stage: StageRerun})
-	empty, _ := markFor(Heal{Stage: StageRerun, Change: &Change{}})
+	changed, _ := markFor(state.Heal{Stage: state.StageRerun, Change: &state.Change{SectionAfter: "new"}})
+	unchanged, _ := markFor(state.Heal{Stage: state.StageRerun})
+	empty, _ := markFor(state.Heal{Stage: state.StageRerun, Change: &state.Change{}})
 
 	assert.NotEqual(t, changed.Label, unchanged.Label)
 	assert.Equal(t, unchanged.Label, empty.Label)
@@ -70,12 +72,12 @@ func TestMarkFor(t *testing.T) {
 func TestSentinelMarks(t *testing.T) {
 	ctx := context.Background()
 	st := &fakeStore{
-		settings: Settings{Enabled: true},
-		heals: map[int64]Heal{
-			1: {ID: 1, Project: "p", CardID: "P-001", Stage: StageParked, Reason: "old"},
-			2: {ID: 2, Project: "p", CardID: "P-001", Stage: StageHealed},
-			3: {ID: 3, Project: "p", CardID: "P-002", Stage: StageClosed},
-			4: {ID: 4, Project: "other", CardID: "O-001", Stage: StageHealed},
+		settings: state.Settings{Enabled: true},
+		heals: map[int64]state.Heal{
+			1: {ID: 1, Project: "p", CardID: "P-001", Stage: state.StageParked, Reason: "old"},
+			2: {ID: 2, Project: "p", CardID: "P-001", Stage: state.StageHealed},
+			3: {ID: 3, Project: "p", CardID: "P-002", Stage: state.StageClosed},
+			4: {ID: 4, Project: "other", CardID: "O-001", Stage: state.StageHealed},
 		},
 	}
 	ctl := New(Config{Store: st, Pricer: ratePricer{}})

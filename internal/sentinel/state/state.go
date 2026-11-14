@@ -1,4 +1,7 @@
-package sentinel
+// Package state holds Sentinel's durable state as ops.db stores it: the run
+// row, the heal records and the settings. It is a leaf, so the store needs
+// nothing of the controller.
+package state
 
 import (
 	"errors"

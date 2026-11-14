@@ -6,12 +6,13 @@ import (
 	"testing"
 	"time"
 
-	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
+
 	"github.com/mhersson/contextmatrix/internal/board"
-	"github.com/mhersson/contextmatrix/internal/sentinel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 // openDispatchedHeal opens an autonomous run of cardID started at runT0 and a
@@ -20,12 +21,12 @@ func openDispatchedHeal(t *testing.T, st *Store, cardID, stage, mode string) int
 	t.Helper()
 
 	ctx := context.Background()
-	require.NoError(t, st.OpenCardRun(ctx, "p", cardID, mode, runT0, sentinel.LaunchFacts{Autonomous: true}))
+	require.NoError(t, st.OpenCardRun(ctx, "p", cardID, mode, runT0, state.LaunchFacts{Autonomous: true}))
 
 	at := runT0.Add(time.Minute)
-	id, err := st.OpenHeal(ctx, sentinel.Heal{
-		Kind: sentinel.HealKindHeal, Project: "p", CardID: cardID, RunStarted: runT0, Stage: stage,
-		Dispatch:  sentinel.Dispatch{Kind: protocol.RunKindInvestigate, Mode: mode, CeilingUSD: 1.0, At: &at},
+	id, err := st.OpenHeal(ctx, state.Heal{
+		Kind: state.HealKindHeal, Project: "p", CardID: cardID, RunStarted: runT0, Stage: stage,
+		Dispatch:  state.Dispatch{Kind: protocol.RunKindInvestigate, Mode: mode, CeilingUSD: 1.0, At: &at},
 		CreatedAt: at, UpdatedAt: at,
 	})
 	require.NoError(t, err)
@@ -33,7 +34,7 @@ func openDispatchedHeal(t *testing.T, st *Store, cardID, stage, mode string) int
 	return id
 }
 
-func onlyHeal(t *testing.T, st *Store, cardID string) sentinel.Heal {
+func onlyHeal(t *testing.T, st *Store, cardID string) state.Heal {
 	t.Helper()
 
 	heals, err := st.CardHeals(context.Background(), "p", cardID)
@@ -52,8 +53,8 @@ func ledgerRows(t *testing.T, st *Store) int {
 	return n
 }
 
-func investigateReport(cardID string) sentinel.RunKindReport {
-	return sentinel.RunKindReport{
+func investigateReport(cardID string) state.RunKindReport {
+	return state.RunKindReport{
 		Project: "p", CardID: cardID, Kind: protocol.RunKindInvestigate, RunID: "k1",
 		Result:   []byte(`{"diagnosis":"the verify command needs a longer timeout","cause":"card"}`),
 		SpendUSD: 0.4, At: runT0.Add(2 * time.Minute),
@@ -64,17 +65,17 @@ func TestOpenHealIsIdempotentPerRun(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()
 
-	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0, sentinel.LaunchFacts{Autonomous: true}))
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0, state.LaunchFacts{Autonomous: true}))
 
-	h := sentinel.Heal{Kind: sentinel.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0, Stage: sentinel.StageInvestigate}
+	h := state.Heal{Kind: state.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0, Stage: state.StageInvestigate}
 	first, err := st.OpenHeal(ctx, h)
 	require.NoError(t, err)
 
-	h.Stage = sentinel.StageParked
+	h.Stage = state.StageParked
 	second, err := st.OpenHeal(ctx, h)
 	require.NoError(t, err)
 	assert.Equal(t, first, second)
-	assert.Equal(t, sentinel.StageInvestigate, onlyHeal(t, st, "P-001").Stage)
+	assert.Equal(t, state.StageInvestigate, onlyHeal(t, st, "P-001").Stage)
 
 	run, err := st.CardRunRow(ctx, "p", "P-001")
 	require.NoError(t, err)
@@ -89,9 +90,9 @@ func TestOpenHealKeepsEveryForwardRow(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()
 
-	require.NoError(t, st.OpenCardRun(ctx, "p", "P-002", "endpoint", runT0, sentinel.LaunchFacts{Autonomous: true}))
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-002", "endpoint", runT0, state.LaunchFacts{Autonomous: true}))
 
-	fwd := sentinel.Heal{Kind: sentinel.HealKindForward, Project: "p", CardID: "P-002", Stage: sentinel.StageForwarded, SourceCard: "P-001"}
+	fwd := state.Heal{Kind: state.HealKindForward, Project: "p", CardID: "P-002", Stage: state.StageForwarded, SourceCard: "P-001"}
 	first, err := st.OpenHeal(ctx, fwd)
 	require.NoError(t, err)
 	second, err := st.OpenHeal(ctx, fwd)
@@ -107,17 +108,17 @@ func TestOpenHealsReturnsOnlyOpenHeals(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()
 
-	open := []string{sentinel.StageInvestigate, sentinel.StageCheck, sentinel.StageApply, sentinel.StageUsageWait, sentinel.StageRerun}
-	done := []string{sentinel.StageHealed, sentinel.StageRerunFailed, sentinel.StageParked, sentinel.StageClosed}
+	open := []string{state.StageInvestigate, state.StageCheck, state.StageApply, state.StageUsageWait, state.StageRerun}
+	done := []string{state.StageHealed, state.StageRerunFailed, state.StageParked, state.StageClosed}
 
 	for i, stage := range slices.Concat(open, done) {
-		_, err := st.OpenHeal(ctx, sentinel.Heal{
-			Kind: sentinel.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0.Add(time.Duration(i) * time.Hour), Stage: stage,
+		_, err := st.OpenHeal(ctx, state.Heal{
+			Kind: state.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0.Add(time.Duration(i) * time.Hour), Stage: stage,
 		})
 		require.NoError(t, err)
 	}
 
-	_, err := st.OpenHeal(ctx, sentinel.Heal{Kind: sentinel.HealKindForward, Project: "p", CardID: "P-002", Stage: sentinel.StageForwarded})
+	_, err := st.OpenHeal(ctx, state.Heal{Kind: state.HealKindForward, Project: "p", CardID: "P-002", Stage: state.StageForwarded})
 	require.NoError(t, err)
 
 	heals, err := st.OpenHeals(ctx)
@@ -125,7 +126,7 @@ func TestOpenHealsReturnsOnlyOpenHeals(t *testing.T) {
 
 	stages := make([]string, 0, len(heals))
 	for _, h := range heals {
-		assert.Equal(t, sentinel.HealKindHeal, h.Kind)
+		assert.Equal(t, state.HealKindHeal, h.Kind)
 		stages = append(stages, h.Stage)
 	}
 
@@ -136,17 +137,17 @@ func TestSaveHealRoundTripsEveryField(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()
 
-	id, err := st.OpenHeal(ctx, sentinel.Heal{
-		Kind: sentinel.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0,
-		Stage: sentinel.StageInvestigate, CreatedAt: runT0, UpdatedAt: runT0,
+	id, err := st.OpenHeal(ctx, state.Heal{
+		Kind: state.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0,
+		Stage: state.StageInvestigate, CreatedAt: runT0, UpdatedAt: runT0,
 	})
 	require.NoError(t, err)
 
 	dispatched, relaunched := runT0.Add(time.Minute), runT0.Add(time.Hour)
-	want := sentinel.Heal{
-		ID: id, Kind: sentinel.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0,
-		RunID: "r1", Cause: "verify_parked", Response: "investigate_fix", Stage: sentinel.StageRerun, Reason: "r",
-		Dispatch: sentinel.Dispatch{
+	want := state.Heal{
+		ID: id, Kind: state.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0,
+		RunID: "r1", Cause: "verify_parked", Response: "investigate_fix", Stage: state.StageRerun, Reason: "r",
+		Dispatch: state.Dispatch{
 			Kind: protocol.RunKindCheck, Mode: "claude_code", CeilingUSD: 2, At: &dispatched,
 			AnsweredRunID: "k2", Failure: "f",
 		},
@@ -156,7 +157,7 @@ func TestSaveHealRoundTripsEveryField(t *testing.T) {
 		Check:        &protocol.CheckResult{Candidates: []string{"make test"}, Trial: protocol.TrialFinished},
 		SentSubtasks: []string{"P-002"},
 		SentSiblings: []string{"P-003"},
-		Change: &sentinel.Change{
+		Change: &state.Change{
 			SectionBefore: "a", SectionAfter: "b",
 			VerifyBefore: &board.VerifyConfig{Command: "make test"},
 			VerifyAfter:  &board.VerifyConfig{Command: "make test", TimeoutSeconds: 1800},
@@ -175,13 +176,13 @@ func TestConsecutiveSavesOfOneHealBothLand(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()
 
-	openDispatchedHeal(t, st, "P-001", sentinel.StageInvestigate, "endpoint")
+	openDispatchedHeal(t, st, "P-001", state.StageInvestigate, "endpoint")
 	h := onlyHeal(t, st, "P-001")
 
 	h.Dispatch.At = nil
 	require.NoError(t, st.SaveHeal(ctx, &h))
 
-	h.Stage, h.Reason = sentinel.StageParked, "the agent refused the investigate run"
+	h.Stage, h.Reason = state.StageParked, "the agent refused the investigate run"
 	require.NoError(t, st.SaveHeal(ctx, &h))
 
 	assert.Equal(t, int64(2), h.Version)
@@ -192,20 +193,20 @@ func TestSaveHealRefusesAStaleVersion(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()
 
-	openDispatchedHeal(t, st, "P-001", sentinel.StageInvestigate, "endpoint")
+	openDispatchedHeal(t, st, "P-001", state.StageInvestigate, "endpoint")
 	stale := onlyHeal(t, st, "P-001")
 
 	_, recorded, err := st.RecordRunKindStatus(ctx, investigateReport("P-001"))
 	require.NoError(t, err)
 	require.True(t, recorded)
 
-	stale.Stage = sentinel.StageParked
+	stale.Stage = state.StageParked
 	stale.Dispatch.Failure = "the investigate run did not report"
-	require.ErrorIs(t, st.SaveHeal(ctx, &stale), sentinel.ErrHealChanged)
+	require.ErrorIs(t, st.SaveHeal(ctx, &stale), state.ErrHealChanged)
 	assert.Zero(t, stale.Version)
 
 	h := onlyHeal(t, st, "P-001")
-	assert.Equal(t, sentinel.StageInvestigate, h.Stage)
+	assert.Equal(t, state.StageInvestigate, h.Stage)
 	assert.Equal(t, "k1", h.Dispatch.AnsweredRunID)
 	assert.Empty(t, h.Dispatch.Failure)
 	assert.NotNil(t, h.Investigation)
@@ -225,15 +226,15 @@ func TestCardHealsNewestFirstWithSpend(t *testing.T) {
 	var ids []int64
 
 	for _, started := range []time.Time{runT0, runT0.Add(time.Hour)} {
-		id, err := st.OpenHeal(ctx, sentinel.Heal{
-			Kind: sentinel.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: started, Stage: sentinel.StageParked,
+		id, err := st.OpenHeal(ctx, state.Heal{
+			Kind: state.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: started, Stage: state.StageParked,
 		})
 		require.NoError(t, err)
 
 		ids = append(ids, id)
 	}
 
-	_, err := st.OpenHeal(ctx, sentinel.Heal{Kind: sentinel.HealKindHeal, Project: "p", CardID: "P-002", RunStarted: runT0})
+	_, err := st.OpenHeal(ctx, state.Heal{Kind: state.HealKindHeal, Project: "p", CardID: "P-002", RunStarted: runT0})
 	require.NoError(t, err)
 
 	require.NoError(t, st.Charge(ctx, ids[0], "endpoint", 0.5, runT0))
@@ -253,11 +254,11 @@ func TestLatestHealsPerCard(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()
 
-	for _, h := range []sentinel.Heal{
-		{Kind: sentinel.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0, Stage: sentinel.StageHealed},
-		{Kind: sentinel.HealKindForward, Project: "p", CardID: "P-001", Stage: sentinel.StageForwarded, SourceCard: "P-009"},
-		{Kind: sentinel.HealKindHeal, Project: "p", CardID: "P-002", RunStarted: runT0, Stage: sentinel.StageParked},
-		{Kind: sentinel.HealKindHeal, Project: "q", CardID: "Q-001", RunStarted: runT0, Stage: sentinel.StageParked},
+	for _, h := range []state.Heal{
+		{Kind: state.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0, Stage: state.StageHealed},
+		{Kind: state.HealKindForward, Project: "p", CardID: "P-001", Stage: state.StageForwarded, SourceCard: "P-009"},
+		{Kind: state.HealKindHeal, Project: "p", CardID: "P-002", RunStarted: runT0, Stage: state.StageParked},
+		{Kind: state.HealKindHeal, Project: "q", CardID: "Q-001", RunStarted: runT0, Stage: state.StageParked},
 	} {
 		_, err := st.OpenHeal(ctx, h)
 		require.NoError(t, err)
@@ -266,16 +267,16 @@ func TestLatestHealsPerCard(t *testing.T) {
 	got, err := st.LatestHeals(ctx, "p")
 	require.NoError(t, err)
 	require.Len(t, got, 2)
-	assert.Equal(t, sentinel.HealKindForward, got["P-001"].Kind)
+	assert.Equal(t, state.HealKindForward, got["P-001"].Kind)
 	assert.Equal(t, "P-009", got["P-001"].SourceCard)
-	assert.Equal(t, sentinel.StageParked, got["P-002"].Stage)
+	assert.Equal(t, state.StageParked, got["P-002"].Stage)
 }
 
 func TestRecordRunKindStatusChargesOnce(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()
 
-	id := openDispatchedHeal(t, st, "P-001", sentinel.StageInvestigate, "endpoint")
+	id := openDispatchedHeal(t, st, "P-001", state.StageInvestigate, "endpoint")
 
 	healID, recorded, err := st.RecordRunKindStatus(ctx, investigateReport("P-001"))
 	require.NoError(t, err)
@@ -296,7 +297,7 @@ func TestRecordRunKindStatusChargesOnce(t *testing.T) {
 		Diagnosis: "the verify command needs a longer timeout", Cause: protocol.DiagnosisCard,
 	}, h.Investigation)
 	assert.Nil(t, h.Check)
-	assert.Equal(t, sentinel.StageInvestigate, h.Stage)
+	assert.Equal(t, state.StageInvestigate, h.Stage)
 	assert.InDelta(t, 0.4, h.SpendUSD, 1e-9)
 }
 
@@ -304,13 +305,13 @@ func TestRecordRunKindStatusStoresCheckResult(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()
 
-	openDispatchedHeal(t, st, "P-001", sentinel.StageCheck, "endpoint")
+	openDispatchedHeal(t, st, "P-001", state.StageCheck, "endpoint")
 
 	h := onlyHeal(t, st, "P-001")
 	h.Dispatch.Kind = protocol.RunKindCheck
 	require.NoError(t, st.SaveHeal(ctx, &h))
 
-	_, recorded, err := st.RecordRunKindStatus(ctx, sentinel.RunKindReport{
+	_, recorded, err := st.RecordRunKindStatus(ctx, state.RunKindReport{
 		Project: "p", CardID: "P-001", Kind: protocol.RunKindCheck, RunID: "k2",
 		Result: []byte(`{"candidates":["make test"],"trial":"finished"}`), At: runT0.Add(2 * time.Minute),
 	})
@@ -326,20 +327,20 @@ func TestRecordRunKindStatusStoresCheckResult(t *testing.T) {
 func TestRecordRunKindStatusMatchesOnlyAnUnansweredDispatch(t *testing.T) {
 	tests := []struct {
 		name   string
-		heal   func(h *sentinel.Heal)
-		report func(r *sentinel.RunKindReport)
+		heal   func(h *state.Heal)
+		report func(r *state.RunKindReport)
 	}{
-		{"dispatch parked as silent", func(h *sentinel.Heal) {
-			h.Stage = sentinel.StageParked
+		{"dispatch parked as silent", func(h *state.Heal) {
+			h.Stage = state.StageParked
 			h.Dispatch.Failure = "the investigate run did not report"
 		}, nil},
-		{"another kind in flight", nil, func(r *sentinel.RunKindReport) { r.Kind = protocol.RunKindCheck }},
+		{"another kind in flight", nil, func(r *state.RunKindReport) { r.Kind = protocol.RunKindCheck }},
 		{
-			"nothing dispatched", func(h *sentinel.Heal) { h.Dispatch = sentinel.Dispatch{} },
-			func(r *sentinel.RunKindReport) { r.Kind = "" },
+			"nothing dispatched", func(h *state.Heal) { h.Dispatch = state.Dispatch{} },
+			func(r *state.RunKindReport) { r.Kind = "" },
 		},
-		{"another card", nil, func(r *sentinel.RunKindReport) { r.CardID = "P-404" }},
-		{"no run id", nil, func(r *sentinel.RunKindReport) { r.RunID = "" }},
+		{"another card", nil, func(r *state.RunKindReport) { r.CardID = "P-404" }},
+		{"no run id", nil, func(r *state.RunKindReport) { r.RunID = "" }},
 	}
 
 	for _, tt := range tests {
@@ -347,7 +348,7 @@ func TestRecordRunKindStatusMatchesOnlyAnUnansweredDispatch(t *testing.T) {
 			st := openLadderStore(t)
 			ctx := context.Background()
 
-			openDispatchedHeal(t, st, "P-001", sentinel.StageInvestigate, "endpoint")
+			openDispatchedHeal(t, st, "P-001", state.StageInvestigate, "endpoint")
 
 			if tt.heal != nil {
 				h := onlyHeal(t, st, "P-001")
@@ -376,21 +377,21 @@ func openOlderAndNewerDispatch(t *testing.T, st *Store) (older, newer int64) {
 	t.Helper()
 
 	ctx := context.Background()
-	older = openDispatchedHeal(t, st, "P-001", sentinel.StageClosed, "endpoint")
+	older = openDispatchedHeal(t, st, "P-001", state.StageClosed, "endpoint")
 
-	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0.Add(time.Hour), sentinel.LaunchFacts{Autonomous: true}))
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0.Add(time.Hour), state.LaunchFacts{Autonomous: true}))
 
 	at := runT0.Add(time.Hour + time.Minute)
-	newer, err := st.OpenHeal(ctx, sentinel.Heal{
-		Kind: sentinel.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0.Add(time.Hour), Stage: sentinel.StageInvestigate,
-		Dispatch: sentinel.Dispatch{Kind: protocol.RunKindInvestigate, Mode: "endpoint", CeilingUSD: 1, At: &at},
+	newer, err := st.OpenHeal(ctx, state.Heal{
+		Kind: state.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0.Add(time.Hour), Stage: state.StageInvestigate,
+		Dispatch: state.Dispatch{Kind: protocol.RunKindInvestigate, Mode: "endpoint", CeilingUSD: 1, At: &at},
 	})
 	require.NoError(t, err)
 
 	return older, newer
 }
 
-func healByID(t *testing.T, st *Store, id int64) sentinel.Heal {
+func healByID(t *testing.T, st *Store, id int64) state.Heal {
 	t.Helper()
 
 	heals, err := st.CardHeals(context.Background(), "p", "P-001")
@@ -404,7 +405,7 @@ func healByID(t *testing.T, st *Store, id int64) sentinel.Heal {
 
 	require.FailNow(t, "no heal", "id %d", id)
 
-	return sentinel.Heal{}
+	return state.Heal{}
 }
 
 func TestRecordRunKindStatusAnswersTheNewestDispatch(t *testing.T) {
@@ -450,7 +451,7 @@ func TestRecordRunKindStatusOnParkedHealStillCharges(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()
 
-	id := openDispatchedHeal(t, st, "P-001", sentinel.StageParked, "endpoint")
+	id := openDispatchedHeal(t, st, "P-001", state.StageParked, "endpoint")
 
 	r := investigateReport("P-001")
 	r.Result, r.Failure, r.SpendUSD = nil, "infrastructure", 0.3
@@ -461,7 +462,7 @@ func TestRecordRunKindStatusOnParkedHealStillCharges(t *testing.T) {
 	assert.Equal(t, id, healID)
 
 	h := onlyHeal(t, st, "P-001")
-	assert.Equal(t, sentinel.StageParked, h.Stage)
+	assert.Equal(t, state.StageParked, h.Stage)
 	assert.Equal(t, "k1", h.Dispatch.AnsweredRunID)
 	assert.Equal(t, "infrastructure", h.Dispatch.Failure)
 	assert.Nil(t, h.Investigation)
@@ -475,7 +476,7 @@ func TestRecordRunKindStatusCeilingCharge(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()
 
-	openDispatchedHeal(t, st, "P-001", sentinel.StageInvestigate, "claude_code")
+	openDispatchedHeal(t, st, "P-001", state.StageInvestigate, "claude_code")
 
 	r := investigateReport("P-001")
 	r.Result, r.Failure, r.SpendUSD, r.ChargeCeiling = nil, "killed", 0, true
@@ -498,7 +499,7 @@ func TestSpentSinceSumsOneMode(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()
 
-	id := openDispatchedHeal(t, st, "P-001", sentinel.StageInvestigate, "endpoint")
+	id := openDispatchedHeal(t, st, "P-001", state.StageInvestigate, "endpoint")
 
 	require.NoError(t, st.Charge(ctx, id, "endpoint", 1.5, runT0))
 	require.NoError(t, st.Charge(ctx, id, "claude_code", 4, runT0))
@@ -520,7 +521,7 @@ func TestHealedSinceCountsCards(t *testing.T) {
 	settle := func(cardID string, started time.Time, stage string, at time.Time) {
 		t.Helper()
 
-		h := sentinel.Heal{Kind: sentinel.HealKindHeal, Project: "p", CardID: cardID, RunStarted: started, Stage: sentinel.StageRerun}
+		h := state.Heal{Kind: state.HealKindHeal, Project: "p", CardID: cardID, RunStarted: started, Stage: state.StageRerun}
 		id, err := st.OpenHeal(ctx, h)
 		require.NoError(t, err)
 
@@ -528,11 +529,11 @@ func TestHealedSinceCountsCards(t *testing.T) {
 		require.NoError(t, st.SaveHeal(ctx, &h))
 	}
 
-	settle("P-001", runT0, sentinel.StageHealed, runT0.Add(time.Hour))
-	settle("P-001", runT0.Add(time.Hour), sentinel.StageHealed, runT0.Add(2*time.Hour))
-	settle("P-002", runT0, sentinel.StageHealed, runT0)
-	settle("P-003", runT0, sentinel.StageHealed, runT0.Add(-time.Nanosecond))
-	settle("P-004", runT0, sentinel.StageRerunFailed, runT0.Add(time.Hour))
+	settle("P-001", runT0, state.StageHealed, runT0.Add(time.Hour))
+	settle("P-001", runT0.Add(time.Hour), state.StageHealed, runT0.Add(2*time.Hour))
+	settle("P-002", runT0, state.StageHealed, runT0)
+	settle("P-003", runT0, state.StageHealed, runT0.Add(-time.Nanosecond))
+	settle("P-004", runT0, state.StageRerunFailed, runT0.Add(time.Hour))
 
 	n, err := st.HealedSince(ctx, runT0)
 	require.NoError(t, err)
@@ -545,10 +546,10 @@ func TestCardFindingsNewestHealFirst(t *testing.T) {
 
 	var ids []int64
 
-	for _, h := range []sentinel.Heal{
-		{Kind: sentinel.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0},
-		{Kind: sentinel.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0.Add(time.Hour)},
-		{Kind: sentinel.HealKindHeal, Project: "p", CardID: "P-002", RunStarted: runT0},
+	for _, h := range []state.Heal{
+		{Kind: state.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0},
+		{Kind: state.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0.Add(time.Hour)},
+		{Kind: state.HealKindHeal, Project: "p", CardID: "P-002", RunStarted: runT0},
 	} {
 		id, err := st.OpenHeal(ctx, h)
 		require.NoError(t, err)
@@ -568,7 +569,7 @@ func TestCardFindingsNewestHealFirst(t *testing.T) {
 
 	got, err := st.CardFindings(ctx, "p", "P-001")
 	require.NoError(t, err)
-	assert.Equal(t, []sentinel.Finding{
+	assert.Equal(t, []state.Finding{
 		{HealID: ids[1], Kind: hard.Kind, Text: hard.Text, Evidence: hard.Evidence, CreatedAt: t2},
 		{HealID: ids[0], Kind: guidance.Kind, Text: guidance.Text, Evidence: guidance.Evidence, CreatedAt: t1},
 		{HealID: ids[0], Kind: code.Kind, Title: code.Title, Text: code.Text, Evidence: code.Evidence, CreatedAt: t1},

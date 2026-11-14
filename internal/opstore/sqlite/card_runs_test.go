@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mhersson/contextmatrix/internal/board"
-	"github.com/mhersson/contextmatrix/internal/sentinel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 var runT0 = time.Date(2026, 11, 13, 10, 0, 0, 0, time.UTC)
@@ -19,10 +19,10 @@ func TestOpenCardRunRecordsLaunchFacts(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()
 
-	facts := sentinel.LaunchFacts{
+	facts := state.LaunchFacts{
 		Snapshot:   board.EditSnapshot{"title": "aa", "## Plan": "bb"},
 		Autonomous: true,
-		Origin:     sentinel.OriginMCP,
+		Origin:     state.OriginMCP,
 	}
 	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0, facts))
 
@@ -42,21 +42,21 @@ func TestOpenCardRunRecordsLaunchFacts(t *testing.T) {
 
 func TestOpenCardRunAttemptsResetOnlyByREST(t *testing.T) {
 	for origin, want := range map[string]int{
-		sentinel.OriginMCP:      2,
-		sentinel.OriginPlaybook: 2,
-		sentinel.OriginSentinel: 2,
-		sentinel.OriginREST:     0,
+		state.OriginMCP:      2,
+		state.OriginPlaybook: 2,
+		state.OriginSentinel: 2,
+		state.OriginREST:     0,
 	} {
 		t.Run(origin, func(t *testing.T) {
 			st := openLadderStore(t)
 			ctx := context.Background()
 
-			require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0, sentinel.LaunchFacts{}))
+			require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0, state.LaunchFacts{}))
 			_, err := st.db.ExecContext(ctx, `UPDATE card_run_modes SET attempts = 2`)
 			require.NoError(t, err)
 
 			require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0.Add(time.Hour),
-				sentinel.LaunchFacts{Origin: origin}))
+				state.LaunchFacts{Origin: origin}))
 
 			got, err := st.CardRunRow(ctx, "p", "P-001")
 			require.NoError(t, err)
@@ -70,12 +70,12 @@ func TestOpenCardRunResetsPerRunColumns(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0,
-		sentinel.LaunchFacts{Autonomous: true, Origin: sentinel.OriginREST, Snapshot: board.EditSnapshot{"title": "x"}}))
+		state.LaunchFacts{Autonomous: true, Origin: state.OriginREST, Snapshot: board.EditSnapshot{"title": "x"}}))
 	require.NoError(t, st.RecordRunStatus(ctx, "p", "P-001", "r1", "running", "", runT0))
 	require.NoError(t, st.RecordRunStatus(ctx, "p", "P-001", "r1", "failed", "error", runT0))
 	require.NoError(t, st.MarkHumanStop(ctx, "p", "P-001"))
 
-	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0.Add(time.Hour), sentinel.LaunchFacts{}))
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0.Add(time.Hour), state.LaunchFacts{}))
 
 	got, err := st.CardRunRow(ctx, "p", "P-001")
 	require.NoError(t, err)
@@ -116,7 +116,7 @@ func TestRecordRunStatus(t *testing.T) {
 			st := openLadderStore(t)
 			ctx := context.Background()
 
-			require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0, sentinel.LaunchFacts{}))
+			require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0, state.LaunchFacts{}))
 
 			for _, c := range tt.calls {
 				require.NoError(t, st.RecordRunStatus(ctx, "p", "P-001", c.runID, c.status, c.cause, runT0.Add(time.Minute)))
@@ -136,8 +136,8 @@ func TestMarkHumanStopAndRefreshSnapshot(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0,
-		sentinel.LaunchFacts{Snapshot: board.EditSnapshot{"title": "old"}}))
-	require.NoError(t, st.OpenCardRun(ctx, "p", "P-002", "endpoint", runT0, sentinel.LaunchFacts{}))
+		state.LaunchFacts{Snapshot: board.EditSnapshot{"title": "old"}}))
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-002", "endpoint", runT0, state.LaunchFacts{}))
 
 	require.NoError(t, st.MarkHumanStop(ctx, "p", "P-001"))
 	require.NoError(t, st.RefreshEditSnapshot(ctx, "p", "P-001", board.EditSnapshot{"title": "new"}))
@@ -176,7 +176,7 @@ func TestCardRunsSchemaKeepsV6Statements(t *testing.T) {
 	got, err := st.CardRunRow(ctx, "p", "P-001")
 	require.NoError(t, err)
 	require.NotNil(t, got.EndedAt)
-	assert.Equal(t, sentinel.LaunchFacts{}, got.Launch)
+	assert.Equal(t, state.LaunchFacts{}, got.Launch)
 	assert.Zero(t, got.Attempts)
 	assert.Empty(t, got.RunID)
 	assert.Empty(t, got.StopCause)
@@ -186,16 +186,16 @@ func TestCardRunsSchemaKeepsV6Statements(t *testing.T) {
 
 func TestOpenCardRunClearsDecidedAndRESTResetsUsageReruns(t *testing.T) {
 	for origin, want := range map[string]int{
-		sentinel.OriginMCP:      2,
-		sentinel.OriginPlaybook: 2,
-		sentinel.OriginSentinel: 2,
-		sentinel.OriginREST:     0,
+		state.OriginMCP:      2,
+		state.OriginPlaybook: 2,
+		state.OriginSentinel: 2,
+		state.OriginREST:     0,
 	} {
 		t.Run(origin, func(t *testing.T) {
 			st := openLadderStore(t)
 			ctx := context.Background()
 
-			require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0, sentinel.LaunchFacts{Autonomous: true}))
+			require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0, state.LaunchFacts{Autonomous: true}))
 
 			for range 2 {
 				require.NoError(t, st.IncrementAttempts(ctx, "p", "P-001"))
@@ -205,7 +205,7 @@ func TestOpenCardRunClearsDecidedAndRESTResetsUsageReruns(t *testing.T) {
 			require.NoError(t, st.MarkRunDecided(ctx, "p", "P-001", runT0))
 
 			require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0.Add(time.Hour),
-				sentinel.LaunchFacts{Autonomous: true, Origin: origin}))
+				state.LaunchFacts{Autonomous: true, Origin: origin}))
 
 			got, err := st.CardRunRow(ctx, "p", "P-001")
 			require.NoError(t, err)
@@ -220,10 +220,10 @@ func TestUndecidedRunsSkipsDecidedAndNonAutonomous(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()
 
-	auto := sentinel.LaunchFacts{Autonomous: true, Origin: sentinel.OriginMCP}
+	auto := state.LaunchFacts{Autonomous: true, Origin: state.OriginMCP}
 	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0, auto))
 	require.NoError(t, st.OpenCardRun(ctx, "p", "P-002", "endpoint", runT0, auto))
-	require.NoError(t, st.OpenCardRun(ctx, "p", "P-003", "endpoint", runT0, sentinel.LaunchFacts{Origin: sentinel.OriginMCP}))
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-003", "endpoint", runT0, state.LaunchFacts{Origin: state.OriginMCP}))
 
 	require.NoError(t, st.MarkRunDecided(ctx, "p", "P-002", runT0))
 	// A decision about an earlier run leaves the current one undecided.
@@ -255,7 +255,7 @@ func TestSentinelTablesKeepV6Statements(t *testing.T) {
 		   run_id = '', stop_cause = '', stopped_at = NULL, human_stop = 0`
 
 	for _, at := range []time.Time{runT0, runT0.Add(time.Hour)} {
-		_, err := st.db.ExecContext(ctx, v6Upsert, "p", "P-001", "endpoint", at.UnixNano(), "{}", true, sentinel.OriginMCP)
+		_, err := st.db.ExecContext(ctx, v6Upsert, "p", "P-001", "endpoint", at.UnixNano(), "{}", true, state.OriginMCP)
 		require.NoError(t, err)
 	}
 

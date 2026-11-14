@@ -39,6 +39,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 	opsqlite "github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 	"github.com/mhersson/contextmatrix/internal/sentinel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -1603,7 +1604,7 @@ type statusRecorder struct {
 	calls []statusCall
 }
 
-func (r *statusRecorder) OpenCardRun(context.Context, string, string, string, time.Time, sentinel.LaunchFacts) error {
+func (r *statusRecorder) OpenCardRun(context.Context, string, string, string, time.Time, state.LaunchFacts) error {
 	return nil
 }
 
@@ -1757,10 +1758,10 @@ func runKindCallbackServer(t *testing.T, withController bool) runKindFixture {
 		t.Cleanup(func() { _ = f.ops.Close() })
 
 		at := time.Now().Add(-time.Minute)
-		_, err = f.ops.OpenHeal(ctx, sentinel.Heal{
-			Kind: sentinel.HealKindHeal, Project: "test-project", CardID: card.ID, RunStarted: at.Add(-time.Hour),
-			Stage:     sentinel.StageInvestigate,
-			Dispatch:  sentinel.Dispatch{Kind: protocol.RunKindInvestigate, Mode: "endpoint", CeilingUSD: 2, At: &at},
+		_, err = f.ops.OpenHeal(ctx, state.Heal{
+			Kind: state.HealKindHeal, Project: "test-project", CardID: card.ID, RunStarted: at.Add(-time.Hour),
+			Stage:     state.StageInvestigate,
+			Dispatch:  state.Dispatch{Kind: protocol.RunKindInvestigate, Mode: "endpoint", CeilingUSD: 2, At: &at},
 			CreatedAt: at, UpdatedAt: at,
 		})
 		require.NoError(t, err)
@@ -1779,7 +1780,7 @@ func runKindCallbackServer(t *testing.T, withController bool) runKindFixture {
 	return f
 }
 
-func (f runKindFixture) heal(t *testing.T) sentinel.Heal {
+func (f runKindFixture) heal(t *testing.T) state.Heal {
 	t.Helper()
 
 	heals, err := f.ops.CardHeals(context.Background(), "test-project", f.id)

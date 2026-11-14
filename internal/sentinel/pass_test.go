@@ -5,12 +5,14 @@ import (
 	"testing"
 	"time"
 
-	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
+
 	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -30,15 +32,15 @@ func newPassEnv(t *testing.T) *dispatchEnv {
 // stopped stores card id in progress, its worker failed, and its autonomous
 // run stopped with cause by a terminal callback 20 minutes ago; edits change
 // both before the launch snapshot is taken.
-func (e *dispatchEnv) stopped(id, cause string, edits ...func(*board.Card, *Run)) (*board.Card, Run) {
+func (e *dispatchEnv) stopped(id, cause string, edits ...func(*board.Card, *state.Run)) (*board.Card, state.Run) {
 	card := &board.Card{
 		ID: id, Project: "alpha", Title: "Fix the build", Type: "task", State: board.StateInProgress,
 		WorkerStatus: "failed", Autonomous: true, Updated: epoch.Add(-20 * time.Minute), Body: "Make the build pass.\n",
 	}
 	at := epoch.Add(-20 * time.Minute)
-	run := Run{
+	run := state.Run{
 		Project: "alpha", CardID: id, Mode: "endpoint", StartedAt: runStarted, StoppedAt: &at,
-		Launch: LaunchFacts{Autonomous: true, Origin: OriginREST}, RunID: "run-" + id, StopCause: cause,
+		Launch: state.LaunchFacts{Autonomous: true, Origin: state.OriginREST}, RunID: "run-" + id, StopCause: cause,
 	}
 
 	for _, edit := range edits {
@@ -54,11 +56,11 @@ func (e *dispatchEnv) stopped(id, cause string, edits ...func(*board.Card, *Run)
 
 // openHeal stores a heal for card id's stopped run at stage, edited by edits,
 // and marks the run decided as opening it does.
-func (e *dispatchEnv) openHeal(t *testing.T, id, stage string, edits ...func(*Heal)) Heal {
+func (e *dispatchEnv) openHeal(t *testing.T, id, stage string, edits ...func(*state.Heal)) state.Heal {
 	t.Helper()
 
-	h := Heal{
-		ID: int64(len(e.store.allHeals()) + 1), Kind: HealKindHeal, Project: "alpha", CardID: id, RunStarted: runStarted,
+	h := state.Heal{
+		ID: int64(len(e.store.allHeals()) + 1), Kind: state.HealKindHeal, Project: "alpha", CardID: id, RunStarted: runStarted,
 		RunID: "run-" + id, Cause: protocol.StopCauseVerifyParked, Response: RespInvestigateFix, Stage: stage,
 		CreatedAt: epoch.Add(-15 * time.Minute), UpdatedAt: epoch.Add(-15 * time.Minute),
 	}
@@ -73,15 +75,15 @@ func (e *dispatchEnv) openHeal(t *testing.T, id, stage string, edits ...func(*He
 	return h
 }
 
-func dispatchedAgo(kind string, age time.Duration) func(*Heal) {
-	return func(h *Heal) {
+func dispatchedAgo(kind string, age time.Duration) func(*state.Heal) {
+	return func(h *state.Heal) {
 		at := epoch.Add(-age)
-		h.Dispatch = Dispatch{Kind: kind, Mode: "endpoint", CeilingUSD: 2, At: &at}
+		h.Dispatch = state.Dispatch{Kind: kind, Mode: "endpoint", CeilingUSD: 2, At: &at}
 	}
 }
 
-func investigated(cause string, fix *protocol.CardFix) func(*Heal) {
-	return func(h *Heal) {
+func investigated(cause string, fix *protocol.CardFix) func(*state.Heal) {
+	return func(h *state.Heal) {
 		dispatchedAgo(protocol.RunKindInvestigate, 5*time.Minute)(h)
 		h.Dispatch.AnsweredRunID = "rk-1"
 		h.Investigation = &protocol.InvestigateResult{Cause: cause, Diagnosis: "the verify needs make generate first", Fix: fix}
@@ -98,7 +100,7 @@ func TestPassOpensInvestigateForVerifyParked(t *testing.T) {
 	heals := e.store.allHeals()
 	require.Len(t, heals, 1)
 	h := heals[0]
-	assert.Equal(t, StageInvestigate, h.Stage)
+	assert.Equal(t, state.StageInvestigate, h.Stage)
 	assert.Equal(t, protocol.StopCauseVerifyParked, h.Cause)
 	assert.Equal(t, RespInvestigateFix, h.Response)
 	assert.Equal(t, run.StartedAt, h.RunStarted)
@@ -113,7 +115,7 @@ func TestPassOpensInvestigateForVerifyParked(t *testing.T) {
 
 	require.Len(t, e.backend.sent, 1)
 	assert.Equal(t, protocol.RunKindInvestigate, e.backend.sent[0].Kind)
-	assert.InDelta(t, DefaultSettings().InvestigateCeilingUSD, e.backend.sent[0].MaxCostUSD, 0)
+	assert.InDelta(t, state.DefaultSettings().InvestigateCeilingUSD, e.backend.sent[0].MaxCostUSD, 0)
 	assert.Equal(t, protocol.RunKindInvestigate, e.store.heal(h.ID).Dispatch.Kind)
 	assert.False(t, e.ctl.TakeNudgeForTest(), "a dispatch waits for its report")
 	assert.Empty(t, e.cards.logged, "opening and dispatching write no activity entry")
@@ -122,16 +124,16 @@ func TestPassOpensInvestigateForVerifyParked(t *testing.T) {
 func TestPassIgnoresDoneAndHumanStop(t *testing.T) {
 	tests := []struct {
 		name string
-		edit func(*board.Card, *Run)
+		edit func(*board.Card, *state.Run)
 	}{
-		{"done", func(c *board.Card, r *Run) {
+		{"done", func(c *board.Card, r *state.Run) {
 			c.State, c.WorkerStatus, r.StopCause = board.StateReview, "completed", protocol.StopCauseDone
 		}},
-		{"human stop", func(c *board.Card, r *Run) {
+		{"human stop", func(c *board.Card, r *state.Run) {
 			c.WorkerStatus, r.StopCause, r.HumanStop = "killed", protocol.StopCauseKilled, true
 		}},
-		{"claimed by a human since", func(c *board.Card, _ *Run) { c.AssignedAgent = "human:alice" }},
-		{"finished", func(c *board.Card, _ *Run) { c.State = board.StateDone }},
+		{"claimed by a human since", func(c *board.Card, _ *state.Run) { c.AssignedAgent = "human:alice" }},
+		{"finished", func(c *board.Card, _ *state.Run) { c.State = board.StateDone }},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -159,7 +161,7 @@ func TestPassParksBudgetExceededWithOneEntry(t *testing.T) {
 
 	heals := e.store.allHeals()
 	require.Len(t, heals, 1)
-	assert.Equal(t, StageParked, heals[0].Stage)
+	assert.Equal(t, state.StageParked, heals[0].Stage)
 	assert.Equal(t, RespPark, heals[0].Response)
 	assert.Equal(t, responseFor(protocol.StopCauseBudgetExceeded).Reason, heals[0].Reason)
 	assert.True(t, e.store.run("alpha", "ALPHA-001").Decided)
@@ -179,14 +181,14 @@ func TestPassParksBudgetExceededWithOneEntry(t *testing.T) {
 func TestPassOpensEachResponseAtItsStage(t *testing.T) {
 	tests := []struct {
 		name    string
-		edit    func(*board.Card, *Run)
+		edit    func(*board.Card, *state.Run)
 		stage   string
 		entries int // a heal parked at once writes its one entry
 	}{
-		{"investigate_park", func(_ *board.Card, r *Run) { r.StopCause = protocol.StopCauseError }, StageInvestigate, 0},
-		{"usage_rerun", func(_ *board.Card, r *Run) { r.StopCause = protocol.StopCauseUsageLimit }, StageUsageWait, 0},
-		{"investigate_fix with its attempts used", func(_ *board.Card, r *Run) { r.Attempts = MaxHealAttempts }, StageParked, 1},
-		{"investigate without a run ID", func(_ *board.Card, r *Run) { r.RunID = "" }, StageParked, 1},
+		{"investigate_park", func(_ *board.Card, r *state.Run) { r.StopCause = protocol.StopCauseError }, state.StageInvestigate, 0},
+		{"usage_rerun", func(_ *board.Card, r *state.Run) { r.StopCause = protocol.StopCauseUsageLimit }, state.StageUsageWait, 0},
+		{"investigate_fix with its attempts used", func(_ *board.Card, r *state.Run) { r.Attempts = state.MaxHealAttempts }, state.StageParked, 1},
+		{"investigate without a run ID", func(_ *board.Card, r *state.Run) { r.RunID = "" }, state.StageParked, 1},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -208,7 +210,7 @@ func TestPassWaitsForCallbackAfterReportParked(t *testing.T) {
 	e := newPassEnv(t)
 	ctx := context.Background()
 
-	e.stopped("ALPHA-001", "", func(c *board.Card, r *Run) {
+	e.stopped("ALPHA-001", "", func(c *board.Card, r *state.Run) {
 		c.State, c.WorkerStatus, c.Updated = board.StateReview, "parked", epoch.Add(-time.Minute)
 		r.StoppedAt = nil
 	})
@@ -227,14 +229,14 @@ func TestPassWaitsForCallbackAfterReportParked(t *testing.T) {
 	heals := e.store.allHeals()
 	require.Len(t, heals, 1)
 	assert.Equal(t, CauseUnknown, heals[0].Cause)
-	assert.Equal(t, StageInvestigate, heals[0].Stage)
+	assert.Equal(t, state.StageInvestigate, heals[0].Stage)
 }
 
 func TestPassSkipsCardsWithOpenHeal(t *testing.T) {
 	e := newPassEnv(t)
 	e.backend.health.MaxConcurrent = 1 // no room, so the heal waits
 	_, run := e.stopped("ALPHA-001", protocol.StopCauseVerifyParked)
-	before := e.openHeal(t, "ALPHA-001", StageInvestigate)
+	before := e.openHeal(t, "ALPHA-001", state.StageInvestigate)
 	e.store.putRun(run) // the card's run reads undecided again
 
 	require.NoError(t, e.ctl.pass(context.Background()))
@@ -248,10 +250,10 @@ func TestPassSkipsCardsWithOpenHeal(t *testing.T) {
 
 func TestPassDoesNothingWhenOff(t *testing.T) {
 	e := newPassEnv(t)
-	e.store.set(DefaultSettings())
+	e.store.set(state.DefaultSettings())
 	e.stopped("ALPHA-001", protocol.StopCauseVerifyParked)
 	e.stopped("ALPHA-002", protocol.StopCauseVerifyParked)
-	e.openHeal(t, "ALPHA-002", StageInvestigate, dispatchedAgo(protocol.RunKindInvestigate, time.Hour))
+	e.openHeal(t, "ALPHA-002", state.StageInvestigate, dispatchedAgo(protocol.RunKindInvestigate, time.Hour))
 
 	before := e.store.otherCalls()
 
@@ -270,7 +272,7 @@ func TestPassHealingOffStillSettlesNothingNew(t *testing.T) {
 	set.Healing = false
 	e.store.set(set)
 	e.stopped("ALPHA-001", protocol.StopCauseVerifyParked)
-	open := e.openHeal(t, "ALPHA-001", StageInvestigate)
+	open := e.openHeal(t, "ALPHA-001", state.StageInvestigate)
 	e.stopped("ALPHA-002", protocol.StopCauseVerifyParked)
 
 	require.NoError(t, e.ctl.pass(context.Background()))
@@ -301,21 +303,21 @@ func TestPassParksInvestigationThatNeverReported(t *testing.T) {
 			ctx := context.Background()
 
 			e.stopped("ALPHA-001", protocol.StopCauseVerifyParked)
-			e.openHeal(t, "ALPHA-001", StageInvestigate, dispatchedAgo(protocol.RunKindInvestigate, 11*time.Minute))
+			e.openHeal(t, "ALPHA-001", state.StageInvestigate, dispatchedAgo(protocol.RunKindInvestigate, 11*time.Minute))
 			e.backend.containers = tc.containers
 
 			require.NoError(t, e.ctl.pass(ctx))
 
 			h := e.store.heal(1)
 			if !tc.parks {
-				assert.Equal(t, StageInvestigate, h.Stage)
+				assert.Equal(t, state.StageInvestigate, h.Stage)
 				assert.Empty(t, e.store.charges())
 				assert.Empty(t, e.cards.logged)
 
 				return
 			}
 
-			assert.Equal(t, StageParked, h.Stage)
+			assert.Equal(t, state.StageParked, h.Stage)
 			assert.Contains(t, h.Reason, protocol.RunKindInvestigate)
 			assert.NotEmpty(t, h.Dispatch.Failure, "the dispatch is marked failed with the park")
 			assert.Equal(t, []ledgerRow{{HealID: 1, Mode: "endpoint", USD: 2, At: epoch}}, e.store.charges(), "the ceiling is charged once")
@@ -345,8 +347,8 @@ func TestPassNeverActsOnTerminalHeal(t *testing.T) {
 	// dispatch still in flight.
 	card.Title = "Fix the build properly"
 
-	e.openHeal(t, "ALPHA-001", StageParked, dispatchedAgo(protocol.RunKindInvestigate, 5*time.Minute),
-		func(h *Heal) { h.Reason = "edited since launch: title edited" })
+	e.openHeal(t, "ALPHA-001", state.StageParked, dispatchedAgo(protocol.RunKindInvestigate, 5*time.Minute),
+		func(h *state.Heal) { h.Reason = "edited since launch: title edited" })
 
 	// The late answer proposes a fix: it is recorded and charged, never applied.
 	require.NoError(t, e.ctl.RunKindStatus(ctx, protocol.StatusCallbackPayload{
@@ -374,12 +376,12 @@ func TestPassAdvancesAnAnsweredInvestigation(t *testing.T) {
 	ctx := context.Background()
 
 	e.stopped("ALPHA-001", protocol.StopCauseVerifyParked)
-	e.openHeal(t, "ALPHA-001", StageInvestigate,
+	e.openHeal(t, "ALPHA-001", state.StageInvestigate,
 		investigated(protocol.DiagnosisCard, &protocol.CardFix{Section: "Run make generate first."}))
 
 	require.NoError(t, e.ctl.pass(ctx))
 
-	assert.Equal(t, StageCheck, e.store.heal(1).Stage)
+	assert.Equal(t, state.StageCheck, e.store.heal(1).Stage)
 	assert.True(t, e.ctl.TakeNudgeForTest(), "the next stage is decided at once")
 
 	require.NoError(t, e.ctl.pass(ctx))
@@ -396,21 +398,21 @@ func TestPassVetsOnlyACardFixAtApply(t *testing.T) {
 		cause string
 		stage string
 	}{
-		{"a card fix that skipped the check is still vetted", protocol.DiagnosisCard, StageParked},
-		{"a model diagnosis holds no fix to vet", protocol.DiagnosisModel, StageRerun},
+		{"a card fix that skipped the check is still vetted", protocol.DiagnosisCard, state.StageParked},
+		{"a model diagnosis holds no fix to vet", protocol.DiagnosisModel, state.StageRerun},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newPassEnv(t)
 			e.stopped("ALPHA-001", protocol.StopCauseVerifyParked)
-			e.openHeal(t, "ALPHA-001", StageApply, investigated(tc.cause, retireUnsent))
+			e.openHeal(t, "ALPHA-001", state.StageApply, investigated(tc.cause, retireUnsent))
 
 			require.NoError(t, e.ctl.pass(context.Background()))
 
 			h := e.store.heal(1)
 			assert.Equal(t, tc.stage, h.Stage)
 
-			if tc.stage == StageParked {
+			if tc.stage == state.StageParked {
 				assert.Contains(t, h.Reason, "ALPHA-404")
 			}
 		})
@@ -422,14 +424,14 @@ func TestPassAppliesAFixAndReruns(t *testing.T) {
 	ctx := context.Background()
 
 	e.stopped("ALPHA-001", protocol.StopCauseVerifyParked)
-	e.openHeal(t, "ALPHA-001", StageApply,
+	e.openHeal(t, "ALPHA-001", state.StageApply,
 		investigated(protocol.DiagnosisCard, &protocol.CardFix{Section: "Run make generate first."}),
-		func(h *Heal) { h.Check = &protocol.CheckResult{Trial: protocol.TrialFinished} })
+		func(h *state.Heal) { h.Check = &protocol.CheckResult{Trial: protocol.TrialFinished} })
 
 	require.NoError(t, e.ctl.pass(ctx))
 
 	h := e.store.heal(1)
-	assert.Equal(t, StageRerun, h.Stage)
+	assert.Equal(t, state.StageRerun, h.Stage)
 	require.NotNil(t, h.Change)
 	assert.True(t, h.Change.Fresh)
 	assert.Contains(t, storedCard(t, e, "ALPHA-001").Body, "Run make generate first.")
@@ -439,7 +441,7 @@ func TestPassAppliesAFixAndReruns(t *testing.T) {
 
 	// The rerun has not started yet: the next pass waits on it.
 	require.NoError(t, e.ctl.pass(ctx))
-	assert.Equal(t, StageRerun, e.store.heal(1).Stage)
+	assert.Equal(t, state.StageRerun, e.store.heal(1).Stage)
 	assert.Len(t, e.relaunched, 1)
 }
 
@@ -447,14 +449,14 @@ func TestPassLeavesAFixAnEditRefusedAtApply(t *testing.T) {
 	e := newPassEnv(t)
 
 	e.stopped("ALPHA-001", protocol.StopCauseVerifyParked)
-	e.openHeal(t, "ALPHA-001", StageApply,
+	e.openHeal(t, "ALPHA-001", state.StageApply,
 		investigated(protocol.DiagnosisCard, &protocol.CardFix{Section: "Run make generate first."}),
-		func(h *Heal) { h.Check = &protocol.CheckResult{Trial: protocol.TrialFinished} })
+		func(h *state.Heal) { h.Check = &protocol.CheckResult{Trial: protocol.TrialFinished} })
 	e.cards.refuse = map[string]error{"ALPHA-001": service.ErrCardChanged}
 
 	require.NoError(t, e.ctl.pass(context.Background()))
 
-	assert.Equal(t, StageApply, e.store.heal(1).Stage)
+	assert.Equal(t, state.StageApply, e.store.heal(1).Stage)
 	assert.Empty(t, e.relaunched)
 	assert.Empty(t, e.cards.logged)
 	assert.Zero(t, e.store.run("alpha", "ALPHA-001").Attempts)
@@ -466,7 +468,7 @@ func TestPassLeavesAHealChangedUnderItToTheNextPass(t *testing.T) {
 	ctx := context.Background()
 
 	e.stopped("ALPHA-001", protocol.StopCauseVerifyParked)
-	e.openHeal(t, "ALPHA-001", StageInvestigate, investigated(protocol.DiagnosisEnvironment, nil))
+	e.openHeal(t, "ALPHA-001", state.StageInvestigate, investigated(protocol.DiagnosisEnvironment, nil))
 
 	// A callback writes the heal after the pass read it.
 	e.cards.onGet = func() {
@@ -478,13 +480,13 @@ func TestPassLeavesAHealChangedUnderItToTheNextPass(t *testing.T) {
 
 	require.NoError(t, e.ctl.pass(ctx))
 
-	assert.Equal(t, StageInvestigate, e.store.heal(1).Stage)
+	assert.Equal(t, state.StageInvestigate, e.store.heal(1).Stage)
 	assert.Empty(t, e.cards.logged)
 	assert.True(t, e.ctl.TakeNudgeForTest(), "the next pass decides again")
 
 	require.NoError(t, e.ctl.pass(ctx))
 
-	assert.Equal(t, StageParked, e.store.heal(1).Stage)
+	assert.Equal(t, state.StageParked, e.store.heal(1).Stage)
 	assert.Len(t, e.cards.logged["ALPHA-001"], 1)
 }
 
@@ -493,17 +495,17 @@ func TestPassReadsTheAgentOnlyWhenNeeded(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		heals         []func(*Heal) // one heal per card, at stage investigate
+		heals         []func(*state.Heal) // one heal per card, at stage investigate
 		lists         int
 		healths       int
 		dispatched    int
 		maxConcurrent int
 	}{
 		{"nothing open", nil, 0, 0, 0, 3},
-		{"two dispatches in flight", []func(*Heal){young, young}, 1, 0, 0, 3},
-		{"two heals to dispatch", []func(*Heal){nil, nil}, 0, 1, 2, 3},
-		{"one slot left for card runs", []func(*Heal){nil, nil}, 0, 1, 1, 2},
-		{"answered: nothing to send", []func(*Heal){investigated(protocol.DiagnosisModel, nil)}, 0, 0, 0, 3},
+		{"two dispatches in flight", []func(*state.Heal){young, young}, 1, 0, 0, 3},
+		{"two heals to dispatch", []func(*state.Heal){nil, nil}, 0, 1, 2, 3},
+		{"one slot left for card runs", []func(*state.Heal){nil, nil}, 0, 1, 1, 2},
+		{"answered: nothing to send", []func(*state.Heal){investigated(protocol.DiagnosisModel, nil)}, 0, 0, 0, 3},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -514,12 +516,12 @@ func TestPassReadsTheAgentOnlyWhenNeeded(t *testing.T) {
 				id := []string{"ALPHA-001", "ALPHA-002"}[i]
 				e.stopped(id, protocol.StopCauseVerifyParked)
 
-				var edits []func(*Heal)
+				var edits []func(*state.Heal)
 				if edit != nil {
 					edits = append(edits, edit)
 				}
 
-				e.openHeal(t, id, StageInvestigate, edits...)
+				e.openHeal(t, id, state.StageInvestigate, edits...)
 			}
 
 			require.NoError(t, e.ctl.pass(context.Background()))
@@ -539,8 +541,8 @@ func TestPassReportsSpendAndHealedToday(t *testing.T) {
 	require.NoError(t, e.store.Charge(ctx, 9, "endpoint", 1.5, today))
 	require.NoError(t, e.store.Charge(ctx, 8, "endpoint", 4, yesterday))
 	require.NoError(t, e.store.Charge(ctx, 9, "claude_code", 7, today))
-	e.store.putHeal(Heal{ID: 9, Kind: HealKindHeal, Project: "alpha", CardID: "ALPHA-009", Stage: StageHealed, UpdatedAt: today})
-	e.store.putHeal(Heal{ID: 8, Kind: HealKindHeal, Project: "alpha", CardID: "ALPHA-008", Stage: StageHealed, UpdatedAt: yesterday})
+	e.store.putHeal(state.Heal{ID: 9, Kind: state.HealKindHeal, Project: "alpha", CardID: "ALPHA-009", Stage: state.StageHealed, UpdatedAt: today})
+	e.store.putHeal(state.Heal{ID: 8, Kind: state.HealKindHeal, Project: "alpha", CardID: "ALPHA-008", Stage: state.StageHealed, UpdatedAt: yesterday})
 
 	require.NoError(t, e.ctl.pass(ctx))
 

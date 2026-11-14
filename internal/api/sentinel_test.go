@@ -10,36 +10,38 @@ import (
 	"testing"
 	"time"
 
-	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	protocol "github.com/mhersson/contextmatrix-protocol"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/sentinel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 type fakeSentinelStore struct {
 	mu       sync.Mutex
-	settings sentinel.Settings
+	settings state.Settings
 	by       string
-	run      *sentinel.Run
-	heals    []sentinel.Heal
-	findings []sentinel.Finding
+	run      *state.Run
+	heals    []state.Heal
+	findings []state.Finding
 }
 
 func newFakeSentinelStore() *fakeSentinelStore {
-	return &fakeSentinelStore{settings: sentinel.DefaultSettings()}
+	return &fakeSentinelStore{settings: state.DefaultSettings()}
 }
 
-func (f *fakeSentinelStore) SentinelSettings(context.Context) (sentinel.Settings, time.Time, string, error) {
+func (f *fakeSentinelStore) SentinelSettings(context.Context) (state.Settings, time.Time, string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	return f.settings, time.Time{}, f.by, nil
 }
 
-func (f *fakeSentinelStore) PutSentinelSettings(_ context.Context, s sentinel.Settings, by string) error {
+func (f *fakeSentinelStore) PutSentinelSettings(_ context.Context, s state.Settings, by string) error {
 	if err := s.Validate(); err != nil {
 		return err
 	}
@@ -52,15 +54,15 @@ func (f *fakeSentinelStore) PutSentinelSettings(_ context.Context, s sentinel.Se
 	return nil
 }
 
-func (f *fakeSentinelStore) CardRunRow(context.Context, string, string) (*sentinel.Run, error) {
+func (f *fakeSentinelStore) CardRunRow(context.Context, string, string) (*state.Run, error) {
 	return f.run, nil
 }
 
-func (f *fakeSentinelStore) CardHeals(context.Context, string, string) ([]sentinel.Heal, error) {
+func (f *fakeSentinelStore) CardHeals(context.Context, string, string) ([]state.Heal, error) {
 	return f.heals, nil
 }
 
-func (f *fakeSentinelStore) CardFindings(context.Context, string, string) ([]sentinel.Finding, error) {
+func (f *fakeSentinelStore) CardFindings(context.Context, string, string) ([]state.Finding, error) {
 	return f.findings, nil
 }
 
@@ -92,7 +94,7 @@ func TestSentinelGetDefaults(t *testing.T) {
 	assert.Equal(t, false, status["enabled"])
 	assert.Equal(t, sentinel.StateOff, status["state"])
 
-	want := sentinel.DefaultSettings()
+	want := state.DefaultSettings()
 	settings := body["settings"].(map[string]any)
 	assert.InDelta(t, want.DailyCapUSD, settings["daily_cap_usd"], 1e-9)
 	assert.InDelta(t, want.Headroom, settings["headroom"], 1e-9)
@@ -100,7 +102,7 @@ func TestSentinelGetDefaults(t *testing.T) {
 }
 
 func TestSentinelPutRequiresAdminInMultiMode(t *testing.T) {
-	on := sentinel.DefaultSettings()
+	on := state.DefaultSettings()
 	on.Enabled = true
 
 	t.Run("multi", func(t *testing.T) {
@@ -134,13 +136,13 @@ func TestSentinelPutRejectsInvalid(t *testing.T) {
 	store := newFakeSentinelStore()
 	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
 
-	bad := sentinel.DefaultSettings()
+	bad := state.DefaultSettings()
 	bad.Headroom = 1.5
 
 	code, body := sentinelDo(t, srv, http.MethodPut, "/api/admin/sentinel", bad, nil)
 	assert.Equal(t, http.StatusUnprocessableEntity, code)
 	assert.Equal(t, ErrCodeValidationError, body["code"])
-	assert.Equal(t, sentinel.DefaultSettings(), store.settings)
+	assert.Equal(t, state.DefaultSettings(), store.settings)
 }
 
 func TestSentinelPutPublishesAndNudges(t *testing.T) {
@@ -152,7 +154,7 @@ func TestSentinelPutPublishesAndNudges(t *testing.T) {
 	ctl := sentinel.New(sentinel.Config{Store: nil})
 	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore(), Sentinel: ctl, Bus: bus}, false)
 
-	code, _ := sentinelDo(t, srv, http.MethodPut, "/api/admin/sentinel", sentinel.DefaultSettings(), nil)
+	code, _ := sentinelDo(t, srv, http.MethodPut, "/api/admin/sentinel", state.DefaultSettings(), nil)
 	require.Equal(t, http.StatusOK, code)
 
 	select {
@@ -188,23 +190,23 @@ func TestCardSentinelRunView(t *testing.T) {
 
 	started := time.Date(2026, 11, 13, 10, 0, 0, 0, time.UTC)
 	stopped := started.Add(time.Hour)
-	store.run = &sentinel.Run{
+	store.run = &state.Run{
 		StartedAt: started, StoppedAt: &stopped, Attempts: 1, StopCause: "usage_limit", HumanStop: true,
-		Launch: sentinel.LaunchFacts{Origin: sentinel.OriginREST, Autonomous: true},
+		Launch: state.LaunchFacts{Origin: state.OriginREST, Autonomous: true},
 	}
 
 	_, body = sentinelDo(t, srv, http.MethodGet, path, nil, nil)
 	run := body["run"].(map[string]any)
-	assert.Equal(t, sentinel.OriginREST, run["origin"])
+	assert.Equal(t, state.OriginREST, run["origin"])
 	assert.Equal(t, true, run["autonomous"])
 	assert.EqualValues(t, 1, run["attempts"])
-	assert.EqualValues(t, sentinel.MaxHealAttempts, run["max_attempts"])
+	assert.EqualValues(t, state.MaxHealAttempts, run["max_attempts"])
 	assert.Equal(t, "2026-11-13T10:00:00Z", run["started_at"])
 	assert.Equal(t, "2026-11-13T11:00:00Z", run["stopped_at"])
 	assert.Equal(t, "usage_limit", run["stop_cause"])
 	assert.Equal(t, true, run["human_stop"])
 
-	store.run = &sentinel.Run{StartedAt: started}
+	store.run = &state.Run{StartedAt: started}
 	_, body = sentinelDo(t, srv, http.MethodGet, path, nil, nil)
 	run = body["run"].(map[string]any)
 	assert.NotContains(t, run, "stop_cause")
@@ -223,17 +225,17 @@ func findingKinds(body map[string]any) []string {
 func TestCardSentinelViewHealsAndFindings(t *testing.T) {
 	store := newFakeSentinelStore()
 	at := time.Date(2026, 11, 13, 10, 0, 0, 0, time.UTC)
-	store.heals = []sentinel.Heal{{
-		ID: 7, Kind: sentinel.HealKindHeal, Cause: "gave_up", Stage: sentinel.StageHealed, Reason: "fixed",
+	store.heals = []state.Heal{{
+		ID: 7, Kind: state.HealKindHeal, Cause: "gave_up", Stage: state.StageHealed, Reason: "fixed",
 		Investigation: &protocol.InvestigateResult{Diagnosis: "the criteria were vague"},
-		Change: &sentinel.Change{
+		Change: &state.Change{
 			SectionBefore: "old", SectionAfter: "new",
 			VerifyBefore: &board.VerifyConfig{Command: "make a"}, VerifyAfter: &board.VerifyConfig{Command: "make b"},
 			Retired: []string{"P-002"}, Fresh: true,
 		},
 		SpendUSD: 0.42, CreatedAt: at, UpdatedAt: at.Add(time.Minute),
-	}, {ID: 6, Kind: sentinel.HealKindForward, SourceCard: "P-009", CreatedAt: at, UpdatedAt: at}}
-	store.findings = []sentinel.Finding{{HealID: 7, Kind: protocol.FindingGuidance, Title: "t", Text: "x", Evidence: "e", CreatedAt: at}}
+	}, {ID: 6, Kind: state.HealKindForward, SourceCard: "P-009", CreatedAt: at, UpdatedAt: at}}
+	store.findings = []state.Finding{{HealID: 7, Kind: protocol.FindingGuidance, Title: "t", Text: "x", Evidence: "e", CreatedAt: at}}
 	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
 
 	code, body := sentinelDo(t, srv, http.MethodGet, "/api/projects/p/cards/p-001/sentinel", nil, nil)
@@ -275,7 +277,7 @@ func TestCardSentinelViewEmptyListsAreArrays(t *testing.T) {
 func TestCardSentinelViewHidesAdminNotesFromNonAdmins(t *testing.T) {
 	newStore := func() *fakeSentinelStore {
 		store := newFakeSentinelStore()
-		store.findings = []sentinel.Finding{
+		store.findings = []state.Finding{
 			{Kind: protocol.FindingProjectVerify, Title: "verify"},
 			{Kind: protocol.FindingHardCard, Title: "hard"},
 		}

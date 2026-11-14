@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
-	"github.com/mhersson/contextmatrix/internal/sentinel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 // maxStopCauseBytes bounds a stored stop cause; a longer one is stored as
@@ -27,7 +27,7 @@ type CardRun struct {
 // OpenCardRun records a run's mode and launch facts. A card has one row: a
 // rerun replaces it and clears every per-run column. Heal attempts and
 // usage-limit reruns reset only for a REST launch.
-func (s *Store) OpenCardRun(ctx context.Context, project, cardID, mode string, at time.Time, facts sentinel.LaunchFacts) error {
+func (s *Store) OpenCardRun(ctx context.Context, project, cardID, mode string, at time.Time, facts state.LaunchFacts) error {
 	snap, err := json.Marshal(facts.Snapshot)
 	if err != nil {
 		return fmt.Errorf("open card run: encode snapshot: %w", err)
@@ -135,7 +135,7 @@ const runColumns = `project, card_id, mode, started_at, ended_at, stopped_at, ed
 
 // CardRunRow returns the card's run row, or nil when this instance never
 // launched one.
-func (s *Store) CardRunRow(ctx context.Context, project, cardID string) (*sentinel.Run, error) {
+func (s *Store) CardRunRow(ctx context.Context, project, cardID string) (*state.Run, error) {
 	r, err := scanRun(s.db.QueryRowContext(ctx,
 		`SELECT `+runColumns+` FROM card_run_modes WHERE project = ? AND card_id = ?`, project, cardID))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -150,7 +150,7 @@ func (s *Store) CardRunRow(ctx context.Context, project, cardID string) (*sentin
 }
 
 // UndecidedRuns returns the autonomous runs Sentinel has not looked at.
-func (s *Store) UndecidedRuns(ctx context.Context) ([]sentinel.Run, error) {
+func (s *Store) UndecidedRuns(ctx context.Context) ([]state.Run, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT `+runColumns+` FROM card_run_modes WHERE autonomous = 1 AND decided = 0`)
 	if err != nil {
@@ -158,7 +158,7 @@ func (s *Store) UndecidedRuns(ctx context.Context) ([]sentinel.Run, error) {
 	}
 	defer rows.Close()
 
-	var runs []sentinel.Run
+	var runs []state.Run
 
 	for rows.Next() {
 		r, err := scanRun(rows)
@@ -176,9 +176,9 @@ func (s *Store) UndecidedRuns(ctx context.Context) ([]sentinel.Run, error) {
 	return runs, nil
 }
 
-func scanRun(sc scanner) (sentinel.Run, error) {
+func scanRun(sc scanner) (state.Run, error) {
 	var (
-		r              sentinel.Run
+		r              state.Run
 		started        int64
 		ended, stopped sql.NullInt64
 		snap           string
@@ -187,12 +187,12 @@ func scanRun(sc scanner) (sentinel.Run, error) {
 	if err := sc.Scan(&r.Project, &r.CardID, &r.Mode, &started, &ended, &stopped, &snap,
 		&r.Launch.Autonomous, &r.Launch.Origin, &r.Attempts, &r.UsageReruns, &r.RunID, &r.StopCause,
 		&r.HumanStop, &r.Decided); err != nil {
-		return sentinel.Run{}, err
+		return state.Run{}, err
 	}
 
 	if snap != "" {
 		if err := json.Unmarshal([]byte(snap), &r.Launch.Snapshot); err != nil {
-			return sentinel.Run{}, fmt.Errorf("decode snapshot: %w", err)
+			return state.Run{}, fmt.Errorf("decode snapshot: %w", err)
 		}
 	}
 

@@ -8,12 +8,13 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 // relaunchGrace is how long a relaunched card may take to start its rerun.
 const relaunchGrace = 10 * time.Minute
 
-var reasonAttemptsUsed = fmt.Sprintf("heal attempts used (%[1]d of %[1]d)", MaxHealAttempts)
+var reasonAttemptsUsed = fmt.Sprintf("heal attempts used (%[1]d of %[1]d)", state.MaxHealAttempts)
 
 const reasonTakenOver = "a human or another run took over"
 
@@ -41,9 +42,9 @@ type step struct {
 
 // healView is what the pass read for one open heal.
 type healView struct {
-	Heal     Heal
+	Heal     state.Heal
 	Card     *board.Card // nil = deleted
-	Run      Run         // the card's current run row
+	Run      state.Run   // the card's current run row
 	Healing  bool
 	Budget   bool     // budget gate open for the effective mode
 	Room     bool     // a worker slot is free for a run kind
@@ -59,7 +60,7 @@ func nextStep(v healView) step {
 	h := v.Heal
 
 	switch {
-	case h.Stage == StageRerun && v.Card != nil:
+	case h.Stage == state.StageRerun && v.Card != nil:
 		return rerunStep(v)
 	case v.Card == nil || board.IsTerminalState(v.Card.State):
 		return closeStep("the card was closed")
@@ -74,13 +75,13 @@ func nextStep(v healView) step {
 	}
 
 	switch h.Stage {
-	case StageInvestigate:
+	case state.StageInvestigate:
 		return investigateStep(v)
-	case StageCheck:
+	case state.StageCheck:
 		return checkStep(v)
-	case StageApply:
+	case state.StageApply:
 		return applyStep(v)
-	case StageUsageWait:
+	case state.StageUsageWait:
 		return usageWaitStep(v)
 	}
 
@@ -105,7 +106,7 @@ func rerunStep(v healView) step {
 	case workerBusy(v.Card):
 		return waitStep()
 	case v.Card.State == board.StateDone:
-		return settleStep(StageHealed)
+		return settleStep(state.StageHealed)
 	}
 
 	key, settled := causeKey(v.Run, v.Card, nil, v.Now)
@@ -114,22 +115,22 @@ func rerunStep(v healView) step {
 	case !settled:
 		return waitStep()
 	case key == protocol.StopCauseDone:
-		return settleStep(StageHealed)
+		return settleStep(state.StageHealed)
 	}
 
-	return settleStep(StageRerunFailed)
+	return settleStep(state.StageRerunFailed)
 }
 
 // rerunStarted reports whether the run row is the rerun's: every launch
 // replaces the row, so the rerun's started at or after the relaunch.
-func rerunStarted(h Heal, run Run) bool {
+func rerunStarted(h state.Heal, run state.Run) bool {
 	return h.RelaunchedAt != nil && !run.StartedAt.Before(*h.RelaunchedAt)
 }
 
 // rerunOrigin reports whether a Sentinel rerun launches with origin: alone
 // it is sentinel, through a playbook run's Play it is playbook.
 func rerunOrigin(origin string) bool {
-	return origin == OriginSentinel || origin == OriginPlaybook
+	return origin == state.OriginSentinel || origin == state.OriginPlaybook
 }
 
 // takenOver reports whether someone else is working the card, or a newer run
@@ -170,9 +171,9 @@ func diagnosisStep(inv protocol.InvestigateResult) step {
 
 	switch {
 	case cardFix && needsCheck(*inv.Fix):
-		return advanceStep(StageCheck)
+		return advanceStep(state.StageCheck)
 	case cardFix, inv.Cause == protocol.DiagnosisModel:
-		return advanceStep(StageApply)
+		return advanceStep(state.StageApply)
 	case inv.Cause == protocol.DiagnosisEnvironment, inv.Cause == protocol.DiagnosisEcosystem:
 		return parkStep(diagnosisReason(inv))
 	}
@@ -182,7 +183,7 @@ func diagnosisStep(inv protocol.InvestigateResult) step {
 
 // healFix is the fix a heal may apply: only a card diagnosis holds one,
 // whatever another diagnosis's fix field carries.
-func healFix(h Heal) *protocol.CardFix {
+func healFix(h state.Heal) *protocol.CardFix {
 	if h.Investigation == nil || h.Investigation.Cause != protocol.DiagnosisCard {
 		return nil
 	}
@@ -214,14 +215,14 @@ func checkStep(v healView) step {
 		return parkStep("check failed: " + h.Dispatch.Failure)
 	}
 
-	return advanceStep(StageApply)
+	return advanceStep(state.StageApply)
 }
 
 func applyStep(v healView) step {
 	switch {
 	case len(v.Rejected) > 0:
 		return parkStep("fix rejected: " + strings.Join(v.Rejected, ", "))
-	case v.Run.Attempts >= MaxHealAttempts:
+	case v.Run.Attempts >= state.MaxHealAttempts:
 		return parkStep(reasonAttemptsUsed)
 	case !v.Budget:
 		return waitStep()
@@ -232,8 +233,8 @@ func applyStep(v healView) step {
 
 func usageWaitStep(v healView) step {
 	switch {
-	case v.Run.UsageReruns >= MaxUsageReruns:
-		return parkStep(fmt.Sprintf("usage-limit reruns used (%[1]d of %[1]d)", MaxUsageReruns))
+	case v.Run.UsageReruns >= state.MaxUsageReruns:
+		return parkStep(fmt.Sprintf("usage-limit reruns used (%[1]d of %[1]d)", state.MaxUsageReruns))
 	case v.Card.ParkResetsAt != nil && v.Card.ParkResetsAt.After(v.Now):
 		return waitStep()
 	case !v.Budget:
@@ -245,23 +246,23 @@ func usageWaitStep(v healView) step {
 
 // inFlight reports whether d was sent and has neither been answered nor
 // marked failed.
-func inFlight(d Dispatch) bool {
+func inFlight(d state.Dispatch) bool {
 	return d.At != nil && d.AnsweredRunID == "" && d.Failure == ""
 }
 
 // dispatched reports whether the heal's latest dispatch is of kind. At stage
 // check it still holds the answered investigation until the check is sent.
-func dispatched(h Heal, kind string) bool {
+func dispatched(h state.Heal, kind string) bool {
 	return h.Dispatch.Kind == kind && h.Dispatch.At != nil
 }
 
 // mayDispatch reports whether nextStep could send a run kind for h, so a pass
 // reads the agent's health only when one may go out.
-func mayDispatch(h Heal, budget bool) bool {
+func mayDispatch(h state.Heal, budget bool) bool {
 	switch h.Stage {
-	case StageInvestigate:
+	case state.StageInvestigate:
 		return budget && !dispatched(h, protocol.RunKindInvestigate)
-	case StageCheck:
+	case state.StageCheck:
 		return !dispatched(h, protocol.RunKindCheck)
 	}
 

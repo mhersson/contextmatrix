@@ -10,6 +10,7 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -17,7 +18,7 @@ import (
 // that have still not started in the card's active playbook run on this
 // instance. A target the forward checks refuse, or that changed or was claimed
 // since it was read, is skipped.
-func (c *Controller) forward(ctx context.Context, h *Heal) error {
+func (c *Controller) forward(ctx context.Context, h *state.Heal) error {
 	fix := healFix(*h)
 	if fix == nil || len(h.Investigation.ForwardTo) == 0 {
 		return nil
@@ -49,7 +50,7 @@ func (c *Controller) forward(ctx context.Context, h *Heal) error {
 
 // forwardTargets returns the investigation's ForwardTo IDs that were sent as
 // siblings and are still not started in the same active playbook run.
-func forwardTargets(h Heal, pb *service.PlaybookDetail, cards map[string]*board.Card, instance string) []string {
+func forwardTargets(h state.Heal, pb *service.PlaybookDetail, cards map[string]*board.Card, instance string) []string {
 	if h.Investigation == nil {
 		return nil
 	}
@@ -75,7 +76,7 @@ func forwardFix(fix protocol.CardFix) protocol.CardFix {
 // forwardTo vets fix against target and its project's verify under the healed
 // heal's check, writes it guarded on target, then records the forward row and
 // the target's one activity entry.
-func (c *Controller) forwardTo(ctx context.Context, h *Heal, target *board.Card, verify *board.VerifyConfig, fix protocol.CardFix) error {
+func (c *Controller) forwardTo(ctx context.Context, h *state.Heal, target *board.Card, verify *board.VerifyConfig, fix protocol.CardFix) error {
 	log := ctxlog.Logger(ctx).With("project", target.Project, "card_id", target.ID, "source_card", h.CardID)
 
 	if violations := vetForward(fixContext{Card: target, Project: verify, Fix: fix, Check: h.Check}); len(violations) > 0 {
@@ -98,8 +99,8 @@ func (c *Controller) forwardTo(ctx context.Context, h *Heal, target *board.Card,
 		return fmt.Errorf("forward the fix to %s: %w", target.ID, err)
 	}
 
-	row := Heal{
-		Kind: HealKindForward, Project: target.Project, CardID: target.ID, Stage: StageForwarded,
+	row := state.Heal{
+		Kind: state.HealKindForward, Project: target.Project, CardID: target.ID, Stage: state.StageForwarded,
 		SourceCard: h.CardID, Change: &change, CreatedAt: now, UpdatedAt: now,
 	}
 
@@ -112,13 +113,13 @@ func (c *Controller) forwardTo(ctx context.Context, h *Heal, target *board.Card,
 
 // onTrial reads the card's forward rows still on trial that were forwarded
 // before run started, newest first.
-func (c *Controller) onTrial(ctx context.Context, run Run) ([]Heal, error) {
+func (c *Controller) onTrial(ctx context.Context, run state.Run) ([]state.Heal, error) {
 	rows, err := c.cfg.Store.CardHeals(ctx, run.Project, run.CardID)
 	if err != nil {
 		return nil, fmt.Errorf("read the card's heals: %w", err)
 	}
 
-	return slices.DeleteFunc(rows, func(h Heal) bool { return !forwardedBefore(&h, run.StartedAt) }), nil
+	return slices.DeleteFunc(rows, func(h state.Heal) bool { return !forwardedBefore(&h, run.StartedAt) }), nil
 }
 
 // forwardOutcome is the stage a settled run of the card moves its forward rows
@@ -128,16 +129,16 @@ func (c *Controller) onTrial(ctx context.Context, run Run) ([]Heal, error) {
 func forwardOutcome(key string, card *board.Card) string {
 	switch {
 	case key == protocol.StopCauseDone || card.State == board.StateDone:
-		return StageForwardPassed
+		return state.StageForwardPassed
 	case key == CauseForwardFixFailed:
-		return StageForwardFailed
+		return state.StageForwardFailed
 	}
 
 	return ""
 }
 
 // judge moves each forward row on trial to stage; "" leaves them on trial.
-func (c *Controller) judge(ctx context.Context, trial []Heal, stage string) error {
+func (c *Controller) judge(ctx context.Context, trial []state.Heal, stage string) error {
 	if stage == "" {
 		return nil
 	}

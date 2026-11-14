@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"testing"
 
-	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
+
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/playbookrun"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -48,21 +50,21 @@ func TestRelaunchRoute(t *testing.T) {
 		pb     *service.PlaybookDetail
 		want   route
 	}{
-		{"playbook origin, its run here waits on the card", OriginPlaybook, rolloutLock(board.RunStatusWaiting), rollout(board.RunStatusWaiting, "lap-a"), routePlaybook},
-		{"playbook origin, its run was stopped", OriginPlaybook, rolloutLock(""), nil, routeNone},
-		{"playbook origin, a stopped run read", OriginPlaybook, rolloutLock(board.RunStatusWaiting), rollout(board.RunStatusStopped, "lap-a"), routeNone},
-		{"playbook origin, another instance's run", OriginPlaybook, rolloutLock(board.RunStatusWaiting), rollout(board.RunStatusWaiting, "lap-b"), routeNone},
-		{"playbook origin, the run moved on to another card", OriginPlaybook, rolloutLock(board.RunStatusRunning), relaunchOn("e2"), routeNone},
-		{"playbook origin, the run is on no entry", OriginPlaybook, rolloutLock(board.RunStatusWaiting), relaunchOn(""), routeNone},
-		{"playbook origin, no playbook", OriginPlaybook, nil, nil, routeNone},
-		{"rest origin, no lock", OriginREST, nil, nil, routeLaunch},
-		{"mcp origin, an inactive lock", OriginMCP, rolloutLock(""), nil, routeLaunch},
-		{"sentinel origin, no lock", OriginSentinel, nil, nil, routeLaunch},
-		{"rest origin, an active playbook run holds the card", OriginREST, rolloutLock(board.RunStatusRunning), rollout(board.RunStatusRunning, "lap-a"), routeNone},
+		{"playbook origin, its run here waits on the card", state.OriginPlaybook, rolloutLock(board.RunStatusWaiting), rollout(board.RunStatusWaiting, "lap-a"), routePlaybook},
+		{"playbook origin, its run was stopped", state.OriginPlaybook, rolloutLock(""), nil, routeNone},
+		{"playbook origin, a stopped run read", state.OriginPlaybook, rolloutLock(board.RunStatusWaiting), rollout(board.RunStatusStopped, "lap-a"), routeNone},
+		{"playbook origin, another instance's run", state.OriginPlaybook, rolloutLock(board.RunStatusWaiting), rollout(board.RunStatusWaiting, "lap-b"), routeNone},
+		{"playbook origin, the run moved on to another card", state.OriginPlaybook, rolloutLock(board.RunStatusRunning), relaunchOn("e2"), routeNone},
+		{"playbook origin, the run is on no entry", state.OriginPlaybook, rolloutLock(board.RunStatusWaiting), relaunchOn(""), routeNone},
+		{"playbook origin, no playbook", state.OriginPlaybook, nil, nil, routeNone},
+		{"rest origin, no lock", state.OriginREST, nil, nil, routeLaunch},
+		{"mcp origin, an inactive lock", state.OriginMCP, rolloutLock(""), nil, routeLaunch},
+		{"sentinel origin, no lock", state.OriginSentinel, nil, nil, routeLaunch},
+		{"rest origin, an active playbook run holds the card", state.OriginREST, rolloutLock(board.RunStatusRunning), rollout(board.RunStatusRunning, "lap-a"), routeNone},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			run := Run{Launch: LaunchFacts{Origin: tc.origin}}
+			run := state.Run{Launch: state.LaunchFacts{Origin: tc.origin}}
 			card := &board.Card{ID: "ALPHA-001", Project: "alpha", PlaybookLock: tc.lock}
 
 			got, reason := relaunchRoute(run, card, tc.pb, "lap-a")
@@ -74,7 +76,7 @@ func TestRelaunchRoute(t *testing.T) {
 }
 
 // relaunch plans h's rerun and relaunches, as apply does once the fix is written.
-func (e *dispatchEnv) relaunch(t *testing.T, h *Heal, card *board.Card, run Run) error {
+func (e *dispatchEnv) relaunch(t *testing.T, h *state.Heal, card *board.Card, run state.Run) error {
 	t.Helper()
 
 	plan, err := e.ctl.planRelaunch(context.Background(), card, run)
@@ -89,7 +91,7 @@ func TestRelaunchSavesRerunBeforeLaunching(t *testing.T) {
 	card.SubtaskCostUSD = 0.5
 
 	var (
-		atLaunch Heal
+		atLaunch state.Heal
 		attempts int
 	)
 
@@ -100,7 +102,7 @@ func TestRelaunchSavesRerunBeforeLaunching(t *testing.T) {
 
 	require.NoError(t, e.relaunch(t, h, card, run))
 
-	assert.Equal(t, StageRerun, atLaunch.Stage)
+	assert.Equal(t, state.StageRerun, atLaunch.Stage)
 	require.NotNil(t, atLaunch.RelaunchedAt)
 	assert.Equal(t, epoch, *atLaunch.RelaunchedAt)
 	assert.InDelta(t, 1.75, atLaunch.CostBaseUSD, 1e-9)
@@ -131,7 +133,7 @@ func TestRelaunchPlaybookStopsThenPlays(t *testing.T) {
 			e, h, card, run := applyEnv(t, protocol.DiagnosisModel, nil)
 			card.State, card.WorkerStatus = tc.state, "" // what the completed callback stores
 			card.PlaybookLock = rolloutLock(board.RunStatusWaiting)
-			run.Launch.Origin = OriginPlaybook
+			run.Launch.Origin = state.OriginPlaybook
 			e.pbs["rollout"] = rollout(board.RunStatusWaiting, "lap-a")
 
 			stateAt := map[string]string{}
@@ -144,7 +146,7 @@ func TestRelaunchPlaybookStopsThenPlays(t *testing.T) {
 			assert.Equal(t, tc.transitions, e.cards.transitions)
 			assert.Equal(t, board.StateTodo, stateAt[stop], "the card is in todo before Stop")
 			assert.Empty(t, e.relaunched)
-			assert.Equal(t, StageRerun, e.store.heal(h.ID).Stage)
+			assert.Equal(t, state.StageRerun, e.store.heal(h.ID).Stage)
 			assert.Equal(t, 1, e.store.run("alpha", "ALPHA-001").Attempts)
 		})
 	}
@@ -158,25 +160,25 @@ func TestRelaunchErrorParks(t *testing.T) {
 
 	tests := []struct {
 		name  string
-		setup func(e *dispatchEnv, card *board.Card, run *Run)
+		setup func(e *dispatchEnv, card *board.Card, run *state.Run)
 		keeps []string // what the reason must name
 		calls []string // the runner's calls
 	}{
-		{"the launch is refused", func(e *dispatchEnv, _ *board.Card, _ *Run) {
+		{"the launch is refused", func(e *dispatchEnv, _ *board.Card, _ *state.Run) {
 			e.relaunchErr = errors.New("card is already being executed by a worker")
 		}, []string{"card is already being executed by a worker"}, nil},
-		{"the move to todo is refused", func(e *dispatchEnv, _ *board.Card, _ *Run) {
+		{"the move to todo is refused", func(e *dispatchEnv, _ *board.Card, _ *state.Run) {
 			e.cards.refuse = map[string]error{"ALPHA-001": noPath}
 		}, []string{"ALPHA-001", refusedByProject}, nil},
-		{"the move to todo before a playbook rerun is refused", func(e *dispatchEnv, card *board.Card, run *Run) {
+		{"the move to todo before a playbook rerun is refused", func(e *dispatchEnv, card *board.Card, run *state.Run) {
 			card.PlaybookLock = rolloutLock(board.RunStatusWaiting)
-			run.Launch.Origin = OriginPlaybook
+			run.Launch.Origin = state.OriginPlaybook
 			e.pbs["rollout"] = rollout(board.RunStatusWaiting, "lap-a")
 			e.cards.refuse = map[string]error{"ALPHA-001": noPath}
 		}, []string{"ALPHA-001", refusedByProject}, nil},
-		{"the playbook run stopped meanwhile", func(e *dispatchEnv, card *board.Card, run *Run) {
+		{"the playbook run stopped meanwhile", func(e *dispatchEnv, card *board.Card, run *state.Run) {
 			card.PlaybookLock = rolloutLock(board.RunStatusWaiting)
-			run.Launch.Origin = OriginPlaybook
+			run.Launch.Origin = state.OriginPlaybook
 			e.pbs["rollout"] = rollout(board.RunStatusWaiting, "lap-a")
 			e.runner.err = fmt.Errorf("%w: rollout in %s", playbookrun.ErrRunInactive, rawPath)
 		}, []string{"rollout", refusedByChange}, []string{"stop rollout " + Agent}},
@@ -189,7 +191,7 @@ func TestRelaunchErrorParks(t *testing.T) {
 			require.NoError(t, e.relaunch(t, h, card, run))
 
 			stored := e.store.heal(h.ID)
-			assert.Equal(t, StageParked, stored.Stage)
+			assert.Equal(t, state.StageParked, stored.Stage)
 
 			for _, k := range tc.keeps {
 				assert.Contains(t, stored.Reason, k)
@@ -210,7 +212,7 @@ func TestRelaunchRouteNoneParksUncounted(t *testing.T) {
 	require.NoError(t, e.relaunch(t, h, card, run))
 
 	stored := e.store.heal(h.ID)
-	assert.Equal(t, StageParked, stored.Stage)
+	assert.Equal(t, state.StageParked, stored.Stage)
 	assert.NotEmpty(t, stored.Reason)
 	assert.Zero(t, e.store.run("alpha", "ALPHA-001").Attempts)
 	assert.Empty(t, e.relaunched)
@@ -218,15 +220,15 @@ func TestRelaunchRouteNoneParksUncounted(t *testing.T) {
 }
 
 func TestRelaunchText(t *testing.T) {
-	retired := &Change{Retired: []string{"ALPHA-011", "ALPHA-012"}, Fresh: true}
+	retired := &state.Change{Retired: []string{"ALPHA-011", "ALPHA-012"}, Fresh: true}
 
 	text := relaunchText(retired, 1)
 	assert.Contains(t, text, "ALPHA-011")
 	assert.Contains(t, text, "ALPHA-012")
 
-	resumed := &Change{VerifyAfter: &board.VerifyConfig{Command: "make check"}}
+	resumed := &state.Change{VerifyAfter: &board.VerifyConfig{Command: "make check"}}
 
-	assert.NotEqual(t, relaunchText(resumed, 1), relaunchText(&Change{VerifyAfter: resumed.VerifyAfter, Fresh: true}, 1),
+	assert.NotEqual(t, relaunchText(resumed, 1), relaunchText(&state.Change{VerifyAfter: resumed.VerifyAfter, Fresh: true}, 1),
 		"fresh and resume read apart")
 	assert.NotEqual(t, relaunchText(resumed, 1), relaunchText(resumed, 2), "the attempt is named")
 	assert.NotEqual(t, relaunchText(nil, 1), relaunchText(resumed, 1), "a changed verify is named")

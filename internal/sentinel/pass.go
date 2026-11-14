@@ -16,20 +16,21 @@ import (
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 // passReads is what a pass read before acting on heals.
 type passReads struct {
-	set        Settings
+	set        state.Settings
 	now        time.Time
 	mode       llmchannel.Mode
 	windows    []protocol.SubscriptionUsage
 	spent      float64 // the endpoint ledger since 00:00 UTC
 	budget     bool
 	gateReason string
-	heals      []Heal
+	heals      []state.Heal
 	containers []backend.ContainerInfo // listed only while a dispatch is in flight
 	listFailed bool                    // a failed listing counts every dispatch as listed
 	health     protocol.HealthResponse // read only when a dispatch may go out; zero leaves no room
@@ -92,7 +93,7 @@ func (c *Controller) pass(ctx context.Context) error {
 // read reads the budget gate's inputs and the open heals, then lists the
 // agent's containers when a dispatch is in flight and reads its health when
 // one may go out.
-func (c *Controller) read(ctx context.Context, set Settings, now time.Time) (*passReads, error) {
+func (c *Controller) read(ctx context.Context, set state.Settings, now time.Time) (*passReads, error) {
 	windows, err := c.cfg.Store.SubscriptionWindows(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("read subscription windows: %w", err)
@@ -115,7 +116,7 @@ func (c *Controller) read(ctx context.Context, set Settings, now time.Time) (*pa
 	r.budget, r.gateReason = budgetGate(r.mode, set, spent, windows, now)
 	log := ctxlog.Logger(ctx)
 
-	if slices.ContainsFunc(heals, func(h Heal) bool { return inFlight(h.Dispatch) }) {
+	if slices.ContainsFunc(heals, func(h state.Heal) bool { return inFlight(h.Dispatch) }) {
 		if r.containers, err = c.cfg.Backend.ListContainers(ctx); err != nil {
 			log.Warn("sentinel: listing the agent's containers failed", "error", err)
 
@@ -123,7 +124,7 @@ func (c *Controller) read(ctx context.Context, set Settings, now time.Time) (*pa
 		}
 	}
 
-	if set.Healing && slices.ContainsFunc(heals, func(h Heal) bool { return mayDispatch(h, r.budget) }) {
+	if set.Healing && slices.ContainsFunc(heals, func(h state.Heal) bool { return mayDispatch(h, r.budget) }) {
 		if r.health, err = c.cfg.Backend.Health(ctx); err != nil {
 			log.Warn("sentinel: reading the agent's health failed", "error", err)
 		}
@@ -133,7 +134,7 @@ func (c *Controller) read(ctx context.Context, set Settings, now time.Time) (*pa
 }
 
 // listed reports whether the agent lists h's in-flight run kind.
-func (r *passReads) listed(h Heal) bool {
+func (r *passReads) listed(h state.Heal) bool {
 	return r.listFailed || slices.ContainsFunc(r.containers, func(ci backend.ContainerInfo) bool {
 		return ci.Project == h.Project && ci.CardID == h.CardID && ci.Kind == h.Dispatch.Kind
 	})
@@ -159,7 +160,7 @@ func (c *Controller) advanceHeals(ctx context.Context, r *passReads) (open map[c
 // advance acts on one heal's next step. A heal whose read or step failed, or
 // that changed since it was read, or whose card did, stays open for the next
 // pass to decide.
-func (c *Controller) advance(ctx context.Context, r *passReads, h Heal) (open, again bool) {
+func (c *Controller) advance(ctx context.Context, r *passReads, h state.Heal) (open, again bool) {
 	log := ctxlog.Logger(ctx).With("project", h.Project, "card_id", h.CardID, "heal_id", h.ID)
 
 	v, err := c.view(ctx, r, h)
@@ -174,7 +175,7 @@ func (c *Controller) advance(ctx context.Context, r *passReads, h Heal) (open, a
 	err = c.act(ctx, r, &v, s)
 
 	switch {
-	case errors.Is(err, ErrHealChanged), errors.Is(err, service.ErrCardChanged):
+	case errors.Is(err, state.ErrHealChanged), errors.Is(err, service.ErrCardChanged):
 		return true, true
 	case err != nil:
 		log.Warn("sentinel: heal step failed", "stage", v.Heal.Stage, "error", err)
@@ -182,12 +183,12 @@ func (c *Controller) advance(ctx context.Context, r *passReads, h Heal) (open, a
 		return true, false
 	}
 
-	return !Terminal(v.Heal.Stage), s.Kind == stepAdvance
+	return !state.Terminal(v.Heal.Stage), s.Kind == stepAdvance
 }
 
 // view reads what nextStep needs for h: the card fresh, its run row, the edit
 // check, and at stage apply the fix checks on a card diagnosis's fix.
-func (c *Controller) view(ctx context.Context, r *passReads, h Heal) (healView, error) {
+func (c *Controller) view(ctx context.Context, r *passReads, h state.Heal) (healView, error) {
 	v := healView{Heal: h, Healing: r.set.Healing, Budget: r.budget, Room: roomFor(r.health), Now: r.now}
 
 	card, err := c.cfg.Cards.GetCard(ctx, h.Project, h.CardID)
@@ -212,7 +213,7 @@ func (c *Controller) view(ctx context.Context, r *passReads, h Heal) (healView, 
 	v.Listed = inFlight(h.Dispatch) && r.listed(h)
 	v.Edited = checkEdits(fixContext{Card: card, Snapshot: v.Run.Launch.Snapshot})
 
-	if fix := healFix(h); h.Stage == StageApply && fix != nil {
+	if fix := healFix(h); h.Stage == state.StageApply && fix != nil {
 		v.Rejected, err = c.vet(ctx, h, card, v.Run, *fix)
 	}
 
@@ -221,7 +222,7 @@ func (c *Controller) view(ctx context.Context, r *passReads, h Heal) (healView, 
 
 // vet runs the fix checks with the card's subtasks and its project's verify
 // read fresh.
-func (c *Controller) vet(ctx context.Context, h Heal, card *board.Card, run Run, fix protocol.CardFix) ([]string, error) {
+func (c *Controller) vet(ctx context.Context, h state.Heal, card *board.Card, run state.Run, fix protocol.CardFix) ([]string, error) {
 	project, err := c.cfg.Cards.GetProject(ctx, h.Project)
 	if err != nil {
 		return nil, fmt.Errorf("read project: %w", err)

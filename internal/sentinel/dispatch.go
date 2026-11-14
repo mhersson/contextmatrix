@@ -12,6 +12,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
@@ -28,7 +29,7 @@ const reasonNoRunKinds = "the agent has no run kinds"
 
 // dispatchInvestigate sends the investigate run for h's stopped run, capped at
 // ceiling USD. A card whose file alone is over the body cap parks the heal.
-func (c *Controller) dispatchInvestigate(ctx context.Context, h *Heal, ceiling float64) error {
+func (c *Controller) dispatchInvestigate(ctx context.Context, h *state.Heal, ceiling float64) error {
 	in, subtasks, siblings, err := c.investigateInput(ctx, h)
 	if err != nil {
 		return err
@@ -53,7 +54,7 @@ func (c *Controller) dispatchInvestigate(ctx context.Context, h *Heal, ceiling f
 
 // investigateInput reads what an investigation is given: the card file and
 // its resolved verify, and the files of its subtasks and unstarted siblings.
-func (c *Controller) investigateInput(ctx context.Context, h *Heal) (protocol.InvestigateInput, []cardFile, []cardFile, error) {
+func (c *Controller) investigateInput(ctx context.Context, h *state.Heal) (protocol.InvestigateInput, []cardFile, []cardFile, error) {
 	var none protocol.InvestigateInput
 
 	card, project, err := c.cardAndProject(ctx, h)
@@ -127,7 +128,7 @@ func (c *Controller) todoCards(ctx context.Context, project string) (map[string]
 
 // dispatchCheck sends the check run for the fix h's investigation proposed,
 // with its verify resolved as the card will store it.
-func (c *Controller) dispatchCheck(ctx context.Context, h *Heal) error {
+func (c *Controller) dispatchCheck(ctx context.Context, h *state.Heal) error {
 	if h.Investigation == nil || h.Investigation.Fix == nil {
 		return fmt.Errorf("check %s: the heal holds no fix", h.CardID)
 	}
@@ -162,13 +163,13 @@ func (c *Controller) dispatchCheck(ctx context.Context, h *Heal) error {
 // later pass. A send of unknown outcome stays in flight until the run reports
 // or the settle grace parks it. Nothing is recorded or sent for a while after
 // the agent said it has no run kinds.
-func (c *Controller) dispatch(ctx context.Context, h *Heal, p protocol.RunKindPayload, mode llmchannel.Mode) error {
+func (c *Controller) dispatch(ctx context.Context, h *state.Heal, p protocol.RunKindPayload, mode llmchannel.Mode) error {
 	now := c.cfg.Clock.Now()
 	if c.noRunKinds(now) {
 		return nil
 	}
 
-	h.Dispatch = Dispatch{Kind: p.Kind, Mode: string(mode), CeilingUSD: p.MaxCostUSD, At: &now}
+	h.Dispatch = state.Dispatch{Kind: p.Kind, Mode: string(mode), CeilingUSD: p.MaxCostUSD, At: &now}
 	h.UpdatedAt = now
 
 	if err := c.cfg.Store.SaveHeal(ctx, h); err != nil {
@@ -186,7 +187,7 @@ func (c *Controller) dispatch(ctx context.Context, h *Heal, p protocol.RunKindPa
 	case errors.Is(sendErr, backend.ErrRunKindRejected):
 		log.Warn("sentinel: the agent refused a run kind", "error", sendErr)
 
-		h.Dispatch = Dispatch{}
+		h.Dispatch = state.Dispatch{}
 
 		return c.park(ctx, h, fmt.Sprintf("the agent refused the %s run", p.Kind))
 	case errors.Is(sendErr, backend.ErrRunKindsUnavailable):
@@ -199,7 +200,7 @@ func (c *Controller) dispatch(ctx context.Context, h *Heal, p protocol.RunKindPa
 		return nil
 	}
 
-	h.Dispatch = Dispatch{}
+	h.Dispatch = state.Dispatch{}
 
 	// ErrHealChanged here means the agent reported anyway; the report stays.
 	if err := c.cfg.Store.SaveHeal(ctx, h); err != nil {
@@ -209,7 +210,7 @@ func (c *Controller) dispatch(ctx context.Context, h *Heal, p protocol.RunKindPa
 	return fmt.Errorf("send the %s run: %w", p.Kind, sendErr)
 }
 
-func (c *Controller) cardAndProject(ctx context.Context, h *Heal) (*board.Card, *board.ProjectConfig, error) {
+func (c *Controller) cardAndProject(ctx context.Context, h *state.Heal) (*board.Card, *board.ProjectConfig, error) {
 	card, err := c.cfg.Cards.GetCard(ctx, h.Project, h.CardID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read card %s: %w", h.CardID, err)
@@ -223,7 +224,7 @@ func (c *Controller) cardAndProject(ctx context.Context, h *Heal) (*board.Card, 
 	return card, project, nil
 }
 
-func (c *Controller) base(ctx context.Context, h *Heal, model bool) (protocol.RunKindPayload, llmchannel.Mode, error) {
+func (c *Controller) base(ctx context.Context, h *state.Heal, model bool) (protocol.RunKindPayload, llmchannel.Mode, error) {
 	c.mu.Lock()
 	b := c.runKindBase
 	c.mu.Unlock()

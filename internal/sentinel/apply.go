@@ -8,6 +8,7 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -15,7 +16,7 @@ import (
 // parks before anything is written, and so does a subtask the fix cannot
 // retire; a card changed since the pass read it leaves the heal at apply for
 // the next pass to decide.
-func (c *Controller) apply(ctx context.Context, h *Heal, card *board.Card, run Run) error {
+func (c *Controller) apply(ctx context.Context, h *state.Heal, card *board.Card, run state.Run) error {
 	plan, err := c.planRelaunch(ctx, card, run)
 	if err != nil {
 		return err
@@ -48,15 +49,15 @@ func freshRerun(fix *protocol.CardFix) bool {
 // applyFix writes the heal's fix in one write guarded on the card the pass
 // read, retires its subtasks, then refreshes the run's snapshot so the edit
 // check reads Sentinel's write as no edit. A heal holding no fix writes nothing.
-func (c *Controller) applyFix(ctx context.Context, h *Heal, card *board.Card) (Change, error) {
+func (c *Controller) applyFix(ctx context.Context, h *state.Heal, card *board.Card) (state.Change, error) {
 	fix := healFix(*h)
 	if fix == nil {
-		return Change{}, nil
+		return state.Change{}, nil
 	}
 
 	written, change, err := c.writeFix(ctx, card, *fix)
 	if err != nil {
-		return Change{}, err
+		return state.Change{}, err
 	}
 
 	for _, id := range fix.RetireSubtasks {
@@ -76,13 +77,13 @@ func (c *Controller) applyFix(ctx context.Context, h *Heal, card *board.Card) (C
 
 // writeFix writes the fix's section and verify in one write guarded on card,
 // and returns the written card and what changed.
-func (c *Controller) writeFix(ctx context.Context, card *board.Card, fix protocol.CardFix) (*board.Card, Change, error) {
+func (c *Controller) writeFix(ctx context.Context, card *board.Card, fix protocol.CardFix) (*board.Card, state.Change, error) {
 	written, err := c.cfg.Cards.PatchCard(ctx, card.Project, card.ID, fixPatch(card, fix))
 	if err != nil {
-		return nil, Change{}, fmt.Errorf("write the fix: %w", err)
+		return nil, state.Change{}, fmt.Errorf("write the fix: %w", err)
 	}
 
-	return written, Change{
+	return written, state.Change{
 		SectionBefore: sentinelSection(card), SectionAfter: sentinelSection(written),
 		VerifyBefore: card.Verify, VerifyAfter: written.Verify, Fresh: freshRerun(&fix),
 	}, nil

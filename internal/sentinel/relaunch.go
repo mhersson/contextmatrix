@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -31,7 +32,7 @@ type relaunchPlan struct {
 
 // planRelaunch reads the playbook the card's active lock names and decides
 // the rerun's route.
-func (c *Controller) planRelaunch(ctx context.Context, card *board.Card, run Run) (relaunchPlan, error) {
+func (c *Controller) planRelaunch(ctx context.Context, card *board.Card, run state.Run) (relaunchPlan, error) {
 	pb, err := c.activePlaybook(ctx, card)
 	if err != nil {
 		return relaunchPlan{}, err
@@ -62,8 +63,8 @@ func (c *Controller) activePlaybook(ctx context.Context, card *board.Card) (*ser
 // kills no other card's worker; any other origin reruns alone unless an active
 // playbook run holds the card. pb is the playbook the card's active lock
 // names, nil without one.
-func relaunchRoute(run Run, card *board.Card, pb *service.PlaybookDetail, instance string) (route, string) {
-	if run.Launch.Origin != OriginPlaybook {
+func relaunchRoute(run state.Run, card *board.Card, pb *service.PlaybookDetail, instance string) (route, string) {
+	if run.Launch.Origin != state.OriginPlaybook {
 		if card.PlaybookLock.Active() {
 			return routeNone, "an active playbook run holds the card"
 		}
@@ -92,7 +93,7 @@ func runOn(pb *service.PlaybookDetail, card *board.Card) bool {
 
 // usageRerun reruns the card after a usage limit, resuming where its run
 // stopped: nothing is written to the card.
-func (c *Controller) usageRerun(ctx context.Context, h *Heal, card *board.Card, run Run) error {
+func (c *Controller) usageRerun(ctx context.Context, h *state.Heal, card *board.Card, run state.Run) error {
 	plan, err := c.planRelaunch(ctx, card, run)
 	if err != nil {
 		return err
@@ -105,7 +106,7 @@ func (c *Controller) usageRerun(ctx context.Context, h *Heal, card *board.Card, 
 // rerun is counted and the heal saved at rerun, with RelaunchedAt taken,
 // before anything launches, so the rerun's run row starts at or after it. A
 // refused rerun parks the heal.
-func (c *Controller) relaunch(ctx context.Context, h *Heal, card *board.Card, run Run, plan relaunchPlan) error {
+func (c *Controller) relaunch(ctx context.Context, h *state.Heal, card *board.Card, run state.Run, plan relaunchPlan) error {
 	if plan.route == routeNone {
 		return c.park(ctx, h, plan.reason)
 	}
@@ -118,7 +119,7 @@ func (c *Controller) relaunch(ctx context.Context, h *Heal, card *board.Card, ru
 	now := c.cfg.Clock.Now()
 	h.RelaunchedAt, h.CostBaseUSD = &now, cardCost(card)
 
-	if err := c.saveStage(ctx, h, StageRerun, ""); err != nil {
+	if err := c.saveStage(ctx, h, state.StageRerun, ""); err != nil {
 		return fmt.Errorf("save the rerun: %w", err)
 	}
 
@@ -133,7 +134,7 @@ func (c *Controller) relaunch(ctx context.Context, h *Heal, card *board.Card, ru
 
 // countRerun counts h's rerun on the card's run row and returns its activity
 // entry. A usage-limit rerun has its own cap, so it spends no heal attempt.
-func (c *Controller) countRerun(ctx context.Context, h *Heal, run Run) (string, error) {
+func (c *Controller) countRerun(ctx context.Context, h *state.Heal, run state.Run) (string, error) {
 	if h.Response == RespUsageRerun {
 		if err := c.cfg.Store.IncrementUsageReruns(ctx, h.Project, h.CardID); err != nil {
 			return "", fmt.Errorf("count the usage-limit rerun: %w", err)
@@ -198,37 +199,38 @@ func cardCost(card *board.Card) float64 {
 }
 
 // relaunchText is the activity entry of a heal that reruns its card.
-func relaunchText(change *Change, attempt int) string {
+func relaunchText(change *state.Change, attempt int) string {
 	how := "to resume"
 	if change != nil && change.Fresh {
 		how = "fresh"
 	}
 
 	return clipActivity(fmt.Sprintf("Sentinel %s; rerunning %s, attempt %d of %d",
-		changeText(change), how, attempt, MaxHealAttempts))
+		changeText(change), how, attempt, state.MaxHealAttempts))
 }
 
 // usageRerunText is the activity entry of a heal that reruns its card after a
 // usage limit.
 func usageRerunText(rerun int) string {
-	return fmt.Sprintf("Sentinel rerunning to resume after a usage limit, usage-limit rerun %d of %d", rerun, MaxUsageReruns)
+	return fmt.Sprintf("Sentinel rerunning to resume after a usage limit, usage-limit rerun %d of %d", rerun, state.MaxUsageReruns)
 }
 
 // changeText names what a fix changed on the card.
-func changeText(change *Change) string {
-	if change == nil || !change.changed() {
+func changeText(change *state.Change) string {
+	var parts []string
+	if change != nil {
+		parts = changeParts(*change)
+	}
+
+	if len(parts) == 0 {
 		return "changed nothing on the card"
 	}
 
-	return strings.Join(change.parts(), ", ")
+	return strings.Join(parts, ", ")
 }
 
-// changed reports whether the fix altered the card.
-func (c Change) changed() bool {
-	return len(c.parts()) > 0
-}
-
-func (c Change) parts() []string {
+// changeParts names each way the fix altered the card.
+func changeParts(c state.Change) []string {
 	var parts []string
 
 	if c.SectionAfter != c.SectionBefore {

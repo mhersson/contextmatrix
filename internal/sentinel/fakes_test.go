@@ -12,6 +12,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -21,13 +22,13 @@ import (
 // version guard, and the spend ledger, following the store's rules.
 type fakeStore struct {
 	mu        sync.Mutex
-	settings  Settings
+	settings  state.Settings
 	windows   []protocol.SubscriptionUsage
 	reads     int
 	others    int // calls to every method but SentinelSettings
 	panicNext bool
-	heals     map[int64]Heal
-	runs      []Run
+	heals     map[int64]state.Heal
+	runs      []state.Run
 	ledger    []ledgerRow
 	refreshes int // RefreshEditSnapshot calls
 }
@@ -40,14 +41,14 @@ type ledgerRow struct {
 	RunID  string
 }
 
-func (f *fakeStore) SaveHeal(_ context.Context, h *Heal) error {
+func (f *fakeStore) SaveHeal(_ context.Context, h *state.Heal) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	f.others++
 
 	if cur, ok := f.heals[h.ID]; !ok || cur.Version != h.Version {
-		return ErrHealChanged
+		return state.ErrHealChanged
 	}
 
 	h.Version++
@@ -56,25 +57,25 @@ func (f *fakeStore) SaveHeal(_ context.Context, h *Heal) error {
 	return nil
 }
 
-func (f *fakeStore) putHeal(h Heal) {
+func (f *fakeStore) putHeal(h state.Heal) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	if f.heals == nil {
-		f.heals = make(map[int64]Heal)
+		f.heals = make(map[int64]state.Heal)
 	}
 
 	f.heals[h.ID] = h
 }
 
-func (f *fakeStore) heal(id int64) Heal {
+func (f *fakeStore) heal(id int64) state.Heal {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	return f.heals[id]
 }
 
-func (f *fakeStore) SentinelSettings(context.Context) (Settings, time.Time, string, error) {
+func (f *fakeStore) SentinelSettings(context.Context) (state.Settings, time.Time, string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -100,7 +101,7 @@ func (f *fakeStore) SubscriptionWindows(context.Context) ([]protocol.Subscriptio
 
 // RecordRunKindStatus records on the card's newest heal with the kind in
 // flight, neither answered nor failed, and charges it once per run ID.
-func (f *fakeStore) RecordRunKindStatus(_ context.Context, r RunKindReport) (int64, bool, error) {
+func (f *fakeStore) RecordRunKindStatus(_ context.Context, r state.RunKindReport) (int64, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -110,7 +111,7 @@ func (f *fakeStore) RecordRunKindStatus(_ context.Context, r RunKindReport) (int
 		return 0, false, nil
 	}
 
-	var newest *Heal
+	var newest *state.Heal
 
 	for _, h := range f.heals {
 		d := h.Dispatch
@@ -149,13 +150,13 @@ func (f *fakeStore) AddFindings(context.Context, int64, string, string, []protoc
 	return nil
 }
 
-func (f *fakeStore) UndecidedRuns(context.Context) ([]Run, error) {
+func (f *fakeStore) UndecidedRuns(context.Context) ([]state.Run, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	f.others++
 
-	var runs []Run
+	var runs []state.Run
 
 	for _, r := range f.runs {
 		if r.Launch.Autonomous && !r.Decided {
@@ -186,24 +187,24 @@ func (f *fakeStore) markDecided(project, cardID string, started time.Time) {
 
 // OpenHeal keeps one heal per run start: a second open returns the first's ID.
 // Opening a heal, first or not, marks its run decided.
-func (f *fakeStore) OpenHeal(_ context.Context, h Heal) (int64, error) {
+func (f *fakeStore) OpenHeal(_ context.Context, h state.Heal) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	f.others++
 
 	if f.heals == nil {
-		f.heals = make(map[int64]Heal)
+		f.heals = make(map[int64]state.Heal)
 	}
 
-	if h.Kind == HealKindHeal {
+	if h.Kind == state.HealKindHeal {
 		f.markDecided(h.Project, h.CardID, h.RunStarted)
 	}
 
 	var maxID int64
 
 	for _, cur := range f.heals {
-		if h.Kind == HealKindHeal && cur.Kind == HealKindHeal && cur.Project == h.Project && cur.CardID == h.CardID &&
+		if h.Kind == state.HealKindHeal && cur.Kind == state.HealKindHeal && cur.Project == h.Project && cur.CardID == h.CardID &&
 			cur.RunStarted.Equal(h.RunStarted) {
 			return cur.ID, nil
 		}
@@ -217,33 +218,33 @@ func (f *fakeStore) OpenHeal(_ context.Context, h Heal) (int64, error) {
 	return h.ID, nil
 }
 
-func (f *fakeStore) OpenHeals(context.Context) ([]Heal, error) {
+func (f *fakeStore) OpenHeals(context.Context) ([]state.Heal, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	f.others++
 
-	var heals []Heal
+	var heals []state.Heal
 
 	for _, h := range f.heals {
-		if h.Kind == HealKindHeal && !Terminal(h.Stage) {
+		if h.Kind == state.HealKindHeal && !state.Terminal(h.Stage) {
 			heals = append(heals, h)
 		}
 	}
 
-	slices.SortFunc(heals, func(a, b Heal) int { return int(a.ID - b.ID) })
+	slices.SortFunc(heals, func(a, b state.Heal) int { return int(a.ID - b.ID) })
 
 	return heals, nil
 }
 
 // CardHeals returns the card's rows, newest first.
-func (f *fakeStore) CardHeals(_ context.Context, project, cardID string) ([]Heal, error) {
+func (f *fakeStore) CardHeals(_ context.Context, project, cardID string) ([]state.Heal, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	f.others++
 
-	var heals []Heal
+	var heals []state.Heal
 
 	for _, h := range f.heals {
 		if h.Project == project && h.CardID == cardID {
@@ -251,18 +252,18 @@ func (f *fakeStore) CardHeals(_ context.Context, project, cardID string) ([]Heal
 		}
 	}
 
-	slices.SortFunc(heals, func(a, b Heal) int { return int(b.ID - a.ID) })
+	slices.SortFunc(heals, func(a, b state.Heal) int { return int(b.ID - a.ID) })
 
 	return heals, nil
 }
 
-func (f *fakeStore) LatestHeals(_ context.Context, project string) (map[string]Heal, error) {
+func (f *fakeStore) LatestHeals(_ context.Context, project string) (map[string]state.Heal, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	f.others++
 
-	latest := map[string]Heal{}
+	latest := map[string]state.Heal{}
 
 	for _, h := range f.heals {
 		if cur, ok := latest[h.CardID]; h.Project == project && (!ok || h.ID > cur.ID) {
@@ -309,7 +310,7 @@ func (f *fakeStore) HealedSince(_ context.Context, since time.Time) (int, error)
 	cards := map[string]bool{}
 
 	for _, h := range f.heals {
-		if h.Stage == StageHealed && !h.UpdatedAt.Before(since) {
+		if h.Stage == state.StageHealed && !h.UpdatedAt.Before(since) {
 			cards[h.Project+"/"+h.CardID] = true
 		}
 	}
@@ -317,7 +318,7 @@ func (f *fakeStore) HealedSince(_ context.Context, since time.Time) (int, error)
 	return len(cards), nil
 }
 
-func (f *fakeStore) CardRunRow(_ context.Context, project, cardID string) (*Run, error) {
+func (f *fakeStore) CardRunRow(_ context.Context, project, cardID string) (*state.Run, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -379,15 +380,15 @@ func (f *fakeStore) IncrementUsageReruns(_ context.Context, project, cardID stri
 }
 
 // putRun replaces the card's run row, as a launch does.
-func (f *fakeStore) putRun(r Run) {
+func (f *fakeStore) putRun(r state.Run) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	f.runs = slices.DeleteFunc(f.runs, func(cur Run) bool { return cur.Project == r.Project && cur.CardID == r.CardID })
+	f.runs = slices.DeleteFunc(f.runs, func(cur state.Run) bool { return cur.Project == r.Project && cur.CardID == r.CardID })
 	f.runs = append(f.runs, r)
 }
 
-func (f *fakeStore) run(project, cardID string) Run {
+func (f *fakeStore) run(project, cardID string) state.Run {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -397,19 +398,19 @@ func (f *fakeStore) run(project, cardID string) Run {
 		}
 	}
 
-	return Run{}
+	return state.Run{}
 }
 
-func (f *fakeStore) allHeals() []Heal {
+func (f *fakeStore) allHeals() []state.Heal {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	heals := make([]Heal, 0, len(f.heals))
+	heals := make([]state.Heal, 0, len(f.heals))
 	for _, h := range f.heals {
 		heals = append(heals, h)
 	}
 
-	slices.SortFunc(heals, func(a, b Heal) int { return int(a.ID - b.ID) })
+	slices.SortFunc(heals, func(a, b state.Heal) int { return int(a.ID - b.ID) })
 
 	return heals
 }
@@ -435,7 +436,7 @@ func (f *fakeStore) passes() int {
 	return f.reads
 }
 
-func (f *fakeStore) set(s Settings) {
+func (f *fakeStore) set(s state.Settings) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -673,8 +674,8 @@ func (f *fakeRunner) call(c string) error {
 	return f.err
 }
 
-func enabledSettings() Settings {
-	s := DefaultSettings()
+func enabledSettings() state.Settings {
+	s := state.DefaultSettings()
 	s.Enabled = true
 
 	return s

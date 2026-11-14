@@ -7,7 +7,7 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
-	"github.com/mhersson/contextmatrix/internal/sentinel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 // runKindBase fills a run kind's common payload fields for a card: the
@@ -65,7 +65,7 @@ func (h *backendHandlers) runKindBase(ctx context.Context, project, cardID strin
 func (h *backendHandlers) sentinelRelaunch(ctx context.Context, project, id string) error {
 	err := h.handRunPreflight(ctx, project, id)
 	if err == nil {
-		_, err = h.launch(ctx, project, id, launchOptions{handRun: true, origin: sentinel.OriginSentinel})
+		_, err = h.launch(ctx, project, id, launchOptions{handRun: true, origin: state.OriginSentinel})
 	}
 
 	return committableLaunchError(ctx, project, id, err)

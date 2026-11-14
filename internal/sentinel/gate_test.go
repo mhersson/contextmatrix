@@ -4,11 +4,13 @@ import (
 	"testing"
 	"time"
 
-	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
+
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 func TestBudgetGate(t *testing.T) {
@@ -24,7 +26,7 @@ func TestBudgetGate(t *testing.T) {
 		return []protocol.SubscriptionUsage{{Window: "five_hour", Utilization: util, Status: status, ResetsAt: at(resets)}}
 	}
 
-	s := DefaultSettings()
+	s := state.DefaultSettings()
 	s.DailyCapUSD = 10
 	s.Headroom = 0.85
 

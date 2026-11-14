@@ -5,14 +5,16 @@ import (
 	"testing"
 	"time"
 
-	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	protocol "github.com/mhersson/contextmatrix-protocol"
 
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 var epoch = time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
@@ -116,7 +118,7 @@ func TestControllerSurvivesPanickingPass(t *testing.T) {
 }
 
 func TestControllerPublishesOnlyOnStatusChange(t *testing.T) {
-	store := &fakeStore{settings: DefaultSettings()}
+	store := &fakeStore{settings: state.DefaultSettings()}
 	e := newEnv(t, store, llmchannel.ModeEndpoint)
 
 	ch, unsubscribe := e.bus.Subscribe()

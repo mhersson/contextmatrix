@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
-	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	protocol "github.com/mhersson/contextmatrix-protocol"
 
 	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -18,6 +19,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -79,9 +81,9 @@ func newDispatchEnv(t *testing.T) *dispatchEnv {
 
 // heal stores ALPHA-001's heal at stage, stopped by verify_parked, and returns
 // the copy a pass would have read.
-func (e *dispatchEnv) heal(stage string) *Heal {
-	h := Heal{
-		ID: 1, Kind: HealKindHeal, Project: "alpha", CardID: "ALPHA-001", RunStarted: runStarted,
+func (e *dispatchEnv) heal(stage string) *state.Heal {
+	h := state.Heal{
+		ID: 1, Kind: state.HealKindHeal, Project: "alpha", CardID: "ALPHA-001", RunStarted: runStarted,
 		RunID: "run-1", Cause: protocol.StopCauseVerifyParked, Stage: stage,
 	}
 	e.store.putHeal(h)
@@ -95,9 +97,9 @@ func investigateRun() protocol.RunKindPayload {
 
 func TestDispatchRecordsBeforeSending(t *testing.T) {
 	e := newDispatchEnv(t)
-	h := e.heal(StageInvestigate)
+	h := e.heal(state.StageInvestigate)
 
-	var atSend Heal
+	var atSend state.Heal
 
 	e.backend.onSend = func(protocol.RunKindPayload) { atSend = e.store.heal(1) }
 
@@ -116,11 +118,11 @@ func TestDispatchRecordsBeforeSending(t *testing.T) {
 
 func TestDispatchStaleHealSendsNothing(t *testing.T) {
 	e := newDispatchEnv(t)
-	h := e.heal(StageInvestigate)
+	h := e.heal(state.StageInvestigate)
 	h.Version = 7 // a callback wrote the row since h was read
 
 	err := e.ctl.dispatch(context.Background(), h, investigateRun(), llmchannel.ModeEndpoint)
-	require.ErrorIs(t, err, ErrHealChanged)
+	require.ErrorIs(t, err, state.ErrHealChanged)
 	assert.Empty(t, e.backend.sent)
 	assert.Nil(t, e.store.heal(1).Dispatch.At)
 }
@@ -135,15 +137,15 @@ func TestDispatchErrors(t *testing.T) {
 		state       string
 		stateReason string
 	}{
-		{"unavailable", backend.ErrRunKindsUnavailable, true, false, StageInvestigate, StatePaused, "the agent has no run kinds"},
-		{"busy", backend.ErrRunKindBusy, true, false, StageInvestigate, StateWatching, ""},
-		{"transport: the run may have started", errors.New("connection reset"), false, true, StageInvestigate, StateWatching, ""},
-		{"rejected", fmt.Errorf("%w: invalid_field git_token", backend.ErrRunKindRejected), false, false, StageParked, StateWatching, ""},
+		{"unavailable", backend.ErrRunKindsUnavailable, true, false, state.StageInvestigate, StatePaused, "the agent has no run kinds"},
+		{"busy", backend.ErrRunKindBusy, true, false, state.StageInvestigate, StateWatching, ""},
+		{"transport: the run may have started", errors.New("connection reset"), false, true, state.StageInvestigate, StateWatching, ""},
+		{"rejected", fmt.Errorf("%w: invalid_field git_token", backend.ErrRunKindRejected), false, false, state.StageParked, StateWatching, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newDispatchEnv(t)
-			h := e.heal(StageInvestigate)
+			h := e.heal(state.StageInvestigate)
 			e.backend.err = tc.err
 
 			err := e.ctl.dispatch(context.Background(), h, investigateRun(), llmchannel.ModeEndpoint)
@@ -159,12 +161,12 @@ func TestDispatchErrors(t *testing.T) {
 				assert.Equal(t, protocol.RunKindInvestigate, stored.Dispatch.Kind)
 				assert.InDelta(t, 2.0, stored.Dispatch.CeilingUSD, 0)
 			} else {
-				assert.Equal(t, Dispatch{}, stored.Dispatch, "an answer that started nothing leaves no dispatch in flight")
+				assert.Equal(t, state.Dispatch{}, stored.Dispatch, "an answer that started nothing leaves no dispatch in flight")
 			}
 
 			assert.Equal(t, tc.stage, stored.Stage)
 
-			if tc.stage == StageParked {
+			if tc.stage == state.StageParked {
 				assert.Contains(t, stored.Reason, protocol.RunKindInvestigate)
 			}
 
@@ -179,7 +181,7 @@ func TestDispatchErrors(t *testing.T) {
 
 func TestDispatchClearKeepsAReportRecordedMeanwhile(t *testing.T) {
 	e := newDispatchEnv(t)
-	h := e.heal(StageInvestigate)
+	h := e.heal(state.StageInvestigate)
 
 	// The status callback records an answer while the send is still out.
 	e.backend.onSend = func(protocol.RunKindPayload) {
@@ -203,7 +205,7 @@ func TestDispatchHoldsWhileTheAgentHasNoRunKinds(t *testing.T) {
 	ctx := context.Background()
 
 	e.stopped("ALPHA-001", protocol.StopCauseVerifyParked) // so a pass leaves the heal waiting
-	h := e.heal(StageInvestigate)
+	h := e.heal(state.StageInvestigate)
 
 	e.backend.err = backend.ErrRunKindsUnavailable
 	require.Error(t, e.ctl.dispatch(ctx, h, investigateRun(), llmchannel.ModeEndpoint))
@@ -279,7 +281,7 @@ func TestDispatchInvestigateSendsTheCardItsSubtasksAndSiblings(t *testing.T) {
 		t.Run(tc.cause, func(t *testing.T) {
 			e := newDispatchEnv(t)
 			e.investigateCards("Make the build pass.\n")
-			h := e.heal(StageInvestigate)
+			h := e.heal(state.StageInvestigate)
 			h.Cause = tc.cause
 			e.store.putHeal(*h)
 
@@ -312,14 +314,14 @@ func TestDispatchInvestigateSendsTheCardItsSubtasksAndSiblings(t *testing.T) {
 func TestDispatchInvestigateParksACardOverTheCap(t *testing.T) {
 	e := newDispatchEnv(t)
 	e.investigateCards(strings.Repeat("x", maxRunKindBody))
-	h := e.heal(StageInvestigate)
+	h := e.heal(state.StageInvestigate)
 
 	require.NoError(t, e.ctl.dispatchInvestigate(context.Background(), h, 2))
 
 	assert.Empty(t, e.backend.sent)
 
 	stored := e.store.heal(1)
-	assert.Equal(t, StageParked, stored.Stage)
+	assert.Equal(t, state.StageParked, stored.Stage)
 	assert.NotEmpty(t, stored.Reason)
 	assert.Nil(t, stored.Dispatch.At)
 }
@@ -332,7 +334,7 @@ func TestDispatchCheckSendsTheResolvedVerify(t *testing.T) {
 	}}
 	e.cards.projects["alpha"] = &board.ProjectConfig{Name: "alpha", Verify: &board.VerifyConfig{Env: []string{"GOFLAGS"}}}
 
-	h := e.heal(StageCheck)
+	h := e.heal(state.StageCheck)
 	h.Investigation = &protocol.InvestigateResult{Cause: protocol.DiagnosisCard, Fix: &protocol.CardFix{
 		Section: "Run make generate first.",
 		Verify:  &protocol.VerifyConfig{Command: " make test ", TimeoutSeconds: 900},
@@ -360,7 +362,7 @@ func TestDispatchCheckSendsTheResolvedVerify(t *testing.T) {
 
 func TestDispatchCheckWithoutAFixSendsNothing(t *testing.T) {
 	e := newDispatchEnv(t)
-	h := e.heal(StageCheck)
+	h := e.heal(state.StageCheck)
 
 	require.Error(t, e.ctl.dispatchCheck(context.Background(), h))
 	assert.Empty(t, e.backend.sent)

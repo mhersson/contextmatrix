@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 // Agent is the agent ID Sentinel writes the board under.
@@ -20,7 +21,7 @@ const activityAction = "sentinel"
 const maxActivityText = 2000
 
 // activityText is a parked heal's activity entry: why it needs a human.
-func activityText(h Heal) string {
+func activityText(h state.Heal) string {
 	return clipActivity("Sentinel left this for a human: " + h.Reason)
 }
 
@@ -36,8 +37,8 @@ func clipActivity(text string) string {
 
 // park leaves the heal to a human: it saves stage parked with reason, then
 // writes the heal's one activity entry.
-func (c *Controller) park(ctx context.Context, h *Heal, reason string) error {
-	if err := c.saveStage(ctx, h, StageParked, reason); err != nil {
+func (c *Controller) park(ctx context.Context, h *state.Heal, reason string) error {
+	if err := c.saveStage(ctx, h, state.StageParked, reason); err != nil {
 		return fmt.Errorf("park the heal: %w", err)
 	}
 
@@ -47,10 +48,10 @@ func (c *Controller) park(ctx context.Context, h *Heal, reason string) error {
 // parkUnreported parks a heal whose run kind never reported and charges the
 // dispatch's ceiling. The failure is saved with the stage, so a late report
 // matches no dispatch and is never charged on top.
-func (c *Controller) parkUnreported(ctx context.Context, h *Heal, reason string) error {
+func (c *Controller) parkUnreported(ctx context.Context, h *state.Heal, reason string) error {
 	h.Dispatch.Failure = reason
 
-	if err := c.saveStage(ctx, h, StageParked, reason); err != nil {
+	if err := c.saveStage(ctx, h, state.StageParked, reason); err != nil {
 		return fmt.Errorf("park the heal: %w", err)
 	}
 
@@ -64,8 +65,8 @@ func (c *Controller) parkUnreported(ctx context.Context, h *Heal, reason string)
 
 // closeHeal ends the heal without an activity entry: the card was closed or
 // someone else took it over, which the card already shows.
-func (c *Controller) closeHeal(ctx context.Context, h *Heal, reason string) error {
-	if err := c.saveStage(ctx, h, StageClosed, reason); err != nil {
+func (c *Controller) closeHeal(ctx context.Context, h *state.Heal, reason string) error {
+	if err := c.saveStage(ctx, h, state.StageClosed, reason); err != nil {
 		return fmt.Errorf("close the heal: %w", err)
 	}
 
@@ -73,13 +74,13 @@ func (c *Controller) closeHeal(ctx context.Context, h *Heal, reason string) erro
 }
 
 // saveStage moves the heal to stage with reason.
-func (c *Controller) saveStage(ctx context.Context, h *Heal, stage, reason string) error {
+func (c *Controller) saveStage(ctx context.Context, h *state.Heal, stage, reason string) error {
 	h.Stage, h.Reason, h.UpdatedAt = stage, reason, c.cfg.Clock.Now()
 
 	return c.cfg.Store.SaveHeal(ctx, h)
 }
 
-func (c *Controller) logActivity(ctx context.Context, h *Heal, text string) error {
+func (c *Controller) logActivity(ctx context.Context, h *state.Heal, text string) error {
 	entry := board.ActivityEntry{Agent: Agent, Timestamp: c.cfg.Clock.Now(), Action: activityAction, Message: text}
 	if _, err := c.cfg.Cards.AddSystemLogEntry(ctx, h.Project, h.CardID, entry); err != nil {
 		return fmt.Errorf("write the activity entry: %w", err)

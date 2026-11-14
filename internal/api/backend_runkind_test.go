@@ -14,7 +14,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/githubauth"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
-	"github.com/mhersson/contextmatrix/internal/sentinel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -143,7 +143,7 @@ func TestSentinelRelaunchRecordsSentinelOrigin(t *testing.T) {
 	card := createRunnable(t, svc, service.CreateCardInput{Autonomous: new(true)})
 
 	require.NoError(t, ops.OpenCardRun(ctx, "test-project", card.ID, "endpoint", time.Now(),
-		sentinel.LaunchFacts{Autonomous: true, Origin: sentinel.OriginREST}))
+		state.LaunchFacts{Autonomous: true, Origin: state.OriginREST}))
 	require.NoError(t, ops.IncrementAttempts(ctx, "test-project", card.ID))
 
 	require.NoError(t, h.sentinelRelaunch(ctx, "test-project", card.ID))
@@ -151,6 +151,6 @@ func TestSentinelRelaunchRecordsSentinelOrigin(t *testing.T) {
 	run, err := ops.CardRunRow(ctx, "test-project", card.ID)
 	require.NoError(t, err)
 	require.NotNil(t, run)
-	assert.Equal(t, sentinel.OriginSentinel, run.Launch.Origin)
+	assert.Equal(t, state.OriginSentinel, run.Launch.Origin)
 	assert.Equal(t, 1, run.Attempts, "a Sentinel rerun keeps the attempt it counted")
 }

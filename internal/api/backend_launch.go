@@ -16,7 +16,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
 	"github.com/mhersson/contextmatrix/internal/playbookrun"
-	"github.com/mhersson/contextmatrix/internal/sentinel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -209,7 +209,7 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 	// Best-effort: the record feeds in-flight counts and must not fail a run
 	// the backend already accepted.
 	if h.cardRuns != nil {
-		if err := h.cardRuns.OpenCardRun(ctx, project, id, string(choice.mode), time.Now(), sentinel.LaunchFacts{
+		if err := h.cardRuns.OpenCardRun(ctx, project, id, string(choice.mode), time.Now(), state.LaunchFacts{
 			Snapshot:   board.TakeEditSnapshot(card),
 			Autonomous: card.Autonomous,
 			Origin:     opts.origin,
@@ -435,7 +435,7 @@ func (h *backendHandlers) markHumanStop(ctx context.Context, project, id string)
 // playbookLaunch and playbookStop adapt launch and stop for the playbook
 // runner, which records the error text as the run's waiting reason.
 func (h *backendHandlers) playbookLaunch(ctx context.Context, project, id string, opts playbookrun.LaunchOptions) error {
-	_, err := h.launch(ctx, project, id, launchOptions{createBaseBranch: opts.CreateBaseBranch, baseBranchFrom: opts.BaseBranchFrom, origin: sentinel.OriginPlaybook})
+	_, err := h.launch(ctx, project, id, launchOptions{createBaseBranch: opts.CreateBaseBranch, baseBranchFrom: opts.BaseBranchFrom, origin: state.OriginPlaybook})
 
 	return committableLaunchError(ctx, project, id, err)
 }

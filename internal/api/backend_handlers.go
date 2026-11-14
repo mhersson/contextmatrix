@@ -14,6 +14,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/githubauth"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
 	"github.com/mhersson/contextmatrix/internal/sentinel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -62,7 +63,7 @@ type ClaudeCodeCatalog interface {
 // CardRunRecorder stores each card run's start facts, reported status and human stop.
 // Implemented by opstore/sqlite.Store.
 type CardRunRecorder interface {
-	OpenCardRun(ctx context.Context, project, cardID, mode string, at time.Time, facts sentinel.LaunchFacts) error
+	OpenCardRun(ctx context.Context, project, cardID, mode string, at time.Time, facts state.LaunchFacts) error
 	RecordRunStatus(ctx context.Context, project, cardID, runID, status, stopCause string, at time.Time) error
 	MarkHumanStop(ctx context.Context, project, cardID string) error
 }

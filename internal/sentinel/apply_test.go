@@ -6,12 +6,14 @@ import (
 	"testing"
 	"time"
 
-	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
+
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/lock"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -42,18 +44,18 @@ func sectionFix() *protocol.CardFix {
 
 // applyEnv stores ALPHA-001 stopped mid-execute with unstarted subtask
 // ALPHA-011, and a heal at apply holding fix under a diagnosis of cause.
-func applyEnv(t *testing.T, cause string, fix *protocol.CardFix) (*dispatchEnv, *Heal, *board.Card, Run) {
+func applyEnv(t *testing.T, cause string, fix *protocol.CardFix) (*dispatchEnv, *state.Heal, *board.Card, state.Run) {
 	t.Helper()
 
 	e := newPassEnv(t)
-	card, run := e.stopped("ALPHA-001", protocol.StopCauseVerifyParked, func(c *board.Card, _ *Run) {
+	card, run := e.stopped("ALPHA-001", protocol.StopCauseVerifyParked, func(c *board.Card, _ *state.Run) {
 		c.Phase = "execute"
 	})
 	e.cards.cards = append(e.cards.cards, &board.Card{
 		ID: "ALPHA-011", Project: "alpha", Title: "Part two", Parent: "ALPHA-001", State: board.StateTodo,
 		Updated: epoch.Add(-30 * time.Minute),
 	})
-	h := e.openHeal(t, "ALPHA-001", StageApply, investigated(cause, fix))
+	h := e.openHeal(t, "ALPHA-001", state.StageApply, investigated(cause, fix))
 
 	return e, &h, card, run
 }
@@ -115,7 +117,7 @@ func TestApplyFixModelDiagnosisWritesNothing(t *testing.T) {
 
 	assert.Empty(t, e.cards.patches)
 	assert.Zero(t, e.store.refreshes)
-	assert.Equal(t, Change{}, change)
+	assert.Equal(t, state.Change{}, change)
 }
 
 func TestApplyFixHumanEditInBetween(t *testing.T) {
@@ -194,7 +196,7 @@ func TestApplyParksARefusedRetire(t *testing.T) {
 			require.NoError(t, e.ctl.apply(context.Background(), h, card, run))
 
 			stored := e.store.heal(h.ID)
-			assert.Equal(t, StageParked, stored.Stage)
+			assert.Equal(t, state.StageParked, stored.Stage)
 			assert.Contains(t, stored.Reason, "ALPHA-011")
 			assert.Contains(t, stored.Reason, tc.class)
 			assert.NotContains(t, stored.Reason, rawPath, "the reason is committed with the card")
@@ -215,7 +217,7 @@ func TestApplyWithNoRerunLeavesTheCardUntouched(t *testing.T) {
 	require.NoError(t, e.ctl.apply(context.Background(), h, card, run))
 
 	stored := e.store.heal(h.ID)
-	assert.Equal(t, StageParked, stored.Stage)
+	assert.Equal(t, state.StageParked, stored.Stage)
 	assert.NotEmpty(t, stored.Reason)
 	assert.Empty(t, e.cards.patches, "neither the fix nor a retire is written")
 	assert.Zero(t, e.store.refreshes)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 // settleGrace is how long a card whose worker ended may go unwritten before
@@ -16,7 +17,7 @@ const settleGrace = backend.StaleWorkerGrace
 // causeKey says whether the run has settled and names its cause. An agent
 // parks the card over MCP before its container exits, so a parked card is not
 // settled until the terminal callback brings the stop cause or the grace passes.
-func causeKey(run Run, card *board.Card, forward *Heal, now time.Time) (key string, settled bool) {
+func causeKey(run state.Run, card *board.Card, forward *state.Heal, now time.Time) (key string, settled bool) {
 	if card.State == board.StateStalled {
 		return CauseStalled, true
 	}
@@ -40,7 +41,7 @@ func causeKey(run Run, card *board.Card, forward *Heal, now time.Time) (key stri
 	return run.StopCause, true
 }
 
-func settledRun(run Run, card *board.Card, now time.Time) bool {
+func settledRun(run state.Run, card *board.Card, now time.Time) bool {
 	switch card.WorkerStatus {
 	case "queued", "running":
 		return false
@@ -60,13 +61,13 @@ func settledRun(run Run, card *board.Card, now time.Time) bool {
 
 // forwardedBefore reports whether forward is a fix still on trial that was
 // forwarded to the card before this run started.
-func forwardedBefore(forward *Heal, runStart time.Time) bool {
-	return forward != nil && forward.Kind == HealKindForward &&
-		forward.Stage == StageForwarded && forward.CreatedAt.Before(runStart)
+func forwardedBefore(forward *state.Heal, runStart time.Time) bool {
+	return forward != nil && forward.Kind == state.HealKindForward &&
+		forward.Stage == state.StageForwarded && forward.CreatedAt.Before(runStart)
 }
 
 // eligible says whether Sentinel may act on a settled run at all, and if not, why.
-func eligible(run Run, card *board.Card, claimedElsewhere bool) (ok bool, why string) {
+func eligible(run state.Run, card *board.Card, claimedElsewhere bool) (ok bool, why string) {
 	switch {
 	case !run.Launch.Autonomous:
 		return false, "not launched autonomous"
@@ -85,17 +86,17 @@ func eligible(run Run, card *board.Card, claimedElsewhere bool) (ok bool, why st
 
 // openStage is the stage a heal for a settled, eligible run opens at, or
 // parked with a reason. Investigating needs the run's ID to find its log.
-func openStage(row causeRow, run Run) (stage, reason string) {
+func openStage(row causeRow, run state.Run) (stage, reason string) {
 	switch {
 	case row.Response == RespPark:
-		return StageParked, row.Reason
+		return state.StageParked, row.Reason
 	case row.Response == RespUsageRerun:
-		return StageUsageWait, ""
-	case row.Response == RespInvestigateFix && run.Attempts >= MaxHealAttempts:
-		return StageParked, reasonAttemptsUsed
+		return state.StageUsageWait, ""
+	case row.Response == RespInvestigateFix && run.Attempts >= state.MaxHealAttempts:
+		return state.StageParked, reasonAttemptsUsed
 	case run.RunID == "":
-		return StageParked, "the run left no log to investigate"
+		return state.StageParked, "the run left no log to investigate"
 	}
 
-	return StageInvestigate, ""
+	return state.StageInvestigate, ""
 }

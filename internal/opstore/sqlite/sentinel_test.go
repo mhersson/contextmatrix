@@ -10,7 +10,7 @@ import (
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
 
-	"github.com/mhersson/contextmatrix/internal/sentinel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 func TestSentinelSettingsDefaultsWithoutRow(t *testing.T) {
@@ -18,7 +18,7 @@ func TestSentinelSettingsDefaultsWithoutRow(t *testing.T) {
 
 	set, at, by, err := st.SentinelSettings(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, sentinel.DefaultSettings(), set)
+	assert.Equal(t, state.DefaultSettings(), set)
 	assert.True(t, at.IsZero())
 	assert.Empty(t, by)
 }
@@ -26,7 +26,7 @@ func TestSentinelSettingsDefaultsWithoutRow(t *testing.T) {
 func TestPutSentinelSettingsRoundTrip(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()
-	want := sentinel.Settings{Enabled: true, Healing: false, Friction: true, DailyCapUSD: 7.5, InvestigateCeilingUSD: 1.25, Headroom: 0.6}
+	want := state.Settings{Enabled: true, Healing: false, Friction: true, DailyCapUSD: 7.5, InvestigateCeilingUSD: 1.25, Headroom: 0.6}
 
 	require.NoError(t, st.PutSentinelSettings(ctx, want, "human:alice"))
 
@@ -48,10 +48,10 @@ func TestPutSentinelSettingsRoundTrip(t *testing.T) {
 func TestPutSentinelSettingsRejectsInvalid(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()
-	bad := sentinel.DefaultSettings()
+	bad := state.DefaultSettings()
 	bad.Headroom = 0
 
-	require.ErrorIs(t, st.PutSentinelSettings(ctx, bad, "human:alice"), sentinel.ErrInvalidSettings)
+	require.ErrorIs(t, st.PutSentinelSettings(ctx, bad, "human:alice"), state.ErrInvalidSettings)
 
 	var n int
 
@@ -94,7 +94,7 @@ func TestSentinelSettingsTableHasEcosystemColumn(t *testing.T) {
 	require.True(t, found)
 	assert.Equal(t, "0", dflt)
 
-	require.NoError(t, st.PutSentinelSettings(ctx, sentinel.DefaultSettings(), "human:alice"))
+	require.NoError(t, st.PutSentinelSettings(ctx, state.DefaultSettings(), "human:alice"))
 
 	var eco int
 

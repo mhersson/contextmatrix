@@ -6,6 +6,7 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 // Status states.
@@ -37,7 +38,7 @@ type Status struct {
 
 // statusInput is everything a Status is derived from.
 type statusInput struct {
-	Settings     Settings
+	Settings     state.Settings
 	NoController bool // no execution backend, so no controller exists
 	LastPass     time.Time
 	Now          time.Time
@@ -53,7 +54,7 @@ type statusInput struct {
 }
 
 // NotRunningStatus is what the API reports when no controller exists.
-func NotRunningStatus(s Settings) Status {
+func NotRunningStatus(s state.Settings) Status {
 	return summarize(statusInput{Settings: s, NoController: true})
 }
 

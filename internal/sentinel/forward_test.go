@@ -5,12 +5,14 @@ import (
 	"testing"
 	"time"
 
-	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
+
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/lock"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -31,8 +33,8 @@ func forwardRun(status, instance string) *service.PlaybookDetail {
 }
 
 func TestForwardTargets(t *testing.T) {
-	base := func() (Heal, *service.PlaybookDetail, map[string]*board.Card) {
-		h := Heal{
+	base := func() (state.Heal, *service.PlaybookDetail, map[string]*board.Card) {
+		h := state.Heal{
 			Project: "alpha", CardID: "ALPHA-001", SentSiblings: []string{"ALPHA-020", "ALPHA-021"},
 			Investigation: &protocol.InvestigateResult{Cause: protocol.DiagnosisCard, ForwardTo: []string{"ALPHA-021", "ALPHA-020"}},
 		}
@@ -46,32 +48,32 @@ func TestForwardTargets(t *testing.T) {
 
 	tests := []struct {
 		name string
-		edit func(*Heal, *service.PlaybookDetail, map[string]*board.Card)
+		edit func(*state.Heal, *service.PlaybookDetail, map[string]*board.Card)
 		want []string
 	}{
 		{"named, sent and not started, in entry order", nil, []string{"ALPHA-020", "ALPHA-021"}},
-		{"not named", func(h *Heal, _ *service.PlaybookDetail, _ map[string]*board.Card) {
+		{"not named", func(h *state.Heal, _ *service.PlaybookDetail, _ map[string]*board.Card) {
 			h.Investigation.ForwardTo = []string{"ALPHA-020"}
 		}, []string{"ALPHA-020"}},
-		{"not sent", func(h *Heal, _ *service.PlaybookDetail, _ map[string]*board.Card) {
+		{"not sent", func(h *state.Heal, _ *service.PlaybookDetail, _ map[string]*board.Card) {
 			h.SentSiblings = []string{"ALPHA-021"}
 		}, []string{"ALPHA-021"}},
-		{"started", func(_ *Heal, _ *service.PlaybookDetail, cards map[string]*board.Card) {
+		{"started", func(_ *state.Heal, _ *service.PlaybookDetail, cards map[string]*board.Card) {
 			cards["ALPHA-020"].WorkerStatus = "running"
 		}, []string{"ALPHA-021"}},
-		{"imported and not vetted", func(_ *Heal, _ *service.PlaybookDetail, cards map[string]*board.Card) {
+		{"imported and not vetted", func(_ *state.Heal, _ *service.PlaybookDetail, cards map[string]*board.Card) {
 			cards["ALPHA-020"].Source = &board.Source{System: "jira", ExternalID: "OPS-1"}
 		}, []string{"ALPHA-021"}},
-		{"another project's entry", func(_ *Heal, pb *service.PlaybookDetail, _ map[string]*board.Card) {
+		{"another project's entry", func(_ *state.Heal, pb *service.PlaybookDetail, _ map[string]*board.Card) {
 			pb.Entries[2].Project = "beta"
 		}, []string{"ALPHA-020"}},
-		{"another instance's run", func(_ *Heal, pb *service.PlaybookDetail, _ map[string]*board.Card) {
+		{"another instance's run", func(_ *state.Heal, pb *service.PlaybookDetail, _ map[string]*board.Card) {
 			pb.Run.Instance = "lap-b"
 		}, nil},
-		{"run stopped", func(_ *Heal, pb *service.PlaybookDetail, _ map[string]*board.Card) {
+		{"run stopped", func(_ *state.Heal, pb *service.PlaybookDetail, _ map[string]*board.Card) {
 			pb.Run.Status = board.RunStatusStopped
 		}, nil},
-		{"no investigation", func(h *Heal, _ *service.PlaybookDetail, _ map[string]*board.Card) {
+		{"no investigation", func(h *state.Heal, _ *service.PlaybookDetail, _ map[string]*board.Card) {
 			h.Investigation = nil
 		}, nil},
 	}
@@ -91,9 +93,9 @@ func TestForwardOutcome(t *testing.T) {
 	tests := []struct {
 		name, key, state, want string
 	}{
-		{"done", protocol.StopCauseDone, board.StateReview, StageForwardPassed},
-		{"the card is done", CauseUnknown, board.StateDone, StageForwardPassed},
-		{"the forwarded fix failed", CauseForwardFixFailed, board.StateInProgress, StageForwardFailed},
+		{"done", protocol.StopCauseDone, board.StateReview, state.StageForwardPassed},
+		{"the card is done", CauseUnknown, board.StateDone, state.StageForwardPassed},
+		{"the forwarded fix failed", CauseForwardFixFailed, board.StateInProgress, state.StageForwardFailed},
 		{"a usage limit", protocol.StopCauseUsageLimit, board.StateInProgress, ""},
 		{"a human stop", CauseHumanStop, board.StateInProgress, ""},
 		{"a stall", CauseStalled, board.StateStalled, ""},
@@ -121,13 +123,13 @@ func verifyFix() protocol.CardFix {
 // siblings, both sent and named for fix, which the check trial-ran; edits
 // change the heal. The project's verify runs make test; ALPHA-021 runs
 // go test ./... of its own.
-func forwardEnv(t *testing.T, fix protocol.CardFix, edits ...func(*Heal)) *dispatchEnv {
+func forwardEnv(t *testing.T, fix protocol.CardFix, edits ...func(*state.Heal)) *dispatchEnv {
 	t.Helper()
 
 	e := newPassEnv(t)
 	e.cards.projects["alpha"].Verify = &board.VerifyConfig{Command: "make test"}
-	e.stopped("ALPHA-001", protocol.StopCauseVerifyParked, func(c *board.Card, r *Run) {
-		c.PlaybookLock, r.Launch.Origin = rolloutLock(board.RunStatusRunning), OriginPlaybook
+	e.stopped("ALPHA-001", protocol.StopCauseVerifyParked, func(c *board.Card, r *state.Run) {
+		c.PlaybookLock, r.Launch.Origin = rolloutLock(board.RunStatusRunning), state.OriginPlaybook
 	})
 	e.cards.cards = append(e.cards.cards,
 		&board.Card{
@@ -147,23 +149,23 @@ func forwardEnv(t *testing.T, fix protocol.CardFix, edits ...func(*Heal)) *dispa
 	)
 	e.pbs["rollout"] = forwardRun(board.RunStatusRunning, "lap-a")
 
-	named := func(h *Heal) {
+	named := func(h *state.Heal) {
 		h.SentSubtasks, h.SentSiblings = []string{"ALPHA-011"}, []string{"ALPHA-020", "ALPHA-021"}
 		h.Investigation.ForwardTo = []string{"ALPHA-020", "ALPHA-021"}
 		h.Check = &protocol.CheckResult{Candidates: []string{}, Trial: protocol.TrialFinished}
 	}
-	e.openHeal(t, "ALPHA-001", StageRerun,
-		append([]func(*Heal){investigated(protocol.DiagnosisCard, &fix), relaunchedAt(epoch.Add(-30*time.Minute), 0), named}, edits...)...)
+	e.openHeal(t, "ALPHA-001", state.StageRerun,
+		append([]func(*state.Heal){investigated(protocol.DiagnosisCard, &fix), relaunchedAt(epoch.Add(-30*time.Minute), 0), named}, edits...)...)
 
 	return e
 }
 
 // forwardRows returns the forward rows on card id.
-func forwardRows(e *dispatchEnv, id string) []Heal {
-	var rows []Heal
+func forwardRows(e *dispatchEnv, id string) []state.Heal {
+	var rows []state.Heal
 
 	for _, h := range e.store.allHeals() {
-		if h.Kind == HealKindForward && h.CardID == id {
+		if h.Kind == state.HealKindForward && h.CardID == id {
 			rows = append(rows, h)
 		}
 	}
@@ -189,7 +191,7 @@ func TestForwardRespectsTargetVerify(t *testing.T) {
 
 	require.NoError(t, e.ctl.pass(ctx))
 
-	assert.Equal(t, StageHealed, e.store.heal(1).Stage)
+	assert.Equal(t, state.StageHealed, e.store.heal(1).Stage)
 	require.Equal(t, []string{"ALPHA-020"}, patchedIDs(e),
 		"ALPHA-021's own command is not a candidate, and no subtask is retired")
 	in := e.cards.patches[0].In
@@ -205,7 +207,7 @@ func TestForwardRespectsTargetVerify(t *testing.T) {
 	rows := forwardRows(e, "ALPHA-020")
 	require.Len(t, rows, 1)
 	row := rows[0]
-	assert.Equal(t, StageForwarded, row.Stage)
+	assert.Equal(t, state.StageForwarded, row.Stage)
 	assert.Equal(t, "ALPHA-001", row.SourceCard)
 	assert.Equal(t, e.clk.Now(), row.CreatedAt)
 	require.NotNil(t, row.Change)
@@ -228,13 +230,13 @@ func TestForwardRespectsTargetVerify(t *testing.T) {
 func TestForwardOnlyAfterRerunPasses(t *testing.T) {
 	tests := []struct {
 		name, cause, worker string
-		edit                func(*Heal)
+		edit                func(*state.Heal)
 		stage               string
 	}{
-		{"the rerun failed", protocol.StopCauseVerifyParked, "failed", func(*Heal) {}, StageRerunFailed},
-		{"healed without a card fix", protocol.StopCauseDone, "completed", func(h *Heal) {
+		{"the rerun failed", protocol.StopCauseVerifyParked, "failed", func(*state.Heal) {}, state.StageRerunFailed},
+		{"healed without a card fix", protocol.StopCauseDone, "completed", func(h *state.Heal) {
 			h.Investigation.Cause = protocol.DiagnosisModel
-		}, StageHealed},
+		}, state.StageHealed},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -270,7 +272,7 @@ func TestForwardSkipsATargetChangedMeanwhile(t *testing.T) {
 
 			require.NoError(t, e.ctl.pass(context.Background()))
 
-			assert.Equal(t, StageHealed, e.store.heal(1).Stage)
+			assert.Equal(t, state.StageHealed, e.store.heal(1).Stage)
 			assert.Empty(t, forwardRows(e, "ALPHA-020"))
 			assert.Empty(t, e.cards.logged["ALPHA-020"])
 			assert.True(t, e.store.run("alpha", "ALPHA-001").Decided, "the healed rerun is still decided")
@@ -294,11 +296,11 @@ func forwarded(t *testing.T, cause, worker string) *dispatchEnv {
 }
 
 // cardHeals returns the heal rows on card id.
-func cardHeals(e *dispatchEnv, id string) []Heal {
-	var heals []Heal
+func cardHeals(e *dispatchEnv, id string) []state.Heal {
+	var heals []state.Heal
 
 	for _, h := range e.store.allHeals() {
-		if h.Kind == HealKindHeal && h.CardID == id {
+		if h.Kind == state.HealKindHeal && h.CardID == id {
 			heals = append(heals, h)
 		}
 	}
@@ -311,13 +313,13 @@ func TestForwardCircuitBreakerParks(t *testing.T) {
 
 	require.NoError(t, e.ctl.pass(context.Background()))
 
-	assert.Equal(t, StageForwardFailed, forwardRows(e, "ALPHA-020")[0].Stage)
+	assert.Equal(t, state.StageForwardFailed, forwardRows(e, "ALPHA-020")[0].Stage)
 
 	heals := cardHeals(e, "ALPHA-020")
 	require.Len(t, heals, 1)
 	assert.Equal(t, CauseForwardFixFailed, heals[0].Cause)
 	assert.Equal(t, RespPark, heals[0].Response)
-	assert.Equal(t, StageParked, heals[0].Stage)
+	assert.Equal(t, state.StageParked, heals[0].Stage)
 	assert.NotEmpty(t, heals[0].Reason)
 	assert.True(t, e.store.run("alpha", "ALPHA-020").Decided)
 	assert.Empty(t, e.backend.sent, "nothing is investigated")
@@ -329,7 +331,7 @@ func TestForwardedTargetPasses(t *testing.T) {
 
 	require.NoError(t, e.ctl.pass(context.Background()))
 
-	assert.Equal(t, StageForwardPassed, forwardRows(e, "ALPHA-020")[0].Stage)
+	assert.Equal(t, state.StageForwardPassed, forwardRows(e, "ALPHA-020")[0].Stage)
 	assert.Empty(t, cardHeals(e, "ALPHA-020"))
 	assert.True(t, e.store.run("alpha", "ALPHA-020").Decided)
 	assert.Len(t, e.cards.logged["ALPHA-020"], 1, "only the forward's entry")
@@ -340,9 +342,9 @@ func TestForwardStaysOnTrialThroughAUsageLimit(t *testing.T) {
 
 	require.NoError(t, e.ctl.pass(context.Background()))
 
-	assert.Equal(t, StageForwarded, forwardRows(e, "ALPHA-020")[0].Stage)
+	assert.Equal(t, state.StageForwarded, forwardRows(e, "ALPHA-020")[0].Stage)
 
 	heals := cardHeals(e, "ALPHA-020")
 	require.Len(t, heals, 1)
-	assert.Equal(t, StageUsageWait, heals[0].Stage)
+	assert.Equal(t, state.StageUsageWait, heals[0].Stage)
 }

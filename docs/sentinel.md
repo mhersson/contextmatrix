@@ -580,8 +580,8 @@ the next pass.
 
 | File                                        | Holds                                                                                                                                                        |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `internal/sentinel/settings.go`             | `Settings`, the defaults and validation                                                                                                                      |
-| `internal/sentinel/state.go`                | The durable-state types: the run row (`Run`, `LaunchFacts`), launch origins, the caps, and the heal records (`Heal`, the stages, `Finding`, `RunKindReport`) |
+| `internal/sentinel/state/settings.go`       | `Settings`, the defaults and validation                                                                                                                      |
+| `internal/sentinel/state/state.go`          | The durable-state types: the run row (`Run`, `LaunchFacts`), launch origins, the caps, and the heal records (`Heal`, the stages, `Finding`, `RunKindReport`) |
 | `internal/sentinel/controller.go`           | The loop: `Start`, `Shutdown`, `Nudge`, `Status`, the panic-safe pass and the wake-up filter; the `Store`, `Backend`, `Cards`, `Playbooks` and `PlaybookRunner` it uses |
 | `internal/sentinel/payload.go`              | The pure run-kind payloads: `investigatePayload` under the 1 MiB cap, `checkPayload`, and `siblings`                                                         |
 | `internal/sentinel/dispatch.go`             | Reading a run kind's inputs, `dispatch` (record, then send, then act on the agent's answer) and the no-run-kinds hold                                         |
@@ -615,4 +615,6 @@ the next pass.
 | `internal/api/backend_runkind.go`           | `runKindBase`: a run kind's common payload fields and its contents-read token; `sentinelRelaunch`: Sentinel's launch of a rerun                            |
 | `internal/api/sentinel.go` | The `/api/sentinel` settings and status endpoints and the per-card heal view |
 
-Tests sit next to each file.
+`internal/sentinel/state` holds only types, constants and their trivial
+methods. It is a leaf, so the ops.db store imports it and nothing of the
+controller. Tests sit next to each file.

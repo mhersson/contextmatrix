@@ -10,7 +10,7 @@ import (
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
 
-	"github.com/mhersson/contextmatrix/internal/sentinel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 // healMutable are the sentinel_heals columns SaveHeal rewrites, in healValues
@@ -32,7 +32,7 @@ const insertSpend = `INSERT INTO sentinel_spend (heal_id, mode, usd, at, run_id)
 // OpenHeal inserts a heal or forward row and returns its ID. A heal also marks
 // its run decided in the same transaction; a second heal for the same run
 // inserts nothing and returns the first one's ID.
-func (s *Store) OpenHeal(ctx context.Context, h sentinel.Heal) (int64, error) {
+func (s *Store) OpenHeal(ctx context.Context, h state.Heal) (int64, error) {
 	vals, err := healValues(h)
 	if err != nil {
 		return 0, fmt.Errorf("open heal: %w", err)
@@ -64,7 +64,7 @@ func (s *Store) OpenHeal(ctx context.Context, h sentinel.Heal) (int64, error) {
 		return 0, fmt.Errorf("open heal: %w", err)
 	}
 
-	if h.Kind == sentinel.HealKindHeal {
+	if h.Kind == state.HealKindHeal {
 		if _, err := tx.ExecContext(ctx, markRunDecided, h.Project, h.CardID, unixNano(h.RunStarted)); err != nil {
 			return 0, fmt.Errorf("open heal: %w", err)
 		}
@@ -82,7 +82,7 @@ func (s *Store) OpenHeal(ctx context.Context, h sentinel.Heal) (int64, error) {
 // again. A row written since h was read is left alone, h untouched and
 // ErrHealChanged returned, so a save from a stale read never wipes an answer
 // RecordRunKindStatus stored meanwhile.
-func (s *Store) SaveHeal(ctx context.Context, h *sentinel.Heal) error {
+func (s *Store) SaveHeal(ctx context.Context, h *state.Heal) error {
 	vals, err := healValues(*h)
 	if err != nil {
 		return fmt.Errorf("save heal: %w", err)
@@ -102,7 +102,7 @@ func (s *Store) SaveHeal(ctx context.Context, h *sentinel.Heal) error {
 	}
 
 	if n == 0 {
-		return sentinel.ErrHealChanged
+		return state.ErrHealChanged
 	}
 
 	h.Version++
@@ -111,10 +111,10 @@ func (s *Store) SaveHeal(ctx context.Context, h *sentinel.Heal) error {
 }
 
 // OpenHeals returns every heal whose stage is not terminal, oldest first.
-func (s *Store) OpenHeals(ctx context.Context) ([]sentinel.Heal, error) {
+func (s *Store) OpenHeals(ctx context.Context) ([]state.Heal, error) {
 	heals, err := s.queryHeals(ctx, `kind = ? AND stage NOT IN (?, ?, ?, ?, ?, ?) ORDER BY id`,
-		sentinel.HealKindHeal, sentinel.StageHealed, sentinel.StageRerunFailed, sentinel.StageParked,
-		sentinel.StageClosed, sentinel.StageForwardPassed, sentinel.StageForwardFailed)
+		state.HealKindHeal, state.StageHealed, state.StageRerunFailed, state.StageParked,
+		state.StageClosed, state.StageForwardPassed, state.StageForwardFailed)
 	if err != nil {
 		return nil, fmt.Errorf("list open heals: %w", err)
 	}
@@ -123,7 +123,7 @@ func (s *Store) OpenHeals(ctx context.Context) ([]sentinel.Heal, error) {
 }
 
 // CardHeals returns the card's heal and forward rows, newest first.
-func (s *Store) CardHeals(ctx context.Context, project, cardID string) ([]sentinel.Heal, error) {
+func (s *Store) CardHeals(ctx context.Context, project, cardID string) ([]state.Heal, error) {
 	heals, err := s.queryHeals(ctx, `project = ? AND card_id = ? ORDER BY id DESC`, project, cardID)
 	if err != nil {
 		return nil, fmt.Errorf("list card heals: %w", err)
@@ -134,14 +134,14 @@ func (s *Store) CardHeals(ctx context.Context, project, cardID string) ([]sentin
 
 // LatestHeals returns each card's newest heal or forward row in the project,
 // by card ID.
-func (s *Store) LatestHeals(ctx context.Context, project string) (map[string]sentinel.Heal, error) {
+func (s *Store) LatestHeals(ctx context.Context, project string) (map[string]state.Heal, error) {
 	heals, err := s.queryHeals(ctx,
 		`id IN (SELECT MAX(id) FROM sentinel_heals WHERE project = ? GROUP BY card_id)`, project)
 	if err != nil {
 		return nil, fmt.Errorf("list latest heals: %w", err)
 	}
 
-	latest := make(map[string]sentinel.Heal, len(heals))
+	latest := make(map[string]state.Heal, len(heals))
 	for _, h := range heals {
 		latest[h.CardID] = h
 	}
@@ -155,7 +155,7 @@ func (s *Store) LatestHeals(ctx context.Context, project string) (map[string]sen
 // ledger is a repeat and records and charges nothing, even while an older heal
 // of the card still has that kind open; so does a report matching no heal, or
 // one without a kind or run ID.
-func (s *Store) RecordRunKindStatus(ctx context.Context, r sentinel.RunKindReport) (healID int64, recorded bool, err error) {
+func (s *Store) RecordRunKindStatus(ctx context.Context, r state.RunKindReport) (healID int64, recorded bool, err error) {
 	if r.Kind == "" || r.RunID == "" {
 		return 0, false, nil
 	}
@@ -248,7 +248,7 @@ func (s *Store) AddFindings(ctx context.Context, healID int64, project, cardID s
 
 // CardFindings returns the card's findings, newest heal first, each heal's in
 // their reported order.
-func (s *Store) CardFindings(ctx context.Context, project, cardID string) ([]sentinel.Finding, error) {
+func (s *Store) CardFindings(ctx context.Context, project, cardID string) ([]state.Finding, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT heal_id, kind, title, text, evidence, created_at FROM sentinel_findings
 		 WHERE project = ? AND card_id = ? ORDER BY heal_id DESC, id`, project, cardID)
@@ -257,11 +257,11 @@ func (s *Store) CardFindings(ctx context.Context, project, cardID string) ([]sen
 	}
 	defer rows.Close()
 
-	var findings []sentinel.Finding
+	var findings []state.Finding
 
 	for rows.Next() {
 		var (
-			f  sentinel.Finding
+			f  state.Finding
 			at int64
 		)
 
@@ -308,21 +308,21 @@ func (s *Store) HealedSince(ctx context.Context, since time.Time) (int, error) {
 	var n int
 	if err := s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM (SELECT DISTINCT project, card_id FROM sentinel_heals WHERE stage = ? AND updated_at >= ?)`,
-		sentinel.StageHealed, unixNano(since)).Scan(&n); err != nil {
+		state.StageHealed, unixNano(since)).Scan(&n); err != nil {
 		return 0, fmt.Errorf("count healed cards: %w", err)
 	}
 
 	return n, nil
 }
 
-func (s *Store) queryHeals(ctx context.Context, where string, args ...any) ([]sentinel.Heal, error) {
+func (s *Store) queryHeals(ctx context.Context, where string, args ...any) ([]state.Heal, error) {
 	rows, err := s.db.QueryContext(ctx, healSelect+` WHERE `+where, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var heals []sentinel.Heal
+	var heals []state.Heal
 
 	for rows.Next() {
 		h, err := scanHeal(rows)
@@ -337,7 +337,7 @@ func (s *Store) queryHeals(ctx context.Context, where string, args ...any) ([]se
 }
 
 // healValues are the heal's healMutable values, its JSON fields encoded.
-func healValues(h sentinel.Heal) ([]any, error) {
+func healValues(h state.Heal) ([]any, error) {
 	d := h.Dispatch
 	vals := []any{
 		h.RunID, h.Cause, h.Response, h.Stage, h.Reason,
@@ -356,9 +356,9 @@ func healValues(h sentinel.Heal) ([]any, error) {
 	return append(vals, nullUnixNano(h.RelaunchedAt), h.CostBaseUSD, h.SourceCard, unixNano(h.UpdatedAt)), nil
 }
 
-func scanHeal(sc scanner) (sentinel.Heal, error) {
+func scanHeal(sc scanner) (state.Heal, error) {
 	var (
-		h                                    sentinel.Heal
+		h                                    state.Heal
 		started, created, updated            int64
 		dispatchAt, relaunched               sql.NullInt64
 		inv, check, subtasks, siblings, chng string
@@ -370,7 +370,7 @@ func scanHeal(sc scanner) (sentinel.Heal, error) {
 		&d.Kind, &d.Mode, &d.CeilingUSD, &dispatchAt, &d.AnsweredRunID, &d.Failure,
 		&inv, &check, &subtasks, &siblings, &chng,
 		&relaunched, &h.CostBaseUSD, &h.SourceCard, &updated, &h.SpendUSD, &h.Version); err != nil {
-		return sentinel.Heal{}, fmt.Errorf("scan heal: %w", err)
+		return state.Heal{}, fmt.Errorf("scan heal: %w", err)
 	}
 
 	for _, doc := range []struct {
@@ -384,7 +384,7 @@ func scanHeal(sc scanner) (sentinel.Heal, error) {
 		{chng, &h.Change},
 	} {
 		if err := json.Unmarshal([]byte(doc.text), doc.into); err != nil {
-			return sentinel.Heal{}, fmt.Errorf("decode heal %d: %w", h.ID, err)
+			return state.Heal{}, fmt.Errorf("decode heal %d: %w", h.ID, err)
 		}
 	}
 
