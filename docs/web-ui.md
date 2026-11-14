@@ -160,25 +160,27 @@ board. Promote-to-autonomous lives in that tab.
 
 ## LLM channel
 
-When `claude_code.oauth_token` is set, a strip under the ContextMatrix
-wordmark in the sidebar names the active LLM channel: Claude Code, or the
-endpoint (OpenRouter for an `openrouter` endpoint, Endpoint otherwise).
-Without the token there is no strip. The collapsed sidebar shows a dot in the
-mode's colour instead. See
+When `claude_code.oauth_token` is set, a chip in the status row under the
+build line in the sidebar names the active LLM channel: Claude Code, or the
+endpoint (OpenRouter for an `openrouter` endpoint, Endpoint otherwise), with a
+dot in the mode's colour. Without the token there is no chip. The collapsed
+sidebar shows the dot alone instead. See
 [Claude Code subscription mode](remote-execution.md#claude-code-subscription-mode)
 for what the channel does.
 
-- On Claude Code the strip also shows the most-used subscription window with
-  a current reading, as "62% wk" or "40% 5h": yellow from 80 percent, and a
-  red "limit" once the vendor rejects that window. A window whose reset time
-  has passed has no current reading.
-- A line under the strip says only what needs saying, in this order: "Limit
+- The chip carries no usage figure. On Claude Code its dot, name and border turn
+  yellow once the most-used subscription window with a current reading reaches
+  80 percent, and red once the vendor rejects it; the figure ("62% wk",
+  "40% 5h" or "limit") is in the chip's accessible name and the popover. A
+  window whose reset time has passed has no current reading. A dashed border
+  means the viewer cannot switch.
+- A line under the status row says only what needs saying, in this order: "Limit
   reached · resets Thu 14:00" while a window is rejected on Claude Code, how
   much live work is still on the other mode ("2 still on OpenRouter"), and on
   Claude Code each backend not in `claude_code.backends`: "Blueprints stay on
   OpenRouter", or with no endpoint configured "Blueprints unavailable". The
   line's tooltip adds each backend's reason.
-- Clicking the strip opens a popover. Escape, a click outside it or moving
+- Clicking the chip opens a popover. Escape, a click outside it or moving
   focus out of it closes it.
   - Viewers who may switch, an admin in `multi` mode or anyone in `none`
     mode, get a switch between the endpoint and Claude Code when both are
@@ -203,21 +205,22 @@ for what the channel does.
     endpoint is configured and the architect is not set to run Claude Code".
 - A switch governs new work only (see
   [sticky runs](remote-execution.md#sticky-runs)).
-- The strip loads with the page and on every event-stream reconnect. While
+- The chip loads with the page and on every event-stream reconnect. While
   the token is set it also refreshes on LLM channel and worker events and
   every minute.
 
 ## Sentinel
 
-While Sentinel is enabled, a strip under the LLM channel strip names it: a
-shield, "Sentinel" and its state on the right. The text is "watching",
-"healing N" while N cards are being healed, the pause reason while paused, or
-"not running". The shield and text are purple while watching or healing,
-yellow while paused and red while not running. Nothing shows while Sentinel
-is off. The collapsed sidebar shows the shield alone in the same colour, with
+While Sentinel is enabled, a chip in the status row, beside the LLM channel
+chip, names it: a solid shield with a check and its state word. The word is
+"watching", "healing N" while N cards are being healed, "paused" while paused
+or "not running". The chip's tooltip and the popover carry the full state,
+including the pause reason. The shield and word are purple while watching or
+healing, yellow while paused and red while not running. Nothing shows while
+Sentinel is off. Every Sentinel surface uses the same solid shield. The collapsed sidebar shows the shield alone in the same colour, with
 the state as its label.
 
-- Clicking the strip opens a popover; Escape, a click outside it or moving
+- Clicking the chip opens a popover; Escape, a click outside it or moving
   focus out of it closes it.
 - The popover shows the state, then on the endpoint channel today's spend
   against the daily cap ("$1.20 of $20.00 today"), or on Claude Code one line
@@ -225,7 +228,7 @@ the state as its label.
   against the headroom threshold), then the count of cards healed today.
 - Viewers who may change settings, an admin in `multi` mode or anyone in
   `none` mode, also get a "Sentinel settings" link to `/admin/sentinel`.
-- The strip loads with the page and on every event-stream reconnect, and
+- The chip loads with the page and on every event-stream reconnect, and
   refreshes on Sentinel events and every minute.
 - While Sentinel is enabled, a card's rail gains a Sentinel tab between Info
   and Danger, and the collapsed rail widens from 340 to 420 px to fit the five

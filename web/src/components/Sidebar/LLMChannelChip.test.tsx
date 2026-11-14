@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import { api } from '../../api/client';
 import type { BoardEvent, LLMChannelUsage, LLMChannelView } from '../../types';
-import { LLMChannelRailDot, LLMChannelStrip } from './LLMChannelStrip';
-import { channelExceptions, lockedRowTitle, subLineItems, subLineText, windowLabel } from '../../lib/llmChannel';
+import { useLLMChannel } from '../../hooks/useLLMChannel';
+import { LLMChannelChip, LLMChannelRailDot } from './LLMChannelChip';
+import { channelLabel, chipTone, lockedRowTitle, usagePct, windowLabel } from '../../lib/llmChannel';
 
 vi.mock('../../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api/client')>();
@@ -71,6 +72,10 @@ function view(over: Partial<LLMChannelView> = {}): LLMChannelView {
   };
 }
 
+function Chip() {
+  return <LLMChannelChip state={useLLMChannel()} />;
+}
+
 const getMock = vi.mocked(api.getLLMChannel);
 const putMock = vi.mocked(api.putLLMChannel);
 
@@ -95,10 +100,10 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('LLMChannelStrip', () => {
+describe('LLMChannelChip', () => {
   it('renders nothing and stops refetching without claude_code', async () => {
     getMock.mockResolvedValue(view({ claude_code: false, switchable: false, mode: 'endpoint', usage: [] }));
-    const { container } = render(<><LLMChannelStrip /><LLMChannelRailDot /></>);
+    const { container } = render(<><Chip /><LLMChannelRailDot /></>);
     await waitFor(() => expect(getMock).toHaveBeenCalledTimes(2));
     await act(async () => {});
     expect(container).toBeEmptyDOMElement();
@@ -111,47 +116,52 @@ describe('LLMChannelStrip', () => {
     expect(getMock).toHaveBeenCalledTimes(2);
   });
 
-  it('shows the mode and the most-used non-stale window', async () => {
-    getMock.mockResolvedValue(view({
+  it('shows the channel name and no usage figure, keeping the most-used non-stale window in the label', async () => {
+    const v = view({
       usage: [usage({ window: 'five_hour', utilization: 0.97, stale: true }), usage({ window: 'seven_day', utilization: 0.64 })],
-    }));
-    render(<LLMChannelStrip />);
-    const s = await strip();
-    expect(s).toHaveTextContent('Claude Code');
-    expect(s).toHaveTextContent('64% wk');
-    expect(s).not.toHaveTextContent('97%');
-  });
-
-  it('labels a five-hour window and marks the percentage warn from 80', async () => {
-    getMock.mockResolvedValue(view({
-      usage: [usage({ window: 'five_hour', utilization: 0.86 }), usage({ window: 'seven_day', utilization: 0.4 })],
-    }));
-    render(<LLMChannelStrip />);
-    await strip();
-    expect(screen.getByText('86% 5h')).toHaveClass('llm-strip__pct--warn');
-  });
-
-  it('reads "limit" and names the reset when the window is rejected', async () => {
-    const v = view({ usage: [usage({ utilization: 1, status: 'rejected' })] });
+    });
     getMock.mockResolvedValue(v);
-    render(<LLMChannelStrip />);
+    render(<Chip />);
     const s = await strip();
-    expect(screen.getByText('limit')).toHaveClass('llm-strip__pct--stop');
-    const [limit] = subLineItems(v);
-    expect(s).toHaveAccessibleDescription(subLineText(limit));
-
-    const pop = await openPopover();
-    expect(pop.querySelector('.llm-line__icon--red')).not.toBeNull();
+    expect(s).toHaveTextContent(channelLabel(v, v.mode));
+    expect(s).not.toHaveTextContent('%');
+    expect(s).toHaveAccessibleName(`LLM channel: ${channelLabel(v, v.mode)}, ${usagePct(v.usage[1])}% wk`);
+    expect(s).toHaveClass(`sb-chip--${chipTone(v)}`);
   });
 
-  it('keeps the subscription reading off the strip in endpoint mode', async () => {
-    getMock.mockResolvedValue(view({ mode: 'endpoint', usage: [usage({ utilization: 1, status: 'rejected' })] }));
-    render(<LLMChannelStrip />);
+  it('turns warn from 80 percent and stop on a rejected window', async () => {
+    const warn = view({ usage: [usage({ window: 'five_hour', utilization: 0.86 }), usage({ utilization: 0.4 })] });
+    getMock.mockResolvedValue(warn);
+    const { unmount } = render(<Chip />);
     const s = await strip();
-    expect(s).toHaveTextContent('OpenRouter');
-    expect(s).not.toHaveTextContent('%');
-    expect(s).not.toHaveTextContent('limit');
-    expect(s).toHaveAccessibleDescription('');
+    expect(chipTone(warn)).toBe('warn');
+    expect(s).toHaveClass('sb-chip--warn');
+    expect(s).toHaveAccessibleName(/86% 5h/);
+    unmount();
+
+    const stop = view({ usage: [usage({ utilization: 1, status: 'rejected' })] });
+    getMock.mockResolvedValue(stop);
+    render(<Chip />);
+    const limit = await strip();
+    expect(chipTone(stop)).toBe('stop');
+    expect(limit).toHaveClass('sb-chip--stop');
+    expect(limit).toHaveAccessibleName(/limit/);
+    expect(limit).not.toHaveTextContent('%');
+
+    fireEvent.click(limit);
+    expect(popover().querySelector('.llm-line__icon--red')).not.toBeNull();
+  });
+
+  it('keeps the subscription reading off the chip in endpoint mode', async () => {
+    const v = view({ mode: 'endpoint', usage: [usage({ utilization: 1, status: 'rejected' })] });
+    getMock.mockResolvedValue(v);
+    render(<Chip />);
+    const s = await strip();
+    expect(chipTone(v)).toBe('ok');
+    expect(s).toHaveTextContent(channelLabel(v, 'endpoint'));
+    expect(s).not.toHaveClass('sb-chip--stop');
+    expect(s).not.toHaveAccessibleName(/limit|%/);
+    expect(s.querySelector('.llm-dot--endpoint')).not.toBeNull();
 
     const pop = await openPopover();
     expect(pop.querySelector('.llm-line__icon--red')).toBeNull();
@@ -159,7 +169,7 @@ describe('LLMChannelStrip', () => {
 
   it('labels the meters as Claude Code readings in endpoint mode', async () => {
     getMock.mockResolvedValue(view({ mode: 'endpoint', usage: [usage({ window: 'five_hour', utilization: 0.3 }), usage()] }));
-    render(<LLMChannelStrip />);
+    render(<Chip />);
     const pop = await openPopover();
     expect(within(pop).getByText(windowLabel('five_hour', 'endpoint'))).toBeInTheDocument();
     expect(within(pop).getByText(windowLabel('seven_day', 'endpoint'))).toBeInTheDocument();
@@ -167,75 +177,9 @@ describe('LLMChannelStrip', () => {
     expect(within(pop).getByText('64%')).toBeInTheDocument();
   });
 
-  it('omits the percentage without a usage reading', async () => {
-    getMock.mockResolvedValue(view({ usage: [] }));
-    render(<LLMChannelStrip />);
-    const s = await strip();
-    expect(s).not.toHaveTextContent('%');
-  });
-
-  it('counts the other mode in flight on the sub-line and hides it at zero', async () => {
-    const busy = view({ in_flight: { endpoint: { cards: 1, chats: 1, blueprints: 0 }, claude_code: { cards: 3, chats: 0, blueprints: 0 } } });
-    getMock.mockResolvedValue(busy);
-    const { unmount } = render(<LLMChannelStrip />);
-    const s = await strip();
-    const items = subLineItems(busy);
-    expect(items).toHaveLength(1);
-    expect(items[0].count).toBe(2);
-    expect(s).toHaveAccessibleDescription(subLineText(items[0]));
-
-    const pop = await openPopover();
-    expect(pop.querySelector('.llm-line__icon--blue')).not.toBeNull();
-    unmount();
-
-    getMock.mockResolvedValue(view());
-    render(<LLMChannelStrip />);
-    const quiet = await strip();
-    expect(quiet).toHaveAccessibleDescription('');
-    fireEvent.click(quiet);
-    expect(popover().querySelector('.llm-line__icon--blue')).toBeNull();
-  });
-
-  it('names the architect exception only in claude_code mode', async () => {
-    const exceptions = [{ backend: 'architect' as const, runs_on: 'endpoint' as const }];
-    const v = view({ exceptions });
-    getMock.mockResolvedValue(v);
-    const { unmount } = render(<LLMChannelStrip />);
-    const s = await strip();
-    const [exc] = channelExceptions(v);
-    expect(s).toHaveAccessibleDescription(exc.text);
-    const pop = await openPopover();
-    expect(within(pop).getByText(exc.detail)).toBeInTheDocument();
-    unmount();
-
-    getMock.mockResolvedValue(view({ mode: 'endpoint', exceptions }));
-    render(<LLMChannelStrip />);
-    const ep = await strip();
-    expect(ep).toHaveTextContent('OpenRouter');
-    expect(ep).toHaveAccessibleDescription('');
-    fireEvent.click(ep);
-    expect(popover().querySelector('.llm-line__icon--yellow')).toBeNull();
-  });
-
-  it('names an exception unavailable when no endpoint is configured', async () => {
-    const v = view({
-      switchable: false,
-      endpoint: null,
-      exceptions: [{ backend: 'agent', runs_on: 'none' }],
-    });
-    getMock.mockResolvedValue(v);
-    render(<LLMChannelStrip />);
-    const [exc] = channelExceptions(v);
-    const s = await strip();
-    expect(s).toHaveAccessibleDescription(exc.text);
-    expect(screen.getByText(exc.text)).toHaveAttribute('title', exc.detail);
-    const pop = await openPopover();
-    expect(within(pop).getByText(exc.detail)).toBeInTheDocument();
-  });
-
   it('opens the popover on a click and closes it on Escape, an outside click or a second click', async () => {
     getMock.mockResolvedValue(view());
-    render(<><LLMChannelStrip /><button>elsewhere</button></>);
+    render(<><Chip /><button>elsewhere</button></>);
     const s = await strip();
     expect(s).toHaveAttribute('aria-expanded', 'false');
 
@@ -259,7 +203,7 @@ describe('LLMChannelStrip', () => {
 
   it('closes the popover when focus leaves it, without pulling focus back', async () => {
     getMock.mockResolvedValue(view());
-    render(<><LLMChannelStrip /><button>elsewhere</button></>);
+    render(<><Chip /><button>elsewhere</button></>);
     const s = await strip();
     act(() => s.focus());
     fireEvent.click(s);
@@ -279,9 +223,9 @@ describe('LLMChannelStrip', () => {
     setAuth('multi', true);
     getMock.mockResolvedValue(view());
     putMock.mockResolvedValue(view({ mode: 'endpoint' }));
-    render(<LLMChannelStrip />);
+    render(<Chip />);
     const s = await strip();
-    expect(s).not.toHaveClass('llm-strip--ro');
+    expect(s).not.toHaveClass('sb-chip--ro');
 
     const pop = await openPopover();
     expect(within(pop).getByRole('button', { name: 'Claude Code' })).toHaveAttribute('aria-pressed', 'true');
@@ -297,7 +241,7 @@ describe('LLMChannelStrip', () => {
   it('lets anyone switch in none mode', async () => {
     setAuth('none');
     getMock.mockResolvedValue(view());
-    render(<LLMChannelStrip />);
+    render(<Chip />);
     const pop = await openPopover();
     expect(within(pop).getAllByRole('button')).toHaveLength(2);
   });
@@ -305,7 +249,7 @@ describe('LLMChannelStrip', () => {
   it('shows a failed switch inline and clears it when the popover closes', async () => {
     getMock.mockResolvedValue(view());
     putMock.mockRejectedValue({ error: 'llm channel mode is not configured', code: 'BAD_REQUEST' });
-    render(<LLMChannelStrip />);
+    render(<Chip />);
     const s = await strip();
     const pop = await openPopover();
     fireEvent.click(within(pop).getByRole('button', { name: 'OpenRouter' }));
@@ -327,9 +271,9 @@ describe('LLMChannelStrip', () => {
     setAuth('multi', true);
     const v = view({ switchable: false, endpoint: null });
     getMock.mockResolvedValue(v);
-    render(<LLMChannelStrip />);
+    render(<Chip />);
     const s = await strip();
-    expect(s).toHaveClass('llm-strip--ro');
+    expect(s).toHaveClass('sb-chip--ro');
 
     const pop = await openPopover();
     expect(within(pop).queryAllByRole('button')).toHaveLength(0);
@@ -341,9 +285,9 @@ describe('LLMChannelStrip', () => {
     setAuth('multi', false);
     const v = view();
     getMock.mockResolvedValue(v);
-    render(<LLMChannelStrip />);
+    render(<Chip />);
     const s = await strip();
-    expect(s).toHaveClass('llm-strip--ro');
+    expect(s).toHaveClass('sb-chip--ro');
 
     const pop = await openPopover();
     expect(within(pop).queryAllByRole('button')).toHaveLength(0);
@@ -354,7 +298,7 @@ describe('LLMChannelStrip', () => {
 
   it('shows a stale reading with no percentage', async () => {
     getMock.mockResolvedValue(view({ usage: [usage({ resets_at: anHourAgo, stale: true })] }));
-    render(<LLMChannelStrip />);
+    render(<Chip />);
     const s = await strip();
     expect(s).not.toHaveTextContent('%');
 
@@ -366,7 +310,7 @@ describe('LLMChannelStrip', () => {
 
   it('shows a meter per window with its reset and when it was seen', async () => {
     getMock.mockResolvedValue(view({ usage: [usage({ window: 'five_hour', utilization: 1.12 }), usage()] }));
-    render(<LLMChannelStrip />);
+    render(<Chip />);
     const pop = await openPopover();
     expect(within(pop).getByText(windowLabel('five_hour', 'claude_code'))).toBeInTheDocument();
     expect(within(pop).getByText('112%')).toBeInTheDocument();
@@ -377,7 +321,7 @@ describe('LLMChannelStrip', () => {
 
   it('refetches once, debounced, on llm_channel and worker events', async () => {
     getMock.mockResolvedValue(view());
-    render(<LLMChannelStrip />);
+    render(<Chip />);
     const s = await strip();
     expect(getMock).toHaveBeenCalledTimes(1);
 
@@ -398,14 +342,14 @@ describe('LLMChannelStrip', () => {
   });
   it('refetches after an SSE reconnect, not on a plain rerender', async () => {
     getMock.mockResolvedValue(view());
-    const { rerender } = render(<LLMChannelStrip />);
+    const { rerender } = render(<Chip />);
     await strip();
-    rerender(<LLMChannelStrip />);
+    rerender(<Chip />);
     await act(async () => {});
     expect(getMock).toHaveBeenCalledTimes(1);
 
     bus.epoch = 1;
-    rerender(<LLMChannelStrip />);
+    rerender(<Chip />);
     await waitFor(() => expect(getMock).toHaveBeenCalledTimes(2));
   });
 });

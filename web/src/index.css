@@ -5590,9 +5590,60 @@ textarea {
   line-height: 1.2;
   color: var(--fg);
 }
-/* LLM channel strip under the wordmark and its popover. The dot is --aqua for
-   Claude Code and --blue for the endpoint; a dashed strip means the viewer
-   cannot switch. */
+/* LLM channel and Sentinel chips in the status row under the build line. The
+   LLM dot is --aqua for Claude Code and --blue for the endpoint; a dashed chip
+   means the viewer cannot switch. */
+.sb-status-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 5px;
+  margin-top: 10px;
+}
+.sb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 2px 7px;
+  border: 1px solid var(--bg3);
+  border-radius: 99px;
+  background-color: transparent;
+  color: var(--grey1);
+  font: 10.5px var(--font-mono);
+  white-space: nowrap;
+}
+.sb-chip:hover {
+  background-color: var(--bg1);
+}
+.sb-chip--ro {
+  border-style: dashed;
+}
+.sb-chip--warn {
+  border-color: var(--yellow);
+}
+.sb-chip--warn .sb-chip__label {
+  color: var(--yellow);
+}
+.sb-chip--stop {
+  border-color: var(--red);
+}
+.sb-chip--stop .sb-chip__label {
+  color: var(--red);
+}
+.sb-chip--warn .llm-dot {
+  background-color: var(--yellow);
+}
+.sb-chip--stop .llm-dot {
+  background-color: var(--red);
+}
+.sb-chip--sentinel {
+  border-color: color-mix(in srgb, var(--purple) 45%, var(--bg3));
+}
+.sb-chip__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .llm-dot {
   width: 7px;
   height: 7px;
@@ -5608,50 +5659,6 @@ textarea {
   height: 6px;
   margin-top: 8px;
 }
-.llm-strip {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  margin-top: 9px;
-  padding: 3px 8px;
-  border: 1px solid var(--bg3);
-  border-radius: 6px;
-  background-color: transparent;
-  color: var(--fg);
-  font-size: 12px;
-  text-align: left;
-}
-.llm-strip:hover {
-  background-color: var(--bg1);
-}
-.llm-strip--ro {
-  border-style: dashed;
-}
-.llm-strip__label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.llm-strip__pct {
-  flex-shrink: 0;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--grey1);
-}
-.llm-strip__pct--warn {
-  color: var(--yellow);
-}
-.llm-strip__pct--stop {
-  color: var(--red);
-}
-.llm-strip__chev {
-  display: inline-flex;
-  flex-shrink: 0;
-  color: var(--grey1);
-}
 .llm-sub {
   margin-top: 5px;
   font-size: 11px;
@@ -5664,18 +5671,6 @@ textarea {
 .llm-sub b {
   color: var(--grey2);
   font-weight: 500;
-}
-.sentinel-strip__label {
-  flex-shrink: 0;
-}
-/* The reason is never truncated: it wraps right-aligned inside the pill. */
-.sentinel-strip__status {
-  flex: 1;
-  min-width: 0;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  text-align: right;
-  overflow-wrap: anywhere;
 }
 .sentinel-tone--active {
   color: var(--purple);

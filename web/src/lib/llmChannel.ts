@@ -23,6 +23,12 @@ export function usageTone(u: LLMChannelUsage): 'ok' | 'warn' | 'stop' {
   return usagePct(u) >= 80 ? 'warn' : 'ok';
 }
 
+/** The LLM chip's tone: the headline window's on Claude Code, never a warning on the endpoint. */
+export function chipTone(view: LLMChannelView): 'ok' | 'warn' | 'stop' {
+  const headline = view.mode === 'claude_code' ? headlineWindow(view.usage) : null;
+  return headline ? usageTone(headline) : 'ok';
+}
+
 /** The non-stale window with the highest utilization, or null without a live reading. */
 export function headlineWindow(usage: LLMChannelUsage[]): LLMChannelUsage | null {
   let best: LLMChannelUsage | null = null;
@@ -125,7 +131,7 @@ export function subLineText(item: SubLineItem): string {
   return item.count === undefined ? item.text : `${item.count} ${item.text}`;
 }
 
-/** The strip's sub-line: only what needs saying, in a fixed order. */
+/** The notice line under the status row: only what needs saying, in a fixed order. */
 export function subLineItems(view: LLMChannelView): SubLineItem[] {
   const items: SubLineItem[] = [];
   const rejected = view.mode === 'claude_code' ? rejectedWindow(view.usage) : null;

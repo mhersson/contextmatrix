@@ -1,9 +1,8 @@
 import { useOptionalAuth } from '../../hooks/useAuth';
 import { usePopover } from '../../hooks/usePopover';
 import { useSentinel } from '../../hooks/useSentinel';
-import { stripText, stripTone } from '../../lib/sentinel';
+import { chipText, stripText, stripTone } from '../../lib/sentinel';
 import { ShieldCheckIcon } from '../ShieldCheckIcon';
-import { Chevron } from './Chevron';
 import { SentinelDetails } from './SentinelDetails';
 
 /** Admin in multi mode, anyone in none mode. UX only: the settings page is admin-gated server-side. */
@@ -13,11 +12,11 @@ function useIsAdmin(): boolean {
 }
 
 /**
- * Brand-header strip for Sentinel with a popover of details, shown only while
- * it is enabled. Sits under the LLM channel strip, so the brand header must
- * stay `relative` for the popover's positioning.
+ * Status-row chip for Sentinel with a popover of details, shown only while it
+ * is enabled. The popover is positioned against the nearest positioned
+ * ancestor, so the brand header must stay `relative`.
  */
-export function SentinelStrip() {
+export function SentinelChip() {
   const { info } = useSentinel();
   const isAdmin = useIsAdmin();
   const { open, toggle, containerRef, triggerRef, popoverId, onBlur } = usePopover();
@@ -25,29 +24,24 @@ export function SentinelStrip() {
   const status = info?.status;
   if (!status?.enabled) return null;
 
-  const text = stripText(status);
+  const full = stripText(status);
+  const tone = stripTone(status);
   return (
-    <div
-      ref={containerRef}
-      onBlur={onBlur}
-    >
+    <div ref={containerRef} onBlur={onBlur} className="min-w-0">
       <button
         ref={triggerRef}
         type="button"
-        className="llm-strip sentinel-strip"
-        aria-label={`Sentinel: ${text}`}
+        className="sb-chip sb-chip--sentinel"
+        title={full}
+        aria-label={`Sentinel: ${full}`}
         aria-expanded={open}
         aria-controls={popoverId}
         onClick={toggle}
       >
-        <span className={`sentinel-tone--${stripTone(status)} inline-flex`} aria-hidden="true">
+        <span className={`sentinel-tone--${tone} inline-flex`} aria-hidden="true">
           <ShieldCheckIcon />
         </span>
-        <span className="sentinel-strip__label">Sentinel</span>
-        <span className={`sentinel-strip__status sentinel-tone--${stripTone(status)}`}>{text}</span>
-        <span className="llm-strip__chev">
-          <Chevron />
-        </span>
+        <span className={`sb-chip__label sentinel-tone--${tone}`}>{chipText(status)}</span>
       </button>
       {open && (
         <div id={popoverId} role="group" aria-label="Sentinel" className="llm-pop">
@@ -58,7 +52,7 @@ export function SentinelStrip() {
   );
 }
 
-/** Collapsed-rail stand-in for the strip: the shield alone, coloured by tone. */
+/** Collapsed-rail stand-in for the chip: the shield alone, coloured by tone. */
 export function SentinelRailIcon() {
   const { info } = useSentinel();
   const status = info?.status;
