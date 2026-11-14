@@ -110,7 +110,7 @@ export function AdminSentinelPage() {
 
   const save = async () => {
     if (!draft) return;
-    if (![draft.daily_cap_usd, draft.investigate_ceiling_usd, draft.headroomPercent].every(Number.isFinite)) {
+    if (![draft.daily_cap_usd, draft.investigate_ceiling_usd, draft.analyse_ceiling_usd, draft.headroomPercent].every(Number.isFinite)) {
       setError('Enter a number in every field.');
       return;
     }
@@ -153,14 +153,21 @@ export function AdminSentinelPage() {
           />
           <Switch
             label="Friction analysis"
-            hint="Store the friction findings and notes each investigation reports. Off stores no new ones; those already stored stay shown."
+            hint="Route the findings investigations and analyses report: code findings become friction cards, guidance findings go to the project's standing guidance PR, ecosystem findings are held, every other kind is a note on the card's Sentinel tab. Off stores no new ones; those already stored stay shown."
             checked={draft.friction}
             disabled={!draft.enabled}
             onChange={(friction) => set({ friction })}
           />
+          <Switch
+            label="Analyse every run"
+            hint="Applies only while Friction analysis is on. One model pass per finished run; on the endpoint channel it stops at half the daily spend cap."
+            checked={draft.analyse_every_run}
+            disabled={!draft.enabled || !draft.friction}
+            onChange={(analyse_every_run) => set({ analyse_every_run })}
+          />
           <NumberField
             label="Daily spend cap (USD)"
-            hint="Applies on the endpoint channel to investigations and reruns, counting work still in flight. 0 stops both."
+            hint="Applies on the endpoint channel to investigations, reruns and analyses, counting work still in flight. 0 stops all three; analyses also wait while today's spend is at half the cap or more."
             step={1}
             value={draft.daily_cap_usd}
             onChange={(daily_cap_usd) => set({ daily_cap_usd })}
@@ -171,6 +178,13 @@ export function AdminSentinelPage() {
             step={0.5}
             value={draft.investigate_ceiling_usd}
             onChange={(investigate_ceiling_usd) => set({ investigate_ceiling_usd })}
+          />
+          <NumberField
+            label="Analysis ceiling (USD)"
+            hint="The most one analysis may cost on the endpoint channel. Claude Code uses the investigation ceiling."
+            step={0.5}
+            value={draft.analyse_ceiling_usd}
+            onChange={(analyse_ceiling_usd) => set({ analyse_ceiling_usd })}
           />
           <NumberField
             label="Subscription headroom threshold (percent)"

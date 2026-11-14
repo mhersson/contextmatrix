@@ -894,6 +894,8 @@ export interface SentinelSettings {
   daily_cap_usd: number;
   investigate_ceiling_usd: number;
   headroom: number;
+  analyse_every_run: boolean;
+  analyse_ceiling_usd: number;
 }
 
 /** Shape of GET /api/projects/{project}/cards/{id}/sentinel: the card's last run facts (null when this instance launched none), its heal and forward rows newest first, and its friction findings. */
