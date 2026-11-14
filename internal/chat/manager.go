@@ -626,7 +626,7 @@ func (m *Manager) recordWaiting(ctx context.Context, sessionID, kind string, gen
 	m.waitMu.Unlock()
 
 	if err != nil {
-		m.logger.Debug("chat: blueprint wait not recorded", "session_id", sessionID, "error", err)
+		m.logger.Warn("chat: blueprint wait not recorded", "session_id", sessionID, "error", err)
 
 		return
 	}
