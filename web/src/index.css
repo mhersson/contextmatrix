@@ -10154,6 +10154,81 @@ button.bp-rv-head {
   outline-offset: 2px;
 }
 
+/* Sessions page, Playbooks tab: the playbook cells inside the ssn table. */
+.pbt-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.pbt-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--grey1);
+}
+.pbt-source {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--grey2);
+  border: 1px solid var(--bg4);
+  border-radius: 4px;
+}
+.pbt-next {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 290px;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--grey1);
+}
+.pbt-next .pb-nextup-chip {
+  color: var(--grey1);
+  border-color: var(--bg4);
+}
+.pbt-next-id {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--grey2);
+}
+.pbt-next-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pbt-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pbt-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* Compact route track: the rails stretch to a common width until the nodes need more. */
+.pbt-track {
+  flex: 1 0 auto;
+  min-width: 5.5rem;
+  margin-top: 0;
+}
+.pbt-track .pbl-node {
+  width: 8px;
+  height: 8px;
+}
+.pbt-track .pbl-rail {
+  min-width: 3px;
+}
+/* A ticked row's --bg-visual swallows the --bg3 of pending nodes and rails. */
+.ssn-row--sel .pbt-track .pbl-node-pending:not(.pbl-node-frontier),
+.ssn-row--sel .pbt-track .pbl-rail-dash {
+  border-color: var(--grey0);
+}
+
 .pb-followups-locked {
   opacity: 0.6;
 }

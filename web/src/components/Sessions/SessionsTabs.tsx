@@ -1,36 +1,37 @@
-import type { SessionKind } from '../../types';
+import type { SessionsTab } from '../../lib/sessions';
 
 export const SESSIONS_PANEL_ID = 'sessions-panel';
 
-const TABS: { kind: SessionKind; label: string }[] = [
-  { kind: 'chat', label: 'Chats' },
-  { kind: 'architect', label: 'Blueprints' },
+const TABS: { tab: SessionsTab; label: string }[] = [
+  { tab: 'chat', label: 'Chats' },
+  { tab: 'architect', label: 'Blueprints' },
+  { tab: 'playbooks', label: 'Playbooks' },
 ];
 
 interface SessionsTabsProps {
-  active: SessionKind;
-  counts: Record<SessionKind, number>;
-  onChange: (kind: SessionKind) => void;
+  active: SessionsTab;
+  counts: Record<SessionsTab, number>;
+  onChange: (tab: SessionsTab) => void;
 }
 
 export function SessionsTabs({ active, counts, onChange }: SessionsTabsProps) {
   return (
-    <div className="ssn-tabs" role="tablist" aria-label="Session kinds">
+    <div className="ssn-tabs" role="tablist" aria-label="Sessions">
       {TABS.map((t) => {
-        const on = t.kind === active;
+        const on = t.tab === active;
         return (
           <button
-            key={t.kind}
-            id={`sessions-tab-${t.kind}`}
+            key={t.tab}
+            id={`sessions-tab-${t.tab}`}
             type="button"
             role="tab"
             aria-selected={on}
             aria-controls={SESSIONS_PANEL_ID}
-            onClick={() => onChange(t.kind)}
+            onClick={() => onChange(t.tab)}
             className={`ssn-tab${on ? ' ssn-tab--on' : ''}`}
           >
             {t.label}
-            <span className="ssn-tab-count">{counts[t.kind]}</span>
+            <span className="ssn-tab-count">{counts[t.tab]}</span>
           </button>
         );
       })}

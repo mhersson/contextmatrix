@@ -90,7 +90,7 @@ const defaultProjects = [
 ];
 
 function playbook(id: string): PlaybookSummary {
-  return { id, title: id, complete: 0, total: 2, segments: [], projects: 1, updated_at: '' };
+  return { id, title: id, complete: 0, total: 2, segments: [], projects: 1, project_names: [], updated_at: '' };
 }
 
 function channel(claudeCode: boolean): LLMChannelView {

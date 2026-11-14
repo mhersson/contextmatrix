@@ -229,7 +229,7 @@ describe('PlaybooksPage - Jira import', () => {
   beforeEach(() => {
     vi.mocked(api.previewJiraEpic).mockClear();
     vi.mocked(api.listPlaybooks).mockResolvedValue([
-      { id: 'active-one', title: 'Active one', complete: 1, total: 3, segments: ['complete', 'active', 'pending'], projects: 2, updated_at: '2026-08-20T09:00:00Z' },
+      { id: 'active-one', title: 'Active one', complete: 1, total: 3, segments: ['complete', 'active', 'pending'], projects: 2, project_names: [], updated_at: '2026-08-20T09:00:00Z' },
     ]);
     vi.mocked(api.getJiraStatus).mockResolvedValue({ configured: true, authenticated: true, site_url: SITE });
   });

@@ -2,7 +2,7 @@ import type { MouseEvent } from 'react';
 import type { ChatSession } from '../../types';
 import { formatSessionCost, sessionProjects, sessionSubscriptionCostUSD, statusDotColor } from '../../lib/sessions';
 import { SUBSCRIPTION_TOOLTIP } from '../../lib/subscription';
-import { formatRelativeTime } from '../../lib/format';
+import { formatExactTime, formatRelativeTime } from '../../lib/format';
 import { PinIcon } from '../SessionIcons';
 
 export interface SessionRowProps {
@@ -20,11 +20,6 @@ const stop = (e: MouseEvent) => e.stopPropagation();
 function modeTone(mode: string): string {
   if (mode === 'yolo') return ' ssn-tag--yolo';
   return mode.startsWith('auto') ? ' ssn-tag--auto' : '';
-}
-
-function exactTime(iso: string): string | undefined {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? undefined : d.toLocaleString();
 }
 
 export function SessionRow({ session: s, showMode, ticked, onToggle, onPin, onOpen }: SessionRowProps) {
@@ -72,7 +67,7 @@ export function SessionRow({ session: s, showMode, ticked, onToggle, onPin, onOp
       <td className="ssn-mono" title={sessionSubscriptionCostUSD(s) > 0 ? SUBSCRIPTION_TOOLTIP : undefined}>
         {formatSessionCost(s)}
       </td>
-      <td className="ssn-muted" title={exactTime(s.last_active)}>{formatRelativeTime(s.last_active)}</td>
+      <td className="ssn-muted" title={formatExactTime(s.last_active)}>{formatRelativeTime(s.last_active)}</td>
     </tr>
   );
 }

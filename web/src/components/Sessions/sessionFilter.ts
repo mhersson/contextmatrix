@@ -25,6 +25,13 @@ export function filterSessions(sessions: ChatSession[], f: SessionFilter): ChatS
   });
 }
 
+/** A Project select's choices, sorted; the selected one stays listed after its rows go, so the select can show it. */
+export function projectChoices(names: string[], selected: string): string[] {
+  const choices = new Set(names);
+  if (selected) choices.add(selected);
+  return [...choices].sort((a, b) => a.localeCompare(b));
+}
+
 function activeAt(s: ChatSession): number {
   const t = Date.parse(s.last_active);
   return Number.isNaN(t) ? 0 : t;

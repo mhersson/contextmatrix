@@ -1254,6 +1254,8 @@ export interface PlaybookSummary {
   total: number;
   segments: PlaybookSegment[];
   projects: number;
+  /** The distinct projects the card entries reference, sorted. */
+  project_names: string[];
   /** Indexes of manual entries, omitted when there are none. */
   gates?: number[];
   /** Omitted once every entry is complete. */
@@ -1265,6 +1267,8 @@ export interface PlaybookSummary {
   run_status?: PlaybookRunStatus;
   /** The viewer's own pin. */
   pinned?: boolean;
+  /** Present on a playbook imported from a Jira epic. */
+  source?: Source;
 }
 
 export interface PlaybookCardRef {

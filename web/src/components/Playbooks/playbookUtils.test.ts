@@ -26,6 +26,7 @@ function summary(complete: number, total: number): PlaybookSummary {
     total,
     segments: [],
     projects: 0,
+    project_names: [],
     updated_at: '2026-08-20T09:00:00Z',
   };
 }

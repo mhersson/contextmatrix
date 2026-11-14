@@ -3,7 +3,8 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { SessionsPage } from './SessionsPage';
 import { api } from '../../api/client';
-import type { ChatSession } from '../../types';
+import { PlaybooksProvider } from '../../hooks/usePlaybooks';
+import type { ChatSession, PlaybookSummary } from '../../types';
 import { SUBSCRIPTION_TOOLTIP } from '../../lib/subscription';
 
 const toast = vi.hoisted(() => ({ showToast: vi.fn() }));
@@ -12,6 +13,21 @@ vi.mock('../../hooks/useToast', () => ({ useToast: () => toast }));
 vi.mock('../../context/MobileSidebarContext', () => ({
   useMobileSidebar: () => ({ isOpen: false, toggle: () => {}, close: () => {} }),
 }));
+
+vi.mock('../../hooks/useSSEBus', () => ({
+  useSSEBus: () => ({ subscribe: () => () => {}, connected: true, reconnectEpoch: 0 }),
+}));
+
+const playbook = (id: string, title: string): PlaybookSummary => ({
+  id,
+  title,
+  complete: 0,
+  total: 1,
+  segments: ['pending'],
+  projects: 0,
+  project_names: [],
+  updated_at: '2026-10-01T10:00:00Z',
+});
 
 function sess(o: Partial<ChatSession> & { id: string }): ChatSession {
   return {
@@ -69,6 +85,7 @@ beforeEach(() => {
   vi.spyOn(api, 'deleteChat').mockImplementation(async (id) => {
     store = store.filter((s) => s.id !== id);
   });
+  vi.spyOn(api, 'listPlaybooks').mockResolvedValue([playbook('p1', 'Rollout'), playbook('p2', 'Docs refresh')]);
 });
 
 afterEach(() => {
@@ -83,11 +100,13 @@ function Where() {
 function renderAt(url = '/sessions?tab=blueprints') {
   return render(
     <MemoryRouter initialEntries={[url]}>
-      <Routes>
-        <Route path="/sessions" element={<SessionsPage />} />
-        <Route path="*" element={null} />
-      </Routes>
-      <Where />
+      <PlaybooksProvider>
+        <Routes>
+          <Route path="/sessions" element={<SessionsPage />} />
+          <Route path="*" element={null} />
+        </Routes>
+        <Where />
+      </PlaybooksProvider>
     </MemoryRouter>,
   );
 }
@@ -115,6 +134,57 @@ describe('SessionsPage', () => {
     expect(within(chats).getByText('1')).toBeInTheDocument();
     expect(listedTitles()).toHaveLength(3);
     expect(screen.queryByText('Fix login')).toBeNull();
+  });
+
+  it('opens the Playbooks tab from the URL, listing the playbooks and counting them', async () => {
+    renderAt('/sessions?tab=playbooks');
+    await screen.findByText('Rollout');
+
+    const playbooks = screen.getByRole('tab', { name: /playbooks/i });
+    expect(playbooks).toHaveAttribute('aria-selected', 'true');
+    expect(within(playbooks).getByText('2')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(screen.getByRole('tab', { name: /blueprints/i })).getByText('3')).toBeInTheDocument(),
+    );
+    expect(screen.getByText('Docs refresh')).toBeInTheDocument();
+    expect(screen.queryByText('Recipe box')).toBeNull();
+  });
+
+  it('switching to the Playbooks tab writes it to the URL and drops the session ticks', async () => {
+    renderAt();
+    await screen.findByText('Recipe box');
+    tick('Recipe box');
+
+    fireEvent.click(screen.getByRole('tab', { name: /playbooks/i }));
+    expect(where()).toBe('/sessions?tab=playbooks');
+    expect(await screen.findByText('Rollout')).toBeInTheDocument();
+    expect(bulkBar()).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: /blueprints/i }));
+    expect(within(row('Recipe box')).getByRole('checkbox')).not.toBeChecked();
+  });
+
+  it('a failed playbook load shows an alert and leaves the panel not busy', async () => {
+    vi.mocked(api.listPlaybooks).mockRejectedValueOnce(new Error('boom'));
+    renderAt('/sessions?tab=playbooks');
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-busy', 'false');
+  });
+
+  it('the Playbooks filter survives a tab round trip and stays out of the session tabs', async () => {
+    renderAt('/sessions?tab=playbooks');
+    await screen.findByText('Rollout');
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'docs' } });
+
+    fireEvent.click(screen.getByRole('tab', { name: /chats/i }));
+    await screen.findByText('Fix login');
+    expect(screen.getByRole('searchbox')).toHaveValue('');
+
+    fireEvent.click(screen.getByRole('tab', { name: /playbooks/i }));
+    expect(screen.getByRole('searchbox')).toHaveValue('docs');
+    expect(screen.getByText('Docs refresh')).toBeInTheDocument();
+    expect(screen.queryByText('Rollout')).toBeNull();
   });
 
   it('an unknown tab opens the chats tab', async () => {

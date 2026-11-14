@@ -3,7 +3,7 @@ import { playbookStatus } from './playbookStatus';
 import type { PlaybookRunStatus, PlaybookSummary } from '../types';
 
 function pb(complete: number, total: number, run_status?: PlaybookRunStatus): PlaybookSummary {
-  return { id: 'p', title: 'p', complete, total, segments: [], projects: 1, updated_at: '', run_status };
+  return { id: 'p', title: 'p', complete, total, segments: [], projects: 1, project_names: [], updated_at: '', run_status };
 }
 
 describe('playbookStatus', () => {

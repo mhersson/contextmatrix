@@ -10,6 +10,7 @@ function pb(id: string, o: { pinned?: boolean; run?: PlaybookRunStatus; day?: nu
     total: 3,
     segments: [],
     projects: 1,
+    project_names: [],
     pinned: o.pinned,
     run_status: o.run,
     updated_at: `2026-10-${String(o.day ?? 1).padStart(2, '0')}T12:00:00Z`,

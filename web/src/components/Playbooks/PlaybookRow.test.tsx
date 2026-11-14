@@ -7,7 +7,7 @@ import type { PlaybookSummary } from '../../types';
 function summary(over: Partial<PlaybookSummary> = {}): PlaybookSummary {
   return {
     id: 'rollout', title: 'Rollout', complete: 1, total: 3,
-    segments: ['complete', 'pending', 'pending'], projects: 2, updated_at: '2020-01-01T00:00:00Z', ...over,
+    segments: ['complete', 'pending', 'pending'], projects: 2, project_names: [], updated_at: '2020-01-01T00:00:00Z', ...over,
   };
 }
 

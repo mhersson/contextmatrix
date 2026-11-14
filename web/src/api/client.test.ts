@@ -481,6 +481,23 @@ describe('api.setChatCostCap', () => {
   });
 });
 
+describe('api.pinPlaybook', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('puts the pin to pin and deletes it to unpin', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(null, { status: 204 }));
+    await api.pinPlaybook('q3 epic', true);
+    await api.pinPlaybook('q3 epic', false);
+    const [[pinURL, pinInit], [unpinURL, unpinInit]] = fetchSpy.mock.calls;
+    expect(String(pinURL)).toContain('/playbooks/q3%20epic/pin');
+    expect((pinInit as RequestInit).method).toBe('PUT');
+    expect(String(unpinURL)).toContain('/playbooks/q3%20epic/pin');
+    expect((unpinInit as RequestInit).method).toBe('DELETE');
+  });
+});
+
 describe('api.setChatMode', () => {
   afterEach(() => {
     vi.restoreAllMocks();

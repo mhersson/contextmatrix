@@ -775,6 +775,11 @@ class APIClient {
     return this.request<void>(`/playbooks/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
+  /** Pins or unpins a playbook for the viewer. */
+  async pinPlaybook(id: string, pinned: boolean): Promise<void> {
+    return this.request<void>(`/playbooks/${encodeURIComponent(id)}/pin`, { method: pinned ? 'PUT' : 'DELETE' });
+  }
+
   async addPlaybookEntry(id: string, entry: NewPlaybookEntry): Promise<PlaybookDetail> {
     return this.request<PlaybookDetail>(`/playbooks/${encodeURIComponent(id)}/entries`, {
       method: 'POST',

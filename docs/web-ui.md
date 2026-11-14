@@ -14,7 +14,7 @@ reference for people using the UI; execution semantics live in
 | `/projects/:project/settings`               | Project settings                                         |
 | `/chat`, `/chat/:id`                        | Global chat surface. `/chat?new=1` opens the New Chat dialog on Chat, `?new=blueprint` on Blueprint |
 | `/playbooks`, `/playbooks/:id`              | Playbook list and detail (see [playbooks](playbooks.md)) |
-| `/sessions`                                 | Sessions page. `?tab=chats` or `?tab=blueprints` picks the tab |
+| `/sessions`                                 | Sessions page. `?tab=chats`, `?tab=blueprints` or `?tab=playbooks` picks the tab |
 | `/admin/users`, `/admin/credentials`        | Admin pages, `multi` auth mode only                      |
 | `/admin/chats`                              | Chat administration (admin; open in `none` mode)         |
 | `/admin/model-selection`                    | Tier ladders (admin; open in `none` mode)                |
@@ -710,36 +710,55 @@ the strip; the footer names who last saved and when, once someone has.
 ## Sessions
 
 `/sessions` lists the chat and blueprint sessions `GET /api/chats` returns to
-you, in the main area like the dashboard and playbooks.
+you and the playbooks `GET /api/playbooks` returns, in the main area like the
+dashboard.
 
-- Two tabs, **Chats** and **Blueprints**, each with its kind's total. The tab
-  is kept in the URL as `?tab=chats` or `?tab=blueprints`; a missing or unknown
-  value opens Chats.
-- Search matches titles, ignoring case. The filters are Project (a chat's
-  project, or any project in a blueprint's workspace), Status (live is active
-  or warm-idle, not live is everything else) and Pinned only; they combine. A
-  tab without sessions and filters that hide every row each show an empty
-  state, the latter with Clear filters.
-- Rows sort newest activity first. The columns are a tick box, the pin, the
-  title with a status dot (green while active and yellow while warm-idle, as in
-  the sidebar), the project or projects, the mode as stored (Blueprints only),
-  the cost and the last activity. The cost follows the one-cost rule: a chat's
-  is the gateway's reported cost per turn, else CM's estimate from token
-  counts; a blueprint's is the architect's recorded spend and "-" until one is
-  recorded, never CM's estimate. A Claude subscription share is labelled as in
-  the pane header.
-- Clicking a row, or its title from the keyboard, opens the session on `/chat`,
-  as the sidebar does. The tick box and the pin do not open it; the
-  pin pins or unpins the session.
+- Three tabs, **Chats**, **Blueprints** and **Playbooks**, each with its total.
+  The tab is kept in the URL as `?tab=chats`, `?tab=blueprints` or
+  `?tab=playbooks`; a missing or unknown value opens Chats.
+- Search matches titles, ignoring case. On Chats and Blueprints the filters
+  are Project (a chat's project, or any project in a blueprint's workspace),
+  Status (live is active or warm-idle, not live is everything else) and Pinned
+  only; on Playbooks they are Project (any project a card entry is on), Status
+  and Pinned only. The filters combine. A tab without rows and filters that
+  hide every row each show an empty state, the latter with Clear filters.
+- Rows sort newest activity first. On Chats and Blueprints the columns are a
+  tick box, the pin, the title with a status dot (green while active and
+  yellow while warm-idle, as in the sidebar), the project or projects, the
+  mode as stored (Blueprints only), the cost and the last activity. The cost
+  follows the one-cost rule: a chat's is the gateway's reported cost per turn,
+  else CM's estimate from token counts; a blueprint's is the architect's
+  recorded spend and "-" until one is recorded, never CM's estimate. A Claude
+  subscription share is labelled as in the pane header.
+- Clicking a row, or its title from the keyboard, opens it: a session on
+  `/chat`, as the sidebar does, a playbook on `/playbooks/:id`. The tick box
+  and the pin do not open it; the pin pins or unpins the row (playbook pins
+  are personal, see [Playbooks](playbooks.md)).
 - Ticking rows shows a bar with the count and **Pin**, **Unpin** and
   **Delete…**; the header tick box ticks every row shown. The bar acts only on
   ticked rows that are shown: a row that stops showing, through a tab switch, a
   filter or a refresh, loses its tick. **Delete…** asks first, naming the
-  count, then deletes each session (removing its transcript) and refreshes the
-  list once. Deletes that fail are reported in one message with their count,
-  and their rows stay ticked.
+  count, then deletes each row (a session with its transcript) and refreshes
+  the list once. Deletes that fail, such as a playbook whose run is active,
+  are reported in one message with their count, and their rows stay ticked.
 - Until the list first loads the page shows a loading line; a failed load
   shows the error instead of an empty state.
+
+### Playbooks tab
+
+- Status is any, running, waiting, stopped, not started or completed.
+  Completed means every entry is complete, whatever the run says, so a
+  playbook finished by hand stays completed; running, waiting and stopped
+  follow the run; not started is everything else. Finished playbooks are rows
+  like the rest, found through Status.
+- The columns are a tick box, the pin, the title, the projects, the run, the
+  progress and the last update. The title carries the playbook icon, a Jira
+  chip with the epic key on an imported playbook and a `missing card` pill
+  while an entry points at a card that is gone; while the run is running or
+  waiting, a muted second line names the next entry. The run is the run's
+  status pill, plus `agent active` while a card entry is `in_progress`, and
+  "-" when neither applies. The progress is the route track (manual steps
+  drawn as gates) and done / total.
 
 ## Image attachments
 

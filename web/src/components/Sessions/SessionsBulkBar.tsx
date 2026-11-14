@@ -1,4 +1,6 @@
 interface SessionsBulkBarProps {
+  /** Names the bar for assistive tech, e.g. "Selected sessions". */
+  label: string;
   count: number;
   busy: boolean;
   onPin: () => void;
@@ -6,9 +8,9 @@ interface SessionsBulkBarProps {
   onDelete: () => void;
 }
 
-export function SessionsBulkBar({ count, busy, onPin, onUnpin, onDelete }: SessionsBulkBarProps) {
+export function SessionsBulkBar({ label, count, busy, onPin, onUnpin, onDelete }: SessionsBulkBarProps) {
   return (
-    <div className="ssn-bulk" role="toolbar" aria-label="Selected sessions">
+    <div className="ssn-bulk" role="toolbar" aria-label={label}>
       <span>
         <b>{count}</b> selected
       </span>

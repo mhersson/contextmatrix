@@ -1,24 +1,23 @@
-import type { SessionKind } from '../../types';
-
 interface SessionsEmptyProps {
-  kind: SessionKind;
-  /** The tab holds sessions but the filters hide them all. */
+  /** Shown while the tab holds nothing at all. */
+  emptyText: string;
+  /** The tab holds rows but the filters hide them all. */
   filtered: boolean;
   onClear: () => void;
 }
 
-export function SessionsEmpty({ kind, filtered, onClear }: SessionsEmptyProps) {
+export function SessionsEmpty({ emptyText, filtered, onClear }: SessionsEmptyProps) {
   if (filtered) {
     return (
       <div className="ssn-empty" role="status">
-        <span>No sessions match these filters.</span>
+        <span>Nothing matches these filters.</span>
         <button type="button" className="ssn-empty-clear" onClick={onClear}>Clear filters</button>
       </div>
     );
   }
   return (
     <div className="ssn-empty" role="status">
-      {kind === 'architect' ? 'No blueprints yet.' : 'No chats yet.'}
+      {emptyText}
     </div>
   );
 }

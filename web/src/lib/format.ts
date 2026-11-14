@@ -15,6 +15,12 @@ export function formatTokens(n: number): string {
   return String(n);
 }
 
+/** The stamp in the viewer's locale, for a title beside a relative time; undefined when unparseable. */
+export function formatExactTime(iso: string): string | undefined {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? undefined : d.toLocaleString();
+}
+
 /** Coarse "how long ago" for an RFC 3339 stamp: "just now", "5 min ago", "3 h ago", "2 d ago". */
 export function formatRelativeTime(iso: string, now: number = Date.now()): string {
   const then = Date.parse(iso);

@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { api } from '../api/client';
+import { settleEach } from '../components/Sessions/useBulkActions';
 import { notifyChatSessionsChanged } from './useChatSessions';
 import { useToast } from './useToast';
 
@@ -9,9 +10,7 @@ export function useSessionPin(): (ids: string[], pinned: boolean) => Promise<voi
 
   return useCallback(
     async (ids: string[], pinned: boolean) => {
-      const results = await Promise.allSettled(ids.map((id) => api.updateChat(id, { pinned })));
-      notifyChatSessionsChanged();
-      const failed = results.filter((r) => r.status === 'rejected').length;
+      const failed = (await settleEach(ids, (id) => api.updateChat(id, { pinned }), notifyChatSessionsChanged)).length;
       if (failed > 0) {
         const verb = pinned ? 'pin' : 'unpin';
         showToast(`Could not ${verb} ${failed} session${failed === 1 ? '' : 's'}`, 'error');

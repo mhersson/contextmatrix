@@ -26,7 +26,7 @@ const emit = (type: string) => {
   }
 };
 
-const pb = (id: string): PlaybookSummary => ({ id, title: id, complete: 0, total: 1, segments: [], projects: 1, updated_at: '' });
+const pb = (id: string): PlaybookSummary => ({ id, title: id, complete: 0, total: 1, segments: [], projects: 1, project_names: [], updated_at: '' });
 
 function Probe() {
   const { playbooks, loaded, error } = usePlaybooks();
