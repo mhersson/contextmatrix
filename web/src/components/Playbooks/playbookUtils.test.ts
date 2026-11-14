@@ -106,7 +106,7 @@ describe('run helpers', () => {
 
   it('runStatusChip maps every status to the house colours', () => {
     expect(runStatusChip('running')).toEqual({ label: 'running', bg: 'var(--bg-aqua)', color: 'var(--aqua)' });
-    expect(runStatusChip('waiting')).toEqual({ label: 'waiting for you', bg: 'var(--bg-yellow)', color: 'var(--yellow)' });
+    expect(runStatusChip('waiting')).toEqual({ label: 'waiting for you', bg: 'var(--bg-yellow)', color: 'var(--wait-yellow)' });
     expect(runStatusChip('stopped')).toEqual({ label: 'stopped', bg: 'var(--bg1)', color: 'var(--grey1)' });
     expect(runStatusChip('completed')).toEqual({ label: 'completed', bg: 'var(--bg-green)', color: 'var(--green)' });
   });

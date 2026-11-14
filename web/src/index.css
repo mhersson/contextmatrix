@@ -3683,7 +3683,7 @@ textarea {
 }
 .pbl-pill-run-waiting {
   background: var(--bg-yellow);
-  color: var(--yellow);
+  color: var(--wait-yellow);
 }
 .pbl-pill-run-stopped {
   background: var(--bg1);

@@ -130,7 +130,7 @@ const workerSignals: Record<WorkerStatus, Omit<CardSignal, 'key' | 'importance'>
   running: { label: 'Worker running', color: 'var(--aqua)', icon: activityIcon, pulse: true },
   failed: { label: 'Worker failed - open card for the log', color: 'var(--red)', icon: alertTriangleIcon },
   killed: { label: 'Worker killed', color: 'var(--grey1)', icon: circleSlashIcon },
-  parked: { label: 'Parked - left for a human, see the card log', color: 'var(--yellow)', icon: circleParkingIcon },
+  parked: { label: 'Parked - left for a human, see the card log', color: 'var(--wait-yellow)', icon: circleParkingIcon },
 };
 
 /** Builds the card's signals in display order; `sentinelOn` allows the Sentinel mark, `now` dates a usage-limit park's reset. */

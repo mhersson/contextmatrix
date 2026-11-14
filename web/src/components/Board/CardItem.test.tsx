@@ -127,7 +127,7 @@ describe('CardItem - declutter', () => {
     const card = { ...baseCard, state: 'review', worker_status: 'parked' as const };
     render(<CardItem card={card} />);
     const root = screen.getByLabelText(`Card ${card.id}: ${card.title}`);
-    expect(root.className).toContain('border-l-[var(--yellow)]');
+    expect(root.className).toContain('border-l-[var(--wait-yellow)]');
     expect(root.className).not.toContain('animate-pulse-border');
   });
 

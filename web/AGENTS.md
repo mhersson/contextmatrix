@@ -119,9 +119,15 @@ keeps the hamburger and a way back to the board.
   unassigned = `--bg3`.
 - Card clock (`CardTiming/CardClock.tsx`): `--aqua` icon, the agent-active
   tone.
-- Waiting for you: the badge (`WaitBadge.tsx`) is `--bg0` text on
-  `--wait-yellow`; reasons, the sidebar playbook status and the waiting-row
-  icons take `--wait-yellow`; muted text on the waiting tint is
+- Waiting for a human takes `--wait-yellow`, never `--yellow`: the badge
+  (`WaitBadge.tsx`, `--bg0` text on it), the waiting-row icons and the rail
+  bell, wait reasons (Sessions tables, a playbook entry's reason on the detail
+  page), the sidebar playbook "waiting" status, the playbook run pill "waiting
+  for you" (`runStatusChip`, `.pbl-pill-run-waiting`: the ink on its
+  `--bg-yellow` tint), the detail page's "Waiting for you: <reason>" run
+  status line (`--fg` in every other run state), and a worker-parked card's
+  chip, signal icon and board border. Queued, warnings, warm-idle dots and the
+  LLM chip keep `--yellow`. Muted text on the waiting tint is
   `--blueprint-quiet-strong`, the one muted token at 4.5:1 there in every
   palette.
 - Primary action = `--green`; secondary = `--aqua`; destructive = `--red`.

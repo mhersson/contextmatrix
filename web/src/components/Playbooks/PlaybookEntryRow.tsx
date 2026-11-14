@@ -111,7 +111,7 @@ export function PlaybookEntryRowView({
           </div>
 
           {run?.status === 'waiting' && (run.entry === entry.id || heldHere) && run.reason && (
-            <p className="text-xs mt-1" style={{ color: 'var(--yellow)' }}>{run.reason}</p>
+            <p className="text-xs mt-1" style={{ color: 'var(--wait-yellow)' }}>{run.reason}</p>
           )}
 
           <PlaybookEntryNote note={entry.note} onSave={(value) => onSaveNote(entry.id, value)} />
