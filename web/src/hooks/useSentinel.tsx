@@ -59,7 +59,10 @@ export function useSentinel(): SentinelState {
   return useContext(SentinelContext);
 }
 
-/** A card's Sentinel run facts: refetched on Sentinel events and on events for this card. */
+/**
+ * A card's Sentinel run facts: refetched, debounced, on Sentinel events of this card or of its
+ * project as a whole (the guidance revision and standing PR), and at once on events for this card.
+ */
 // eslint-disable-next-line react-refresh/only-export-components
 export function useCardSentinel(project: string, id: string): SentinelCardView | null {
   const [view, setView] = useState<SentinelCardView | null>(null);
@@ -78,14 +81,20 @@ export function useCardSentinel(project: string, id: string): SentinelCardView |
   }, [project, id, tick, reconnectEpoch]);
 
   useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const bump = () => setTick((n) => n + 1);
-    const offSentinel = subscribe('sentinel.*', bump);
+    const offSentinel = subscribe('sentinel.*', (e) => {
+      if (e.project !== project || (e.card_id && e.card_id !== id)) return;
+      clearTimeout(timer);
+      timer = setTimeout(bump, EVENT_DEBOUNCE_MS);
+    });
     const offCard = subscribe('card.*', (e) => {
       if (e.project === project && e.card_id === id) bump();
     });
     return () => {
       offSentinel();
       offCard();
+      clearTimeout(timer);
     };
   }, [subscribe, project, id]);
 

@@ -288,7 +288,8 @@ its label.
   review, the duplicate's reason, "Dropped:" with the reason, or "Friction card
   ID" (a link to that card); notes and held findings have none. Last comes
   Analyses, newest first: each run analysis's stage, age, spend and reason. All
-  of this text is shown as plain text. The tab refetches on Sentinel events and
+  of this text is shown as plain text. The tab refetches a second after a burst
+  of Sentinel events for the card or for its project as a whole, and at once on
   events for the card.
 - A purple shield joins the board card's signal icons when the card carries a
   Sentinel mark (healing, healed, edited, parked or created); its label is the

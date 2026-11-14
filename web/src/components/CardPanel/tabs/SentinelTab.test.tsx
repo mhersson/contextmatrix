@@ -209,8 +209,9 @@ describe('SentinelTab', () => {
     act(() => bus.handlers.get('card.*')?.({ project: 'p', card_id: 'T-001' }));
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
 
-    act(() => bus.handlers.get('sentinel.*')?.({}));
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(3));
+    // Sentinel events are debounced by a second.
+    act(() => bus.handlers.get('sentinel.*')?.({ project: 'p', card_id: 'T-001' }));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(3), { timeout: 3000 });
   });
 
   it("shows each finding's outcome with its link", async () => {
