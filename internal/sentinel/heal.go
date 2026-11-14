@@ -288,6 +288,7 @@ func mayDispatch(h state.Heal, budget bool) bool {
 	return false
 }
 
+// workerBusy reports whether card's worker is queued or running.
 func workerBusy(card *board.Card) bool {
 	return card.WorkerStatus == "queued" || card.WorkerStatus == "running"
 }

@@ -32,7 +32,7 @@ func notRetirable(c fixContext, id string) string {
 			return "already started"
 		case s.AssignedAgent != "":
 			return "claimed"
-		case s.WorkerStatus == "queued" || s.WorkerStatus == "running":
+		case workerBusy(s):
 			return "has a worker"
 		}
 
