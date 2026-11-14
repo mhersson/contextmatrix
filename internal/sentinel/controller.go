@@ -34,15 +34,22 @@ type Store interface {
 	// OpenHeal also marks a heal's run decided.
 	OpenHeal(ctx context.Context, h state.Heal) (int64, error)
 	OpenHeals(ctx context.Context) ([]state.Heal, error)
-	// InFlightHeals returns every heal with a run kind in flight, whatever its
-	// stage, oldest first.
-	InFlightHeals(ctx context.Context) ([]state.Heal, error)
+	// InFlightRows returns every row of every kind with a run kind in flight,
+	// whatever its stage, oldest first.
+	InFlightRows(ctx context.Context) ([]state.Heal, error)
 	// CardHeals returns the card's heal and forward rows, newest first.
 	CardHeals(ctx context.Context, project, cardID string) ([]state.Heal, error)
 	// LatestHeals returns each card's newest heal or forward row in the project.
 	LatestHeals(ctx context.Context, project string) (map[string]state.Heal, error)
 	UndecidedRuns(ctx context.Context) ([]state.Run, error)
 	MarkRunDecided(ctx context.Context, project, cardID string, started time.Time) error
+	// UnqueuedRuns returns the runs with an ID that are not yet past the
+	// analysis queue.
+	UnqueuedRuns(ctx context.Context) ([]state.Run, error)
+	// QueueAnalysis stores an analysis row and marks its run queued; a run ID
+	// already queued is no error.
+	QueueAnalysis(ctx context.Context, h state.Heal) error
+	MarkAnalysisQueued(ctx context.Context, project, cardID string, started time.Time) error
 	// CardRunRow answers nil when this instance never launched the card.
 	CardRunRow(ctx context.Context, project, cardID string) (*state.Run, error)
 	RefreshEditSnapshot(ctx context.Context, project, cardID string, snap board.EditSnapshot) error

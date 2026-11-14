@@ -28,6 +28,10 @@ const healSelect = `SELECT id, kind, project, card_id, run_started, created_at, 
 	(SELECT COALESCE(SUM(usd), 0) FROM sentinel_spend WHERE heal_id = h.id), version, result
 	FROM sentinel_heals h`
 
+// healKinds are the kinds a heal list, a board mark and the open-heal flow
+// read; analysis and revision rows are never heals.
+const healKinds = `'heal', 'forward'`
+
 const insertSpend = `INSERT INTO sentinel_spend (heal_id, mode, usd, at, run_id) VALUES (?, ?, ?, ?, ?)`
 
 // OpenHeal inserts a heal or forward row and returns its ID. A heal also marks
@@ -111,7 +115,7 @@ func (s *Store) SaveHeal(ctx context.Context, h *state.Heal) error {
 	return nil
 }
 
-// OpenHeals returns every heal whose stage is not terminal, oldest first.
+// OpenHeals returns every heal row whose stage is not terminal, oldest first.
 func (s *Store) OpenHeals(ctx context.Context) ([]state.Heal, error) {
 	args := []any{state.HealKindHeal}
 	for _, stage := range state.TerminalStages {
@@ -127,22 +131,22 @@ func (s *Store) OpenHeals(ctx context.Context) ([]state.Heal, error) {
 	return heals, nil
 }
 
-// InFlightHeals returns every heal whose run kind was sent and is neither
-// answered nor failed, whatever its stage, oldest first.
-func (s *Store) InFlightHeals(ctx context.Context) ([]state.Heal, error) {
-	heals, err := s.queryHeals(ctx,
-		`kind = ? AND dispatch_at IS NOT NULL AND dispatch_answered_run_id = '' AND dispatch_failure = '' ORDER BY id`,
-		state.HealKindHeal)
+// InFlightRows returns every row, of any kind, whose run kind was sent and is
+// neither answered nor failed, whatever its stage, oldest first.
+func (s *Store) InFlightRows(ctx context.Context) ([]state.Heal, error) {
+	rows, err := s.queryHeals(ctx,
+		`dispatch_at IS NOT NULL AND dispatch_answered_run_id = '' AND dispatch_failure = '' ORDER BY id`)
 	if err != nil {
-		return nil, fmt.Errorf("list in-flight heals: %w", err)
+		return nil, fmt.Errorf("list in-flight rows: %w", err)
 	}
 
-	return heals, nil
+	return rows, nil
 }
 
 // CardHeals returns the card's heal and forward rows, newest first.
 func (s *Store) CardHeals(ctx context.Context, project, cardID string) ([]state.Heal, error) {
-	heals, err := s.queryHeals(ctx, `project = ? AND card_id = ? ORDER BY id DESC`, project, cardID)
+	heals, err := s.queryHeals(ctx,
+		`kind IN (`+healKinds+`) AND project = ? AND card_id = ? ORDER BY id DESC`, project, cardID)
 	if err != nil {
 		return nil, fmt.Errorf("list card heals: %w", err)
 	}
@@ -154,7 +158,7 @@ func (s *Store) CardHeals(ctx context.Context, project, cardID string) ([]state.
 // by card ID.
 func (s *Store) LatestHeals(ctx context.Context, project string) (map[string]state.Heal, error) {
 	heals, err := s.queryHeals(ctx,
-		`id IN (SELECT MAX(id) FROM sentinel_heals WHERE project = ? GROUP BY card_id)`, project)
+		`id IN (SELECT MAX(id) FROM sentinel_heals WHERE kind IN (`+healKinds+`) AND project = ? GROUP BY card_id)`, project)
 	if err != nil {
 		return nil, fmt.Errorf("list latest heals: %w", err)
 	}
@@ -325,14 +329,14 @@ func (s *Store) SpentSince(ctx context.Context, mode string, since time.Time) (f
 	return usd, nil
 }
 
-// HealedSince counts the distinct cards with a heal saved as healed at or
+// HealedSince counts the distinct cards with a heal row saved as healed at or
 // after since. Only SaveHeal writes updated_at, and the one later save of a
 // terminal heal (failing a run kind that never reported) keeps it, so a
 // healed heal's updated_at is when it reached healed.
 func (s *Store) HealedSince(ctx context.Context, since time.Time) (int, error) {
 	var n int
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM (SELECT DISTINCT project, card_id FROM sentinel_heals WHERE stage = ? AND updated_at >= ?)`,
+		`SELECT COUNT(*) FROM (SELECT DISTINCT project, card_id FROM sentinel_heals WHERE kind = 'heal' AND stage = ? AND updated_at >= ?)`,
 		state.StageHealed, unixNano(since)).Scan(&n); err != nil {
 		return 0, fmt.Errorf("count healed cards: %w", err)
 	}
@@ -462,4 +466,67 @@ func nullUnixNano(t *time.Time) any {
 // placeholders is n comma-separated SQL parameters.
 func placeholders(n int) string {
 	return strings.TrimSuffix(strings.Repeat("?, ", n), ", ")
+}
+
+// QueueAnalysis stores an analysis row for the run h names and marks the run
+// row that started at h.RunStarted queued, in one transaction. A run ID that
+// already has an analysis row inserts nothing.
+func (s *Store) QueueAnalysis(ctx context.Context, h state.Heal) error {
+	vals, err := healValues(h)
+	if err != nil {
+		return fmt.Errorf("queue analysis: %w", err)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("queue analysis: %w", err)
+	}
+
+	defer func() { _ = tx.Rollback() }()
+
+	args := append([]any{state.HealKindAnalysis, h.Project, h.CardID, unixNano(h.RunStarted), unixNano(h.CreatedAt)}, vals...)
+
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO sentinel_heals (kind, project, card_id, run_started, created_at, `+healMutable+`)
+		 VALUES (?, ?, ?, ?, ?, `+healMutableParams+`)
+		 ON CONFLICT(project, card_id, run_id) WHERE kind = 'analysis' DO NOTHING`, args...); err != nil {
+		return fmt.Errorf("queue analysis: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, markRunQueued, h.Project, h.CardID, unixNano(h.RunStarted)); err != nil {
+		return fmt.Errorf("queue analysis: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("queue analysis: %w", err)
+	}
+
+	return nil
+}
+
+// OpenAnalyses returns every analysis row still at the analyse stage, newest
+// first.
+func (s *Store) OpenAnalyses(ctx context.Context) ([]state.Heal, error) {
+	rows, err := s.queryHeals(ctx, `kind = ? AND stage = ? ORDER BY id DESC`, state.HealKindAnalysis, state.StageAnalyse)
+	if err != nil {
+		return nil, fmt.Errorf("list open analyses: %w", err)
+	}
+
+	return rows, nil
+}
+
+// RunHeal returns the heal of the run that started at started, or nil when
+// there is none.
+func (s *Store) RunHeal(ctx context.Context, project, cardID string, started time.Time) (*state.Heal, error) {
+	heals, err := s.queryHeals(ctx, `kind = ? AND project = ? AND card_id = ? AND run_started = ?`,
+		state.HealKindHeal, project, cardID, unixNano(started))
+	if err != nil {
+		return nil, fmt.Errorf("read run heal: %w", err)
+	}
+
+	if len(heals) == 0 {
+		return nil, nil //nolint:nilnil // nil, nil means no heal
+	}
+
+	return &heals[0], nil
 }

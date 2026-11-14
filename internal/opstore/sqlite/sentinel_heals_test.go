@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"maps"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -137,7 +138,7 @@ func TestOpenHealsReturnsOnlyOpenHeals(t *testing.T) {
 	assert.ElementsMatch(t, open, stages)
 }
 
-func TestInFlightHealsAcrossStages(t *testing.T) {
+func TestInFlightRowsAcrossStages(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()
 
@@ -160,7 +161,7 @@ func TestInFlightHealsAcrossStages(t *testing.T) {
 		require.NoError(t, st.SaveHeal(ctx, &h))
 	}
 
-	heals, err := st.InFlightHeals(ctx)
+	heals, err := st.InFlightRows(ctx)
 	require.NoError(t, err)
 
 	ids := make([]int64, 0, len(heals))
@@ -807,4 +808,275 @@ func TestSentinelFindingsGrowStateColumnsWithoutABump(t *testing.T) {
 	assert.Empty(t, got[0].State)
 	assert.Zero(t, got[0].RevisionID)
 	assert.True(t, got[0].UpdatedAt.IsZero())
+}
+
+// analysisRow is the analysis row QueueAnalysis stores for runID.
+func analysisRow(cardID, runID string, started time.Time) state.Heal {
+	return state.Heal{
+		Kind: state.HealKindAnalysis, Project: "p", CardID: cardID, RunStarted: started, RunID: runID,
+		Cause: "done", Stage: state.StageAnalyse, CreatedAt: started, UpdatedAt: started,
+	}
+}
+
+func TestQueueAnalysisIsIdempotentPerRunID(t *testing.T) {
+	st := openLadderStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0, state.LaunchFacts{Autonomous: true}))
+	require.NoError(t, st.RecordRunStatus(ctx, "p", "P-001", "r1", "running", "", runT0))
+
+	require.NoError(t, st.QueueAnalysis(ctx, analysisRow("P-001", "r1", runT0)))
+
+	again := analysisRow("P-001", "r1", runT0)
+	again.Cause = "other"
+	require.NoError(t, st.QueueAnalysis(ctx, again))
+
+	rows, err := st.OpenAnalyses(ctx)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "r1", rows[0].RunID)
+	assert.Equal(t, "done", rows[0].Cause, "the first row stands")
+	assert.True(t, rows[0].RunStarted.Equal(runT0))
+
+	run, err := st.CardRunRow(ctx, "p", "P-001")
+	require.NoError(t, err)
+	assert.True(t, run.AnalysisQueued)
+
+	unqueued, err := st.UnqueuedRuns(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, unqueued)
+}
+
+func TestUnqueuedRunsNeedAnIDAndNoQueueMark(t *testing.T) {
+	st := openLadderStore(t)
+	ctx := context.Background()
+
+	for _, id := range []string{"P-001", "P-002", "P-003"} {
+		require.NoError(t, st.OpenCardRun(ctx, "p", id, "endpoint", runT0, state.LaunchFacts{}))
+	}
+
+	require.NoError(t, st.RecordRunStatus(ctx, "p", "P-001", "r1", "running", "", runT0))
+	require.NoError(t, st.RecordRunStatus(ctx, "p", "P-002", "r2", "running", "", runT0))
+	require.NoError(t, st.MarkAnalysisQueued(ctx, "p", "P-002", runT0))
+
+	runs, err := st.UnqueuedRuns(ctx)
+	require.NoError(t, err)
+	require.Len(t, runs, 1, "P-002 is queued and P-003 has no run ID")
+	assert.Equal(t, "P-001", runs[0].CardID)
+
+	// A mark for an earlier run leaves the current one unqueued.
+	require.NoError(t, st.MarkAnalysisQueued(ctx, "p", "P-001", runT0.Add(-time.Hour)))
+
+	runs, err = st.UnqueuedRuns(ctx)
+	require.NoError(t, err)
+	assert.Len(t, runs, 1)
+}
+
+func TestCardHealsAndLatestHealsIgnoreAnalyses(t *testing.T) {
+	st := openLadderStore(t)
+	ctx := context.Background()
+
+	parked := state.Heal{
+		Kind: state.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0, Stage: state.StageParked,
+		CreatedAt: runT0, UpdatedAt: runT0,
+	}
+	_, err := st.OpenHeal(ctx, parked)
+	require.NoError(t, err)
+	require.NoError(t, st.QueueAnalysis(ctx, analysisRow("P-001", "r2", runT0.Add(time.Hour))))
+
+	heals, err := st.CardHeals(ctx, "p", "P-001")
+	require.NoError(t, err)
+	require.Len(t, heals, 1)
+	assert.Equal(t, state.HealKindHeal, heals[0].Kind)
+
+	latest, err := st.LatestHeals(ctx, "p")
+	require.NoError(t, err)
+	require.Len(t, latest, 1)
+	assert.Equal(t, state.StageParked, latest["P-001"].Stage)
+}
+
+func TestHealedSinceCountsHealsOnly(t *testing.T) {
+	st := openLadderStore(t)
+	ctx := context.Background()
+
+	h := state.Heal{Kind: state.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0, Stage: state.StageRerun}
+	id, err := st.OpenHeal(ctx, h)
+	require.NoError(t, err)
+
+	h.ID, h.Stage, h.UpdatedAt = id, state.StageHealed, runT0.Add(time.Hour)
+	require.NoError(t, st.SaveHeal(ctx, &h))
+
+	// A row of another kind that carries a heal's terminal stage.
+	other := analysisRow("P-002", "r2", runT0)
+	other.Stage, other.UpdatedAt = state.StageHealed, runT0.Add(time.Hour)
+	insertRow(t, st, other)
+
+	n, err := st.HealedSince(ctx, runT0)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+}
+
+func TestRunHealIsTheRunsHeal(t *testing.T) {
+	st := openLadderStore(t)
+	ctx := context.Background()
+
+	none, err := st.RunHeal(ctx, "p", "P-001", runT0)
+	require.NoError(t, err)
+	assert.Nil(t, none)
+
+	require.NoError(t, st.QueueAnalysis(ctx, analysisRow("P-001", "r1", runT0)))
+
+	none, err = st.RunHeal(ctx, "p", "P-001", runT0)
+	require.NoError(t, err)
+	assert.Nil(t, none, "an analysis of the run is no heal")
+
+	id, err := st.OpenHeal(ctx, state.Heal{Kind: state.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0, Stage: state.StageParked})
+	require.NoError(t, err)
+
+	got, err := st.RunHeal(ctx, "p", "P-001", runT0)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, id, got.ID)
+}
+
+// insertRow stores h as is, whatever its kind, the way no public method does
+// for a revision row.
+func insertRow(t *testing.T, st *Store, h state.Heal) {
+	t.Helper()
+
+	vals, err := healValues(h)
+	require.NoError(t, err)
+
+	args := append([]any{h.Kind, h.Project, h.CardID, unixNano(h.RunStarted), unixNano(h.CreatedAt)}, vals...)
+	_, err = st.db.ExecContext(context.Background(),
+		`INSERT INTO sentinel_heals (kind, project, card_id, run_started, created_at, `+healMutable+`)
+		 VALUES (?, ?, ?, ?, ?, `+healMutableParams+`)`, args...)
+	require.NoError(t, err)
+}
+
+func TestEveryRowReaderReturnsOnlyItsKinds(t *testing.T) {
+	st := openLadderStore(t)
+	ctx := context.Background()
+
+	// Each kind on its own card, one row open and one in a terminal stage, both
+	// with a dispatch in flight.
+	at := runT0.Add(time.Minute)
+	seeds := []struct {
+		kind, card, dispatch, open, done string
+	}{
+		{state.HealKindHeal, "P-001", protocol.RunKindInvestigate, state.StageInvestigate, state.StageHealed},
+		{state.HealKindForward, "P-002", protocol.RunKindCheck, state.StageForwarded, state.StageForwardPassed},
+		{state.HealKindAnalysis, "P-003", protocol.RunKindAnalyse, state.StageAnalyse, state.StageAnalysed},
+		{state.HealKindRevision, "", protocol.RunKindGuidancePR, "revise", "revised"},
+	}
+	cards := make([]string, 0, len(seeds))
+
+	for _, sd := range seeds {
+		cards = append(cards, sd.card)
+
+		for i, stage := range []string{sd.open, sd.done} {
+			insertRow(t, st, state.Heal{
+				Kind: sd.kind, Project: "p", CardID: sd.card, RunStarted: runT0.Add(time.Duration(i) * time.Hour),
+				RunID: sd.kind + stage, Stage: stage, CreatedAt: runT0, UpdatedAt: runT0,
+				Dispatch: state.Dispatch{Kind: sd.dispatch, Mode: "endpoint", At: &at},
+			})
+		}
+	}
+
+	oneCard := func(read func(card string) ([]state.Heal, error)) func() ([]state.Heal, error) {
+		return func() ([]state.Heal, error) {
+			var all []state.Heal
+
+			for _, card := range cards {
+				rows, err := read(card)
+				if err != nil {
+					return nil, err
+				}
+
+				all = append(all, rows...)
+			}
+
+			return all, nil
+		}
+	}
+
+	tests := []struct {
+		reader string
+		kinds  []string
+		read   func() ([]state.Heal, error)
+	}{
+		{"OpenHeals", []string{state.HealKindHeal}, func() ([]state.Heal, error) { return st.OpenHeals(ctx) }},
+		{"CardHeals", []string{state.HealKindHeal, state.HealKindForward}, oneCard(func(card string) ([]state.Heal, error) {
+			return st.CardHeals(ctx, "p", card)
+		})},
+		{"LatestHeals", []string{state.HealKindHeal, state.HealKindForward}, func() ([]state.Heal, error) {
+			latest, err := st.LatestHeals(ctx, "p")
+
+			return slices.Collect(maps.Values(latest)), err
+		}},
+		{"RunHeal", []string{state.HealKindHeal}, oneCard(func(card string) ([]state.Heal, error) {
+			h, err := st.RunHeal(ctx, "p", card, runT0)
+			if h == nil {
+				return nil, err
+			}
+
+			return []state.Heal{*h}, err
+		})},
+		{
+			"InFlightRows",
+			[]string{state.HealKindHeal, state.HealKindForward, state.HealKindAnalysis, state.HealKindRevision},
+			func() ([]state.Heal, error) { return st.InFlightRows(ctx) },
+		},
+		{"OpenAnalyses", []string{state.HealKindAnalysis}, func() ([]state.Heal, error) { return st.OpenAnalyses(ctx) }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.reader, func(t *testing.T) {
+			rows, err := tt.read()
+			require.NoError(t, err)
+
+			seen := map[string]bool{}
+
+			for _, h := range rows {
+				assert.Contains(t, tt.kinds, h.Kind)
+
+				seen[h.Kind] = true
+			}
+
+			for _, kind := range tt.kinds {
+				assert.True(t, seen[kind], "no %s row", kind)
+			}
+		})
+	}
+
+	n, err := st.HealedSince(ctx, runT0)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "HealedSince counts the heal only")
+}
+
+func TestSentinelHealsGrowAnalysisIndexWithoutABump(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ops.db")
+
+	s, err := Open(path)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	db, err := sql.Open("sqlite", sqliteutil.DSN(path, sqliteutil.WithForeignKeys()))
+	require.NoError(t, err)
+	_, err = db.Exec("DROP INDEX idx_sentinel_analysis_run")
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	st, err := Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = st.Close() })
+
+	var n, v int
+
+	require.NoError(t, st.db.QueryRow(
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_sentinel_analysis_run'`).Scan(&n))
+	assert.Equal(t, 1, n)
+
+	require.NoError(t, st.db.QueryRow("PRAGMA user_version").Scan(&v))
+	assert.Equal(t, 6, v)
 }

@@ -240,6 +240,8 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			playbook_id TEXT NOT NULL,
 			PRIMARY KEY (owner, playbook_id)
 		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_sentinel_analysis_run
+			ON sentinel_heals(project, card_id, run_id) WHERE kind = 'analysis'`,
 	}
 
 	for _, s := range stmts {

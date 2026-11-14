@@ -217,6 +217,47 @@ func (s *Store) MarkRunDecided(ctx context.Context, project, cardID string, star
 	return nil
 }
 
+// markRunQueued matches the run by its start, like markRunDecided.
+const markRunQueued = `UPDATE card_run_modes SET analysis_queued = 1 WHERE project = ? AND card_id = ? AND started_at = ?`
+
+// MarkAnalysisQueued records that the run that started at started needs no
+// analysis row.
+func (s *Store) MarkAnalysisQueued(ctx context.Context, project, cardID string, started time.Time) error {
+	if _, err := s.db.ExecContext(ctx, markRunQueued, project, cardID, started.UnixNano()); err != nil {
+		return fmt.Errorf("mark analysis queued: %w", err)
+	}
+
+	return nil
+}
+
+// UnqueuedRuns returns the runs with an ID that are not yet past the analysis
+// queue.
+func (s *Store) UnqueuedRuns(ctx context.Context) ([]state.Run, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+runColumns+` FROM card_run_modes WHERE run_id != '' AND analysis_queued = 0`)
+	if err != nil {
+		return nil, fmt.Errorf("list unqueued runs: %w", err)
+	}
+	defer rows.Close()
+
+	var runs []state.Run
+
+	for rows.Next() {
+		r, err := scanRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list unqueued runs: %w", err)
+		}
+
+		runs = append(runs, r)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list unqueued runs: %w", err)
+	}
+
+	return runs, nil
+}
+
 // IncrementAttempts counts one heal rerun on the card's run row.
 func (s *Store) IncrementAttempts(ctx context.Context, project, cardID string) error {
 	if _, err := s.db.ExecContext(ctx,

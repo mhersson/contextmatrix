@@ -30,7 +30,7 @@ type passReads struct {
 	charged    float64                 // the endpoint ledger since 00:00 UTC
 	spent      float64                 // what the daily cap counts: charged, plus work in flight, kept current through the pass
 	heals      []state.Heal            // the open heals
-	inFlight   []state.Heal            // every heal with a run kind in flight, whatever its stage
+	inFlight   []state.Heal            // every row with a run kind in flight, whatever its kind or stage
 	containers []backend.ContainerInfo // listed only while a dispatch is in flight
 	listFailed bool                    // a failed listing counts every dispatch as listed
 	health     protocol.HealthResponse // read only when a dispatch may go out; zero leaves no room
@@ -40,8 +40,9 @@ type cardRef struct{ project, id string }
 
 // pass advances every open heal, then opens heals for runs that settled, and
 // records the status. A switched-off Sentinel reads nothing beyond its
-// settings. A pass that moved a heal on, opened one, or found one changed
-// under it nudges once, so the next step is decided at once.
+// settings. While analyses are on it also queues one per settled run. A pass
+// that moved a heal on, opened one, or found one changed under it nudges once,
+// so the next step is decided at once.
 func (c *Controller) pass(ctx context.Context) error {
 	set, _, _, err := c.cfg.Store.SentinelSettings(ctx)
 	if err != nil {
@@ -80,6 +81,12 @@ func (c *Controller) pass(ctx context.Context) error {
 		again = again || opened
 	}
 
+	if set.Analyses() {
+		if err := c.queueAnalyses(ctx, now); err != nil {
+			return err
+		}
+	}
+
 	healed, err := c.cfg.Store.HealedSince(ctx, dayStart(now))
 	if err != nil {
 		return fmt.Errorf("count healed cards: %w", err)
@@ -116,9 +123,9 @@ func (c *Controller) read(ctx context.Context, set state.Settings, now time.Time
 		return nil, fmt.Errorf("list open heals: %w", err)
 	}
 
-	inFlight, err := c.cfg.Store.InFlightHeals(ctx)
+	inFlight, err := c.cfg.Store.InFlightRows(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list in-flight heals: %w", err)
+		return nil, fmt.Errorf("list in-flight rows: %w", err)
 	}
 
 	r := &passReads{
@@ -159,7 +166,7 @@ func (r *passReads) listed(h state.Heal) bool {
 	})
 }
 
-// held lists the run kinds another heal of h's card still has in flight.
+// held lists the run kinds another row of h's card still has in flight.
 func (r *passReads) held(h state.Heal) []string {
 	var kinds []string
 
@@ -172,9 +179,9 @@ func (r *passReads) held(h state.Heal) []string {
 	return kinds
 }
 
-// expireDispatches fails each finished heal's run kind that can no longer
+// expireDispatches fails each finished row's run kind that can no longer
 // report and charges its ceiling, so the card's open heal may send that kind
-// again. Open heals' run kinds are left to the heal flow.
+// again. Open rows' run kinds are left to their own flow.
 func (c *Controller) expireDispatches(ctx context.Context, r *passReads) {
 	kept := make([]state.Heal, 0, len(r.inFlight))
 

@@ -75,10 +75,10 @@ func TestSentinelMarks(t *testing.T) {
 	st := &fakeStore{
 		settings: state.Settings{Enabled: true},
 		heals: map[int64]state.Heal{
-			1: {ID: 1, Project: "p", CardID: "P-001", Stage: state.StageParked, Reason: "old"},
-			2: {ID: 2, Project: "p", CardID: "P-001", Stage: state.StageHealed},
-			3: {ID: 3, Project: "p", CardID: "P-002", Stage: state.StageClosed},
-			4: {ID: 4, Project: "other", CardID: "O-001", Stage: state.StageHealed},
+			1: {ID: 1, Kind: state.HealKindHeal, Project: "p", CardID: "P-001", Stage: state.StageParked, Reason: "old"},
+			2: {ID: 2, Kind: state.HealKindHeal, Project: "p", CardID: "P-001", Stage: state.StageHealed},
+			3: {ID: 3, Kind: state.HealKindHeal, Project: "p", CardID: "P-002", Stage: state.StageClosed},
+			4: {ID: 4, Kind: state.HealKindHeal, Project: "other", CardID: "O-001", Stage: state.StageHealed},
 		},
 	}
 	ctl := New(Config{Store: st, Pricer: ratePricer{}})
@@ -124,7 +124,7 @@ func TestCardHolds(t *testing.T) {
 	parkedAt := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
 
 	build := func(h state.Heal, run *state.Run, enabled bool) *Controller {
-		h.ID, h.Project, h.CardID, h.UpdatedAt = 1, "p", "P-001", parkedAt
+		h.ID, h.Kind, h.Project, h.CardID, h.UpdatedAt = 1, state.HealKindHeal, "p", "P-001", parkedAt
 		st := &fakeStore{settings: state.Settings{Enabled: enabled}, heals: map[int64]state.Heal{1: h}}
 
 		if run != nil {
@@ -183,7 +183,7 @@ func TestSentinelMarksPark(t *testing.T) {
 	for _, tt := range parkCases(parkedAt) {
 		t.Run(tt.name, func(t *testing.T) {
 			h := tt.heal
-			h.ID, h.Project, h.CardID, h.UpdatedAt = 1, "p", "P-001", parkedAt
+			h.ID, h.Kind, h.Project, h.CardID, h.UpdatedAt = 1, state.HealKindHeal, "p", "P-001", parkedAt
 			st := &fakeStore{settings: state.Settings{Enabled: true}, heals: map[int64]state.Heal{1: h}}
 
 			if tt.run != nil {
@@ -202,4 +202,21 @@ func TestSentinelMarksPark(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSentinelMarksIgnoreAnalysisRows(t *testing.T) {
+	st := &fakeStore{
+		settings: state.Settings{Enabled: true},
+		heals: map[int64]state.Heal{
+			1: {ID: 1, Kind: state.HealKindHeal, Project: "p", CardID: "P-001", Stage: state.StageParked, Reason: "needs a key"},
+			2: {ID: 2, Kind: state.HealKindAnalysis, Project: "p", CardID: "P-001", Stage: state.StageAnalyse},
+			3: {ID: 3, Kind: state.HealKindAnalysis, Project: "p", CardID: "P-002", Stage: state.StageAnalyse},
+		},
+	}
+	ctl := New(Config{Store: st, Pricer: ratePricer{}})
+
+	marks, err := ctl.SentinelMarks(context.Background(), "p")
+	require.NoError(t, err)
+	require.Len(t, marks, 1, "an analysis alone marks no card")
+	assert.Equal(t, "parked", marks["P-001"].Action, "a newer analysis does not replace the parked heal")
 }

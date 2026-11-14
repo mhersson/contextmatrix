@@ -49,13 +49,18 @@ type Run struct {
 }
 
 // Heal row kinds: a heal follows one stopped run; a forward row records a fix
-// applied to a card from another card's heal.
+// applied to a card from another card's heal; an analysis row queues the
+// friction analysis of one settled run; a revision row records one push of
+// findings to a project's guidance.
 const (
-	HealKindHeal    = "heal"
-	HealKindForward = "forward"
+	HealKindHeal     = "heal"
+	HealKindForward  = "forward"
+	HealKindAnalysis = "analysis"
+	HealKindRevision = "revision"
 )
 
-// Heal stages; the last three are a forward row's.
+// Heal stages; the three after closed are a forward row's, the last four an
+// analysis row's.
 const (
 	StageInvestigate   = "investigate"
 	StageCheck         = "check"
@@ -69,12 +74,18 @@ const (
 	StageForwarded     = "forwarded"
 	StageForwardPassed = "forward_passed"
 	StageForwardFailed = "forward_failed"
+
+	StageAnalyse        = "analyse"
+	StageAnalysed       = "analysed"
+	StageAnalyseFailed  = "analyse_failed"
+	StageAnalyseSkipped = "analyse_skipped"
 )
 
 // TerminalStages are the stages a row never moves on from; the store reads
 // open heals by this same list.
 var TerminalStages = []string{
 	StageHealed, StageRerunFailed, StageParked, StageClosed, StageForwardPassed, StageForwardFailed,
+	StageAnalysed, StageAnalyseFailed, StageAnalyseSkipped,
 }
 
 // Terminal reports whether a row in stage never moves again.

@@ -245,7 +245,7 @@ func (f *fakeStore) OpenHeals(context.Context) ([]state.Heal, error) {
 	return heals, nil
 }
 
-func (f *fakeStore) InFlightHeals(context.Context) ([]state.Heal, error) {
+func (f *fakeStore) InFlightRows(context.Context) ([]state.Heal, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -254,7 +254,7 @@ func (f *fakeStore) InFlightHeals(context.Context) ([]state.Heal, error) {
 	var heals []state.Heal
 
 	for _, h := range f.heals {
-		if h.Kind == state.HealKindHeal && inFlight(h.Dispatch) {
+		if inFlight(h.Dispatch) {
 			heals = append(heals, h)
 		}
 	}
@@ -262,6 +262,77 @@ func (f *fakeStore) InFlightHeals(context.Context) ([]state.Heal, error) {
 	slices.SortFunc(heals, func(a, b state.Heal) int { return int(a.ID - b.ID) })
 
 	return heals, nil
+}
+
+// isHealKind reports whether the store's heal readers serve a row of kind.
+func isHealKind(kind string) bool {
+	return kind == state.HealKindHeal || kind == state.HealKindForward
+}
+
+// UnqueuedRuns follows the store: only runs that have an ID.
+func (f *fakeStore) UnqueuedRuns(context.Context) ([]state.Run, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	var runs []state.Run
+
+	for _, r := range f.runs {
+		if r.RunID != "" && !r.AnalysisQueued {
+			runs = append(runs, r)
+		}
+	}
+
+	return runs, nil
+}
+
+// QueueAnalysis keeps one analysis row per run ID.
+func (f *fakeStore) QueueAnalysis(_ context.Context, h state.Heal) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	if f.heals == nil {
+		f.heals = make(map[int64]state.Heal)
+	}
+
+	var maxID int64
+
+	dup := false
+
+	for _, cur := range f.heals {
+		maxID = max(maxID, cur.ID)
+		dup = dup || cur.Kind == state.HealKindAnalysis && cur.Project == h.Project && cur.CardID == h.CardID && cur.RunID == h.RunID
+	}
+
+	if !dup {
+		h.ID, h.Version = maxID+1, 0
+		f.heals[h.ID] = h
+	}
+
+	f.markQueued(h.Project, h.CardID, h.RunStarted)
+
+	return nil
+}
+
+func (f *fakeStore) MarkAnalysisQueued(_ context.Context, project, cardID string, started time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+	f.markQueued(project, cardID, started)
+
+	return nil
+}
+
+func (f *fakeStore) markQueued(project, cardID string, started time.Time) {
+	for i, r := range f.runs {
+		if r.Project == project && r.CardID == cardID && r.StartedAt.Equal(started) {
+			f.runs[i].AnalysisQueued = true
+		}
+	}
 }
 
 // CardHeals returns the card's rows, newest first.
@@ -274,7 +345,7 @@ func (f *fakeStore) CardHeals(_ context.Context, project, cardID string) ([]stat
 	var heals []state.Heal
 
 	for _, h := range f.heals {
-		if h.Project == project && h.CardID == cardID {
+		if isHealKind(h.Kind) && h.Project == project && h.CardID == cardID {
 			heals = append(heals, h)
 		}
 	}
@@ -293,7 +364,7 @@ func (f *fakeStore) LatestHeals(_ context.Context, project string) (map[string]s
 	latest := map[string]state.Heal{}
 
 	for _, h := range f.heals {
-		if cur, ok := latest[h.CardID]; h.Project == project && (!ok || h.ID > cur.ID) {
+		if cur, ok := latest[h.CardID]; isHealKind(h.Kind) && h.Project == project && (!ok || h.ID > cur.ID) {
 			latest[h.CardID] = h
 		}
 	}
@@ -337,7 +408,7 @@ func (f *fakeStore) HealedSince(_ context.Context, since time.Time) (int, error)
 	cards := map[string]bool{}
 
 	for _, h := range f.heals {
-		if h.Stage == state.StageHealed && !h.UpdatedAt.Before(since) {
+		if h.Kind == state.HealKindHeal && h.Stage == state.StageHealed && !h.UpdatedAt.Before(since) {
 			cards[h.Project+"/"+h.CardID] = true
 		}
 	}

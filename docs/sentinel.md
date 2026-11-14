@@ -25,7 +25,7 @@ that turns `enabled` or `healing` on marks every undecided run decided in the
 same transaction, so switching on starts fresh: a run launched before then,
 stuck or still going, is left for a human to Run. A save that turns analyses
 on (`enabled`, `friction` and `analyse_every_run` all on) likewise marks every
-run `analysis_queued`, so only runs that finish afterwards are analysed.
+run `analysis_queued`, so only runs launched afterwards are analysed.
 
 | Setting                   | Default | Valid range          | Read by                                                        |
 | ------------------------- | ------- | -------------------- | -------------------------------------------------------------- |
@@ -99,7 +99,7 @@ step, Sentinel's rerun) replaces the row and records:
 | `usage_reruns`  | Usage-limit reruns, at most `MaxUsageReruns` (3): Sentinel counts one before each rerun from `usage_wait`; reset and kept like `attempts` |
 
 A launch also clears `run_id`, `stop_cause`, `stopped_at`, `human_stop`,
-`decided` and `ended_at`, which fill in as the run goes:
+`decided`, `analysis_queued` and `ended_at`, which fill in as the run goes:
 
 - `run_id` comes from the first `running` status callback that carries one,
   while none is stored and the run has not stopped.
@@ -112,6 +112,8 @@ A launch also clears `run_id`, `stop_cause`, `stopped_at`, `human_stop`,
   for it, or decides to leave it, and for every undecided run when a settings
   save turns `enabled` or `healing` on. While `healing` is on, each pass considers
   the autonomous runs not yet decided.
+- `analysis_queued` is set once the run is past the analysis queue (see
+  [Analyses](#analyses)).
 
 `edit_snapshot` is refreshed after each write by the run's non-human claim
 holder and after Sentinel writes a fix, so only human, unclaimed and other
@@ -150,6 +152,45 @@ read: one made from a stale read is refused (`ErrHealChanged`), so a pass never
 overwrites an answer recorded since it read the heal. Each heal the controller
 opens or saves publishes `sentinel.changed` with the card's project and ID, so
 the attention list follows every stage move.
+
+`sentinel_heals` holds Sentinel's work rows of every kind, so every heal reader
+filters by kind. A row is a `heal`, a `forward`, an `analysis` or a `revision`;
+the last two never read as a heal, which keeps them out of the board mark, the
+tab's heal list and `healed_today`.
+
+| Reader         | Kinds it returns                  |
+| -------------- | --------------------------------- |
+| `OpenHeals`    | `heal`                            |
+| `CardHeals`    | `heal`, `forward`                 |
+| `LatestHeals`  | `heal`, `forward`                 |
+| `HealedSince`  | `heal`                            |
+| `RunHeal`      | `heal`                            |
+| `InFlightRows` | every kind                        |
+| `OpenAnalyses` | `analysis`                        |
+
+An analysis row ends at `analysed`, `analyse_failed` or `analyse_skipped`.
+
+## Analyses
+
+While `enabled`, `friction` and `analyse_every_run` are all on, each pass
+(`analyses.go`) queues one analysis row per run that has a run ID and is not yet
+`analysis_queued`. It reads the run's card and decides by `queueStep`
+(`analysis.go`):
+
+- The card is gone, or a human stopped the run: the run is marked queued and
+  no row is stored.
+- The run has not settled (`settledRun`): it waits for a later pass.
+- Otherwise an `analysis` row is stored at stage `analyse`, carrying the run's
+  start, its run ID and its stop cause, and the run is marked queued in the
+  same transaction.
+
+The row is keyed by run ID (one analysis row per project, card and run ID), so
+a human relaunch, which replaces the card's run row, cannot lose a pending
+analysis: the row stays, and the new run starts unqueued.
+
+The switch starts fresh: turning it on marks every waiting run queued, so only
+runs launched afterwards are analysed. A run that settles while it is off
+stays unqueued until it is replaced by the next launch or the switch turns on.
 
 ## Run-kind results
 
@@ -467,8 +508,8 @@ stage waits.
 1. It reads the settings. While `enabled` is off the status reads `off` and
    nothing else is read.
 2. It reads the agent's effective mode, the subscription windows and today's
-   spend, decides the budget gate, and reads the open heals and every heal
-   with a run kind in flight, whatever its stage. It lists the agent's
+   spend, decides the budget gate, and reads the open heals and every row of
+   any kind with a run kind in flight, whatever its stage. It lists the agent's
    containers once, and only while a run kind is in flight, and reads the
    agent's health once, and only while `healing` is on and a heal may
    dispatch. A failed listing counts every run kind as listed, so none parks
@@ -496,7 +537,9 @@ stage waits.
    has used its 2 heal attempts, and for an investigation of a run with no run
    ID, which left no log. Then it judges the fixes forwarded to the run's card
    (see [The circuit breaker](#the-circuit-breaker)).
-6. It records the status.
+6. While the analyses switch is on, it queues an analysis row for every settled
+   run (see [Analyses](#analyses)).
+7. It records the status.
 
 A heal whose read or step fails is logged and decided again on the next pass.
 A pass that advanced a heal, opened one, or found one written since it read it
@@ -751,6 +794,8 @@ the next pass.
 | `internal/opstore/sqlite/sentinel_heals.go` | Heals, findings and the spend ledger                                                                                                                         |
 | `internal/api/backend_runkind.go`           | `runKindBase`: a run kind's common payload fields and its contents-read token; `sentinelRelaunch`: Sentinel's launch of a rerun                            |
 | `internal/api/sentinel.go` | The `/api/sentinel` settings and status endpoints and the per-card heal view |
+| `internal/sentinel/analysis.go` | The pure `queueStep`: what the analysis queue does with one unqueued run |
+| `internal/sentinel/analyses.go` | `queueAnalyses`: read each unqueued run's card, then mark it queued or store its analysis row |
 
 `internal/sentinel/state` holds only types, constants and their trivial
 methods. It is a leaf, so the ops.db store imports it and nothing of the
