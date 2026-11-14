@@ -853,7 +853,9 @@ CM explicitly.
    `DefaultContainerMaxAge` (150 minutes). These kills reason only from the
    backend's list and the card store, never from `worker_status`. A run kind
    of a missing or terminal card dies the same way, by a kind-scoped
-   `/kill` with no `/end-session` first. The same
+   `/kill` with no `/end-session` first, except an `analyse` run, which reads
+   a settled run: in the sweep it survives its card finishing, and only a
+   missing card or the age cap ends it there. The same
    tick then marks a lost worker `failed`, with an activity entry: a card
    whose `worker_status` is `queued` or `running`, that two consecutive
    successful listings show no container for, and that has not changed for

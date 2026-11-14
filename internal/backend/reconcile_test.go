@@ -544,3 +544,39 @@ func TestSweepKillsRunKindOnTerminalCardWithoutEndSession(t *testing.T) {
 
 	assert.Empty(t, fc.calls, "a run kind has no session to end")
 }
+
+func TestDecideKillSparesAnAnalysisOnADoneCard(t *testing.T) {
+	tests := []struct {
+		name     string
+		kind     string
+		cards    map[string]*board.Card
+		age      time.Duration
+		wantKill bool
+	}{
+		{"analysis on a done card is spared", protocol.RunKindAnalyse, map[string]*board.Card{"proj/C-001": {ID: "C-001", State: "done"}}, time.Minute, false},
+		{"check on a done card is killed", protocol.RunKindCheck, map[string]*board.Card{"proj/C-001": {ID: "C-001", State: "done"}}, time.Minute, true},
+		{"analysis on a deleted card is killed", protocol.RunKindAnalyse, map[string]*board.Card{}, time.Minute, true},
+		{"analysis past the age cap is killed", protocol.RunKindAnalyse, map[string]*board.Card{"proj/C-001": {ID: "C-001", State: "done"}}, backend.DefaultContainerMaxAge + time.Minute, true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cg := &fakeCardGetter{cards: tc.cards}
+			fc := &fakeClient{listResult: []backend.ContainerInfo{{
+				ContainerID: "abc", CardID: "C-001", Project: "proj", Kind: tc.kind,
+				State: "running", StartedAt: time.Now().Add(-tc.age),
+			}}}
+
+			backend.StartReconciliationSweep(t.Context(), cg, fc, 30*time.Millisecond, discardLogger())
+
+			if tc.wantKill {
+				waitForKillCalls(t, fc, 1)
+
+				return
+			}
+
+			waitForListCount(t, fc, 3)
+			assert.Empty(t, fc.KillCalls())
+		})
+	}
+}
