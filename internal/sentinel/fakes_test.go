@@ -548,6 +548,10 @@ func (f *fakeCards) PatchCard(_ context.Context, project, id string, in service.
 			return service.ErrCardChanged
 		}
 
+		if in.Body != nil {
+			c.Body = *in.Body
+		}
+
 		if in.UpsertSection != nil {
 			c.Body = board.UpsertSection(c.Body, in.UpsertSection.Heading, in.UpsertSection.Content)
 		}

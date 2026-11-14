@@ -76,6 +76,7 @@ type bodyLine struct {
 	text    string // the line's bytes, its newline included
 	trimmed string // without the line ending, so CRLF lines match LF markers
 	heading bool   // an H2 heading: "## " at the line start, outside code fences
+	open    bool   // a code fence is still open after this line
 }
 
 // bodyLines splits body after each newline and marks its H2 headings. Fence
@@ -98,10 +99,18 @@ func bodyLines(body string) []bodyLine {
 			lines[i].heading = true
 		}
 
-		lines[i].text, lines[i].trimmed = text, trimmed
+		lines[i].text, lines[i].trimmed, lines[i].open = text, trimmed, inFence
 	}
 
 	return lines
+}
+
+// EndsInFence reports whether body ends inside a code fence by the section
+// rules, so a heading appended after it would be none.
+func EndsInFence(body string) bool {
+	lines := bodyLines(body)
+
+	return lines[len(lines)-1].open
 }
 
 // DemoteHeadings turns every line the section rules read as a heading into an

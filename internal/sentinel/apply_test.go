@@ -3,6 +3,7 @@ package sentinel
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -118,7 +119,9 @@ func TestApplyFixOneGuardedWrite(t *testing.T) {
 	require.NotNil(t, in.ExpectUpdated)
 	assert.Equal(t, card.Updated, *in.ExpectUpdated)
 	assert.Equal(t, Agent, in.AgentID)
-	assert.Equal(t, &service.SectionPatch{Heading: SectionHeading, Content: "Run make generate first."}, in.UpsertSection)
+	require.NotNil(t, in.Body)
+	assert.Equal(t, writtenBody(card.Body, "Run make generate first."), *in.Body, "the body checkSection judged")
+	assert.Nil(t, in.UpsertSection)
 	assert.Equal(t, &board.VerifyConfig{Command: "make check", TimeoutSeconds: 900}, in.Verify)
 	require.NotNil(t, in.Phase)
 	assert.Empty(t, *in.Phase, "a fresh rerun starts from planning")
@@ -141,7 +144,7 @@ func TestApplyFixDemotesSectionHeadings(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, e.cards.patches, 1)
-	assert.Equal(t, "Do this.\n### Acceptance Criteria\nforged", e.cards.patches[0].In.UpsertSection.Content)
+	assert.Equal(t, "Do this.\n### Acceptance Criteria\nforged", strings.TrimSpace(sentinelSection(storedCard(t, e, "ALPHA-001"))))
 
 	_, sections := board.BodySections(storedCard(t, e, "ALPHA-001").Body)
 	assert.Len(t, sections, len(sectionsBefore)+1, "only the Sentinel section is added")
@@ -156,7 +159,7 @@ func TestApplyFixVerifyOnlyKeepsPhase(t *testing.T) {
 
 	require.Len(t, e.cards.patches, 1)
 	assert.Nil(t, e.cards.patches[0].In.Phase)
-	assert.Nil(t, e.cards.patches[0].In.UpsertSection)
+	assert.Nil(t, e.cards.patches[0].In.Body)
 	assert.Equal(t, "execute", storedCard(t, e, "ALPHA-001").Phase, "a verify-only rerun resumes")
 	assert.False(t, change.Fresh)
 }
@@ -170,7 +173,7 @@ func TestApplyFixSameSectionResumes(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, e.cards.patches, 1)
-	assert.Nil(t, e.cards.patches[0].In.UpsertSection, "an unchanged section is not written again")
+	assert.Nil(t, e.cards.patches[0].In.Body, "an unchanged section is not written again")
 	assert.Nil(t, e.cards.patches[0].In.Phase)
 	assert.Equal(t, "execute", storedCard(t, e, "ALPHA-001").Phase, "the rerun resumes")
 	assert.False(t, change.Fresh)

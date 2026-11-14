@@ -336,7 +336,7 @@ check is one function in one of `checks.go`'s lists. The pass runs
 | Check          | Refuses                                                                                                  | Lists                |
 | -------------- | -------------------------------------------------------------------------------------------------------- | -------------------- |
 | `checkShape`   | A fix that sets no field, or retires an ID the investigation was not sent                                | heal, forward        |
-| `checkSection` | A `## Sentinel` section whose write would change the card's sections (`section would change the card's sections`): the body the writer builds (the section's headings demoted, then upserted into the card's body), with one more section appended after it, must read by `board.BodySections` as the card's own headings, then `Sentinel` when the card had none, then the appended one, in that order. So a section that lands inside a fence the card leaves open, or leaves a fence open that hides a later section, is refused, and a card whose body ends inside a fence takes no section. H2 lines are not refused, they are demoted on write | section              |
+| `checkSection` | Any section on a card whose body ends inside a code fence by the parser's own fence tracking (`the card ends inside a code fence`, `board.EndsInFence`), and a section whose write would change the card's sections (`section would change the card's sections`): the body the writer sends (`writtenBody`: the section's headings demoted, then upserted into the card's body), with one more section appended after it under a heading derived from the section's sha256 (`probe-` and 16 hex characters, so the section cannot forge it), must read by `board.BodySections` as the card's own headings, then `Sentinel` when the card had none, then the appended one, in that order. On a body that ends outside a fence, the demoted text is read in the fence state it was demoted in and holds no heading, so the section cannot create, hide or swallow a section; a fence it leaves open hides the appended one and is refused. H2 lines are not refused, they are demoted on write | section              |
 | `checkRetire`  | Retiring a subtask that is not this card's, is not in `todo`, is claimed, or has a queued or running worker, or retiring any subtask once a subtask of the card has started (`cannot re-split: subtasks have started`) | heal              |
 | `checkEdits`   | Any change since launch: `title edited`, `verify edited`, `autonomous changed`, `intro edited`, `section "X" edited`, `added` or `removed`; no launch snapshot is also refused | heal |
 | `checkVerify`  | A verify change that adds an env name (`adds env NAME`), drops the command (`removes the verify command`), changes the command for a cause verify did not stop (`changes the verify command, which did not stop the run`) or to one the check run kind did not list as a candidate (`command not declared by the repo`), was never trial-run (`verify not trial-run`), whose trial did not finish (`trial run: <trial>`), or that the card service would refuse, such as a command over one line or a timeout over 7200 seconds (`verify <rule>`, from `service.ValidateVerifyConfig`) | heal, forward |
@@ -538,15 +538,16 @@ parks before the fix is written, so the card gets only the park's activity
 entry.
 
 `applyFix` writes the fix as `system:sentinel` in one `PatchCard` guarded on
-the card's `updated` as the pass read it. The write holds the `## Sentinel`
-section (section upsert) when the fix changes it, the verify fields when the
-fix has them, and a cleared `phase` for a fresh rerun. Before the upsert,
-every line the card-body parser reads as a section boundary (`## ` at column 0
-outside a code fence) is demoted to an H3 line (`board.DemoteHeadings`), and
-`checkSection` has already judged the body this write builds (see
-[The fix checks](#the-fix-checks)), so the text can never start, hide or
-swallow a section. Whether the section changes is judged on the section as
-written, its headings demoted. A fix whose section vetting dropped (see
+the card's `updated` as the pass read it. The write holds the body with the
+`## Sentinel` section upserted (`writtenBody`) when the fix changes the
+section, the verify fields when the fix has them, and a cleared `phase` for a
+fresh rerun. `writtenBody` first demotes every line the card-body parser reads
+as a section boundary (`## ` at column 0 outside a code fence) to an H3 line
+(`board.DemoteHeadings`). `checkSection` judged that same body, built by the
+same function, from the card the write is guarded on (see
+[The fix checks](#the-fix-checks)), so no section text that passes it can
+start, hide or swallow a section, crafted or not. Whether the section changes
+is judged on the section as `writtenBody` writes it. A fix whose section vetting dropped (see
 [Dropping a section](#dropping-a-section)) writes only its verify. A human
 edit in between refuses the write
 (`ErrCardChanged`); the heal stays at `apply` and the next pass decides again,
@@ -701,7 +702,7 @@ the next pass.
 | `internal/sentinel/playbook.go`             | The playbook run holding a card: `activePlaybook`, the project's `todoCards`, and the pure `siblings`                                                        |
 | `internal/sentinel/dispatch.go`             | Reading a run kind's inputs, `dispatch` (record, then send, then act on the agent's answer) and the no-run-kinds hold                                         |
 | `internal/sentinel/outcome.go`              | The ends of a heal: `park` (with its activity entry, `activityText`), `parkUnreported` and, for a finished heal, `failUnreported` (each with the ceiling charge), and `closeHeal`                              |
-| `internal/sentinel/apply.go`                | Applying a fix: the route first, then `applyFix` (the guarded write `writeFix`, retiring subtasks, the snapshot refresh) and `freshRerun`                   |
+| `internal/sentinel/apply.go`                | Applying a fix: the route first, then `applyFix` (the guarded write `writeFix`, retiring subtasks, the snapshot refresh), `freshRerun`, and `writtenBody`, the one builder of the body a section write sends |
 | `internal/sentinel/relaunch.go`             | Rerunning a card: `planRelaunch` (through `activePlaybook`) and the pure `relaunchRoute`, `usageRerun`, `relaunch` (counting the rerun, rerun stage, then the move to `todo` and launch or Stop then Play, then the activity entry) and the activity texts |
 | `internal/sentinel/settle.go`               | Settling a rerun: `settle` (the stage, then the charge, then a healed heal's fix forward) and the pure `rerunCharge`                                        |
 | `internal/sentinel/forward.go`              | Fix forward: `forward`, the pure `forwardTargets`, `forwardFix` and `forwardOutcome`, `forwardTo` (vet, guarded write, forward row, activity entry), and the circuit breaker's `onTrial` and `judge` |
@@ -715,7 +716,7 @@ the next pass.
 | `internal/sentinel/checks.go`               | `fixContext`, the check lists (`healChecks`, `forwardChecks`, `sectionChecks`), `vetFix` with its tagged violations, and `vetForward`                      |
 | `internal/sentinel/trim.go`                 | The pure `trimFix`, which drops a section only the section checks refuse, and `withFix`, which puts the trimmed fix on the heal                             |
 | `internal/sentinel/check_shape.go` | `checkShape` |
-| `internal/sentinel/check_section.go` | `checkSection`, which judges the section's write through the card's parser |
+| `internal/sentinel/check_section.go` | `checkSection`, which judges the section's write through the card's parser, and its `probeHeading` |
 | `internal/sentinel/check_retire.go` | `checkRetire` |
 | `internal/sentinel/check_edits.go` | `checkEdits` |
 | `internal/sentinel/check_verify.go` | `checkVerify`, `verifyChanges` and their resolved-verify helpers |

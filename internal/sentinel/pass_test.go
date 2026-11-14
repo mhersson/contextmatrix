@@ -583,6 +583,34 @@ func TestPassDropsAFailingSectionAndAppliesTheVerifyFix(t *testing.T) {
 	}
 }
 
+func TestPassDropsTheSectionOnACardThatEndsInAFence(t *testing.T) {
+	e := newPassEnv(t)
+	body := "Make the build pass.\n\n```\nunclosed human fence\n"
+	fix := protocol.CardFix{Section: "Run make generate first.", Verify: &protocol.VerifyConfig{Command: "make test", TimeoutSeconds: 1800}}
+
+	e.stopped("ALPHA-001", protocol.StopCauseVerifyParked, func(c *board.Card, _ *state.Run) {
+		c.Body, c.Phase, c.Verify = body, "execute", &board.VerifyConfig{Command: "make test"}
+	})
+	e.openHeal(t, "ALPHA-001", state.StageApply, investigated(protocol.DiagnosisCard, &fix), func(h *state.Heal) {
+		h.Check = &protocol.CheckResult{Candidates: []string{"make test"}, Trial: protocol.TrialFinished}
+	})
+
+	require.NoError(t, e.ctl.pass(context.Background()))
+
+	h := e.store.heal(1)
+	assert.Equal(t, state.StageRerun, h.Stage)
+	assert.Equal(t, checkSection(fixContext{Card: &board.Card{Body: body}, Fix: fix}), h.Dropped, "the section check's reasons")
+	assert.Equal(t, protocol.CardFix{Verify: fix.Verify}, *healFix(h))
+
+	card := storedCard(t, e, "ALPHA-001")
+	assert.Equal(t, body, card.Body, "no section is written onto a card that ends inside a fence")
+	assert.Equal(t, 1800, card.Verify.TimeoutSeconds)
+	assert.Equal(t, "execute", card.Phase, "the rerun resumes")
+	require.NotNil(t, h.Change)
+	assert.False(t, h.Change.Fresh)
+	assert.Equal(t, []string{"alpha/ALPHA-001"}, e.relaunched)
+}
+
 func TestPassLeavesAFixAnEditRefusedAtApply(t *testing.T) {
 	e := newPassEnv(t)
 

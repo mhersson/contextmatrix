@@ -1,25 +1,28 @@
 package sentinel
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"slices"
 	"strings"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 )
 
-// laterHeading stands for a section written after Sentinel's, appended as
-// UpsertSection appends one; it is compared by position, so a card heading of
-// the same name does not matter.
-const laterHeading = "Later"
-
-// checkSection judges the write, not the text alone. It builds the body as
-// the writer does, then a section appended after it, and the card's parser
-// must read the card's own headings, then Sentinel's when the card had none,
-// then the later one. So the section cannot create, hide or swallow a
-// section, whatever fence the card or the section leaves open.
+// checkSection judges the write, not the text alone. A card whose body ends
+// inside a code fence takes no section: the parser would read the section's
+// text in the opposite fence state to the one its headings were demoted in.
+// Otherwise the body as written, with one more section appended under
+// probeHeading, must read as the card's own headings, then Sentinel's when the
+// card had none, then the probe. Demoted text read from outside a fence holds
+// no heading, so the section can create, hide or swallow none.
 func checkSection(c fixContext) []string {
 	if c.Fix.Section == "" {
 		return nil
+	}
+
+	if board.EndsInFence(c.Card.Body) {
+		return []string{"the card ends inside a code fence"}
 	}
 
 	want := headings(c.Card.Body)
@@ -27,14 +30,23 @@ func checkSection(c fixContext) []string {
 		want = append(want, SectionHeading)
 	}
 
-	written := board.UpsertSection(c.Card.Body, SectionHeading, board.DemoteHeadings(c.Fix.Section))
-	later := strings.TrimRight(written, "\n") + "\n\n## " + laterHeading + "\n"
+	probe := probeHeading(c.Fix.Section)
+	later := strings.TrimRight(writtenBody(c.Card.Body, c.Fix.Section), "\n") + "\n\n## " + probe + "\n"
 
-	if !slices.Equal(headings(later), append(want, laterHeading)) {
+	if !slices.Equal(headings(later), append(want, probe)) {
 		return []string{"section would change the card's sections"}
 	}
 
 	return nil
+}
+
+// probeHeading names the section appended after the write, appended as
+// UpsertSection appends one. It derives from the section's own hash, so the
+// section would have to hold a hash of itself to forge it.
+func probeHeading(section string) string {
+	sum := sha256.Sum256([]byte(section))
+
+	return "probe-" + hex.EncodeToString(sum[:8])
 }
 
 func headings(body string) []string {

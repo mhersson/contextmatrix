@@ -55,11 +55,16 @@ func started(sub *board.Card) bool {
 	return sub.State != board.StateTodo && sub.State != board.StateNotPlanned
 }
 
-// sectionChanges reports whether writing section changes card's own section;
-// whitespace at either end does not count. The section is compared as it is
-// written, with its headings demoted.
+// sectionChanges reports whether writing section changes card's own section
+// as written; whitespace at either end does not count.
 func sectionChanges(card *board.Card, section string) bool {
-	return section != "" && strings.TrimSpace(board.DemoteHeadings(section)) != strings.TrimSpace(sentinelSection(card))
+	if section == "" {
+		return false
+	}
+
+	written := sentinelSection(&board.Card{Body: writtenBody(card.Body, section)})
+
+	return strings.TrimSpace(written) != strings.TrimSpace(sentinelSection(card))
 }
 
 // applyFix writes the heal's fix in one write guarded on the card the pass
@@ -116,14 +121,15 @@ func (c *Controller) writeFix(ctx context.Context, card *board.Card, fix protoco
 	}, nil
 }
 
-// fixPatch is the fix as one write guarded on card, its section only when it
-// changes; a fresh rerun also clears the saved phase.
+// fixPatch is the fix as one write guarded on card, the body only when its
+// section changes; a fresh rerun also clears the saved phase. The guard makes
+// the body written exactly the one checkSection judged.
 func fixPatch(card *board.Card, fix protocol.CardFix, fresh bool) service.PatchCardInput {
 	updated := card.Updated
 	in := service.PatchCardInput{AgentID: Agent, ExpectUpdated: &updated}
 
 	if sectionChanges(card, fix.Section) {
-		in.UpsertSection = &service.SectionPatch{Heading: SectionHeading, Content: board.DemoteHeadings(fix.Section)}
+		in.Body = new(writtenBody(card.Body, fix.Section))
 	}
 
 	if fix.Verify != nil {
@@ -152,6 +158,13 @@ func (c *Controller) retire(ctx context.Context, project, id string) error {
 	}
 
 	return nil
+}
+
+// writtenBody is body once Sentinel writes section: its headings demoted, then
+// upserted as Sentinel's own section. The writer sends this body and
+// checkSection judges it, so the write is built in one place.
+func writtenBody(body, section string) string {
+	return board.UpsertSection(body, SectionHeading, board.DemoteHeadings(section))
 }
 
 // sentinelSection is the content of card's own section, "" without one.

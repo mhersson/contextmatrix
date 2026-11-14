@@ -1,6 +1,7 @@
 package board
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -111,6 +112,33 @@ func TestBodySections(t *testing.T) {
 			intro, sections := BodySections(tt.body)
 			assert.Equal(t, tt.wantIntro, intro)
 			assert.Equal(t, tt.want, sections)
+		})
+	}
+}
+
+func TestEndsInFence(t *testing.T) {
+	tests := []struct {
+		name, body string
+		want       bool
+	}{
+		{"empty", "", false},
+		{"plain text", "intro\n\n## A\n\ntext\n", false},
+		{"a closed fence", "```\nx\n```\n", false},
+		{"an open fence", "intro\n```go\nx\n", true},
+		{"an open tilde fence", "~~~\nx", true},
+		{"an indented fence opens", "  ```\nx\n", true},
+		{"a backtick fence closes a tilde fence", "~~~\nx\n```\n", false},
+		{"a fence line led by a non-breaking space is no fence", "\u00a0```\nx\n", false},
+		{"CRLF", "```\r\nx\r\n", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, EndsInFence(tt.body))
+
+			_, sections := BodySections(strings.TrimRight(tt.body, "\n") + "\n\n## Next\n")
+			assert.Equal(t, tt.want, len(sections) == 0 || sections[len(sections)-1].Heading != "Next",
+				"a heading appended after the body is one exactly when the body ends outside a fence")
 		})
 	}
 }
