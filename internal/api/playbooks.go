@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -24,9 +26,16 @@ func extendWriteDeadline(w http.ResponseWriter, r *http.Request, d time.Duration
 	}
 }
 
+// PlaybookPinStore holds each viewer's pinned playbooks.
+type PlaybookPinStore interface {
+	PlaybookPins(ctx context.Context, owner string) ([]string, error)
+	SetPlaybookPin(ctx context.Context, owner, playbookID string, pinned bool) error
+}
+
 type playbookHandlers struct {
 	svc    *service.PlaybookService
 	runner *playbookrun.Runner // nil when the runner is not wired
+	pins   PlaybookPinStore    // nil when pins are not wired
 }
 
 type playbookEntryRequest struct {
@@ -90,7 +99,42 @@ func (h *playbookHandlers) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.pins != nil {
+		pinned, err := h.pins.PlaybookPins(r.Context(), identityFromContext(r.Context()))
+		if err != nil {
+			handleServiceError(w, r, err)
+
+			return
+		}
+
+		for i := range summaries {
+			summaries[i].Pinned = slices.Contains(pinned, summaries[i].ID)
+		}
+	}
+
 	writeJSON(w, http.StatusOK, summaries)
+}
+
+// pin handles PUT and DELETE /api/playbooks/{id}/pin. The pin belongs to the
+// session user; in none mode there is no identity, so pins are shared.
+func (h *playbookHandlers) pin(pinned bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+
+		if _, err := h.svc.Get(r.Context(), id); err != nil {
+			handleServiceError(w, r, err)
+
+			return
+		}
+
+		if err := h.pins.SetPlaybookPin(r.Context(), identityFromContext(r.Context()), id, pinned); err != nil {
+			handleServiceError(w, r, err)
+
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 // create handles POST /api/playbooks.

@@ -235,6 +235,11 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_sentinel_spend_heal ON sentinel_spend(heal_id)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_sentinel_spend_run ON sentinel_spend(run_id) WHERE run_id != ''`,
+		`CREATE TABLE IF NOT EXISTS playbook_pins (
+			owner       TEXT NOT NULL,
+			playbook_id TEXT NOT NULL,
+			PRIMARY KEY (owner, playbook_id)
+		)`,
 	}
 
 	for _, s := range stmts {

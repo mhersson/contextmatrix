@@ -2526,3 +2526,43 @@ func TestPlaybookService_CardIDsAreUpperCased(t *testing.T) {
 	assert.Equal(t, "ALPHA-002", detail.Followups[0].Cards[0].Card)
 	assert.Equal(t, "alpha-002", refs[0].Card, "the caller's slice is not rewritten")
 }
+
+type recordingPinCleaner struct {
+	dropped []string
+	err     error
+}
+
+func (c *recordingPinCleaner) DeletePlaybookPins(_ context.Context, id string) error {
+	c.dropped = append(c.dropped, id)
+
+	return c.err
+}
+
+func TestPlaybookDelete_DropsPins(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+	cleaner := &recordingPinCleaner{}
+	env.svc.SetPinCleaner(cleaner)
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{Title: "Pinned", AgentID: "human:a"})
+	require.NoError(t, err)
+
+	env.committer.fail = errors.New("boom")
+	require.Error(t, env.svc.Delete(ctx, "pinned", "human:a"))
+	assert.Empty(t, cleaner.dropped, "a delete that rolled back keeps its pins")
+
+	env.committer.fail = nil
+	require.NoError(t, env.svc.Delete(ctx, "pinned", "human:a"))
+	assert.Equal(t, []string{"pinned"}, cleaner.dropped)
+}
+
+func TestPlaybookDelete_PinCleanupFailureDoesNotFailDelete(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	env.svc.SetPinCleaner(&recordingPinCleaner{err: errors.New("db down")})
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{Title: "Pinned", AgentID: "human:a"})
+	require.NoError(t, err)
+	require.NoError(t, env.svc.Delete(ctx, "pinned", "human:a"))
+}

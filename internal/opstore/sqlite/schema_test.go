@@ -444,3 +444,32 @@ func TestEnsureSchema_AddsUnattendedWithoutABump(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, old.Unattended)
 }
+
+func TestEnsureSchema_AddsPlaybookPinsWithoutABump(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ops.db")
+
+	s, err := Open(path)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	db, err := sql.Open("sqlite", sqliteutil.DSN(path, sqliteutil.WithForeignKeys()))
+	require.NoError(t, err)
+	_, err = db.Exec("DROP TABLE playbook_pins")
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	s2, err := Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s2.Close() })
+
+	var v int
+
+	require.NoError(t, s2.db.QueryRow("PRAGMA user_version").Scan(&v))
+	assert.Equal(t, schemaVersion, v)
+
+	require.NoError(t, s2.SetPlaybookPin(context.Background(), "", "PB-1", true))
+
+	got, err := s2.PlaybookPins(context.Background(), "")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"PB-1"}, got)
+}

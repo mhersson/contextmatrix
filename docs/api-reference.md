@@ -70,7 +70,7 @@ GET    /api/chats/{id}/blueprint/artifacts/{stage}/{version}  # one artifact ver
 POST   /api/sync                                       ?repo=                # trigger git sync
 GET    /api/sync                                       # sync status per boards repo
 
-GET    /api/playbooks                                  # list playbook summaries (optional subsystem; see below)
+GET    /api/playbooks                                  # list playbook summaries, `pinned` set for the viewer's pins (optional subsystem; see below)
 POST   /api/playbooks                                  # create playbook (title, description?, entries?)
 GET    /api/playbooks/{id}                             # resolved detail
 PATCH  /api/playbooks/{id}                             # update title/description; humans: runnable, base_branch
@@ -81,6 +81,8 @@ DELETE /api/playbooks/{id}/entries/{entryId}            # remove entry
 POST   /api/playbooks/{id}/followups                   # add follow-up (text, cards?, position?)
 PATCH  /api/playbooks/{id}/followups/{followupId}       # update follow-up (done/text/cards/position)
 DELETE /api/playbooks/{id}/followups/{followupId}       # remove follow-up
+PUT    /api/playbooks/{id}/pin                         # pin for the viewer (204; 404 unknown playbook)
+DELETE /api/playbooks/{id}/pin                         # unpin for the viewer (204)
 POST   /api/playbooks/{id}/run                         # run or resume a runnable playbook (human-only; MCP equivalent: `run_playbook`)
 POST   /api/playbooks/{id}/stop                        # stop the run and kill every live worker of its cards on this instance (human-only)
 

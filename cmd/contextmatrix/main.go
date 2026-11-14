@@ -500,6 +500,10 @@ func main() {
 	svc.SetParkResetStore(opStore)
 	svc.SetEditSnapshotStore(opStore)
 
+	if pbSvc != nil {
+		pbSvc.SetPinCleaner(opStore)
+	}
+
 	// Model catalog builder: constructed whenever there is a rate source. The
 	// AA+agent path also yields selection candidates (routerCfg.Catalog below);
 	// the endpoint-only path (chat-only deployments) yields pricing only.
@@ -827,6 +831,7 @@ func main() {
 		KnowledgeProviders:     cfg.Knowledge.ProviderNames(),
 		Playbooks:              pbSvc,
 		PlaybookRunner:         pbRunner,
+		PlaybookPins:           opStore,
 		MCPCardRunner:          runnerSlot,
 		Attention:              attn,
 	}

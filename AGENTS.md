@@ -100,7 +100,7 @@ internal/api/              → REST handlers (stdlib http.ServeMux) + SSE endpoi
 internal/mcp/              → MCP server: tools + prompts
 internal/backend/          → task-backend webhook client + reconcile sweep + end-session subscriber + session-log bridge (sessionlog subpkg)
 internal/chat/             → chat session manager (dispatches by session kind: chat, architect), SSE hub, chat-backend log bridge (persists via opstore)
-internal/opstore/          → ops.db (SQLite): chat sessions/messages, model outcomes, blacklist, cost archive, selector ladders and headroom, Jira writeback outbox, LLM channel mode and subscription usage
+internal/opstore/          → ops.db (SQLite): chat sessions/messages, model outcomes, blacklist, cost archive, selector ladders and headroom, Jira writeback outbox, LLM channel mode and subscription usage, playbook pins
 internal/llmchannel/       → global LLM channel mode (endpoint or claude_code): per-start endpoint and model, subscription usage readings
 internal/modelcatalog/     → cached model catalog + candidate rating (Artificial Analysis + OpenRouter or OpenAI-compatible endpoint) + the Claude Code catalog
 internal/auth/             → sessions, users, one-time tokens, credential-pool crypto, master key

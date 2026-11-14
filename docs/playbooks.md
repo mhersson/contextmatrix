@@ -295,6 +295,13 @@ required on mutations for `created_by` and `done_by` attribution.
 | `remove_playbook_followup` | `DELETE /api/playbooks/{id}/followups/{followupId}` | Removes one follow-up                                             |
 | `run_playbook`          | `PATCH /api/playbooks/{id}` (`runnable`) then `POST /api/playbooks/{id}/run` | Human-only; makes it runnable if it is not, then runs it  |
 
+Pins are personal and REST-only (`PUT` and `DELETE /api/playbooks/{id}/pin`,
+no MCP tool). They live per user in `ops.db`, keyed by the session user in
+`multi` mode and shared in `none` mode, and `GET /api/playbooks` marks the
+viewer's pins as `pinned`. Deleting a playbook on this instance drops its pins;
+a delete that arrives on a shared boards repo from another instance leaves
+invisible orphan pins here.
+
 `position` is the entry's final index after the move; values past the end
 clamp, negative values are rejected, and no move is accepted while a run is
 active (see [Run state](#run-state)). Setting `done` or `text` on a card entry
