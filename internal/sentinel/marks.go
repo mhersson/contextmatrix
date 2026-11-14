@@ -21,6 +21,9 @@ const (
 
 const maxMarkReason = 120
 
+// createdLabel is the mark of a card Sentinel created from a finding.
+const createdLabel = "Sentinel created this card from a run's friction"
+
 // SentinelMarks answers each card's board mark from its latest heal. It
 // answers none while Sentinel is off.
 func (c *Controller) SentinelMarks(ctx context.Context, project string) (map[string]board.SentinelMark, error) {
@@ -180,7 +183,7 @@ func (c *Controller) addCreatedMarks(ctx context.Context, project string, marks 
 
 	for id := range carded {
 		if _, ok := marks[id]; !ok {
-			marks[id] = board.SentinelMark{Action: markCreated, Label: "Sentinel created this card from a run's friction"}
+			marks[id] = board.SentinelMark{Action: markCreated, Label: createdLabel}
 		}
 	}
 

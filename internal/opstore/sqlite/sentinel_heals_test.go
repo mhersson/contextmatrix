@@ -875,6 +875,27 @@ func TestUnqueuedRunsNeedAnIDAndNoQueueMark(t *testing.T) {
 	assert.Len(t, runs, 1)
 }
 
+func TestCardAnalysesNewestFirst(t *testing.T) {
+	st := openLadderStore(t)
+	ctx := context.Background()
+
+	for i, runID := range []string{"r1", "r2", "r3"} {
+		require.NoError(t, st.QueueAnalysis(ctx, analysisRow("P-001", runID, runT0.Add(time.Duration(i)*time.Hour))))
+	}
+
+	require.NoError(t, st.QueueAnalysis(ctx, analysisRow("P-002", "r4", runT0)))
+
+	rows, err := st.CardAnalyses(ctx, "p", "P-001")
+	require.NoError(t, err)
+
+	ids := make([]string, 0, len(rows))
+	for _, h := range rows {
+		ids = append(ids, h.RunID)
+	}
+
+	assert.Equal(t, []string{"r3", "r2", "r1"}, ids)
+}
+
 func TestCardHealsAndLatestHealsIgnoreAnalyses(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()

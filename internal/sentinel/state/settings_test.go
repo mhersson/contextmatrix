@@ -69,8 +69,25 @@ func TestSettingsValidateAnalyseCeiling(t *testing.T) {
 }
 
 func TestSettingsAnalyses(t *testing.T) {
-	for i := range 8 {
-		s := Settings{Enabled: i&1 != 0, Friction: i&2 != 0, AnalyseEveryRun: i&4 != 0}
-		assert.Equal(t, i == 7, s.Analyses(), "%+v", s)
+	tests := []struct {
+		name                               string
+		enabled, friction, analyseEveryRun bool
+		want                               bool
+	}{
+		{"all off", false, false, false, false},
+		{"enabled only", true, false, false, false},
+		{"friction only", false, true, false, false},
+		{"analyse every run only", false, false, true, false},
+		{"enabled and friction", true, true, false, false},
+		{"enabled and analyse every run", true, false, true, false},
+		{"friction and analyse every run", false, true, true, false},
+		{"all on", true, true, true, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := Settings{Enabled: tt.enabled, Friction: tt.friction, AnalyseEveryRun: tt.analyseEveryRun}
+			assert.Equal(t, tt.want, s.Analyses())
+		})
 	}
 }

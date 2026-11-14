@@ -239,7 +239,7 @@ func TestSentinelMarksMarksCreatedCards(t *testing.T) {
 	marks, err := ctl.SentinelMarks(context.Background(), "p")
 	require.NoError(t, err)
 	require.Len(t, marks, 2)
-	assert.Equal(t, "created", marks["P-001"].Action)
-	assert.Equal(t, "Sentinel created this card from a run's friction", marks["P-001"].Label)
-	assert.Equal(t, "parked", marks["P-002"].Action, "a heal mark wins")
+	assert.Equal(t, markCreated, marks["P-001"].Action)
+	assert.Equal(t, createdLabel, marks["P-001"].Label)
+	assert.Equal(t, markParked, marks["P-002"].Action, "a heal mark wins")
 }

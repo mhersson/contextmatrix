@@ -18,6 +18,8 @@ const (
 	secretReason            = "holds a secret"
 	markerReason            = "holds a guidance block marker"
 	blankReason             = "has no text"
+	likeFindingReason       = "like finding "
+	likeCardReason          = "like card "
 	frictionDefaultType     = "task"
 	frictionDefaultPriority = "medium"
 )
@@ -49,7 +51,7 @@ func routeGuidance(f state.Finding, earlier []state.Finding, secrets []string) (
 		switch e.State {
 		case state.FindingPending, state.FindingProposed, state.FindingMerged, state.FindingRejected:
 			if similar(f.Text, e.Text) {
-				return state.FindingDuplicate, "like finding " + strconv.FormatInt(e.ID, 10)
+				return state.FindingDuplicate, likeFindingReason + strconv.FormatInt(e.ID, 10)
 			}
 		}
 	}
@@ -73,7 +75,7 @@ func routeCode(f state.Finding, cards []*board.Card, secrets []string, createdTo
 		}
 
 		if slices.Equal(words(title), words(c.Title)) || similar(title+" "+f.Text, c.Title+" "+c.Body) {
-			return state.FindingDuplicate, "like card " + c.ID
+			return state.FindingDuplicate, likeCardReason + c.ID
 		}
 	}
 

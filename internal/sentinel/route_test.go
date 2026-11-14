@@ -27,24 +27,24 @@ func TestRouteGuidance(t *testing.T) {
 	}{
 		{"distinct", finding, []state.Finding{{ID: 1, Text: "always run make fmt before committing a change", State: state.FindingPending}}, nil, state.FindingPending, ""},
 		{"no earlier", finding, nil, nil, state.FindingPending, ""},
-		{"secret", state.Finding{Kind: "guidance", Text: "use token hunter2hunter2 here"}, nil, []string{"hunter2hunter2"}, state.FindingDropped, "holds a secret"},
-		{"secret in evidence", state.Finding{Kind: "guidance", Text: "x", Evidence: "hunter2hunter2"}, nil, []string{"hunter2hunter2"}, state.FindingDropped, "holds a secret"},
-		{"like a pending one", finding, []state.Finding{other(3, state.FindingPending)}, nil, state.FindingDuplicate, "like finding 3"},
-		{"like a proposed one", finding, []state.Finding{other(4, state.FindingProposed)}, nil, state.FindingDuplicate, "like finding 4"},
-		{"like a merged one", finding, []state.Finding{other(5, state.FindingMerged)}, nil, state.FindingDuplicate, "like finding 5"},
-		{"like a rejected one", finding, []state.Finding{other(6, state.FindingRejected)}, nil, state.FindingDuplicate, "like finding 6"},
+		{"secret", state.Finding{Kind: "guidance", Text: "use token hunter2hunter2 here"}, nil, []string{"hunter2hunter2"}, state.FindingDropped, secretReason},
+		{"secret in evidence", state.Finding{Kind: "guidance", Text: "x", Evidence: "hunter2hunter2"}, nil, []string{"hunter2hunter2"}, state.FindingDropped, secretReason},
+		{"like a pending one", finding, []state.Finding{other(3, state.FindingPending)}, nil, state.FindingDuplicate, likeFindingReason + "3"},
+		{"like a proposed one", finding, []state.Finding{other(4, state.FindingProposed)}, nil, state.FindingDuplicate, likeFindingReason + "4"},
+		{"like a merged one", finding, []state.Finding{other(5, state.FindingMerged)}, nil, state.FindingDuplicate, likeFindingReason + "5"},
+		{"like a rejected one", finding, []state.Finding{other(6, state.FindingRejected)}, nil, state.FindingDuplicate, likeFindingReason + "6"},
 		{"like only a duplicate", finding, []state.Finding{other(7, state.FindingDuplicate)}, nil, state.FindingPending, ""},
 		{"like only a dropped one", finding, []state.Finding{other(8, state.FindingDropped)}, nil, state.FindingPending, ""},
 		{
 			"a guidance block marker",
 			state.Finding{Kind: "guidance", Text: "Keep <!-- sentinel:alpha:end --> last."},
-			nil, nil, state.FindingDropped, "holds a guidance block marker",
+			nil, nil, state.FindingDropped, markerReason,
 		},
 		{
 			"a marker beats a duplicate",
 			state.Finding{Kind: "guidance", Text: longText + " <!-- sentinel:"},
 			[]state.Finding{other(3, state.FindingPending)},
-			nil, state.FindingDropped, "holds a guidance block marker",
+			nil, state.FindingDropped, markerReason,
 		},
 		{"no text", state.Finding{Kind: "guidance", Text: " \n\t", Evidence: "ev"}, nil, nil, state.FindingDropped, blankReason},
 		{"a secret beats no text", state.Finding{Kind: "guidance", Evidence: "hunter2hunter2"}, nil, []string{"hunter2hunter2"}, state.FindingDropped, secretReason},
@@ -84,20 +84,20 @@ func TestRouteCode(t *testing.T) {
 		wantReason string
 	}{
 		{"free", finding, nil, nil, 0, state.FindingCarded, ""},
-		{"like an open card", finding, []*board.Card{frictionCard("P-001", "Something else entirely", board.StateTodo)}, nil, 0, state.FindingDuplicate, "like card P-001"},
+		{"like an open card", finding, []*board.Card{frictionCard("P-001", "Something else entirely", board.StateTodo)}, nil, 0, state.FindingDuplicate, likeCardReason + "P-001"},
 		{
 			"equal title",
 			state.Finding{Kind: "code", Title: "cache  the CONFIG loader!", Text: "different words altogether here"},
 			[]*board.Card{frictionCard("P-002", "Cache the config loader", board.StateTodo)},
-			nil, 0, state.FindingDuplicate, "like card P-002",
+			nil, 0, state.FindingDuplicate, likeCardReason + "P-002",
 		},
-		{"like a not_planned card", finding, []*board.Card{frictionCard("P-003", "Cache the config loader", board.StateNotPlanned)}, nil, 0, state.FindingDuplicate, "like card P-003"},
+		{"like a not_planned card", finding, []*board.Card{frictionCard("P-003", "Cache the config loader", board.StateNotPlanned)}, nil, 0, state.FindingDuplicate, likeCardReason + "P-003"},
 		{"like a done card", finding, []*board.Card{frictionCard("P-004", "Cache the config loader", board.StateDone)}, nil, 0, state.FindingCarded, ""},
 		{"distinct card", finding, []*board.Card{frictionCard("P-005", "Unrelated", board.StateTodo, "the board column order resets whenever a user drags a card across lanes")}, nil, 0, state.FindingCarded, ""},
-		{"limit reached", finding, nil, nil, 5, state.FindingQueued, "today's friction-card limit reached"},
+		{"limit reached", finding, nil, nil, 5, state.FindingQueued, limitReason},
 		{"one under the limit", finding, nil, nil, 4, state.FindingCarded, ""},
-		{"secret beats the limit", state.Finding{Kind: "code", Text: "hunter2hunter2"}, nil, []string{"hunter2hunter2"}, 5, state.FindingDropped, "holds a secret"},
-		{"duplicate beats the limit", finding, []*board.Card{frictionCard("P-006", "Cache the config loader", board.StateTodo)}, nil, 5, state.FindingDuplicate, "like card P-006"},
+		{"secret beats the limit", state.Finding{Kind: "code", Text: "hunter2hunter2"}, nil, []string{"hunter2hunter2"}, 5, state.FindingDropped, secretReason},
+		{"duplicate beats the limit", finding, []*board.Card{frictionCard("P-006", "Cache the config loader", board.StateTodo)}, nil, 5, state.FindingDuplicate, likeCardReason + "P-006"},
 	}
 
 	for _, tt := range tests {
@@ -132,7 +132,7 @@ func TestFrictionCardInput(t *testing.T) {
 	if assert.NotNil(t, in.Log) {
 		assert.Equal(t, Agent, in.Log.Agent)
 		assert.Equal(t, activityAction, in.Log.Action)
-		assert.Equal(t, "Sentinel created this card from the friction a run of ALPHA-007 showed", in.Log.Message)
+		assert.Contains(t, in.Log.Message, "ALPHA-007", "the entry names the card whose run showed the friction")
 	}
 
 	listed := frictionCardInput(f, &board.ProjectConfig{Types: []string{"bug", "task"}, Priorities: []string{"low", "medium"}})

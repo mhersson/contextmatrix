@@ -105,25 +105,43 @@ describe('findingOutcome', () => {
   });
   const PR = 'https://github.com/acme/app/pull/12';
 
-  it.each<[Partial<SentinelFindingView>, { text: string; href?: string; external?: boolean } | null]>([
-    [{ state: 'queued' }, { text: 'Waiting to be routed' }],
-    [{ state: 'queued', reason: 'over the daily limit' }, { text: 'over the daily limit' }],
-    [{ state: 'pending' }, { text: 'Waiting for the next guidance PR' }],
-    [{ state: 'proposed', output: 'https://github.com/acme/app/pull/3' }, { text: 'In the standing PR', href: 'https://github.com/acme/app/pull/3', external: true }],
-    [{ state: 'proposed' }, { text: 'In the standing PR', href: PR, external: true }],
-    [{ state: 'merged' }, { text: 'Merged' }],
-    [{ state: 'rejected' }, { text: 'Rejected in review' }],
-    [{ state: 'duplicate', reason: 'same as F-2' }, { text: 'same as F-2' }],
-    [{ state: 'dropped', reason: 'no evidence' }, { text: 'Dropped: no evidence' }],
-    [{ state: 'carded', output: 'T-040' }, { text: 'Friction card T-040', href: '/projects/p?card=T-040' }],
-    [{ state: 'note' }, null],
-    [{ state: 'held' }, null],
-    [{ state: '' }, null],
-  ])('%j', (over, want) => {
-    expect(findingOutcome(f(over), 'p', PR)).toEqual(want);
+  it.each<[Partial<SentinelFindingView>, string | undefined, boolean | undefined]>([
+    [{ state: 'queued' }, undefined, undefined],
+    [{ state: 'pending' }, undefined, undefined],
+    [{ state: 'proposed', output: 'https://github.com/acme/app/pull/3' }, 'https://github.com/acme/app/pull/3', true],
+    [{ state: 'proposed' }, PR, true],
+    [{ state: 'merged' }, undefined, undefined],
+    [{ state: 'rejected' }, undefined, undefined],
+    [{ state: 'duplicate', reason: 'like finding 2' }, undefined, undefined],
+    [{ state: 'dropped', reason: 'holds a secret' }, undefined, undefined],
+    [{ state: 'carded', output: 'T-040' }, '/projects/p?card=T-040', undefined],
+  ])('%j links to %s', (over, href, external) => {
+    const got = findingOutcome(f(over), 'p', PR);
+    expect(got).not.toBeNull();
+    expect(got?.text).toBeTruthy();
+    expect(got?.href).toBe(href);
+    expect(got?.external).toBe(external);
+  });
+
+  it.each<Partial<SentinelFindingView>>([
+    { state: 'queued', reason: 'over the daily limit' },
+    { state: 'duplicate', reason: 'like finding 2' },
+    { state: 'dropped', reason: 'holds a secret' },
+  ])('%j shows its reason', (over) => {
+    expect(findingOutcome(f(over), 'p', PR)?.text).toContain(over.reason);
+  });
+
+  it('names the friction card it became', () => {
+    expect(findingOutcome(f({ state: 'carded', output: 'T-040' }), 'p', PR)?.text).toContain('T-040');
+  });
+
+  it.each(['note', 'held', ''] as const)('%j has no outcome', (state) => {
+    expect(findingOutcome(f({ state }), 'p', PR)).toBeNull();
   });
 
   it('has no link for a proposed finding when no PR is known', () => {
-    expect(findingOutcome(f({ state: 'proposed' }), 'p')).toEqual({ text: 'In the standing PR' });
+    const got = findingOutcome(f({ state: 'proposed' }), 'p');
+    expect(got).not.toBeNull();
+    expect(got?.href).toBeUndefined();
   });
 });

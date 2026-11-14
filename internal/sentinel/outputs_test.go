@@ -68,10 +68,10 @@ func TestRouteFindingsDedupsWithinOnePass(t *testing.T) {
 	assert.Len(t, e.cards.created, 1)
 	assert.Equal(t, state.FindingCarded, e.store.finding(1).State)
 	assert.Equal(t, state.FindingDuplicate, e.store.finding(2).State)
-	assert.Equal(t, "like card ALPHA-100", e.store.finding(2).Reason)
+	assert.Equal(t, likeCardReason+"ALPHA-100", e.store.finding(2).Reason)
 	assert.Equal(t, state.FindingPending, e.store.finding(3).State)
 	assert.Equal(t, state.FindingDuplicate, e.store.finding(4).State)
-	assert.Equal(t, "like finding 3", e.store.finding(4).Reason)
+	assert.Equal(t, likeFindingReason+"3", e.store.finding(4).Reason)
 }
 
 func TestRouteFindingsHoldsSecrets(t *testing.T) {
@@ -99,7 +99,7 @@ func TestRouteFindingsStopsAtTheDailyLimitAndWritesOnce(t *testing.T) {
 
 	held := e.store.finding(6)
 	assert.Equal(t, state.FindingQueued, held.State)
-	assert.Equal(t, "today's friction-card limit reached", held.Reason)
+	assert.Equal(t, limitReason, held.Reason)
 
 	before := e.store.outcomeWrites
 	require.NoError(t, e.ctl.pass(context.Background()))
