@@ -118,8 +118,10 @@ guarded atomic update, not a check-then-write.
 **Chats are per-user.** Each session carries `created_by`. `GET /api/chats`
 lists only the caller's sessions; every per-ID endpoint returns the same 404
 `CHAT_NOT_FOUND` for foreign and nonexistent IDs. Admins manage chats via
-`/api/admin/chats*` (list, force-end, delete; no transcript routes). None mode
-keeps chats unscoped.
+`/api/admin/chats*` (list, force-end, delete; no transcript routes). The
+attention list (`GET /api/attention`) scopes blueprint items the same way, and
+its `attention.changed` event carries nothing. None mode keeps chats and the
+attention list unscoped.
 
 **Credential pool.** Admins register named GitHub App or PAT credentials;
 each secret is AES-256-GCM encrypted (`internal/auth/crypto.go`) under a key
@@ -419,7 +421,7 @@ failure the service layer closes the gap:
 | `backend`           | client, reconcile, `sessionlog.Manager`              | Task-backend webhook client, reconcile sweep, end-session subscriber, HMAC signature cache, per-card session-log buffer and fan-out hub.                                 |
 | `chat`              | `Manager`, `Store`, `SSEHub`, `IdleReaper`, `transcript` | Global chat sessions: lifecycle, transcript persistence, per-session SSE, cost accumulation, cold-reopen resume payloads.                                            |
 | `llmchannel`        | `Holder`                                             | The global LLM channel mode (`endpoint` or `claude_code`), saved in `ops.db`: resolves each start's endpoint and model, records subscription usage readings, publishes `llm_channel.changed`. |
-| `sentinel`          | `Controller`, `Status`, `state.Settings`             | The healing controller: one goroutine, woken by a 30 s tick, bus events and nudges, reads its settings and the subscription windows from `ops.db`, applies the budget gate and publishes `sentinel.changed` when its status changes. Takes run kinds' results from the status callback and charges them to its spend ledger. Built only when an agent backend is configured. Its durable types live in the leaf `sentinel/state`, which `opstore` imports instead of the controller. See [Sentinel](sentinel.md). |
+| `sentinel`          | `Controller`, `Status`, `state.Settings`             | The healing controller: one goroutine, woken by a 30 s tick, bus events and nudges, reads its settings and the subscription windows from `ops.db`, applies the budget gate and publishes `sentinel.changed` when its status changes or it opens or saves a heal. Takes run kinds' results from the status callback and charges them to its spend ledger. Built only when an agent backend is configured. Its durable types live in the leaf `sentinel/state`, which `opstore` imports instead of the controller. See [Sentinel](sentinel.md). |
 | `opstore`           | `sqlite.Store`                                       | `ops.db` (tables: see configuration.md). Schema is `CREATE TABLE IF NOT EXISTS` with no migration ledger.               |
 | `images`            | `Store`, `Layered`, `RepoIndex`, `Process`           | Content-hashed image store: `images.db` plus `<project>/images/` files in shared repos.                                                                                 |
 | `modelcatalog`      | `Builder`                                            | Fetches and rates model candidates (Artificial Analysis joined with OpenRouter or an OpenAI-compatible endpoint); 6h TTL, last-good fallback. See [model selection](model-selection.md). |

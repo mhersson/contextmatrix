@@ -30,6 +30,7 @@ type dispatchEnv struct {
 	pbs     fakePlaybooks
 	runner  *fakeRunner
 	clk     *clock.FakeClock
+	bus     *events.Bus
 	ctl     *Controller
 	models  []bool // the model flag of each RunKindBase call
 
@@ -48,9 +49,10 @@ func newDispatchEnv(t *testing.T) *dispatchEnv {
 		pbs:     fakePlaybooks{},
 		runner:  &fakeRunner{},
 		clk:     clock.Fake(epoch),
+		bus:     events.NewBus(),
 	}
 	e.ctl = New(Config{
-		Store: e.store, Channel: fakeChannel{config.BackendNameAgent: llmchannel.ModeEndpoint}, Bus: events.NewBus(),
+		Store: e.store, Channel: fakeChannel{config.BackendNameAgent: llmchannel.ModeEndpoint}, Bus: e.bus,
 		Clock: e.clk, Pricer: ratePricer{}, Backend: e.backend, Cards: e.cards, Playbooks: e.pbs, Runner: e.runner,
 		Instance: "lap-a",
 	})

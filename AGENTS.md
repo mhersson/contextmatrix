@@ -119,6 +119,7 @@ internal/ctxlog/           → request_id context logger
 internal/metrics/          → Prometheus metric vars + Register()
 internal/playbookrun/      → runnable-playbook execution
 internal/sentinel/         → Sentinel: the healing controller, its decisions and run-kind dispatch
+internal/attention/        → waiting-for-you list: merges blueprint, playbook, parked-card and Sentinel-park waits per viewer; publishes attention.changed
 internal/githuburl/        → GitHub repository URL parsing shared by github and service
 internal/sqliteutil/       → shared SQLite plumbing: DSN, pooled open, schema_migrations runner
 internal/buildinfo/        → stamped version, commit and build time

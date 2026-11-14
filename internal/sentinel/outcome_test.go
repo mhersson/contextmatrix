@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
+	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
@@ -103,4 +104,38 @@ func TestCloseHealWritesNoEntry(t *testing.T) {
 	assert.Equal(t, state.StageClosed, stored.Stage)
 	assert.Equal(t, "the card was closed", stored.Reason)
 	assert.Empty(t, e.cards.logged)
+}
+
+// cardEvents drains the per-card sentinel.changed events delivered so far as "<project>/<card>".
+func cardEvents(ch <-chan events.Event) []string {
+	var out []string
+
+	for {
+		select {
+		case ev := <-ch:
+			if ev.Type == events.SentinelChanged && ev.CardID != "" {
+				out = append(out, ev.Project+"/"+ev.CardID)
+			}
+		default:
+			return out
+		}
+	}
+}
+
+func TestHealWritesPublishTheCardEvent(t *testing.T) {
+	e := newDispatchEnv(t)
+	ch, unsubscribe := e.bus.Subscribe()
+	t.Cleanup(unsubscribe)
+
+	h := e.heal(state.StageRerun)
+	require.NoError(t, e.ctl.saveStage(context.Background(), h, state.StageRerunFailed, ""))
+	assert.Equal(t, []string{"alpha/ALPHA-001"}, cardEvents(ch), "a stage save")
+
+	h.Version = 9 // stale: the save is refused
+	require.ErrorIs(t, e.ctl.saveStage(context.Background(), h, state.StageParked, "r"), state.ErrHealChanged)
+	assert.Empty(t, cardEvents(ch), "a refused save")
+
+	_, err := e.ctl.openHeal(context.Background(), state.Heal{Kind: state.HealKindForward, Project: "alpha", CardID: "ALPHA-002"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"alpha/ALPHA-002"}, cardEvents(ch), "an opened heal")
 }

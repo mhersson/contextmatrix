@@ -160,7 +160,7 @@ func (c *Controller) dispatch(ctx context.Context, h *state.Heal, p protocol.Run
 	h.Dispatch = state.Dispatch{Kind: p.Kind, Mode: string(mode), CeilingUSD: p.MaxCostUSD, At: &now}
 	h.UpdatedAt = now
 
-	if err := c.cfg.Store.SaveHeal(ctx, h); err != nil {
+	if err := c.saveHeal(ctx, h); err != nil {
 		return fmt.Errorf("record the %s dispatch: %w", p.Kind, err)
 	}
 
@@ -191,7 +191,7 @@ func (c *Controller) dispatch(ctx context.Context, h *state.Heal, p protocol.Run
 	h.Dispatch = state.Dispatch{}
 
 	// ErrHealChanged here means the agent reported anyway; the report stays.
-	if err := c.cfg.Store.SaveHeal(ctx, h); err != nil {
+	if err := c.saveHeal(ctx, h); err != nil {
 		log.Warn("sentinel: failed dispatch not cleared", "error", err)
 	}
 

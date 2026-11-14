@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
@@ -65,7 +66,7 @@ func (c *Controller) parkUnreported(ctx context.Context, h *state.Heal, reason s
 func (c *Controller) failUnreported(ctx context.Context, h *state.Heal) error {
 	h.Dispatch.Failure = unreportedReason(h.Dispatch.Kind)
 
-	if err := c.cfg.Store.SaveHeal(ctx, h); err != nil {
+	if err := c.saveHeal(ctx, h); err != nil {
 		return fmt.Errorf("fail the unreported %s run: %w", h.Dispatch.Kind, err)
 	}
 
@@ -94,7 +95,36 @@ func (c *Controller) closeHeal(ctx context.Context, h *state.Heal, reason string
 func (c *Controller) saveStage(ctx context.Context, h *state.Heal, stage, reason string) error {
 	h.Stage, h.Reason, h.UpdatedAt = stage, reason, c.cfg.Clock.Now()
 
-	return c.cfg.Store.SaveHeal(ctx, h)
+	return c.saveHeal(ctx, h)
+}
+
+// saveHeal and openHeal write a heal row and announce the card's change:
+// the board marks and the attention list read heal stages.
+func (c *Controller) saveHeal(ctx context.Context, h *state.Heal) error {
+	if err := c.cfg.Store.SaveHeal(ctx, h); err != nil {
+		return err
+	}
+
+	c.healChanged(h.Project, h.CardID)
+
+	return nil
+}
+
+func (c *Controller) openHeal(ctx context.Context, h state.Heal) (int64, error) {
+	id, err := c.cfg.Store.OpenHeal(ctx, h)
+	if err != nil {
+		return 0, err
+	}
+
+	c.healChanged(h.Project, h.CardID)
+
+	return id, nil
+}
+
+func (c *Controller) healChanged(project, cardID string) {
+	c.cfg.Bus.Publish(events.Event{
+		Type: events.SentinelChanged, Project: project, CardID: cardID, Timestamp: c.cfg.Clock.Now().UTC(),
+	})
 }
 
 func (c *Controller) logActivity(ctx context.Context, h *state.Heal, text string) error {

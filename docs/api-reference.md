@@ -133,6 +133,8 @@ GET    /api/sentinel                                        # Sentinel status an
 PUT    /api/admin/sentinel                                  # replace Sentinel settings (both auth modes; admin-gated only in multi)
 GET    /api/projects/{project}/cards/{id}/sentinel          # the card's last run facts as Sentinel sees them
 
+GET    /api/attention                                       # what waits for a person, newest first (any session in multi mode; blueprints scoped to the caller)
+
 GET    /api/events                                     ?project=             # SSE stream of board events
 GET    /healthz                                        # liveness probe (shallow)
 GET    /readyz                                         # readiness probe (dependency-checked)
@@ -1236,6 +1238,62 @@ stores no new ones and keeps those already stored, which are still returned. `ki
 `project_verify` findings are returned to admins in `multi` mode and to every
 caller in `none` mode.
 
+## Attention Endpoints
+
+### GET /api/attention
+
+Everything waiting on a person: blueprints waiting on their owner, waiting
+playbook runs, worker-parked cards and Sentinel parks. Always an array, `[]`
+when nothing waits.
+
+```json
+[
+  {
+    "kind": "card",
+    "id": "ALPHA-012",
+    "project": "alpha",
+    "title": "Add the export button",
+    "reason": "needs a decision on the file format",
+    "since": "2026-11-14T10:00:00Z",
+    "playbook": { "id": "rollout", "title": "Rollout" }
+  },
+  {
+    "kind": "blueprint",
+    "id": "01JCQ4Z8V3M5N7P9R2T4W6Y8A0",
+    "title": "Billing redesign",
+    "reason": "The architect waits for your sign-off",
+    "since": "2026-11-14T09:30:00Z",
+    "mine": true
+  }
+]
+```
+
+| Field      | Meaning                                                                                                                                                  |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kind`     | `blueprint`, `playbook`, `card` (the worker parked it) or `sentinel` (Sentinel parked it)                                                                |
+| `id`       | The session ID, playbook ID or card ID                                                                                                                   |
+| `project`  | The card's project; omitted on blueprint and playbook items                                                                                              |
+| `title`    | The session, playbook or card title                                                                                                                      |
+| `reason`   | What the architect's open prompt asks for, the run's reason, the latest `parked` log entry's message (empty without one), or Sentinel's board mark label |
+| `since`    | When the wait began: the prompt opening, the run's last update, the `parked` entry (the card's last update without one), or Sentinel's park              |
+| `mine`     | The caller's own blueprint, or a run the caller started; omitted otherwise. Card items are shared and never `mine`                                       |
+| `playbook` | On a card item: the waiting run stuck on that card; omitted otherwise                                                                                    |
+
+Items are newest `since` first. A card yields at most one item: a Sentinel
+park replaces the worker park, and a card Sentinel is still healing, or one in
+`done` or `not_planned`, yields none. A waiting run whose current entry is a
+card item folds into that item as `playbook`; on a card Sentinel is healing it
+yields nothing; otherwise it is its own `playbook` item.
+
+In `multi` mode the list is scoped like `GET /api/chats`: blueprint items are
+only the session user's own, while card and playbook items are shared. In
+`none` mode every waiting blueprint is listed and `mine` follows
+`X-Agent-ID`.
+
+**Errors:** `401 UNAUTHORIZED` (no session in `multi` mode), `500
+INTERNAL_ERROR` (a source could not be read; the list is never served
+partial).
+
 ## Health Endpoints
 
 ### GET /healthz
@@ -2072,7 +2130,7 @@ syncer is wired).
 
 Server-Sent Events stream of every board mutation. `?project=<slug>` limits
 the stream to that project; events with an empty `project` (sync, playbook,
-Jira import, LLM channel) pass every filter.
+Jira import, LLM channel, attention) pass every filter.
 
 - The handler sends `: connected\n\n` on subscribe, then `: keepalive\n\n`
   every 30 seconds. `X-Accel-Buffering: no` is set to bypass nginx proxy
@@ -2121,8 +2179,8 @@ originate from a shared-board pull carry `data.source: "sync"`.
 | `project.updated`     | none                                                                                                                                                                                |                                                                                        |
 | `project.deleted`     | none                                                                                                                                                                                |                                                                                        |
 | `playbook.created`    | `{id}` (`project` empty)                                                                                                                                                            |                                                                                        |
-| `playbook.updated`    | `{id}`                                                                                                                                                                              | Any playbook or entry mutation                                                         |
-| `playbook.deleted`    | `{id}`                                                                                                                                                                              |                                                                                        |
+| `playbook.updated`    | `{id, run_status?, run_entry?}`; the run keys ride along once a run exists                                                                                                          | Any playbook or entry mutation                                                         |
+| `playbook.deleted`    | `{id, run_status?, run_entry?}`                                                                                                                                                     |                                                                                        |
 | `sync.started`        | `{trigger, repo}` (`project` empty)                                                                                                                                                 | `trigger` is `startup`, `manual`, or `periodic`                                        |
 | `sync.completed`      | `{trigger, repo, changes_pulled, duration_ms}`                                                                                                                                      | Cycle finished; refetch when `changes_pulled` is true                                  |
 | `sync.conflict`       | `{trigger, repo, error}` or `{trigger, repo, resolved}`                                                                                                                             | Merge conflict hit, or `resolved` resolver actions applied                             |
@@ -2130,7 +2188,8 @@ originate from a shared-board pull carry `data.source: "sync"`.
 | `jira_import.progress` | `{import_id, key, status, project, card_id, reason}`                                                                                                                                | One selected issue of a Jira import finished; the event's own `project` is empty       |
 | `jira_import.done`    | `{import_id, status, playbook_id, results, error}`                                                                                                                                  | A Jira import finished or stopped; the event's own `project` is empty                  |
 | `llm_channel.changed` | `{mode}` (`project` empty)                                                                                                                                                          | The LLM channel mode was switched, or a worker reported subscription usage (a subscription `report_usage`, a chat usage frame, a usage-limit frame, `report_parked` naming a window and a reset time, or a recorded run-kind status carrying windows), whether or not it replaced the stored reading |
-| `sentinel.changed`    | none (`project` empty, or the card's `project` and `card_id`)                                                                                                                       | Sentinel's status changed (`project` empty), or a run kind's result for the card was recorded |
+| `sentinel.changed`    | none (`project` empty, or the card's `project` and `card_id`)                                                                                                                       | Sentinel's status changed (`project` empty), a heal on the card was opened or saved, or a run kind's result for the card was recorded |
+| `attention.changed`   | none (`project` empty)                                                                                                                                                              | The waiting list changed; refetch `GET /api/attention`. It names nothing, since the list can hold another user's blueprint |
 
 A shared-board pull publishes per-card `card.created` / `card.updated` /
 `card.state_changed` / `card.deleted` diffs (with `source: "sync"`) only when

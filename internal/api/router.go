@@ -345,6 +345,8 @@ type RouterConfig struct {
 	// is not configured or playbooks are disabled; the routes then answer
 	// 404 JIRA_NOT_CONFIGURED. Assign only a non-nil service, as with Jira.
 	JiraImport JiraImporter
+	// Attention serves GET /api/attention; the route is registered only when set.
+	Attention AttentionLister
 }
 
 // EndpointModelView is the api-package projection of modelcatalog.EndpointModel
@@ -607,6 +609,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		}
 		mux.HandleFunc("GET /api/llm-channel", lh.get)
 		mux.HandleFunc("PUT /api/admin/llm-channel", lh.put)
+	}
+
+	if cfg.Attention != nil {
+		mux.HandleFunc("GET /api/attention", (&attentionHandlers{attn: cfg.Attention}).list)
 	}
 
 	if cfg.SentinelStore != nil {

@@ -415,6 +415,10 @@ func (s *FilesystemStore) matchesFilter(c *board.Card, f CardFilter) bool {
 		return false
 	}
 
+	if f.WorkerStatus != "" && c.WorkerStatus != f.WorkerStatus {
+		return false
+	}
+
 	if f.ExternalID != "" {
 		if c.Source == nil || c.Source.ExternalID != f.ExternalID {
 			return false

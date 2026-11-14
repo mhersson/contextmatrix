@@ -169,3 +169,29 @@ func TestMerge_NewestFirst(t *testing.T) {
 
 	assert.Equal(t, []string{"new", "a", "b", "old"}, ids)
 }
+
+func TestMerge_SameCardIDOrdersByProject(t *testing.T) {
+	for range 20 {
+		a, b := parkedCard("A-1"), parkedCard("A-1")
+		a.Project, b.Project = "beta", "alpha"
+		s := Snapshot{Cards: map[CardKey]*board.Card{{Project: "beta", ID: "A-1"}: a, {Project: "alpha", ID: "A-1"}: b}}
+
+		items := Merge(s, "x")
+		require.Len(t, items, 2)
+		assert.Equal(t, []string{"alpha", "beta"}, []string{items[0].Project, items[1].Project})
+	}
+}
+
+func TestMerge_EmptyViewerOwnsNothing(t *testing.T) {
+	s := Snapshot{
+		Blueprints: []BlueprintWait{{ID: "s1", Kind: "gate", Since: t0}},
+		Playbooks:  []*service.PlaybookDetail{waitingRun("pb", "P", "", "", t0)},
+	}
+
+	items := Merge(s, "")
+	require.Len(t, items, 2)
+
+	for _, it := range items {
+		assert.False(t, it.Mine, it.ID)
+	}
+}

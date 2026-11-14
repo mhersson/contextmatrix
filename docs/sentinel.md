@@ -143,7 +143,9 @@ stage.
 
 Every write to a heal row bumps its version, and a save carries the version it
 read: one made from a stale read is refused (`ErrHealChanged`), so a pass never
-overwrites an answer recorded since it read the heal.
+overwrites an answer recorded since it read the heal. Each heal the controller
+opens or saves publishes `sentinel.changed` with the card's project and ID, so
+the board marks and the attention list follow every stage move.
 
 ## Run-kind results
 

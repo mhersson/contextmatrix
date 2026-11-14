@@ -32,6 +32,7 @@ func wireChat(
 	architectContextWindow func(ctx context.Context, model string) int,
 	llmChannel chat.LLMChannelResolver,
 	usageRecorder chat.UsageRecorder,
+	waitingChanged func(),
 ) (*chat.Manager, *chat.SSEHub, func(), string) {
 	var chatBackend chat.Backend
 
@@ -127,6 +128,7 @@ func wireChat(
 		ArchitectContextWindow:          architectContextWindow,
 		ArchitectResearch:               research,
 		ArchitectView:                   architectView,
+		WaitingChanged:                  waitingChanged,
 		ResolveProjectExec: func(rctx context.Context, project string) (chat.ProjectExecInfo, error) {
 			p, err := svc.GetProject(rctx, project)
 			if err != nil {

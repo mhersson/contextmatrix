@@ -70,7 +70,8 @@ func blueprintReason(kind string) string {
 }
 
 // Merge yields one item per stuck card, plus blueprint and playbook waits,
-// newest first. viewer is the identity whose waits are marked Mine.
+// newest first. viewer is the identity whose waits are marked Mine; an empty
+// viewer owns nothing.
 func Merge(s Snapshot, viewer string) []Item {
 	var items []Item
 
@@ -109,19 +110,19 @@ func Merge(s Snapshot, viewer string) []Item {
 
 		items = append(items, Item{
 			Kind: KindPlaybook, ID: pb.ID, Title: pb.Title, Reason: pb.Run.Reason,
-			Since: pb.Run.UpdatedAt, Mine: pb.Run.StartedBy == viewer,
+			Since: pb.Run.UpdatedAt, Mine: viewer != "" && pb.Run.StartedBy == viewer,
 		})
 	}
 
 	for _, b := range s.Blueprints {
 		items = append(items, Item{
 			Kind: KindBlueprint, ID: b.ID, Title: b.Title, Reason: blueprintReason(b.Kind),
-			Since: b.Since, Mine: b.Owner == viewer,
+			Since: b.Since, Mine: viewer != "" && b.Owner == viewer,
 		})
 	}
 
 	slices.SortFunc(items, func(a, b Item) int {
-		return cmp.Or(b.Since.Compare(a.Since), cmp.Compare(a.Kind, b.Kind), cmp.Compare(a.ID, b.ID))
+		return cmp.Or(b.Since.Compare(a.Since), cmp.Compare(a.Kind, b.Kind), cmp.Compare(a.Project, b.Project), cmp.Compare(a.ID, b.ID))
 	})
 
 	return items

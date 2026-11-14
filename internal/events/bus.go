@@ -48,9 +48,13 @@ const (
 	LLMChannelChanged EventType = "llm_channel.changed"
 
 	// SentinelChanged has no data. It has empty Project when Sentinel's status
-	// changes, and the card's Project and CardID when a run kind's result for
-	// the card is recorded.
+	// changes, and the card's Project and CardID when a heal on the card is
+	// opened or saved, or a run kind's result for the card is recorded.
 	SentinelChanged EventType = "sentinel.changed"
+
+	// AttentionChanged has empty Project and no data: the waiting list may
+	// hold another user's blueprint, so the event names nothing.
+	AttentionChanged EventType = "attention.changed"
 
 	SyncStarted   EventType = "sync.started"
 	SyncCompleted EventType = "sync.completed"
