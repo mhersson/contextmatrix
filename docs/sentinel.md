@@ -366,7 +366,9 @@ first matching rule wins:
    is neither settled nor charged. While the worker is queued or running,
    wait. A card in `done` settles `healed`. Otherwise, once the run settles
    (`causeKey`), a `done` stop settles `healed` and any other stop
-   `rerun_failed`. The rerun holds the card's claim and worker, so no later
+   `rerun_failed`, except a human's Stop (`human_stop`), which settles `closed`
+   as a takeover: the rerun did not fail, but its cost is charged. The rerun
+   holds the card's claim and worker, so no later
    rule applies to it. This holds for a rerun from `apply` and from
    `usage_wait` alike.
 2. The card is deleted, `done` or `not_planned`: close.
@@ -566,7 +568,8 @@ A card that has used its 3 usage-limit reruns parks instead.
 Once a heal's rerun ends (stage `rerun`, rule 1 of
 [the heal flow](#the-heal-flow); a run a human or `run_card` started since
 closes the heal instead), `settle` (`settle.go`) saves the heal at
-`healed` or `rerun_failed`, then charges the ledger one row for the rerun:
+`healed` or `rerun_failed`, or `closed` for a rerun a human stopped, then
+charges the ledger one row for the rerun:
 the card's cost with its subtasks' now, less the cost base taken at the
 relaunch, never below zero (`rerunCharge`), on the mode the rerun's run row
 records. A healed heal then forwards its fix while `healing` is on (see [Fix forward](#fix-forward)).

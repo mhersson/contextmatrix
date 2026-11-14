@@ -116,6 +116,31 @@ func TestSettleHealedChargesOnce(t *testing.T) {
 	}
 }
 
+func TestSettleAHumanStoppedRerunClosesItCharged(t *testing.T) {
+	e := newPassEnv(t)
+	ctx := context.Background()
+	relaunched := epoch.Add(-30 * time.Minute)
+
+	e.stopped("ALPHA-001", protocol.StopCauseKilled, func(c *board.Card, r *state.Run) {
+		c.WorkerStatus, c.TokenUsage = "killed", &board.TokenUsage{EstimatedCostUSD: 1.25}
+		r.StartedAt, r.Launch.Origin, r.HumanStop = relaunched.Add(time.Minute), state.OriginSentinel, true
+	})
+	e.openHeal(t, "ALPHA-001", state.StageRerun, relaunchedAt(relaunched, 1.00))
+
+	require.NoError(t, e.ctl.pass(ctx))
+
+	h := e.store.heal(1)
+	assert.Equal(t, state.StageClosed, h.Stage, "a human took the rerun over; it did not fail")
+	assert.Equal(t, reasonTakenOver, h.Reason)
+	assert.Equal(t, []ledgerRow{{HealID: 1, Mode: "endpoint", USD: 0.25, At: epoch}}, e.store.charges(), "what the rerun cost is charged")
+	assert.Empty(t, e.cards.logged, "closing writes no activity entry")
+
+	_, marked := markFor(h)
+	assert.False(t, marked, "the tile shows no failed rerun")
+	assert.Len(t, e.store.allHeals(), 1, "a human stop opens no next heal")
+	assert.True(t, e.store.run("alpha", "ALPHA-001").Decided)
+}
+
 func TestUsageRerunWaitsForResetThenResumes(t *testing.T) {
 	e := newPassEnv(t)
 	ctx := context.Background()

@@ -9,9 +9,9 @@ import (
 	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
-// settle ends the rerun's heal v holds at s's stage, healed or rerun_failed,
-// and charges what the rerun cost on its channel; a healed heal then forwards
-// its fix while healing is on. The stage is saved first: a save refused as
+// settle ends the rerun's heal v holds at s's stage, healed, rerun_failed, or
+// closed when a human stopped the rerun, and charges what the rerun cost on
+// its channel; a healed heal then forwards its fix while healing is on. The stage is saved first: a save refused as
 // stale charges and forwards nothing, so the next pass's settle does both once.
 func (c *Controller) settle(ctx context.Context, v *healView, s step) error {
 	h := &v.Heal

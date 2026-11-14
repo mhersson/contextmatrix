@@ -37,7 +37,7 @@ type step struct {
 	Kind          stepKind
 	RunKind       string // stepDispatch
 	Stage         string // stepAdvance and stepSettle
-	Reason        string // stepPark and stepClose
+	Reason        string // stepPark, stepClose, and stepSettle to closed
 	ChargeCeiling bool   // stepPark for a dispatch that never reported
 }
 
@@ -118,6 +118,9 @@ func rerunStep(v healView) step {
 		return waitStep()
 	case key == protocol.StopCauseDone:
 		return settleStep(state.StageHealed)
+	case key == CauseHumanStop:
+		// A human's Stop is a takeover, not a failed rerun, but the run still cost.
+		return step{Kind: stepSettle, Stage: state.StageClosed, Reason: reasonTakenOver}
 	}
 
 	return settleStep(state.StageRerunFailed)

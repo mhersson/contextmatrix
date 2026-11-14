@@ -135,6 +135,11 @@ func TestNextStep(t *testing.T) {
 		{"an MCP run after the relaunch", with(rerunStopped("done"), launchedFrom(state.OriginMCP), cardIs(board.StateReview, "completed")), closeHeal, nil},
 		{"a sentinel rerun settles", with(rerunStopped("done"), launchedFrom(state.OriginSentinel), cardIs(board.StateReview, "completed")), step{Kind: stepSettle, Stage: state.StageHealed}, nil},
 		{"a playbook rerun settles", with(rerunStopped("verify_parked"), launchedFrom(state.OriginPlaybook), cardIs(board.StateInProgress, "failed")), step{Kind: stepSettle, Stage: state.StageRerunFailed}, nil},
+		{
+			"a human stopped the rerun", with(rerunStopped("killed"), func(v *healView) { v.Run.HumanStop = true }, cardIs(board.StateInProgress, "killed")),
+			step{Kind: stepSettle, Stage: state.StageClosed},
+			[]string{reasonTakenOver},
+		},
 
 		// Rule 2: the card is gone or finished.
 		{"card deleted", with(deleted), closeHeal, nil},
@@ -238,7 +243,9 @@ func TestNextStep(t *testing.T) {
 			got.Reason = ""
 
 			assert.Equal(t, tt.want, got)
-			assert.Equal(t, tt.want.Kind == stepPark || tt.want.Kind == stepClose, reason != "", "reason %q", reason)
+
+			ends := tt.want.Kind == stepPark || tt.want.Kind == stepClose || tt.want.Stage == state.StageClosed
+			assert.Equal(t, ends, reason != "", "reason %q", reason)
 
 			for _, s := range tt.reasonHas {
 				assert.Contains(t, reason, s)
