@@ -62,6 +62,9 @@ describe('lineDiff', () => {
     ['to empty', 'a', '', [['del', 'a']]],
     ['insert in the middle', 'a\nc', 'a\nb\nc', [['same', 'a'], ['add', 'b'], ['same', 'c']]],
     ['both empty', '', '', []],
+    ['section body edge blanks', '\nold\nkeep\n', '\nnew\nkeep\n', [['del', 'old'], ['add', 'new'], ['same', 'keep']]],
+    ['blank-only text', '\n\n', 'a', [['add', 'a']]],
+    ['inner blanks kept', 'a\n\nb', 'a\n\nc', [['same', 'a'], ['same', ''], ['del', 'b'], ['add', 'c']]],
   ])('%s', (_name, before, after, want) => {
     expect(lineDiff(before, after).map((l) => [l.kind, l.text])).toEqual(want);
   });

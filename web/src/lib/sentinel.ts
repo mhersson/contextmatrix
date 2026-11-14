@@ -41,10 +41,20 @@ export interface DiffLine {
   text: string;
 }
 
-/** Line diff by longest common subsequence. Empty text has no lines. */
+/** Lines of text with leading and trailing blank lines dropped; a section body carries both. */
+function diffLines(text: string): string[] {
+  const lines = text.split('\n');
+  let start = 0;
+  let end = lines.length;
+  while (start < end && lines[start].trim() === '') start++;
+  while (end > start && lines[end - 1].trim() === '') end--;
+  return lines.slice(start, end);
+}
+
+/** Line diff by longest common subsequence. Blank edge lines and empty text have no lines. */
 export function lineDiff(before: string, after: string): DiffLine[] {
-  const a = before === '' ? [] : before.split('\n');
-  const b = after === '' ? [] : after.split('\n');
+  const a = diffLines(before);
+  const b = diffLines(after);
   const lcs: number[][] = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
   for (let i = a.length - 1; i >= 0; i--) {
     for (let j = b.length - 1; j >= 0; j--) {
