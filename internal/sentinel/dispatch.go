@@ -87,9 +87,12 @@ func (c *Controller) investigateInput(ctx context.Context, h *state.Heal) (proto
 		return none, nil, nil, err
 	}
 
-	in := protocol.InvestigateInput{
-		RunID: h.RunID, StopCause: investigateStopCause(h.Cause), Card: string(file),
-		Verify: protocolVerify(board.ResolveVerify(card.Verify, project.Verify)),
+	in := protocol.InvestigateInput{RunID: h.RunID, StopCause: investigateStopCause(h.Cause), Card: string(file)}
+
+	// Resolved as the fix checks resolve it, so the investigation sees the
+	// verify a fix is judged against.
+	if v := resolved(card.Verify, project.Verify); !v.IsZero() {
+		in.Verify = protocolVerify(&v)
 	}
 
 	return in, subFiles, sibFiles, nil

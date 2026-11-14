@@ -231,7 +231,7 @@ router hands the controller:
 
 | Kind          | Sends                                                                                                                                                                                                                       |
 | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `investigate` | `max_cost_usd` = `investigate_ceiling_usd`; the stopped run's ID and stop cause (none for `stalled` and `unknown`); the card file; its verify resolved card over project; its subtasks' card files; its unstarted siblings' card files |
+| `investigate` | `max_cost_usd` = `investigate_ceiling_usd`; the stopped run's ID and stop cause (none for `stalled` and `unknown`); the card file; its verify resolved card over project as the fix checks resolve it (`resolved`: a card verify with no content inherits the project's); its subtasks' card files; its unstarted siblings' card files |
 | `check`       | A trial of the verify the fix leaves, resolved as the card will store it (none when the fix keeps verify); the card's resolved verify command in force today; the fix's `## Sentinel` text                                    |
 
 Siblings are the cards of the playbook run holding the card, when that run is

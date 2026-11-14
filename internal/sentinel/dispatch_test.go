@@ -311,6 +311,40 @@ func TestDispatchInvestigateSendsTheCardItsSubtasksAndSiblings(t *testing.T) {
 	}
 }
 
+func TestDispatchInvestigateResolvesVerifyAsTheChecksDo(t *testing.T) {
+	tests := []struct {
+		name          string
+		card, project *board.VerifyConfig
+		want          *protocol.VerifyConfig
+	}{
+		{
+			"an empty env list on the card inherits the project's", &board.VerifyConfig{Env: []string{}},
+			&board.VerifyConfig{Command: "make test", Env: []string{"GOFLAGS"}},
+			&protocol.VerifyConfig{Command: "make test", Env: []string{"GOFLAGS"}},
+		},
+		{
+			"the card's fields win", &board.VerifyConfig{Command: "go test ./...", TimeoutSeconds: 300},
+			&board.VerifyConfig{Command: "make test", TimeoutSeconds: 600},
+			&protocol.VerifyConfig{Command: "go test ./...", TimeoutSeconds: 300},
+		},
+		{"no verify anywhere", nil, nil, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newDispatchEnv(t)
+			card := e.investigateCards("Make the build pass.\n")
+			card.Verify = tc.card
+			e.cards.projects["alpha"].Verify = tc.project
+			h := e.heal(state.StageInvestigate)
+
+			require.NoError(t, e.ctl.dispatchInvestigate(context.Background(), h, 2))
+
+			require.Len(t, e.backend.sent, 1)
+			assert.Equal(t, tc.want, e.backend.sent[0].Investigate.Verify, "the verify the fix checks compare against")
+		})
+	}
+}
+
 func TestDispatchInvestigateParksACardOverTheCap(t *testing.T) {
 	e := newDispatchEnv(t)
 	e.investigateCards(strings.Repeat("x", maxRunKindBody))
