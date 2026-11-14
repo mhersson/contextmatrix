@@ -24,7 +24,7 @@ export function PlaybookNavRow({ playbook: p, waiting, now }: { playbook: Playbo
         to={`/playbooks/${p.id}`}
         onClick={mobileSidebar.close}
         className={({ isActive }) =>
-          `sb-navrow sb-playbook-row${isActive ? ' active' : ''} flex items-center gap-2 pl-3 pr-1 py-1.5 rounded text-[13.5px]`
+          `sb-navrow sb-playbook-row${isActive ? ' active' : ''} flex items-center gap-2 pl-3 pr-0 py-1.5 rounded text-[13.5px]`
         }
       >
         <span

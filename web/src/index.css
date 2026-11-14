@@ -5231,6 +5231,8 @@ textarea {
 }
 .sb-pin--mark {
   pointer-events: none;
+  /* Cancels half of the row's 8px flex gap so the age-to-pin spacing is the session row's 4px. */
+  margin-left: -4px;
 }
 .sb-pin[aria-pressed='true'] {
   color: var(--orange);
