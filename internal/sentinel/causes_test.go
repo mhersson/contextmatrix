@@ -7,69 +7,60 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestCauseTableCoversEveryStopCause(t *testing.T) {
-	keys := []string{
-		protocol.StopCauseDone, protocol.StopCauseEnded, protocol.StopCauseReviewParked,
-		protocol.StopCauseGatesParked, protocol.StopCauseUsageLimit, protocol.StopCauseBudgetExceeded,
-		protocol.StopCauseContextLimit, protocol.StopCauseMaxTurns, protocol.StopCauseToolchainMissing,
-		protocol.StopCauseNoModel, protocol.StopCauseVerifyParked, protocol.StopCauseEmptySubtask,
-		protocol.StopCauseSplitOverflow, protocol.StopCauseError,
-		protocol.StopCauseKilled, protocol.StopCauseShutdown, protocol.StopCauseTimeout,
-		protocol.StopCauseInfrastructure,
-		CauseStalled, CauseUnknown, CauseHumanStop, CauseReviewCap, CauseForwardFixFailed,
-	}
-
-	for _, k := range keys {
-		n := 0
-
-		for _, row := range causeTable {
-			if row.Key == k {
-				n++
-			}
-		}
-
-		assert.Equal(t, 1, n, "rows for %q", k)
-	}
-
-	assert.Len(t, causeTable, len(keys), "a row with no listed key")
-}
-
+// TestResponseFor holds the one list of cause keys: every key the table must
+// map and its response. A new cause is one row in causeTable plus its row here.
 func TestResponseFor(t *testing.T) {
 	tests := []struct {
 		key, response string
 		verifyStopped bool
 	}{
-		{"toolchain_missing", RespInvestigateFix, true},
-		{"verify_parked", RespInvestigateFix, true},
-		{"empty_subtask", RespInvestigateFix, false},
-		{"max_turns", RespInvestigateFix, false},
-		{"context_limit", RespInvestigateFix, false},
-		{"review_parked", RespInvestigateFix, false},
-		{"review_cap", RespPark, false},
-		{"usage_limit", RespUsageRerun, false},
-		{"forward_fix_failed", RespPark, false},
-		{"budget_exceeded", RespPark, false},
-		{"no_model", RespPark, false},
-		{"split_overflow", RespPark, false},
-		{"gates_parked", RespInvestigatePark, false},
-		{"error", RespInvestigatePark, false},
-		{"shutdown", RespInvestigatePark, false},
-		{"timeout", RespInvestigatePark, false},
-		{"infrastructure", RespInvestigatePark, false},
-		{"killed", RespInvestigatePark, false},
-		{"ended", RespInvestigatePark, false},
-		{"stalled", RespInvestigatePark, false},
-		{"unknown", RespInvestigatePark, false},
-		{"done", RespIgnore, false},
-		{"human_stop", RespIgnore, false},
-		{"brand_new_cause", RespInvestigatePark, false},
+		{protocol.StopCauseToolchainMissing, RespInvestigateFix, true},
+		{protocol.StopCauseVerifyParked, RespInvestigateFix, true},
+		{protocol.StopCauseEmptySubtask, RespInvestigateFix, false},
+		{protocol.StopCauseMaxTurns, RespInvestigateFix, false},
+		{protocol.StopCauseContextLimit, RespInvestigateFix, false},
+		{protocol.StopCauseReviewParked, RespInvestigateFix, false},
+		{CauseReviewCap, RespPark, false},
+		{protocol.StopCauseUsageLimit, RespUsageRerun, false},
+		{CauseForwardFixFailed, RespPark, false},
+		{protocol.StopCauseBudgetExceeded, RespPark, false},
+		{protocol.StopCauseNoModel, RespPark, false},
+		{protocol.StopCauseSplitOverflow, RespPark, false},
+		{protocol.StopCauseGatesParked, RespInvestigatePark, false},
+		{protocol.StopCauseError, RespInvestigatePark, false},
+		{protocol.StopCauseShutdown, RespInvestigatePark, false},
+		{protocol.StopCauseTimeout, RespInvestigatePark, false},
+		{protocol.StopCauseInfrastructure, RespInvestigatePark, false},
+		{protocol.StopCauseKilled, RespInvestigatePark, false},
+		{protocol.StopCauseEnded, RespInvestigatePark, false},
+		{CauseStalled, RespInvestigatePark, false},
+		{CauseUnknown, RespInvestigatePark, false},
+		{protocol.StopCauseDone, RespIgnore, false},
+		{CauseHumanStop, RespIgnore, false},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.key, func(t *testing.T) {
+			rows := 0
+
+			for _, row := range causeTable {
+				if row.Key == tt.key {
+					rows++
+				}
+			}
+
+			assert.Equal(t, 1, rows, "one table row per key")
+
 			row := responseFor(tt.key)
 			assert.Equal(t, tt.response, row.Response)
 			assert.Equal(t, tt.response == RespPark, row.Reason != "")
 			assert.Equal(t, tt.verifyStopped, row.VerifyStopped)
 		})
 	}
+
+	assert.Len(t, causeTable, len(tests), "a table row with no listed key")
+
+	t.Run("a key the table lacks reads as unknown", func(t *testing.T) {
+		assert.Equal(t, responseFor(CauseUnknown), responseFor("brand_new_cause"))
+	})
 }
