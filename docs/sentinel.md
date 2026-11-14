@@ -67,9 +67,11 @@ The gate uses the agent's effective LLM channel mode: the current mode, or
   its ceiling, and each heal rerun still going on the endpoint, at its cost so
   far (the card's cost with its subtasks', less the cost base taken at the
   relaunch). The pass decides the gate for each heal in turn and counts a run
-  kind's ceiling as soon as it sends one, so one pass cannot dispatch past the
-  cap. A rerun counts only what it has cost so far, so one started under the
-  cap can finish over it.
+  kind's ceiling as soon as it sends one. A dispatch is admitted while the
+  counted spend is below the cap, so the last one admitted can take the total
+  up to one ceiling over it. A rerun reserves nothing at launch and counts only
+  what it has cost so far, so it is bounded by the card's own budget, and one
+  started under the cap can finish over it.
 - **Claude Code:** cost does not count. Open while every stored subscription
   window whose reset time is still ahead has a status other than `rejected`
   and a utilization below `headroom`, else
@@ -450,7 +452,9 @@ A run kind that never reported parks its heal; the same save marks the
 dispatch failed, and the dispatch's ceiling is then charged. A parked or closed
 heal's run kind that never reported is marked failed and charged its ceiling
 the same way, keeping the heal's stage. A late report matches no dispatch, so
-the ceiling is the only charge.
+the ceiling is the only charge, except when the card's open heal has sent the
+same kind again since the expiry. The agent's 202 carries no run ID, so such a
+late report can answer that new dispatch instead.
 
 ### Activity entries
 
