@@ -43,6 +43,7 @@ export interface Card {
   model_coder?: string;
   model_reviewer?: string;
   best_of_n?: number;
+  sentinel?: SentinelMark;
   /** Mob discussion seats: 0/absent = off, 2..mob_max_participants = on. */
   mob_participants?: number;
   /** When true, ignore cost and pick the most capable model in the card's tier. */
@@ -242,7 +243,8 @@ export type EventType =
   | 'playbook.deleted'
   | 'jira_import.progress'
   | 'jira_import.done'
-  | 'llm_channel.changed';
+  | 'llm_channel.changed'
+  | 'sentinel.changed';
 
 export interface SyncResolution {
   path: string;
@@ -863,6 +865,110 @@ export interface LLMChannelView {
   /** Backends not listed in `claude_code.backends`: they stay on the endpoint, or with none configured (`none`) cannot run. */
   exceptions: { backend: 'agent' | 'chat' | 'architect'; runs_on: 'endpoint' | 'none' }[];
   usage: LLMChannelUsage[];
+  updated_at?: string;
+  updated_by?: string;
+}
+
+export type SentinelState = 'off' | 'watching' | 'working' | 'paused' | 'not_running';
+
+/** Sentinel's live status. `mode` is empty while it is off; `windows` is sent only on Claude Code. */
+export interface SentinelStatus {
+  enabled: boolean;
+  state: SentinelState;
+  reason?: string;
+  mode: LLMChannel | '';
+  healing: number;
+  healed_today: number;
+  spent_today_usd: number;
+  daily_cap_usd: number;
+  headroom: number;
+  windows?: Pick<LLMChannelUsage, 'window' | 'utilization'>[];
+}
+
+export interface SentinelSettings {
+  enabled: boolean;
+  healing: boolean;
+  friction: boolean;
+  daily_cap_usd: number;
+  investigate_ceiling_usd: number;
+  headroom: number;
+}
+
+/** Shape of GET /api/projects/{project}/cards/{id}/sentinel: the card's last run facts (null when this instance launched none), its heal and forward rows newest first, and its friction findings. */
+export interface SentinelCardView {
+  run: SentinelRunView | null;
+  heals: SentinelHealView[];
+  findings: SentinelFindingView[];
+}
+
+export interface SentinelVerify {
+  command?: string;
+  timeout_seconds?: number;
+  env?: string[];
+}
+
+export interface SentinelChangeView {
+  section_before: string;
+  section_after: string;
+  verify_before?: SentinelVerify;
+  verify_after?: SentinelVerify;
+  retired: string[];
+  fresh: boolean;
+}
+
+/** One heal or forward row, newest first. `diagnosis` is empty until the investigation answers; `dropped` lists why vetting dropped the fix's section, empty when it did not. */
+export interface SentinelHealView {
+  id: number;
+  kind: 'heal' | 'forward';
+  cause: string;
+  stage: string;
+  reason: string;
+  diagnosis: string;
+  source_card?: string;
+  change?: SentinelChangeView;
+  dropped: string[];
+  spend_usd: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type SentinelFindingKind =
+  | 'guidance'
+  | 'code'
+  | 'ecosystem'
+  | 'card_advice'
+  | 'project_verify'
+  | 'hard_card';
+
+export interface SentinelFindingView {
+  kind: SentinelFindingKind;
+  title: string;
+  text: string;
+  evidence: string;
+  created_at: string;
+}
+
+export interface SentinelRunView {
+  origin: 'rest' | 'mcp' | 'playbook' | 'sentinel';
+  autonomous: boolean;
+  attempts: number;
+  max_attempts: number;
+  started_at: string;
+  stop_cause?: string;
+  stopped_at?: string;
+  human_stop: boolean;
+}
+
+/** Read-only mark on a card Sentinel touched. */
+export interface SentinelMark {
+  action: 'healing' | 'healed' | 'edited' | 'parked';
+  label: string;
+}
+
+/** Shape of GET /api/sentinel and PUT /api/admin/sentinel. */
+export interface SentinelInfo {
+  status: SentinelStatus;
+  settings: SentinelSettings;
   updated_at?: string;
   updated_by?: string;
 }

@@ -87,6 +87,7 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
                 { label: 'Credentials', path: '/admin/credentials' },
                 { label: 'Chats', path: '/admin/chats' },
                 { label: 'Model selection', path: '/admin/model-selection' },
+                { label: 'Sentinel', path: '/admin/sentinel' },
               ].map((item) => (
                 <button
                   key={item.path}

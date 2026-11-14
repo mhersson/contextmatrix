@@ -136,7 +136,18 @@ type PatchCardInput struct {
 	// UpsertSection replaces or appends one H2 section without resending the
 	// body. Mutually exclusive with Body.
 	UpsertSection *SectionPatch
+	// ExpectUpdated, when set, refuses the write with ErrCardChanged unless the
+	// stored card's Updated equals it. In-process only; REST and MCP never set it.
+	ExpectUpdated *time.Time
+	// ExpectBody, when set, refuses the write with ErrCardChanged unless the
+	// stored card's Body equals it: a board-repo reload can change the body
+	// without changing Updated. In-process only; REST and MCP never set it.
+	ExpectBody *string
 }
+
+// ErrCardChanged is returned when a guarded write finds the card newer than
+// the copy the caller read.
+var ErrCardChanged = errors.New("card changed since it was read")
 
 // SectionPatch targets one "## <Heading>" block. Heading carries no "## "
 // prefix and must be a single line.
@@ -273,6 +284,7 @@ func (s *CardService) ListCards(ctx context.Context, project string, filter stor
 
 	s.enrichPlaybookMembership(ctx, project, cards...)
 	s.enrichParkResets(ctx, project, cards...)
+	s.enrichSentinelMarks(ctx, project, cards...)
 
 	return cards, nil
 }
@@ -457,6 +469,7 @@ func (s *CardService) ListCardsPage(
 
 	s.enrichPlaybookMembership(ctx, project, result.Items...)
 	s.enrichParkResets(ctx, project, result.Items...)
+	s.enrichSentinelMarks(ctx, project, result.Items...)
 
 	// Populate Total only on the first page. Derived from the UN-filtered
 	// project size so it survives filter changes between pages; also lets
@@ -487,6 +500,7 @@ func (s *CardService) GetCard(ctx context.Context, project, id string) (*board.C
 	s.enrichSubtaskCost(ctx, card)
 	s.enrichPlaybookMembership(ctx, project, card)
 	s.enrichParkResets(ctx, project, card)
+	s.enrichSentinelMarks(ctx, project, card)
 
 	return card, nil
 }
@@ -1131,6 +1145,14 @@ func validatePatchFieldLimits(input PatchCardInput) error {
 // the fields present in input.
 func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput) func(*board.Card, *board.ProjectConfig) error {
 	return func(card *board.Card, cfg *board.ProjectConfig) error {
+		if input.ExpectUpdated != nil && !card.Updated.Equal(*input.ExpectUpdated) {
+			return ErrCardChanged
+		}
+
+		if input.ExpectBody != nil && card.Body != *input.ExpectBody {
+			return ErrCardChanged
+		}
+
 		// Verify agent ownership before applying any mutations so a rejected
 		// call produces no side effects. Empty AgentID skips the check for
 		// backward-compatible callers that do not supply an agent ID.
@@ -1728,6 +1750,9 @@ func (s *CardService) applyCardMutation(
 
 	oldState := card.State
 	oldPhase := card.Phase
+	workerWrite := opts.commitAgentID != "" &&
+		!strings.HasPrefix(opts.commitAgentID, "human:") &&
+		s.OwnsClaim(card, opts.commitAgentID)
 
 	if err := apply(card, cfg); err != nil {
 		s.writeMu.Unlock()
@@ -1807,6 +1832,10 @@ func (s *CardService) applyCardMutation(
 	card, err = s.commitAndRollbackOrReturn(ctx, project, id, card, snapshot, opts, stateChanged)
 	if err != nil {
 		return nil, err
+	}
+
+	if workerWrite {
+		s.refreshEditSnapshot(ctx, card)
 	}
 
 	if card.Phase != oldPhase {

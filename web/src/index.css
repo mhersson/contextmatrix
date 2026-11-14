@@ -56,6 +56,7 @@
   /* Layout */
   --col-width: 280px;
   --rail-collapsed-width: 340px;
+  --rail-collapsed-wide-width: 420px;
   --rail-expanded-width: 600px;
 }
 
@@ -743,10 +744,10 @@ textarea {
 /* Right-rail tab strip - mono labels, sticky bg, aqua underline on the
    active tab. Mirrors the design mock's `.rail-tab` / `.rail-expand`. */
 .bf-rail-tab {
-  padding: 10px 11px;
+  padding: 10px 8px;
   font-size: 12px;
   font-family: var(--font-mono);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   color: var(--grey1);
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
@@ -755,7 +756,7 @@ textarea {
     border-color 0.12s;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   flex-shrink: 0;
   white-space: nowrap;
   background: transparent;
@@ -785,7 +786,7 @@ textarea {
   flex-shrink: 0;
 }
 .bf-rail-expand {
-  padding: 0 12px;
+  padding: 0 10px;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--grey1);
@@ -5663,6 +5664,27 @@ textarea {
 .llm-sub b {
   color: var(--grey2);
   font-weight: 500;
+}
+.sentinel-strip__label {
+  flex-shrink: 0;
+}
+/* The reason is never truncated: it wraps right-aligned inside the pill. */
+.sentinel-strip__status {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.sentinel-tone--active {
+  color: var(--purple);
+}
+.sentinel-tone--paused {
+  color: var(--yellow);
+}
+.sentinel-tone--stopped {
+  color: var(--red);
 }
 .llm-pop {
   position: absolute;

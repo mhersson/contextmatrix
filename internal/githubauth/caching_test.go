@@ -23,8 +23,15 @@ type fakeProvider struct {
 	failErr error
 
 	repoCalls   atomic.Int32
+	readCalls   atomic.Int32
 	lastRepo    string
 	repoFailErr error // returned by GenerateRepoToken when non-nil
+}
+
+func (f *fakeProvider) GenerateRepoReadToken(_ context.Context, repo string) (string, time.Time, error) {
+	n := f.readCalls.Add(1)
+
+	return fmt.Sprintf("read-%s-%d", repo, n), f.expiry, nil
 }
 
 func (f *fakeProvider) GenerateRepoToken(_ context.Context, repo string) (string, time.Time, error) {
@@ -278,4 +285,25 @@ func TestCachingProvider_GenerateRepoToken_DoesNotCacheNonExpiringToken(t *testi
 	defer c.repoMu.Unlock()
 
 	assert.Empty(t, c.repoTokens)
+}
+
+func TestCachingProvider_KeepsReadAndWriteTokensApart(t *testing.T) {
+	inner := &fakeProvider{expiry: time.Now().Add(45 * time.Minute)}
+	cp := NewCachingProvider(inner)
+	ctx := context.Background()
+
+	write, _, err := cp.GenerateRepoToken(ctx, "widgets")
+	require.NoError(t, err)
+
+	read, _, err := cp.GenerateRepoReadToken(ctx, "widgets")
+	require.NoError(t, err)
+
+	assert.NotEqual(t, write, read)
+	assert.Equal(t, int32(1), inner.repoCalls.Load())
+	assert.Equal(t, int32(1), inner.readCalls.Load())
+
+	again, _, err := cp.GenerateRepoReadToken(ctx, "Widgets")
+	require.NoError(t, err)
+	assert.Equal(t, read, again, "a fresh read token is reused")
+	assert.Equal(t, int32(1), inner.readCalls.Load())
 }

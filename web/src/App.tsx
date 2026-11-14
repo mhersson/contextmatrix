@@ -6,6 +6,7 @@ import { ProjectsProvider } from './hooks/useProjects';
 import { ProjectSummariesProvider } from './hooks/ProjectSummariesProvider';
 import { ThemeProvider } from './hooks/useTheme';
 import { AboutProvider } from './hooks/useAbout';
+import { SentinelProvider } from './hooks/useSentinel';
 import { AuthProvider } from './hooks/useAuth';
 import { ToastContext, useToastState } from './hooks/useToast';
 import { MobileSidebarProvider, useMobileSidebar } from './context/MobileSidebarContext';
@@ -43,6 +44,9 @@ const AdminChatsPage = lazy(() =>
 );
 const AdminModelSelectionPage = lazy(() =>
   import('./components/Admin').then((m) => ({ default: m.AdminModelSelectionPage }))
+);
+const AdminSentinelPage = lazy(() =>
+  import('./components/Admin').then((m) => ({ default: m.AdminSentinelPage }))
 );
 const AdminGuard = lazy(() =>
   import('./components/Admin').then((m) => ({ default: m.AdminGuard }))
@@ -84,6 +88,7 @@ function AppInner() {
   return (
     <ToastContext.Provider value={toastState}>
       <SSEProvider>
+        <SentinelProvider>
         <SyncProvider>
           <ProjectsProvider>
             <ProjectSummariesProvider>
@@ -112,6 +117,7 @@ function AppInner() {
                           <Route path="admin/credentials" element={<AdminGuard><AdminCredentialsPage /></AdminGuard>} />
                           <Route path="admin/chats" element={<AdminGuard><AdminChatsPage /></AdminGuard>} />
                           <Route path="admin/model-selection" element={<AdminGuard><AdminModelSelectionPage /></AdminGuard>} />
+                          <Route path="admin/sentinel" element={<AdminGuard><AdminSentinelPage /></AdminGuard>} />
                           <Route path="*" element={<NotFound />} />
                         </Routes>
                       </Suspense>
@@ -133,6 +139,7 @@ function AppInner() {
             </ProjectSummariesProvider>
           </ProjectsProvider>
         </SyncProvider>
+        </SentinelProvider>
       </SSEProvider>
     </ToastContext.Provider>
   );

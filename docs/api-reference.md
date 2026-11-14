@@ -129,6 +129,9 @@ POST   /api/admin/selector/preview                          # picks and panel se
 
 GET    /api/llm-channel                                     # LLM channel mode, work in flight per mode, newest subscription usage readings (any session in multi mode)
 PUT    /api/admin/llm-channel                               # switch the LLM channel mode (both auth modes; admin-gated only in multi)
+GET    /api/sentinel                                        # Sentinel status and settings (any session in multi mode)
+PUT    /api/admin/sentinel                                  # replace Sentinel settings (both auth modes; admin-gated only in multi)
+GET    /api/projects/{project}/cards/{id}/sentinel          # the card's last run facts as Sentinel sees them
 
 GET    /api/events                                     ?project=             # SSE stream of board events
 GET    /healthz                                        # liveness probe (shallow)
@@ -1107,6 +1110,132 @@ rewrites `updated_at` and `updated_by`.
 `multi` mode), `409 BAD_REQUEST` (the mode's side is not configured),
 `422 VALIDATION_ERROR` (a mode other than `endpoint` or `claude_code`).
 
+### GET /api/sentinel
+
+Sentinel's status and stored settings.
+
+```json
+{
+  "status": {
+    "enabled": true,
+    "state": "watching",
+    "mode": "endpoint",
+    "healing": 0,
+    "healed_today": 0,
+    "spent_today_usd": 0,
+    "daily_cap_usd": 20,
+    "headroom": 0.85
+  },
+  "settings": {
+    "enabled": true,
+    "healing": true,
+    "friction": true,
+    "daily_cap_usd": 20,
+    "investigate_ceiling_usd": 2,
+    "headroom": 0.85
+  },
+  "updated_at": "2026-11-13T10:00:00Z",
+  "updated_by": "human:alice"
+}
+```
+
+`status.state` is `off`, `watching`, `working`, `paused` or `not_running`;
+`reason` explains `paused` and `not_running`, and `windows` lists the
+subscription usage windows in `claude_code` mode. Without an execution backend
+there is no controller: the status is `off` while Sentinel is off and
+`not_running` (`no execution backend`) once it is on. Before any save,
+`settings` are the defaults and `updated_at` and `updated_by` are omitted.
+
+### PUT /api/admin/sentinel
+
+Replaces all settings with the request body (the `settings` object above).
+Admin-only in `multi` mode, open in `none` mode. Saves them in ops.db, wakes
+the controller, publishes `sentinel.changed` and returns **200 OK** with the
+`GET` body. A save that turns `enabled` or `healing` on also marks every run
+Sentinel has not looked at yet as decided, so only runs launched after it are
+considered. `updated_by` is the caller's identity, or `human:web` without one.
+
+**Errors:** `400 BAD_REQUEST` (malformed JSON), `403 FORBIDDEN` (non-admin in
+`multi` mode), `422 VALIDATION_ERROR` (a non-finite number, `daily_cap_usd`
+outside 0-10000, `investigate_ceiling_usd` not above 0 or over 100, or
+`headroom` not above 0 or over 1).
+
+### GET /api/projects/{project}/cards/{id}/sentinel
+
+The last run this instance launched for the card (`run` is null when there is
+none), the card's heals and the friction findings stored for it.
+
+```json
+{
+  "run": {
+    "origin": "rest",
+    "autonomous": true,
+    "attempts": 1,
+    "max_attempts": 2,
+    "started_at": "2026-11-13T10:00:00Z",
+    "stop_cause": "usage_limit",
+    "stopped_at": "2026-11-13T11:00:00Z",
+    "human_stop": false
+  },
+  "heals": [
+    {
+      "id": 7,
+      "kind": "heal",
+      "cause": "gave_up",
+      "stage": "healed",
+      "reason": "",
+      "diagnosis": "The criteria were vague.",
+      "source_card": "",
+      "change": {
+        "section_before": "",
+        "section_after": "...",
+        "verify_before": { "command": "make test" },
+        "verify_after": { "command": "make test" },
+        "retired": ["PROJ-002"],
+        "fresh": false
+      },
+      "dropped": [],
+      "spend_usd": 0.42,
+      "created_at": "2026-11-13T10:00:00Z",
+      "updated_at": "2026-11-13T10:05:00Z"
+    }
+  ],
+  "findings": [
+    {
+      "kind": "guidance",
+      "title": "...",
+      "text": "...",
+      "evidence": "...",
+      "created_at": "2026-11-13T10:05:00Z"
+    }
+  ]
+}
+```
+
+`origin` is `rest`, `mcp`, `playbook` or `sentinel`. `attempts` counts heal
+reruns since the last UI or REST Run; `max_attempts` is
+the per-card cap. `stop_cause` and `stopped_at` are omitted until the run's
+terminal status arrives (and `stop_cause` when the cause is unknown).
+
+`heals` is newest first and is `[]` when there are none. `kind` is `heal`, or
+`forward` for a fix applied from another card's heal (`source_card` names it;
+omitted otherwise). `diagnosis` is empty until the investigation answers.
+`change` is omitted until the heal changes the card; `section_before` and
+`section_after` are the card's `## Sentinel` section, `verify_before` and
+`verify_after` are omitted when the card had no verify config, `retired` lists
+the retired subtask IDs and `fresh` says the rerun starts fresh. `dropped`
+lists why the fix's proposed `## Sentinel` section failed the section checks
+and was not written: the section checks' violations, such as
+`introduces <entry>` (see [Sentinel](sentinel.md#dropping-a-section)). It is
+`[]` when nothing was dropped. `spend_usd` is the heal's recorded spend.
+
+`findings` is newest heal first and is `[]` when there are none. Sentinel
+stores them only while the friction analysis switch is on; switching it off
+stores no new ones and keeps those already stored, which are still returned. `kind` is `guidance`,
+`code`, `ecosystem`, `card_advice`, `project_verify` or `hard_card`.
+`project_verify` findings are returned to admins in `multi` mode and to every
+caller in `none` mode.
+
 ## Health Endpoints
 
 ### GET /healthz
@@ -2000,7 +2129,8 @@ originate from a shared-board pull carry `data.source: "sync"`.
 | `sync.error`          | `{trigger, repo, error}`                                                                                                                                                            | Cycle failed                                                                           |
 | `jira_import.progress` | `{import_id, key, status, project, card_id, reason}`                                                                                                                                | One selected issue of a Jira import finished; the event's own `project` is empty       |
 | `jira_import.done`    | `{import_id, status, playbook_id, results, error}`                                                                                                                                  | A Jira import finished or stopped; the event's own `project` is empty                  |
-| `llm_channel.changed` | `{mode}` (`project` empty)                                                                                                                                                          | The LLM channel mode was switched, or a worker reported subscription usage (a subscription `report_usage`, a chat usage frame, a usage-limit frame, or `report_parked` naming a window and a reset time), whether or not it replaced the stored reading |
+| `llm_channel.changed` | `{mode}` (`project` empty)                                                                                                                                                          | The LLM channel mode was switched, or a worker reported subscription usage (a subscription `report_usage`, a chat usage frame, a usage-limit frame, `report_parked` naming a window and a reset time, or a recorded run-kind status carrying windows), whether or not it replaced the stored reading |
+| `sentinel.changed`    | none (`project` empty, or the card's `project` and `card_id`)                                                                                                                       | Sentinel's status changed (`project` empty), or a run kind's result for the card was recorded |
 
 A shared-board pull publishes per-card `card.created` / `card.updated` /
 `card.state_changed` / `card.deleted` diffs (with `source: "sync"`) only when
@@ -2530,13 +2660,64 @@ or on `dropped`, and stops reconnecting after `terminal`.
 Task-backend callback reporting a worker-status transition.
 
 ```json
-{ "card_id": "PROJ-042", "project": "my-project", "worker_status": "running", "message": "container started" }
+{ "card_id": "PROJ-042", "project": "my-project", "worker_status": "running", "message": "container started", "run_id": "r1" }
 ```
+
+`run_id` is the backend's id for the run, present on every status of an
+admitted run. `stop_cause` is present on terminal statuses only; an absent or
+unknown value means unknown. CM records the cause only for the run whose
+`running` status carried the same `run_id`.
 
 `worker_status` must be `running`, `failed`, or `completed`; the server-only
 `queued` and `killed` are 422 `VALIDATION_ERROR`. `message`, when present,
 is appended to the card's activity log. Returns **200** with the updated
 card; 400 `BAD_REQUEST` on malformed JSON.
+
+A status with `kind` set is a Sentinel run kind's terminal status. CM routes
+it on `kind` before it touches the card: it never updates the card, its
+activity log or its run row. It returns **200** with `{}`, also for a repeat
+of a recorded `run_id`, which changes nothing; 500 when Sentinel cannot
+record it, so the backend's retry delivers it again.
+
+```json
+{
+  "card_id": "PROJ-042", "project": "my-project", "worker_status": "completed",
+  "run_id": "PROJ-042-k3j9x2qa", "stop_cause": "done", "kind": "investigate",
+  "result": { "investigate": { "diagnosis": "...", "cause": "card",
+    "fix": { "verify": { "command": "go test ./...", "timeout_seconds": 900 } },
+    "findings": [{ "kind": "card_advice", "text": "...", "evidence": "..." }] } },
+  "usage": [{ "model": "vendor/model-a", "input_tokens": 41210, "output_tokens": 2210,
+    "cache_read_tokens": 0, "cache_creation_tokens": 0, "cost_usd": 0.1534 }]
+}
+```
+
+| Field           | Rule                                                                                                         |
+| --------------- | ------------------------------------------------------------------------------------------------------------ |
+| `kind`          | `check` or `investigate`                                                                                     |
+| `worker_status` | `completed` or `failed`; a run kind sends no `running` status                                                |
+| `result`        | Only on `completed` with `stop_cause` `done`; holds exactly the member `kind` names, `check` or `investigate` |
+| `usage`         | At most 16 rows, one per model: `model` plus the token counts, `cost_usd`, `cost_basis` and `subscription` of a usage frame |
+
+A status that breaks any rule or limit is 422 `VALIDATION_ERROR`, and nothing
+in it is recorded:
+
+| Item                                              | Limit                                                                                         |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Request body                                      | 1 MiB                                                                                         |
+| `investigate.diagnosis`                           | 32 KiB                                                                                        |
+| `investigate.cause`                               | `card`, `model`, `environment` or `ecosystem`                                                 |
+| `investigate.fix.section`                         | 16 KiB                                                                                        |
+| `investigate.fix.retire_subtasks`, `forward_to`   | 50 IDs each                                                                                   |
+| `investigate.findings`                            | 50                                                                                            |
+| A finding's `kind`                                | `guidance`, `code`, `card_advice`, `project_verify`, `hard_card` or `ecosystem`               |
+| A finding's `title`, `text`, `evidence`           | 200 bytes, 16 KiB, 4 KiB                                                                      |
+| `check.candidates`                                | 32 entries of at most 512 bytes                                                               |
+| `check.absent_from_repo`                          | 64 entries of at most 512 bytes                                                               |
+| `check.trial`, when set                           | `finished`, `timeout`, `toolchain`, `infrastructure` or `rejected`                            |
+| A `usage` row                                     | Token counts and `cost_usd` non-negative, and the rows' costs a finite total; each `subscription` window named, with a non-negative `utilization` |
+
+What Sentinel does with an accepted status is in
+[Sentinel](sentinel.md#run-kind-results).
 
 ### GET /api/v1/cards/{project}/{id}/autonomous
 

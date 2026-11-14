@@ -17,8 +17,9 @@ A card in `todo` shows one run button in the card panel header. The
 | checked         | **Run Auto** | full lifecycle, no gates               |
 | unchecked       | **Run HITL** | per-card chat with approval gates      |
 
-Runs are human-only and need an enabled task backend. Every run gets a fresh
-container, the card's generated branch, and a claim held by the worker.
+Runs are human-only, apart from [Sentinel reruns](#sentinel-reruns), and need
+an enabled task backend. Every run gets a fresh container, the card's
+generated branch, and a claim held by the worker.
 
 The `run_card` MCP tool starts the same run as **Run Auto** and is human-only.
 It sets a non-autonomous `todo` card autonomous first, so HITL runs start only
@@ -174,7 +175,8 @@ subscription instead of calling the endpoint (see
   one activity-log note per cleared pin; the
   tier ladder then picks. The note comes from the agent; CM writes none.
 - **Usage limit.** A run that hits the subscription's usage limit parks (see
-  [Parked cards](#parked-cards)).
+  [Parked cards](#parked-cards)); Sentinel can rerun it after the reset (see
+  [Sentinel reruns](#sentinel-reruns)).
 - **Models.** Automatic picks, Best-of-N and mob seats included, draw on the
   Claude Code catalog (see
   [model selection](model-selection.md#the-claude-code-catalog)).
@@ -208,7 +210,41 @@ card; the next `queued` replaces `parked`. A run parks when:
   `queued` clears it. The card panel badge and the board card's hover card
   then read "Parked - usage limit, resets Thu 14:00" (local time), and
   "Parked - usage limit reset Thu 14:00" once that time has passed. Nothing
-  falls back to the endpoint; rerun the card after the reset.
+  falls back to the endpoint; rerun the card after the reset, or let Sentinel
+  rerun it (see [Sentinel reruns](#sentinel-reruns)).
+
+## Sentinel reruns
+
+With [Sentinel](sentinel.md) enabled and its healing on, an autonomous run
+this instance launched that stops short of done can be fixed and rerun
+without a human (which stop causes qualify is in
+[the cause table](sentinel.md#the-cause-table)):
+
+- Sentinel reruns a card to fix it at most 2 times. A Run from the UI or REST
+  resets the count; `run_card` over MCP, a playbook step and Sentinel's own
+  rerun keep it.
+- A run a Claude Code usage limit stopped is rerun to resume where it stopped,
+  with nothing written to the card, after the limit resets and while
+  Sentinel's budget allows: on Claude Code, while every subscription window
+  is under Sentinel's headroom threshold. A card gets at most 3 such reruns,
+  reset and kept like the 2 above, which they do not use.
+- A run a human stopped (Stop, Stop All) is never rerun.
+- The rerun starts fresh, its saved phase cleared so the agent plans again,
+  when Sentinel changed the card's `## Sentinel` section or retired subtasks
+  and no subtask has started yet. Otherwise, including when it changed only
+  verify or nothing on the card, the rerun resumes where the run stopped, on
+  the work branch with its started work, and reads the section as card text.
+- The card is moved back to `todo` first. Outside a playbook run it then runs
+  as Run Auto runs it. Inside one, Sentinel reruns it through the playbook
+  run's Stop then Run, and only while the run is still on that card (see
+  [playbooks](playbooks.md#run-and-stop)); a card an active playbook run holds
+  is never rerun on its own. When a card has no such route, Sentinel leaves it
+  for a human before writing any fix. A fix already written stays on the card
+  when a subtask cannot be retired or the rerun itself is refused; the card is
+  then left for a human too.
+- Each rerun writes a `sentinel` activity entry naming what changed, or that
+  it reruns after a usage limit. A card Sentinel leaves for a human gets one
+  saying why.
 
 ## Worker status
 
@@ -263,6 +299,8 @@ first run in a repository.
   the stop is left alone.
 - The runner never retries on its own. After a failed card, fix the cause,
   then press Stop and Run: Stop ends the `waiting` run and Run resumes it.
+  Sentinel does this itself for a card it can fix (see
+  [Sentinel reruns](#sentinel-reruns)).
 - A card with unmet dependencies holds the run at `waiting` with the reason
   `dependencies not met: blocked by <ID>`. It does not continue by itself:
   once the blockers are `done`, press Stop and then Run to resume it.

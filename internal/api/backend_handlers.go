@@ -13,6 +13,8 @@ import (
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/githubauth"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/sentinel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -58,10 +60,12 @@ type ClaudeCodeCatalog interface {
 	ContextWindow(ctx context.Context, name string) int
 }
 
-// CardRunRecorder stores the LLM channel mode each card run started in.
+// CardRunRecorder stores each card run's start facts, reported status and human stop.
 // Implemented by opstore/sqlite.Store.
 type CardRunRecorder interface {
-	OpenCardRun(ctx context.Context, project, cardID, mode string, at time.Time) error
+	OpenCardRun(ctx context.Context, project, cardID, mode string, at time.Time, facts state.LaunchFacts) error
+	RecordRunStatus(ctx context.Context, project, cardID, runID, status, stopCause string, at time.Time) error
+	MarkHumanStop(ctx context.Context, project, cardID string) error
 }
 
 // blacklistReader returns the set of OpenRouter slugs that must never be
@@ -136,6 +140,9 @@ type backendHandlers struct {
 
 	// cardRuns records each run's mode; nil skips the record.
 	cardRuns CardRunRecorder
+
+	// runKinds takes run kinds' statuses; nil without a Sentinel controller.
+	runKinds *sentinel.Controller
 
 	// instanceTokenProvider mints the instance-scoped git credential attached
 	// to task-skills-source responses. Unlike providerForProject (per-project,

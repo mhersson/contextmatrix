@@ -892,3 +892,123 @@ func TestClientHealth_OlderBackendHasNoBuild(t *testing.T) {
 	assert.Nil(t, info.Build)
 	assert.Empty(t, info.WorkerImageRevision)
 }
+
+func TestRunKindMapsStatuses(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  int
+		wantErr error
+	}{
+		{"accepted", http.StatusAccepted, nil},
+		{"agent without run kinds", http.StatusNotFound, ErrRunKindsUnavailable},
+		{"limit reached", http.StatusTooManyRequests, ErrRunKindBusy},
+		{"draining", http.StatusServiceUnavailable, ErrRunKindBusy},
+		{"invalid field", http.StatusBadRequest, ErrRunKindRejected},
+		{"too large", http.StatusRequestEntityTooLarge, ErrRunKindRejected},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var received protocol.RunKindPayload
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "/run-kind", r.URL.Path)
+				body, _ := io.ReadAll(r.Body)
+				_ = json.Unmarshal(body, &received)
+
+				w.WriteHeader(tt.status)
+
+				if tt.status == http.StatusAccepted {
+					_ = json.NewEncoder(w).Encode(protocol.SuccessResponse{OK: true})
+
+					return
+				}
+
+				_ = json.NewEncoder(w).Encode(protocol.ErrorResponse{Code: "invalid_field", Message: "git_token"})
+			}))
+			defer srv.Close()
+
+			c := NewClient(srv.URL, "key", WithBackoffBase(time.Millisecond))
+			err := c.RunKind(context.Background(), protocol.RunKindPayload{Kind: protocol.RunKindCheck, CardID: "P-001", Project: "p"})
+
+			if tt.wantErr == nil {
+				require.NoError(t, err)
+				assert.Equal(t, protocol.RunKindCheck, received.Kind)
+
+				return
+			}
+
+			require.ErrorIs(t, err, tt.wantErr)
+
+			if tt.wantErr == ErrRunKindRejected {
+				assert.Contains(t, err.Error(), "invalid_field")
+			}
+		})
+	}
+}
+
+func TestRunKindServerErrorIsNotRejected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key", WithBackoffBase(time.Millisecond))
+	err := c.RunKind(context.Background(), protocol.RunKindPayload{Kind: protocol.RunKindCheck})
+
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrRunKindRejected)
+	require.NotErrorIs(t, err, ErrRunKindBusy)
+	require.NotErrorIs(t, err, ErrRunKindsUnavailable)
+}
+
+func TestRunKindSendsOnce(t *testing.T) {
+	tests := []struct {
+		name   string
+		answer func(w http.ResponseWriter)
+	}{
+		{"a server error", func(w http.ResponseWriter) { w.WriteHeader(http.StatusBadGateway) }},
+		{"busy", func(w http.ResponseWriter) { w.WriteHeader(http.StatusServiceUnavailable) }},
+		{"a dropped connection", func(w http.ResponseWriter) {
+			conn, _, err := http.NewResponseController(w).Hijack()
+			if err == nil {
+				_ = conn.Close()
+			}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var requests atomic.Int32
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests.Add(1)
+				tt.answer(w)
+			}))
+			defer srv.Close()
+
+			c := NewClient(srv.URL, "key", WithBackoffBase(time.Millisecond))
+			require.Error(t, c.RunKind(context.Background(), protocol.RunKindPayload{Kind: protocol.RunKindCheck}))
+
+			assert.Equal(t, int32(1), requests.Load(), "a run kind is sent once; a later pass retries what was not admitted")
+		})
+	}
+}
+
+func TestListContainersDecodesKind(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"containers": []map[string]any{
+				{"container_id": "a", "card_id": "P-001", "project": "p"},
+				{"container_id": "b", "card_id": "P-001", "project": "p", "kind": "investigate"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	got, err := NewClient(srv.URL, "key").ListContainers(context.Background())
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Empty(t, got[0].Kind)
+	assert.Equal(t, "investigate", got[1].Kind)
+}

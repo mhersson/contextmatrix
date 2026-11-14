@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -493,4 +494,53 @@ func TestReconciliationSweep_LiveWorkerReadFailureKeepsKills(t *testing.T) {
 	assert.Positive(t, cg.LiveCalls())
 	assert.Empty(t, cg.Failed())
 	assert.NotEmpty(t, fc.KillCalls(), "the kill rules run before the lost-worker pass")
+}
+
+// A run-kind container is not a card's worker: a running card whose only
+// listed container is an investigate run is still a lost worker.
+func TestLostWorkerIgnoresRunKindContainers(t *testing.T) {
+	ctx := t.Context()
+
+	card := board.Card{
+		ID: "C-001", Project: "proj", State: "in_progress",
+		WorkerStatus: "running", Updated: time.Now().Add(-11 * time.Minute),
+	}
+	cg := &fakeCardGetter{
+		cards: map[string]*board.Card{"proj/C-001": &card},
+		live:  []*board.Card{&card},
+	}
+	fc := &fakeClient{listResult: []backend.ContainerInfo{{
+		ContainerID: "abc", CardID: "C-001", Project: "proj", Kind: "investigate",
+		State: "running", StartedAt: time.Now().Add(-time.Minute),
+	}}}
+
+	backend.StartReconciliationSweep(ctx, cg, fc, 10*time.Millisecond, discardLogger())
+
+	waitForListCount(t, fc, 3)
+
+	require.Len(t, cg.Failed(), 1)
+	assert.Equal(t, "proj/C-001", cg.Failed()[0].key)
+}
+
+func TestSweepKillsRunKindOnTerminalCardWithoutEndSession(t *testing.T) {
+	ctx := t.Context()
+
+	cg := &fakeCardGetter{cards: map[string]*board.Card{"proj/C-001": {ID: "C-001", State: "done"}}}
+	fc := &fakeClient{listResult: []backend.ContainerInfo{{
+		ContainerID: "abc", CardID: "C-001", Project: "proj", Kind: "investigate",
+		State: "running", StartedAt: time.Now().Add(-time.Minute),
+	}}}
+
+	backend.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
+
+	waitForKillCalls(t, fc, 1)
+
+	kills := fc.KillCalls()
+	require.NotEmpty(t, kills)
+	assert.Equal(t, protocol.KillPayload{CardID: "C-001", Project: "proj", Kind: "investigate"}, kills[0])
+
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+
+	assert.Empty(t, fc.calls, "a run kind has no session to end")
 }

@@ -115,8 +115,9 @@ All POSTs carry `Content-Type: application/json` and go to
 | Method + path       | Purpose                                                                                                                                |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /trigger`     | Start a card run.                                                                                                                      |
-| `POST /kill`        | Stop the container for one card. Idempotent.                                                                                           |
-| `POST /stop-all`    | Stop every container for a project.                                                                                                    |
+| `POST /run-kind`    | Start a Sentinel run kind (`check` or `investigate`) for one card.                                                                     |
+| `POST /kill`        | Stop the container for one card, or with `kind` set, that card's run kind. Idempotent.                                                 |
+| `POST /stop-all`    | Stop every container for a project; the agent also ends run kinds.                                                                     |
 | `POST /message`     | Deliver a human message to a running HITL card.                                                                                        |
 | `POST /promote`     | Switch a running HITL card to autonomous mode.                                                                                         |
 | `POST /end-session` | Close a HITL container's stdin so the worker sees EOF.                                                                                 |
@@ -242,6 +243,21 @@ Idempotent: the backend answers `200` whether it stopped a container or found
 nothing to do, so CM's cleanup paths never distinguish "not found" from
 "killed".
 
+#### POST {agent_url}/run-kind
+
+Dispatches a run kind: a sandboxed run for one card that carries no MCP key
+and never writes the card. The body is `protocol.RunKindPayload`. `202` means
+the agent accepted it and launches asynchronously. CM's client maps `404` to
+`ErrRunKindsUnavailable` (the agent has no run kinds), `429` and `503` to
+`ErrRunKindBusy`, and any other `4xx` to `ErrRunKindRejected` wrapping the
+agent's detail. Unlike the other webhooks, a run kind is sent once and never
+retried: after a timeout or a lost answer the agent may have admitted it, and
+a second send would start a second run. Any other `5xx` or transport failure
+is returned as a plain error, never as a rejection. The agent keys a
+run kind on (project, card ID, kind), so it coexists with the card's own run.
+Run kinds share the agent's `max_concurrent` and count in `/health`
+`running_containers`.
+
 #### GET {agent_url}/containers
 
 Signed GET, empty body. Returns the worker containers the backend manages.
@@ -269,7 +285,8 @@ The agent builds the list from its in-memory tracker, so `tracked` is always
 compatibility. `started_at` (RFC3339) feeds the sweep's age cap; a missing or
 malformed value is non-fatal and only disables that check. Chat containers
 carry `session_id` instead of `card_id`; the sweep skips entries without a
-`card_id`.
+`card_id`. A run-kind container carries `kind` (absent for a card run); the
+lost-worker check ignores it, so it never hides a card whose worker is gone.
 
 #### GET {agent_url}/images
 
@@ -676,12 +693,24 @@ The backend reports a worker-status transition.
   "card_id": "ALPHA-042",
   "project": "alpha",
   "worker_status": "running",
-  "message": "container started"
+  "message": "container started",
+  "run_id": "r1"
 }
 ```
 
+- `run_id` is the backend's id for the run, set on every status of a run it
+  admitted (absent from older backends). `stop_cause` is set on terminal
+  statuses only and names why the run ended (for example `verify_parked`,
+  `usage_limit`, `killed`); absent or unknown means unknown. CM records both on
+  the card's run row before it updates the card, and attaches a cause only to
+  the run whose `running` status named that `run_id`, so a late terminal status
+  of a replaced run cannot overwrite the current run's cause.
 - The backend may set `running`, `failed`, or `completed`
   (`board.ValidateWorkerCallbackStatus`); anything else is `422`.
+- A status with `kind` set is a Sentinel run kind's terminal status. CM routes
+  it to Sentinel before it touches the card, so it never updates the card or
+  its run row; its fields and limits are in
+  [api-reference.md](api-reference.md#post-apiagentstatus).
 - A `failed` or `killed` status arriving after the card reached `done` or
   `not_planned` is rewritten to `completed` with the activity message
   `container cleaned up after run completed`, so a cleanup kill never flips a
@@ -821,7 +850,9 @@ CM explicitly.
    Each tick calls `GET /containers` and kills every card container whose
    card is missing, is in `done` / `not_planned`, or is older than
    `DefaultContainerMaxAge` (150 minutes). These kills reason only from the
-   backend's list and the card store, never from `worker_status`. The same
+   backend's list and the card store, never from `worker_status`. A run kind
+   of a missing or terminal card dies the same way, by a kind-scoped
+   `/kill` with no `/end-session` first. The same
    tick then marks a lost worker `failed`, with an activity entry: a card
    whose `worker_status` is `queued` or `running`, that two consecutive
    successful listings show no container for, and that has not changed for
@@ -1021,8 +1052,9 @@ catalog.
 
 - A card run keeps the mode it was triggered in for its whole life; the
   backend holds it from the trigger. A rerun takes the current mode. CM
-  records each run's mode in ops.db (`card_run_modes`) only to count work in
-  flight.
+  records each run's mode in ops.db (`card_run_modes`) to count work in
+  flight; the same row holds the run's launch facts (see
+  [Sentinel](sentinel.md#the-run-row)).
 - A chat or blueprint keeps the mode it started in until it goes cold (its
   `llm_channel` field). A cold open, through `/open` or a send to a cold
   session, adopts the current mode.

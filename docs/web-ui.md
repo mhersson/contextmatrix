@@ -18,6 +18,7 @@ reference for people using the UI; execution semantics live in
 | `/admin/users`, `/admin/credentials`        | Admin pages, `multi` auth mode only                      |
 | `/admin/chats`                              | Chat administration (admin; open in `none` mode)         |
 | `/admin/model-selection`                    | Tier ladders (admin; open in `none` mode)                |
+| `/admin/sentinel`                           | Sentinel settings (admin; open in `none` mode)           |
 
 Every view updates live from one Server-Sent Events stream per tab
 (`GET /api/events`); no view polls for card changes.
@@ -205,6 +206,61 @@ for what the channel does.
 - The strip loads with the page and on every event-stream reconnect. While
   the token is set it also refreshes on LLM channel and worker events and
   every minute.
+
+## Sentinel
+
+While Sentinel is enabled, a strip under the LLM channel strip names it: a
+shield, "Sentinel" and its state on the right. The text is "watching",
+"healing N" while N cards are being healed, the pause reason while paused, or
+"not running". The shield and text are purple while watching or healing,
+yellow while paused and red while not running. Nothing shows while Sentinel
+is off. The collapsed sidebar shows the shield alone in the same colour, with
+the state as its label.
+
+- Clicking the strip opens a popover; Escape, a click outside it or moving
+  focus out of it closes it.
+- The popover shows the state, then on the endpoint channel today's spend
+  against the daily cap ("$1.20 of $20.00 today"), or on Claude Code one line
+  per window that has not reset ("five_hour 62% of 85%", the window's use
+  against the headroom threshold), then the count of cards healed today.
+- Viewers who may change settings, an admin in `multi` mode or anyone in
+  `none` mode, also get a "Sentinel settings" link to `/admin/sentinel`.
+- The strip loads with the page and on every event-stream reconnect, and
+  refreshes on Sentinel events and every minute.
+- While Sentinel is enabled, a card's rail gains a Sentinel tab between Info
+  and Danger, and the collapsed rail widens from 340 to 420 px to fit the five
+  tabs and the width controls. It shows where the card's last run was launched from (UI or
+  REST, MCP, playbook or Sentinel), whether the card was autonomous at launch,
+  the heal attempts used against the cap, and the last stop (its cause, or
+  "cause unknown" when it came with none, and its time, or that a human
+  stopped it). A card this instance never launched shows
+  a note that Sentinel acts only on runs this instance launched. Below the
+  facts, each heal shows a header (cause and stage, age, spend), its
+  diagnosis, a line diff of the card's `## Sentinel` section and of the verify
+  change (additions on a green tint, removals on a red one, text in the
+  foreground colour, long lines wrapped), the subtasks it retired, whether
+  the rerun that followed its investigation started fresh or resumed (once
+  that rerun has launched), and, when
+  the fix's proposed section failed the section checks and was not written,
+  "Section dropped" with the reasons. Then
+  come Friction (guidance, code, ecosystem) and Notes (card advice, project
+  verify for admins, hard card). All of this text is shown as plain text. The
+  tab refetches on Sentinel events and events for the card.
+- A purple shield joins the board card's signal icons when the card carries a
+  Sentinel mark (healing, healed, edited or parked); its label is the mark's
+  label. The server sends no mark while Sentinel is off. A card is marked
+  healing while a heal is in flight or a rerun is pending, healed once its
+  rerun passed, edited when a fix from another card was applied to it, and
+  parked when a rerun failed or Sentinel left it for a human.
+
+The settings page at `/admin/sentinel` (admin only in `multi` mode) has three
+switches (Sentinel, Healing, Friction analysis), the daily spend cap in USD
+(endpoint channel), the investigation ceiling in USD per investigation and the
+subscription headroom threshold. The threshold is shown as a percent (85) and
+saved as a fraction (0.85). Healing and Friction analysis are disabled while
+Sentinel is off. Turning Sentinel or Healing on starts fresh: runs launched
+before then are left for a human. Save shows the server's validation message inline and refreshes
+the strip; the footer names who last saved and when, once someone has.
 
 ## Global chat
 

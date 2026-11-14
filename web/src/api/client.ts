@@ -53,6 +53,9 @@ import type {
   BlueprintView,
   LLMChannel,
   LLMChannelView,
+  SentinelCardView,
+  SentinelInfo,
+  SentinelSettings,
 } from '../types';
 
 const BASE_URL = '/api';
@@ -449,6 +452,21 @@ class APIClient {
 
   async getLLMChannel(): Promise<LLMChannelView> {
     return this.request<LLMChannelView>('/llm-channel');
+  }
+
+  async getSentinel(): Promise<SentinelInfo> {
+    return this.request<SentinelInfo>('/sentinel');
+  }
+
+  async getCardSentinel(project: string, id: string, signal?: AbortSignal): Promise<SentinelCardView> {
+    return this.request<SentinelCardView>(
+      `/projects/${encodeURIComponent(project)}/cards/${encodeURIComponent(id)}/sentinel`,
+      { signal },
+    );
+  }
+
+  async putSentinelSettings(settings: SentinelSettings): Promise<SentinelInfo> {
+    return this.request<SentinelInfo>('/admin/sentinel', { method: 'PUT', body: JSON.stringify(settings) });
   }
 
   async putLLMChannel(mode: LLMChannel): Promise<LLMChannelView> {

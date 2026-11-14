@@ -23,7 +23,7 @@ const thu14 = new Date(2026, 10, 12, 14, 0).toISOString();
 describe('cardSignals', () => {
   it('names the usage-limit reset on a parked card, and says when it has passed', () => {
     const card = baseCard({ worker_status: 'parked', park_resets_at: thu14 });
-    const at = (now: number) => cardSignals(card, now).find((s) => s.key === 'worker')?.label;
+    const at = (now: number) => cardSignals(card, false, now).find((s) => s.key === 'worker')?.label;
     const before = Date.parse(thu14) - 60_000;
     const after = Date.parse(thu14) + 60_000;
     expect(at(before)).toBe(parkedResetLabel(thu14, before));
@@ -61,5 +61,23 @@ describe('cardSignals', () => {
     const signals = cardSignals(card);
     expect(signals.find((s) => s.key === 'playbook')?.label).toBe('In playbook: roll');
     expect(signals.find((s) => s.key === 'playbook-run')).toBeUndefined();
+  });
+});
+
+describe('cardSignals sentinel mark', () => {
+  const marked = baseCard({ sentinel: { action: 'healing', label: 'Sentinel is healing this card' } });
+
+  it('adds the purple shield with the mark label', () => {
+    const s = cardSignals(marked, true).find((x) => x.key === 'sentinel');
+    expect(s?.label).toBe('Sentinel is healing this card');
+    expect(s?.color).toBe('var(--purple)');
+  });
+
+  it('hides it while Sentinel is off', () => {
+    expect(cardSignals(marked, false).some((x) => x.key === 'sentinel')).toBe(false);
+  });
+
+  it('hides it without a mark', () => {
+    expect(cardSignals(baseCard(), true).some((x) => x.key === 'sentinel')).toBe(false);
   });
 });

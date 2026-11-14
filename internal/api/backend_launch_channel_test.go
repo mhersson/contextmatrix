@@ -21,6 +21,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/llmchannel/llmchanneltest"
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 	opsqlite "github.com/mhersson/contextmatrix/internal/opstore/sqlite"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -284,7 +285,15 @@ func TestLaunch_WebhookFailureClosesRun(t *testing.T) {
 
 type failingRuns struct{}
 
-func (failingRuns) OpenCardRun(context.Context, string, string, string, time.Time) error {
+func (failingRuns) OpenCardRun(context.Context, string, string, string, time.Time, state.LaunchFacts) error {
+	return errors.New("disk full")
+}
+
+func (failingRuns) RecordRunStatus(context.Context, string, string, string, string, string, time.Time) error {
+	return errors.New("disk full")
+}
+
+func (failingRuns) MarkHumanStop(context.Context, string, string) error {
 	return errors.New("disk full")
 }
 

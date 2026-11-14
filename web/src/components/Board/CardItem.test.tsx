@@ -87,6 +87,12 @@ describe('CardItem - declutter', () => {
     expect(screen.queryByText('feature')).not.toBeInTheDocument();
   });
 
+  it('collapses the type pill at three signals so it cannot overlap the ID', () => {
+    const three = { ...baseCard, type: 'feature', autonomous: true, worker_status: 'running' as const, in_playbooks: ['rollout'] };
+    render(<CardItem card={three} />);
+    expect(screen.getByLabelText('Type: feature')).toHaveTextContent(/^f$/);
+  });
+
   it('keeps the full type pill when few signals show', () => {
     render(<CardItem card={{ ...baseCard, type: 'feature', autonomous: true }} />);
     expect(screen.getByText('feature')).toBeInTheDocument();

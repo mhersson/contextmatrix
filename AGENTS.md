@@ -40,6 +40,7 @@ Read the relevant one before working in its area:
 | `docs/playbooks.md`            | Entry kinds, storage and the reserved name, REST and MCP surface.                                                                                 |
 | `docs/mcp.md`                  | Every MCP tool with its caller gate, slash commands, phase skills, payload rules.                                                                 |
 | `docs/running-cards.md`        | Run Auto / Run HITL, guardrails, execution fields, Best-of-N, mob, PR gates, parking, stop.                                                       |
+| `docs/sentinel.md`             | Sentinel: settings, controller loop, budget gate, run row, status states, and the file map for extending it.                                      |
 | `docs/shared-boards.md`        | Shared-repo sync cycle, merge rules, per-instance claims and leases, several boards repos.                                                        |
 | `docs/github-issue-import.md`  | Importer config, owner/repo resolution, vetting gate, `source` field, Enterprise hosts.                                                           |
 | `docs/jira-import.md`          | Jira site config and auth, connection status, epic import: wizard, card mapping, dedup, ordering, playbook source, vetting; status writeback.     |
@@ -117,6 +118,7 @@ internal/config/           → global config loading
 internal/ctxlog/           → request_id context logger
 internal/metrics/          → Prometheus metric vars + Register()
 internal/playbookrun/      → runnable-playbook execution
+internal/sentinel/         → Sentinel: the healing controller, its decisions and run-kind dispatch
 internal/githuburl/        → GitHub repository URL parsing shared by github and service
 internal/sqliteutil/       → shared SQLite plumbing: DSN, pooled open, schema_migrations runner
 internal/buildinfo/        → stamped version, commit and build time

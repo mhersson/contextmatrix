@@ -51,6 +51,10 @@ func (f *fakeInstanceTokenProvider) GenerateToken(_ context.Context) (string, ti
 	return f.token, time.Time{}, nil
 }
 
+func (f *fakeInstanceTokenProvider) GenerateRepoReadToken(ctx context.Context, repo string) (string, time.Time, error) {
+	return f.GenerateRepoToken(ctx, repo)
+}
+
 func (f *fakeInstanceTokenProvider) GenerateRepoToken(_ context.Context, repo string) (string, time.Time, error) {
 	f.repoCalls.Add(1)
 

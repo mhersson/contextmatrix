@@ -16,6 +16,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
 	"github.com/mhersson/contextmatrix/internal/playbookrun"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -27,6 +28,7 @@ type launchOptions struct {
 	createBaseBranch bool
 	baseBranchFrom   string
 	handRun          bool // a human's run of one card, guarded against a racing playbook Play
+	origin           string
 }
 
 // launchFailure is a refusal with the HTTP shape the handlers write and the
@@ -112,21 +114,7 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 		return nil, err
 	}
 
-	// Build trigger payload. Model is the backend's default_model - per-card
-	// pin overrides are resolved agent-side.
-	model := h.backendCfg.DefaultModel
-
-	// The mode is resolved once so endpoint, catalog, favorites and model agree.
-	mode := h.llmChannel.Effective(config.BackendNameAgent)
-	if mode == llmchannel.ModeClaudeCode {
-		// ResolveModel reads the built catalog without refreshing it, so warm
-		// it first or the first launch after a restart skips the fallback.
-		if h.catalog != nil {
-			_ = h.catalog.ClaudeCodeCandidates(ctx)
-		}
-
-		model = h.llmChannel.ResolveModel(mode, model, model)
-	}
+	choice := h.chooseModel(ctx, project, id, projectCfg)
 
 	// Resolve task skills: card.Skills > project.DefaultSkills > nil (mount full set).
 	var taskSkills *[]string
@@ -153,7 +141,9 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 		MCPAPIKey:   h.mcpAPIKey,
 		BaseBranch:  card.BaseBranch,
 		Interactive: interactive,
-		Model:       model,
+		Model:       choice.model,
+		Selection:   choice.selection,
+		LLMEndpoint: choice.endpoint,
 		TaskSkills:  taskSkills,
 	}
 
@@ -179,53 +169,6 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 		payload.WorkerImage = projectCfg.RemoteExecution.WorkerImage
 	}
 
-	if h.catalog != nil {
-		var bl []string
-
-		if h.blacklist != nil {
-			// Best-effort: a blacklist read failure must not block the trigger,
-			// but it is logged - a silent miss would let the agent re-select a
-			// known-incapable model with no trace.
-			var blErr error
-			if bl, blErr = h.blacklist.BlacklistedSlugs(ctx); blErr != nil {
-				ctxlog.Logger(ctx).Warn("failed to read model blacklist; proceeding without it",
-					"card_id", id, "project", project, "error", blErr)
-			}
-		}
-
-		// Clone: the catalog returns its shared cached slice; a defensive
-		// copy keeps the payload independent of the cache's backing array.
-		candidates, favorites, bl := channelSelection(ctx, h.catalog, mode,
-			mergeFavorites(h.backendCfg.Favorites, projectCfg.Favorites), bl)
-
-		payload.Selection = &protocol.SelectionContext{
-			Candidates: slices.Clone(candidates),
-			Favorites:  favorites,
-			Blacklist:  bl,
-		}
-
-		// Read per trigger so a save on the admin page reaches the next run.
-		// Best-effort like the blacklist: the agent falls back to the built-in
-		// ladder and headroom, and the miss is logged rather than silent.
-		if h.selector != nil {
-			bars, _, ladderErr := h.selector.SelectorLadders(ctx)
-			if ladderErr != nil {
-				ctxlog.Logger(ctx).Warn("failed to read selector ladders; proceeding with the built-in ladder",
-					"card_id", id, "project", project, "error", ladderErr)
-			} else if len(bars) > 0 {
-				payload.Selection.TierBars = bars
-			}
-
-			headroom, _, headroomErr := h.selector.SelectorHeadroom(ctx)
-			if headroomErr != nil {
-				ctxlog.Logger(ctx).Warn("failed to read selector headroom; proceeding with the built-in headroom",
-					"card_id", id, "project", project, "error", headroomErr)
-			} else if headroom > 0 {
-				payload.Selection.PriceHeadroom = headroom
-			}
-		}
-	}
-
 	payload.CreateBaseBranch = opts.createBaseBranch
 	payload.BaseBranchFrom = opts.baseBranchFrom
 
@@ -248,10 +191,6 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 	payload.GitToken = token
 	payload.GitTokenExpiresAt = tokenExpiryString(expiresAt)
 
-	var runMode llmchannel.Mode
-
-	payload.LLMEndpoint, runMode = h.llmChannel.EndpointFor(config.BackendNameAgent, mode)
-
 	if err := h.backend.Trigger(ctx, payload); err != nil {
 		ctxlog.Logger(ctx).Error("backend webhook failed", "card_id", id, "project", project, "error", err)
 		// Webhook failed - revert status to failed.
@@ -270,13 +209,96 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 	// Best-effort: the record feeds in-flight counts and must not fail a run
 	// the backend already accepted.
 	if h.cardRuns != nil {
-		if err := h.cardRuns.OpenCardRun(ctx, project, id, string(runMode), time.Now()); err != nil {
+		if err := h.cardRuns.OpenCardRun(ctx, project, id, string(choice.mode), time.Now(), state.LaunchFacts{
+			Snapshot:   board.TakeEditSnapshot(card),
+			Autonomous: card.Autonomous,
+			Origin:     opts.origin,
+		}); err != nil {
 			ctxlog.Logger(ctx).Warn("failed to record card run mode",
 				"card_id", id, "project", project, "error", err)
 		}
 	}
 
 	return card, nil
+}
+
+// modelChoice is what a fresh agent run is given to pick and reach a model,
+// and the LLM channel mode its endpoint belongs to.
+type modelChoice struct {
+	model     string
+	selection *protocol.SelectionContext // nil without a model catalog
+	endpoint  *protocol.LLMEndpoint
+	mode      llmchannel.Mode
+}
+
+// chooseModel resolves the model choice on the agent's effective LLM channel:
+// the backend's default model, the selection context and the endpoint.
+func (h *backendHandlers) chooseModel(ctx context.Context, project, id string, projectCfg *board.ProjectConfig) modelChoice {
+	// Per-card pin overrides of the default model are resolved agent-side.
+	choice := modelChoice{model: h.backendCfg.DefaultModel}
+
+	// The mode is resolved once so endpoint, catalog, favorites and model agree.
+	mode := h.llmChannel.Effective(config.BackendNameAgent)
+	if mode == llmchannel.ModeClaudeCode {
+		// ResolveModel reads the built catalog without refreshing it, so warm
+		// it first or the first launch after a restart skips the fallback.
+		if h.catalog != nil {
+			_ = h.catalog.ClaudeCodeCandidates(ctx)
+		}
+
+		choice.model = h.llmChannel.ResolveModel(mode, choice.model, choice.model)
+	}
+
+	if h.catalog != nil {
+		var bl []string
+
+		if h.blacklist != nil {
+			// Best-effort: a blacklist read failure must not block the trigger,
+			// but it is logged - a silent miss would let the agent re-select a
+			// known-incapable model with no trace.
+			var blErr error
+			if bl, blErr = h.blacklist.BlacklistedSlugs(ctx); blErr != nil {
+				ctxlog.Logger(ctx).Warn("failed to read model blacklist; proceeding without it",
+					"card_id", id, "project", project, "error", blErr)
+			}
+		}
+
+		// Clone: the catalog returns its shared cached slice; a defensive
+		// copy keeps the payload independent of the cache's backing array.
+		candidates, favorites, bl := channelSelection(ctx, h.catalog, mode,
+			mergeFavorites(h.backendCfg.Favorites, projectCfg.Favorites), bl)
+
+		choice.selection = &protocol.SelectionContext{
+			Candidates: slices.Clone(candidates),
+			Favorites:  favorites,
+			Blacklist:  bl,
+		}
+
+		// Read per trigger so a save on the admin page reaches the next run.
+		// Best-effort like the blacklist: the agent falls back to the built-in
+		// ladder and headroom, and the miss is logged rather than silent.
+		if h.selector != nil {
+			bars, _, ladderErr := h.selector.SelectorLadders(ctx)
+			if ladderErr != nil {
+				ctxlog.Logger(ctx).Warn("failed to read selector ladders; proceeding with the built-in ladder",
+					"card_id", id, "project", project, "error", ladderErr)
+			} else if len(bars) > 0 {
+				choice.selection.TierBars = bars
+			}
+
+			headroom, _, headroomErr := h.selector.SelectorHeadroom(ctx)
+			if headroomErr != nil {
+				ctxlog.Logger(ctx).Warn("failed to read selector headroom; proceeding with the built-in headroom",
+					"card_id", id, "project", project, "error", headroomErr)
+			} else if headroom > 0 {
+				choice.selection.PriceHeadroom = headroom
+			}
+		}
+	}
+
+	choice.endpoint, choice.mode = h.llmChannel.EndpointFor(config.BackendNameAgent, mode)
+
+	return choice
 }
 
 // channelSelection returns the candidates, favorites and blacklist a run in
@@ -392,18 +414,39 @@ func (h *backendHandlers) stop(ctx context.Context, project, id string) (*board.
 		return nil, launchRefused(http.StatusBadGateway, ErrCodeBackendUnavailable, "failed to stop backend task", "")
 	}
 
+	h.markHumanStop(ctx, project, id)
+
 	return h.svc.UpdateWorkerStatus(ctx, project, id, "killed", "task stopped by user")
 }
 
+// markHumanStop is best-effort like the run row open: the stop already
+// reached the backend and must not fail on the record.
+func (h *backendHandlers) markHumanStop(ctx context.Context, project, id string) {
+	if h.cardRuns == nil {
+		return
+	}
+
+	if err := h.cardRuns.MarkHumanStop(ctx, project, id); err != nil {
+		ctxlog.Logger(ctx).Warn("failed to mark card run human-stopped",
+			"card_id", id, "project", project, "error", err)
+	}
+}
+
 // playbookLaunch and playbookStop adapt launch and stop for the playbook
-// runner, which records the error text as the run's waiting reason. That
-// reason is written into the playbook file, committed and pushed to the
-// shared boards remote, so a raw service error's text (absolute paths, .git
-// paths, remote URLs) must never reach it: playbookLaunch logs the error and
-// returns its sanitized class instead. A *launchFailure is already human and
-// sanitized and passes through unchanged.
+// runner, which records the error text as the run's waiting reason.
 func (h *backendHandlers) playbookLaunch(ctx context.Context, project, id string, opts playbookrun.LaunchOptions) error {
-	_, err := h.launch(ctx, project, id, launchOptions{createBaseBranch: opts.CreateBaseBranch, baseBranchFrom: opts.BaseBranchFrom})
+	_, err := h.launch(ctx, project, id, launchOptions{createBaseBranch: opts.CreateBaseBranch, baseBranchFrom: opts.BaseBranchFrom, origin: state.OriginPlaybook})
+
+	return committableLaunchError(ctx, project, id, err)
+}
+
+// committableLaunchError is a launch error whose text the caller writes into
+// a file that is committed and pushed to the shared boards remote (a playbook
+// run's waiting reason, a Sentinel park reason), so a raw service error's
+// text (absolute paths, .git paths, remote URLs) must never reach it: it is
+// logged and only its sanitized class returned. A *launchFailure is already
+// human and sanitized and passes through unchanged.
+func committableLaunchError(ctx context.Context, project, id string, err error) error {
 	if err == nil {
 		return nil
 	}
@@ -412,7 +455,7 @@ func (h *backendHandlers) playbookLaunch(ctx context.Context, project, id string
 		return err
 	}
 
-	ctxlog.Logger(ctx).Error("playbook launch failed", "card_id", id, "project", project, "error", err)
+	ctxlog.Logger(ctx).Error("launch failed", "card_id", id, "project", project, "error", err)
 
 	return errors.New(sanitizeErrorDetails(err))
 }

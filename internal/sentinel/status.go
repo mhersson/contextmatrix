@@ -1,0 +1,105 @@
+package sentinel
+
+import (
+	"time"
+
+	protocol "github.com/mhersson/contextmatrix-protocol"
+
+	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
+)
+
+// Status states.
+const (
+	StateOff        = "off"
+	StateWatching   = "watching"
+	StateWorking    = "working"
+	StatePaused     = "paused"
+	StateNotRunning = "not_running"
+)
+
+// staleTicks is how many ticks without a pass make the controller read as
+// stopped.
+const staleTicks = 3
+
+// Status is what Sentinel is doing, as the sidebar strip shows it.
+type Status struct {
+	Enabled       bool                         `json:"enabled"`
+	State         string                       `json:"state"`
+	Reason        string                       `json:"reason,omitempty"`
+	Mode          string                       `json:"mode"`
+	Healing       int                          `json:"healing"`
+	HealedToday   int                          `json:"healed_today"`
+	SpentTodayUSD float64                      `json:"spent_today_usd"`
+	DailyCapUSD   float64                      `json:"daily_cap_usd"`
+	Headroom      float64                      `json:"headroom"`
+	Windows       []protocol.SubscriptionUsage `json:"windows,omitempty"`
+}
+
+// statusInput is everything a Status is derived from.
+type statusInput struct {
+	Settings     state.Settings // as a pass last read them, whether or not it landed
+	Active       bool           // the last pass that landed ran with Sentinel enabled
+	NoController bool           // no execution backend, so no controller exists
+	LastPass     time.Time      // when the last pass landed, else when the controller started
+	Now          time.Time
+	Tick         time.Duration
+	Mode         llmchannel.Mode
+	GateOpen     bool
+	GateReason   string
+	NoRunKinds   bool // the agent said it has no run kinds, within the hold
+	Windows      []protocol.SubscriptionUsage
+	Healing      int // heals open after the pass
+	HealedToday  int
+	SpentToday   float64 // the endpoint ledger since 00:00 UTC
+}
+
+// NotRunningStatus is what the API reports when no controller exists.
+func NotRunningStatus(s state.Settings) Status {
+	return summarize(statusInput{Settings: s, NoController: true})
+}
+
+// summarize derives the status. The first matching state wins: off, not
+// running, paused (no run kinds, then the budget gate), working, watching. A
+// switch turned on since the last pass that landed reads as watching until
+// three ticks pass without one, then as not running.
+func summarize(in statusInput) Status {
+	st := Status{
+		Enabled:       in.Settings.Enabled,
+		Mode:          string(in.Mode),
+		Healing:       in.Healing,
+		HealedToday:   in.HealedToday,
+		SpentTodayUSD: in.SpentToday,
+		DailyCapUSD:   in.Settings.DailyCapUSD,
+		Headroom:      in.Settings.Headroom,
+	}
+
+	if in.Mode == llmchannel.ModeClaudeCode {
+		for _, w := range in.Windows {
+			if !windowReset(w, in.Now) {
+				st.Windows = append(st.Windows, w)
+			}
+		}
+	}
+
+	switch {
+	case !in.Settings.Enabled:
+		st.State = StateOff
+	case in.NoController:
+		st.State, st.Reason = StateNotRunning, "no execution backend"
+	case in.Now.Sub(in.LastPass) > staleTicks*in.Tick:
+		st.State, st.Reason = StateNotRunning, "controller stopped"
+	case !in.Active:
+		st.State = StateWatching
+	case in.NoRunKinds:
+		st.State, st.Reason = StatePaused, reasonNoRunKinds
+	case !in.GateOpen:
+		st.State, st.Reason = StatePaused, in.GateReason
+	case in.Healing > 0:
+		st.State = StateWorking
+	default:
+		st.State = StateWatching
+	}
+
+	return st
+}

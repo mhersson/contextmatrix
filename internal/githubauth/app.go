@@ -118,7 +118,24 @@ func (p *AppProvider) GenerateRepoToken(ctx context.Context, repo string) (strin
 		return "", time.Time{}, errors.New("repo is required")
 	}
 
-	body, err := json.Marshal(map[string][]string{"repositories": {repo}})
+	return p.mintScoped(ctx, map[string]any{"repositories": []string{repo}})
+}
+
+// GenerateRepoReadToken mints an installation token limited to the named
+// repository and to contents read. An empty name is refused before any request.
+func (p *AppProvider) GenerateRepoReadToken(ctx context.Context, repo string) (string, time.Time, error) {
+	if repo == "" {
+		return "", time.Time{}, errors.New("repo is required")
+	}
+
+	return p.mintScoped(ctx, map[string]any{
+		"repositories": []string{repo},
+		"permissions":  map[string]string{"contents": "read"},
+	})
+}
+
+func (p *AppProvider) mintScoped(ctx context.Context, request map[string]any) (string, time.Time, error) {
+	body, err := json.Marshal(request)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("marshal request: %w", err)
 	}

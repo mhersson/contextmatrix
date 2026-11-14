@@ -381,6 +381,7 @@ type Card struct {
     ParkResetsAt            *time.Time        `yaml:"-"                               json:"park_resets_at,omitempty"`
     InPlaybooks             []string          `yaml:"-"                             json:"in_playbooks,omitempty"`
     PlaybookLock            *CardPlaybookLock `yaml:"-"                             json:"playbook_lock,omitempty"`
+    Sentinel                *SentinelMark     `yaml:"-"                               json:"sentinel,omitempty"`
     Created                 time.Time         `yaml:"created"                       json:"created"`
     Updated                 time.Time         `yaml:"updated"                         json:"updated"`
     ActivityLog             []ActivityEntry   `yaml:"activity_log,omitempty"          json:"activity_log,omitempty"`
@@ -597,7 +598,8 @@ entries winning per tier. `json:"-"`: no REST path writes it; hand-edit
 `last_heartbeat`, `claimed_via`, `claimed_at`, `claim_epoch`, `activity_log`,
 `worker_status`, `review_attempts`, `token_usage`,
 `usage_breakdown`, `dependencies_met`, `blocked_by`, `subtask_cost_usd`,
-`subtask_cost_has_estimates`, `subtask_usage`, `in_playbooks`, `playbook_lock`.
+`subtask_cost_has_estimates`, `subtask_usage`, `in_playbooks`, `playbook_lock`,
+`sentinel`.
 
 `branch_name` is predicted by CM at create as `<lowercase-id>/<title-slug>`
 (a Jira import keeps its key uppercase: `<lowercase-id>/<KEY>-<slug of the rest of the title>`)
@@ -608,10 +610,19 @@ parent's branch and carry no `branch_name`; `report_push` on a subtask never
 adds one (see [`create_pr` semantics](#create_pr-semantics)).
 
 `dependencies_met`, `blocked_by`, `subtask_cost_usd`,
-`subtask_cost_has_estimates`, `in_playbooks` and `playbook_lock` are computed
-on read and never written to frontmatter. `blocked_by` is the subset of
+`subtask_cost_has_estimates`, `in_playbooks`, `playbook_lock` and `sentinel` are
+computed on read and never written to frontmatter. `blocked_by` is the subset of
 `depends_on` that is not `done`, in `depends_on` order; absent when every
 dependency is met.
+
+`sentinel` is `{action, label}`: the mark of a card Sentinel touched, from the
+card's latest heal. `action` is `healing` (investigating, checking or applying
+a fix, waiting for a usage limit, or rerunning), `healed`, `edited` (a fix
+forwarded from another card's heal) or `parked` (a failed rerun, or left for a
+human); `label` is the tooltip text. A closed heal and a failed forward leave
+no mark, and nothing is marked while Sentinel is off. List and get reads carry
+it; a failure reading it leaves the cards unmarked.
+
 `subtask_cost_usd` sums the `estimated_cost_usd` of direct subtasks
 (single-card GET only; omitted when zero) and `subtask_cost_has_estimates`
 reports whether any of those costs include rate-table-estimated buckets.

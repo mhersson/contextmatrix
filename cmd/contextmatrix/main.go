@@ -43,6 +43,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 	opsqlite "github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 	"github.com/mhersson/contextmatrix/internal/playbookrun"
+	"github.com/mhersson/contextmatrix/internal/sentinel"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/web"
 )
@@ -496,6 +497,7 @@ func main() {
 	slog.Info("op store opened", "path", cfg.OpStore.DBPath)
 
 	svc.SetParkResetStore(opStore)
+	svc.SetEditSnapshotStore(opStore)
 
 	// Model catalog builder: constructed whenever there is a rate source. The
 	// AA+agent path also yields selection candidates (routerCfg.Catalog below);
@@ -601,8 +603,27 @@ func main() {
 	// `!= nil` enablement check in the router.
 	var taskBackend api.TaskBackend
 
+	// Sentinel works only through the agent backend, so it has no controller without one.
+	var sentinelCtl *sentinel.Controller
+
 	if backendSys.Client != nil {
 		taskBackend = backendSys.Client
+		sentinelCfg := sentinel.Config{
+			Store: opStore, Channel: llmChannel, Bus: bus, Clock: clk, Pricer: svc,
+			Backend: backendSys.Client, Cards: svc, Instance: cfg.Instance.ID,
+		}
+
+		// A nil *PlaybookService or *Runner must stay a nil interface.
+		if pbSvc != nil {
+			sentinelCfg.Playbooks = pbSvc
+		}
+
+		if pbRunner != nil {
+			sentinelCfg.Runner = pbRunner
+		}
+
+		sentinelCtl = sentinel.New(sentinelCfg)
+		svc.SetSentinelMarks(sentinelCtl)
 	}
 
 	// Attribute backend-generated audit-trail entries to the agent backend
@@ -782,6 +803,8 @@ func main() {
 		LLMChannel:             llmChannel,
 		LLMChannelState:        llmChannel,
 		LLMChannelStore:        opStore,
+		Sentinel:               sentinelCtl,
+		SentinelStore:          opStore,
 		ConfiguredBackend:      configuredBackendKinds(cfg),
 		CardRuns:               opStore,
 		BestOfN:                cfg.BestOfN,
@@ -842,6 +865,10 @@ func main() {
 		// walkers need, and the sync wiring is already in place for the
 		// run-state commits.
 		pbRunner.Start(ctx)
+	}
+
+	if sentinelCtl != nil {
+		sentinelCtl.Start(ctx)
 	}
 
 	slog.Info("MCP server registered", "endpoint", "/mcp")
@@ -934,6 +961,7 @@ func main() {
 		SessionLog:     sessionMgr,
 		CommitQueues:   boards.queues(),
 		PlaybookRunner: pbRunner,
+		Sentinel:       sentinelCtl,
 		JiraImport:     jiraImporter,
 		JiraWriteback:  jiraWriteback,
 		Syncer:         syncGroup,

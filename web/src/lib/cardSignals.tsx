@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { Card, WorkerStatus } from '../types';
 import { parkedResetLabel } from './subscription';
+import { ShieldCheckIcon } from '../components/ShieldCheckIcon';
 
 /**
  * Signal metadata for the board card's header icon cluster. Lives outside the
@@ -17,8 +18,11 @@ export interface CardSignal {
   importance: number;
 }
 
-/** Signals at or above this count switch the header into crowded mode. */
+/** Signals above this count are hidden behind the header's overflow. */
 export const HEADER_SIGNAL_CAP = 4;
+
+/** At this many signals the type pill collapses to its initial: a full pill plus three icons overruns the ID. */
+export const HEADER_PILL_COLLAPSE = 3;
 
 /** Shared stroke-icon attributes so the hovercard's rows match the header cluster. */
 export const signalSvgProps = {
@@ -129,8 +133,8 @@ const workerSignals: Record<WorkerStatus, Omit<CardSignal, 'key' | 'importance'>
   parked: { label: 'Parked - left for a human, see the card log', color: 'var(--yellow)', icon: circleParkingIcon },
 };
 
-/** Builds the card's signals in display order; `now` dates a usage-limit park's reset. */
-export function cardSignals(card: Card, now: number = Date.now()): CardSignal[] {
+/** Builds the card's signals in display order; `sentinelOn` allows the Sentinel mark, `now` dates a usage-limit park's reset. */
+export function cardSignals(card: Card, sentinelOn = false, now: number = Date.now()): CardSignal[] {
   const signals: CardSignal[] = [];
 
   if ((card.depends_on?.length ?? 0) > 0) {
@@ -198,6 +202,16 @@ export function cardSignals(card: Card, now: number = Date.now()): CardSignal[] 
       color: 'var(--green)',
       icon: featherIcon,
       importance: 6,
+    });
+  }
+
+  if (sentinelOn && card.sentinel) {
+    signals.push({
+      key: 'sentinel',
+      label: card.sentinel.label,
+      color: 'var(--purple)',
+      icon: <ShieldCheckIcon size={14} />,
+      importance: 2,
     });
   }
 

@@ -123,10 +123,13 @@ type Card struct {
 	// RunStatus is that playbook's run status while a run is active, else
 	// empty. Computed on read, never persisted.
 	PlaybookLock *CardPlaybookLock `yaml:"-" json:"playbook_lock,omitempty"`
-	Created      time.Time         `yaml:"created"                    json:"created"`
-	Updated      time.Time         `yaml:"updated"                    json:"updated"`
-	ActivityLog  []ActivityEntry   `yaml:"activity_log,omitempty"     json:"activity_log,omitempty"`
-	Body         string            `yaml:"-"                          json:"body"`
+	// Sentinel marks a card Sentinel touched, from its latest heal. Computed on
+	// read, never persisted.
+	Sentinel    *SentinelMark   `yaml:"-" json:"sentinel,omitempty"`
+	Created     time.Time       `yaml:"created"                    json:"created"`
+	Updated     time.Time       `yaml:"updated"                    json:"updated"`
+	ActivityLog []ActivityEntry `yaml:"activity_log,omitempty"     json:"activity_log,omitempty"`
+	Body        string          `yaml:"-"                          json:"body"`
 }
 
 // ActivityEntry represents a log entry from an agent working on a card.
@@ -221,6 +224,13 @@ type UsageBucket struct {
 type SubtaskUsage struct {
 	CardID  string        `json:"card_id"`
 	Buckets []UsageBucket `json:"buckets"`
+}
+
+// SentinelMark is the board icon state of a card Sentinel touched. Action is
+// healing, healed, edited or parked.
+type SentinelMark struct {
+	Action string `json:"action"`
+	Label  string `json:"label"`
 }
 
 // CardPlaybookLock is the derived pointer from a card to the runnable

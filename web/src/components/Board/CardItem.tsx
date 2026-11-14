@@ -3,7 +3,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { Card } from '../../types';
 import { chipTint, priorityColors, typeColors } from '../../lib/chip';
-import { cardSignals, HEADER_SIGNAL_CAP } from '../../lib/cardSignals';
+import { cardSignals, HEADER_PILL_COLLAPSE } from '../../lib/cardSignals';
 import { sourceIcon } from '../icons';
 import { CardChipRow } from './CardChipRow';
 import { CardSignalIcons } from './CardSignalIcons';
@@ -11,6 +11,7 @@ import { SubtaskStrip, SubtaskPeekList } from './SubtaskStrip';
 import { CardHoverCard } from './CardHoverCard';
 import { hasUnmetDeps } from '../../lib/chip';
 import { lastInputWasKeyboard } from '../../lib/inputModality';
+import { useSentinel } from '../../hooks/useSentinel';
 import { CardClock } from '../CardTiming/CardClock';
 
 interface CardItemProps {
@@ -39,6 +40,7 @@ const cardIdStyle: React.CSSProperties = {
 };
 
 function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollapse, onParentClick, subtasks, dragOverlay }: CardItemProps) {
+  const sentinelOn = useSentinel().info?.status.enabled ?? false;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
     data: { card },
@@ -268,12 +270,12 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
       `}
     >
       {/* Header: priority dot, ID, type badge, signal icons, collapse toggle.
-          A crowded cluster (HEADER_SIGNAL_CAP+ signals) collapses the type
+          A crowded cluster (HEADER_PILL_COLLAPSE+ signals) collapses the type
           pill to its initial so the icons keep fitting in the header. */}
       <div className="flex items-center justify-between mb-2">
         <span className="flex items-center gap-1.5 min-w-0">
           {priorityDot(7)}
-          <span style={cardIdStyle}>{card.id}</span>
+          <span className="flex-shrink-0" style={cardIdStyle}>{card.id}</span>
         </span>
         <div className="flex items-center gap-1.5">
           <div
@@ -281,7 +283,7 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
             onMouseEnter={hoverEnabled ? openHover : undefined}
             onMouseLeave={closeHover}
           >
-            {cardSignals(card).length >= HEADER_SIGNAL_CAP ? (
+            {cardSignals(card, sentinelOn).length >= HEADER_PILL_COLLAPSE ? (
               <span
                 className="chip-pill"
                 style={chipTint(typeColors[card.type] || 'var(--grey1)')}

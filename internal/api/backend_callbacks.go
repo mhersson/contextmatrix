@@ -11,6 +11,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/githubauth"
+	"github.com/mhersson/contextmatrix/internal/sentinel"
 )
 
 // Callback request bodies are protocol-owned; aliased so handlers keep their local names.
@@ -31,6 +32,12 @@ func (h *backendHandlers) workerStatusUpdate(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	if req.Kind != "" {
+		h.runKindStatus(w, r, req, len(body))
+
+		return
+	}
+
 	// Validate that the callback only sets backend-settable statuses.
 	v := board.NewValidator()
 	if err := v.ValidateWorkerCallbackStatus(req.WorkerStatus); err != nil {
@@ -40,7 +47,18 @@ func (h *backendHandlers) workerStatusUpdate(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	card, err := h.svc.UpdateWorkerStatus(r.Context(), req.Project, strings.ToUpper(req.CardID), req.WorkerStatus, req.Message)
+	cardID := strings.ToUpper(req.CardID)
+
+	// Recorded before the card changes so a bus wake-up on the new status
+	// always finds its cause.
+	if h.cardRuns != nil {
+		if err := h.cardRuns.RecordRunStatus(r.Context(), req.Project, cardID,
+			req.RunID, req.WorkerStatus, req.StopCause, time.Now()); err != nil {
+			ctxlog.Logger(r.Context()).Warn("record run status", "project", req.Project, "card_id", cardID, "error", err)
+		}
+	}
+
+	card, err := h.svc.UpdateWorkerStatus(r.Context(), req.Project, cardID, req.WorkerStatus, req.Message)
 	if err != nil {
 		handleServiceError(w, r, err)
 
@@ -48,6 +66,28 @@ func (h *backendHandlers) workerStatusUpdate(w http.ResponseWriter, r *http.Requ
 	}
 
 	writeJSON(w, http.StatusOK, card)
+}
+
+// runKindStatus takes a run kind's terminal status. It never touches the card
+// or its run row; without a controller it is acknowledged and ignored.
+func (h *backendHandlers) runKindStatus(w http.ResponseWriter, r *http.Request, req workerStatusRequest, bodyLen int) {
+	if err := sentinel.ValidateRunKindStatus(req, bodyLen); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid run-kind status", err.Error())
+
+		return
+	}
+
+	req.CardID = strings.ToUpper(req.CardID)
+
+	if h.runKinds != nil {
+		if err := h.runKinds.RunKindStatus(r.Context(), req); err != nil {
+			handleServiceError(w, r, err)
+
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, struct{}{})
 }
 
 // cardAutonomousResponse is the minimal read-only shape returned to the

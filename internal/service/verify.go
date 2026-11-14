@@ -37,11 +37,12 @@ var (
 	secretShapedEnvSuffixes = []string{"_TOKEN", "_KEY", "_SECRET", "_PASSWORD"}
 )
 
-// validateVerifyConfig screens an operator-declared verify config. It returns a
+// ValidateVerifyConfig screens an operator-declared verify config. It returns a
 // descriptive, sentinel-free error on the first violation; callers wrap it with
 // the sentinel appropriate to their surface (project vs card) so the API maps
-// it to 422. A nil config is valid (nothing declared).
-func validateVerifyConfig(v *board.VerifyConfig) error {
+// it to 422, and Sentinel vets a fix by it before writing. A nil config is
+// valid (nothing declared).
+func ValidateVerifyConfig(v *board.VerifyConfig) error {
 	if v == nil {
 		return nil
 	}
@@ -100,21 +101,21 @@ func isSecretShapedEnvName(name string) bool {
 	return false
 }
 
-// validateProjectVerify wraps validateVerifyConfig for the project write path so
+// validateProjectVerify wraps ValidateVerifyConfig for the project write path so
 // a failure surfaces as 422 (board.ErrInvalidProjectConfig), matching the other
 // project-config validation failures.
 func validateProjectVerify(v *board.VerifyConfig) error {
-	if err := validateVerifyConfig(v); err != nil {
+	if err := ValidateVerifyConfig(v); err != nil {
 		return fmt.Errorf("%w: verify: %v", board.ErrInvalidProjectConfig, err)
 	}
 
 	return nil
 }
 
-// validateCardVerify wraps validateVerifyConfig for the card write path so a
+// validateCardVerify wraps ValidateVerifyConfig for the card write path so a
 // failure surfaces as 422 (ErrInvalidVerify).
 func validateCardVerify(v *board.VerifyConfig) error {
-	if err := validateVerifyConfig(v); err != nil {
+	if err := ValidateVerifyConfig(v); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidVerify, err)
 	}
 

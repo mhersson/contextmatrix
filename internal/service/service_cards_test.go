@@ -978,3 +978,121 @@ func TestAddLogEntry_ReservedActions(t *testing.T) {
 		assert.Equal(t, "note", got.ActivityLog[len(got.ActivityLog)-1].Action)
 	})
 }
+
+func TestPatchCardExpectUpdated(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	created, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "orig", Type: "task", Priority: "low"})
+	require.NoError(t, err)
+
+	// A card read back from disk, as Sentinel reads it.
+	read, err := svc.GetCard(ctx, "test-project", created.ID)
+	require.NoError(t, err)
+
+	stale := read.Updated
+	newTitle := "sentinel"
+
+	_, err = svc.PatchCard(ctx, "test-project", created.ID, PatchCardInput{Title: &newTitle, ExpectUpdated: &stale})
+	require.NoError(t, err)
+
+	// A write in between makes the held timestamp stale.
+	humanTitle := "human"
+	_, err = svc.PatchCard(ctx, "test-project", created.ID, PatchCardInput{Title: &humanTitle})
+	require.NoError(t, err)
+
+	lateTitle := "late"
+	_, err = svc.PatchCard(ctx, "test-project", created.ID, PatchCardInput{Title: &lateTitle, ExpectUpdated: &stale})
+	require.ErrorIs(t, err, ErrCardChanged)
+
+	got, err := svc.GetCard(ctx, "test-project", created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "human", got.Title)
+}
+
+func TestPatchCardExpectBody(t *testing.T) {
+	tests := []struct {
+		name    string
+		reload  bool // a board-repo reload rewrites the body, keeping Updated
+		wantErr error
+	}{
+		{"the body as read writes", false, nil},
+		{"a body changed under the same updated refuses", true, ErrCardChanged},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, _, cleanup := setupTest(t)
+			defer cleanup()
+
+			ctx := context.Background()
+
+			created, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "orig", Type: "task", Priority: "low", Body: "as read\n"})
+			require.NoError(t, err)
+
+			read, err := svc.GetCard(ctx, "test-project", created.ID)
+			require.NoError(t, err)
+
+			if tt.reload {
+				stored, err := svc.store.GetCard(ctx, "test-project", created.ID)
+				require.NoError(t, err)
+
+				stored.Body = "as reloaded\n"
+				require.NoError(t, svc.store.UpdateCard(ctx, "test-project", stored))
+			}
+
+			before, err := svc.GetCard(ctx, "test-project", created.ID)
+			require.NoError(t, err)
+			require.True(t, before.Updated.Equal(read.Updated))
+
+			written := "as written\n"
+			_, err = svc.PatchCard(ctx, "test-project", created.ID, PatchCardInput{
+				Body: &written, ExpectUpdated: &read.Updated, ExpectBody: &read.Body,
+			})
+
+			got, getErr := svc.GetCard(ctx, "test-project", created.ID)
+			require.NoError(t, getErr)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				assert.Equal(t, before.Body, got.Body, "the card is left as the reload wrote it")
+				assert.True(t, got.Updated.Equal(read.Updated))
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, written, got.Body)
+		})
+	}
+}
+
+func TestTransitionToAs(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "t", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	started, err := svc.TransitionTo(ctx, "test-project", card.ID, board.StateInProgress)
+	require.NoError(t, err)
+
+	_, err = svc.TransitionToAs(ctx, "test-project", card.ID, board.StateTodo, "system:sentinel", card.Updated)
+	require.ErrorIs(t, err, ErrCardChanged, "a write since the caller read the card wins")
+
+	unmoved, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, board.StateInProgress, unmoved.State)
+
+	moved, err := svc.TransitionToAs(ctx, "test-project", card.ID, board.StateTodo, "system:sentinel", started.Updated)
+	require.NoError(t, err)
+	assert.Equal(t, board.StateTodo, moved.State)
+
+	last := moved.ActivityLog[len(moved.ActivityLog)-1]
+	assert.Equal(t, board.StateChangedAction, last.Action)
+	assert.Equal(t, "system:sentinel", last.Agent)
+}

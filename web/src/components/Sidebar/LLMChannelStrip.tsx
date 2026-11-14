@@ -1,5 +1,6 @@
-import { Fragment, useCallback, useEffect, useId, useRef, useState } from 'react';
+import { Fragment, useId } from 'react';
 import { useOptionalAuth } from '../../hooks/useAuth';
+import { usePopover } from '../../hooks/usePopover';
 import { useLLMChannel } from '../../hooks/useLLMChannel';
 import {
   channelLabel,
@@ -10,15 +11,8 @@ import {
   usageTone,
   windowShort,
 } from '../../lib/llmChannel';
+import { Chevron } from './Chevron';
 import { LLMChannelDetails } from './LLMChannelDetails';
-
-function Chevron() {
-  return (
-    <svg aria-hidden="true" width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M3 6l5 5 5-5" />
-    </svg>
-  );
-}
 
 /**
  * Brand-header strip naming the active LLM channel, with a popover holding
@@ -29,39 +23,8 @@ function Chevron() {
 export function LLMChannelStrip() {
   const { view, setMode, error, clearError } = useLLMChannel();
   const auth = useOptionalAuth();
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const stripRef = useRef<HTMLButtonElement>(null);
-  const popoverId = useId();
+  const { open, toggle, containerRef, triggerRef, popoverId, onBlur } = usePopover(clearError);
   const subId = useId();
-
-  const close = useCallback(() => {
-    setOpen(false);
-    clearError();
-  }, [clearError]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onMouseDown = (e: MouseEvent) => {
-      if (containerRef.current?.contains(e.target as Node)) return;
-      // Focus would otherwise drop to <body> with the popover it sat in.
-      if (containerRef.current?.contains(document.activeElement)) stripRef.current?.focus();
-      close();
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      // One Escape closes only the popover, not the mobile drawer's window listener too.
-      e.stopPropagation();
-      stripRef.current?.focus();
-      close();
-    };
-    document.addEventListener('mousedown', onMouseDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onMouseDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open, close]);
 
   if (!view?.claude_code) return null;
 
@@ -77,20 +40,17 @@ export function LLMChannelStrip() {
   return (
     <div
       ref={containerRef}
-      onBlur={(e) => {
-        // A null target (window blur, a click on plain text) is not leaving.
-        if (open && e.relatedTarget && !e.currentTarget.contains(e.relatedTarget)) close();
-      }}
+      onBlur={onBlur}
     >
       <button
-        ref={stripRef}
+        ref={triggerRef}
         type="button"
         className={`llm-strip${canSwitch ? '' : ' llm-strip--ro'}`}
         aria-label={`LLM channel: ${label}${pct ? `, ${pct}` : ''}`}
         aria-expanded={open}
         aria-controls={popoverId}
         aria-describedby={items.length > 0 ? subId : undefined}
-        onClick={() => (open ? close() : setOpen(true))}
+        onClick={toggle}
       >
         <span className={`llm-dot llm-dot--${view.mode}`} aria-hidden="true" />
         <span className="llm-strip__label">{label}</span>

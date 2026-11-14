@@ -5,7 +5,7 @@
 // The package is split across several files along domain axes:
 //
 //   - service.go           - CardService struct, constructor, lifecycle
-//     accessors, TransitionTo orchestrator, HealthCheck.
+//     accessors, TransitionTo and TransitionToAs orchestrator, HealthCheck.
 //   - service_cards.go     - Card CRUD + applyCardMutation driver + helpers.
 //   - service_projects.go  - Project CRUD + config accessors.
 //   - service_locks.go     - Claim/Release/Heartbeat + stall detection.
@@ -21,6 +21,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -39,10 +40,7 @@ import (
 
 const (
 	// maxReviewAttempts caps the review_attempts counter as defense-in-depth.
-	// The shipped workflow skills halt at 3 review cycles. This server-side
-	// cap is higher to allow manual overrides while still preventing runaway
-	// agents.
-	maxReviewAttempts = 7
+	maxReviewAttempts = board.MaxReviewAttempts
 
 	// Field length limits to prevent abuse.
 	maxTitleLen = 500
@@ -149,6 +147,12 @@ type CardService struct {
 	// parkResets is optional; when non-nil it holds the usage-limit reset
 	// times of parked cards. Wired via SetParkResetStore once at startup.
 	parkResets ParkResetStore
+	// sentinelMarks is optional; when non-nil it supplies the cards' Sentinel marks.
+	sentinelMarks SentinelMarkSource
+
+	// editSnapshots is optional; when non-nil a run's own writes keep its
+	// launch snapshot current. Wired via SetEditSnapshotStore at startup.
+	editSnapshots EditSnapshotStore
 
 	// Per-project caches
 	mu      sync.RWMutex
@@ -181,6 +185,62 @@ type ParkResetStore interface {
 // no reset time is kept or shown.
 func (s *CardService) SetParkResetStore(st ParkResetStore) {
 	s.parkResets = st
+}
+
+// SentinelMarkSource gives the Sentinel mark of each card in a project that has one.
+type SentinelMarkSource interface {
+	SentinelMarks(ctx context.Context, project string) (map[string]board.SentinelMark, error)
+}
+
+// SetSentinelMarks wires the Sentinel mark source. Nil-safe: without one, no
+// card carries a mark.
+func (s *CardService) SetSentinelMarks(src SentinelMarkSource) {
+	s.sentinelMarks = src
+}
+
+// enrichSentinelMarks sets Sentinel on the cards that have a mark.
+// Best-effort: the mark is presentation, so a failure leaves the cards unmarked.
+func (s *CardService) enrichSentinelMarks(ctx context.Context, project string, cards ...*board.Card) {
+	if s.sentinelMarks == nil || len(cards) == 0 {
+		return
+	}
+
+	marks, err := s.sentinelMarks.SentinelMarks(ctx, project)
+	if err != nil {
+		ctxlog.Logger(ctx).Warn("sentinel mark enrichment skipped", "project", project, "error", err)
+
+		return
+	}
+
+	for _, c := range cards {
+		if m, ok := marks[c.ID]; ok {
+			c.Sentinel = &m
+		}
+	}
+}
+
+// EditSnapshotStore keeps a card's launch snapshot current with its worker's own writes.
+type EditSnapshotStore interface {
+	RefreshEditSnapshot(ctx context.Context, project, cardID string, snap board.EditSnapshot) error
+}
+
+// SetEditSnapshotStore wires the launch snapshot store. Nil-safe: without
+// one, worker writes leave no snapshot trace.
+func (s *CardService) SetEditSnapshotStore(st EditSnapshotStore) {
+	s.editSnapshots = st
+}
+
+// refreshEditSnapshot records card as the launch snapshot after a write by
+// its non-human claim holder. Best-effort: a stale snapshot only makes the
+// card read as edited.
+func (s *CardService) refreshEditSnapshot(ctx context.Context, card *board.Card) {
+	if s.editSnapshots == nil {
+		return
+	}
+
+	if err := s.editSnapshots.RefreshEditSnapshot(ctx, card.Project, card.ID, board.TakeEditSnapshot(card)); err != nil {
+		slog.Warn("refresh edit snapshot", "project", card.Project, "card", card.ID, "error", err)
+	}
 }
 
 // enrichParkResets sets ParkResetsAt on the parked cards of one project with
@@ -399,6 +459,23 @@ func (s *CardService) Clock() clock.Clock {
 // ordering is preserved by the commit queue's per-project worker.
 // Returns the card in its final state, or an error if any step fails.
 func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetState string) (*board.Card, error) {
+	return s.transitionTo(ctx, project, cardID, targetState, "", nil)
+}
+
+// TransitionToAs walks the same path as TransitionTo under agentID, and only
+// while the card's updated time still equals expectUpdated: a write since the
+// caller read the card refuses it with ErrCardChanged.
+func (s *CardService) TransitionToAs(
+	ctx context.Context, project, cardID, targetState, agentID string, expectUpdated time.Time,
+) (*board.Card, error) {
+	return s.transitionTo(ctx, project, cardID, targetState, agentID, &expectUpdated)
+}
+
+// transitionTo walks to targetState under agentID, "" meaning system, guarded
+// on expectUpdated when it is set.
+func (s *CardService) transitionTo(
+	ctx context.Context, project, cardID, targetState, agentID string, expectUpdated *time.Time,
+) (*board.Card, error) {
 	cardID = strings.ToUpper(cardID)
 
 	s.writeMu.Lock()
@@ -407,6 +484,10 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 	card, err := s.store.GetCard(ctx, project, cardID)
 	if err != nil {
 		return nil, fmt.Errorf("get card: %w", err)
+	}
+
+	if expectUpdated != nil && !card.Updated.Equal(*expectUpdated) {
+		return nil, ErrCardChanged
 	}
 
 	if card.State == targetState {
@@ -426,7 +507,7 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 	}
 
 	for _, state := range path {
-		card, err = s.transitionStep(ctx, project, cardID, state, cfg)
+		card, err = s.transitionStep(ctx, project, cardID, state, agentID, cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -444,7 +525,7 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 // that landed during a previous step's commit await are not clobbered.
 func (s *CardService) transitionStep(
 	ctx context.Context,
-	project, cardID, state string,
+	project, cardID, state, agentID string,
 	cfg *board.ProjectConfig,
 ) (*board.Card, error) {
 	// Always reload under writeMu so concurrent writes that landed while
@@ -487,7 +568,7 @@ func (s *CardService) transitionStep(
 	card.State = state
 	card.Updated = s.clk.Now()
 
-	appendStateChangeLog(card, oldState, state, "", card.Updated)
+	appendStateChangeLog(card, oldState, state, agentID, card.Updated)
 
 	// State-change invariants: see applyTerminalInvariants.
 	s.applyTerminalInvariants(project, card, oldState)
@@ -502,7 +583,7 @@ func (s *CardService) transitionStep(
 
 	// Enqueue under writeMu so the per-project worker preserves order
 	// with any other write that is racing for the same project.
-	commitDone, notify := s.enqueueCardCommitFor(ctx, stepSnapshot, project, cardID, "", "transitioned to "+state)
+	commitDone, notify := s.enqueueCardCommitFor(ctx, stepSnapshot, project, cardID, agentID, "transitioned to "+state)
 
 	// Flush deferred commits on not_planned/review under writeMu so
 	// the shared deferredPaths map stays serialized; the flush itself
@@ -522,17 +603,15 @@ func (s *CardService) transitionStep(
 		return nil, rollbackErr
 	}
 
-	// TransitionTo is currently called only by system-driven paths
-	// (stall checker, MCP transition_card without agent context). Tag
-	// the SSE event with "system" so consumers that filter by agent
-	// (e.g. NowRail) don't drop these silently - and the displayed
-	// agent matches the "system" stamp appendStateChangeLog writes
-	// into the activity log.
+	// System-driven paths pass no agent. Tag the SSE event with "system"
+	// then, so consumers that filter by agent (e.g. NowRail) don't drop
+	// these silently - and the displayed agent matches the stamp
+	// appendStateChangeLog writes into the activity log.
 	s.bus.Publish(events.Event{
 		Type:      events.CardStateChanged,
 		Project:   project,
 		CardID:    cardID,
-		Agent:     "system",
+		Agent:     cmp.Or(agentID, "system"),
 		Timestamp: card.Updated,
 		Data: map[string]any{
 			"old_state": oldState,
