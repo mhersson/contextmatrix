@@ -25,7 +25,7 @@ and records the time and the writer; invalid settings store nothing.
 | Setting                   | Default | Valid range          | Read by                                                        |
 | ------------------------- | ------- | -------------------- | -------------------------------------------------------------- |
 | `enabled`                 | off     |                      | The controller: off reports `off` and reads nothing else       |
-| `healing`                 | on      |                      | The pass: off opens no heal, dispatches nothing and reruns nothing; open heals still close, park and settle |
+| `healing`                 | on      |                      | The pass: off opens no heal, dispatches nothing, reruns nothing and forwards no fix; open heals still close, park and settle |
 | `friction`                | on      |                      | The run-kind intake: off stores no findings                    |
 | `daily_cap_usd`           | 20.00   | 0 to 10000           | The budget gate on the endpoint channel                        |
 | `investigate_ceiling_usd` | 2.00    | above 0, at most 100 | The investigate run's `max_cost_usd`                           |
@@ -565,7 +565,7 @@ closes the heal instead), `settle` (`settle.go`) saves the heal at
 `healed` or `rerun_failed`, then charges the ledger one row for the rerun:
 the card's cost with its subtasks' now, less the cost base taken at the
 relaunch, never below zero (`rerunCharge`), on the mode the rerun's run row
-records. A healed heal then forwards its fix (see [Fix forward](#fix-forward)).
+records. A healed heal then forwards its fix while `healing` is on (see [Fix forward](#fix-forward)).
 The stage is saved first, so a save refused because the heal changed since the
 pass read it charges and forwards nothing, and the next pass settles, charges
 and forwards once.
@@ -579,9 +579,9 @@ next heal, parked at once when the card has used its 2 heal attempts.
 
 A fix that held on its card goes to the cards that share its cause, which the
 investigation names in `forward_to` among the siblings it was sent. When a
-heal settles `healed`, `forward` (`forward.go`) acts only on a `card`
-diagnosis with a fix and only inside the card's active playbook run on this
-instance; fixing forward outside a playbook run is not done. `forwardTargets`
+heal settles `healed` while `healing` is on, `forward` (`forward.go`) acts
+only on a `card` diagnosis with a fix and only inside the card's active
+playbook run on this instance; fixing forward outside a playbook run is not done. `forwardTargets`
 keeps the named cards that were sent as siblings and are still unstarted
 entries of that run, by the rule the siblings were chosen by (`siblings` in
 `playbook.go`): card entries in the card's project that are incomplete, in

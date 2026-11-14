@@ -360,7 +360,7 @@ func (c *Controller) act(ctx context.Context, r *passReads, v *healView, s step)
 	case stepUsageRerun:
 		return c.usageRerun(ctx, h, v.Card, v.Run)
 	case stepSettle:
-		return c.settle(ctx, h, v.Card, v.Run, s.Stage)
+		return c.settle(ctx, v, s)
 	}
 
 	return nil

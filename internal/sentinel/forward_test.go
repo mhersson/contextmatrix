@@ -253,6 +253,23 @@ func TestForwardJudgesACommandChangeByTheSourceCause(t *testing.T) {
 	}
 }
 
+func TestForwardOnlyWhileHealing(t *testing.T) {
+	e := forwardEnv(t, verifyFix())
+	set := enabledSettings()
+	set.Healing = false
+	e.store.set(set)
+
+	e.rerunEnded(t, "ALPHA-001", protocol.StopCauseDone, "completed")
+
+	require.NoError(t, e.ctl.pass(context.Background()))
+
+	assert.Equal(t, state.StageHealed, e.store.heal(1).Stage, "an open heal still settles with healing off")
+	assert.Len(t, e.store.charges(), 1)
+	assert.Empty(t, e.cards.patches, "fix forward is healing work")
+	assert.Empty(t, forwardRows(e, "ALPHA-020"))
+	assert.Empty(t, e.cards.logged["ALPHA-020"])
+}
+
 func TestForwardOnlyAfterRerunPasses(t *testing.T) {
 	tests := []struct {
 		name, cause, worker string
