@@ -3,6 +3,7 @@ package sentinel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/playbookrun"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -17,22 +19,28 @@ func rolloutLock(status string) *board.CardPlaybookLock {
 	return &board.CardPlaybookLock{ID: "rollout", RunStatus: status}
 }
 
-// rollout is playbook rollout with its run in status on instance, holding
-// ALPHA-001.
+// rollout is playbook rollout with its run in status on instance, on entry e1,
+// ALPHA-001; e2 is ALPHA-002.
 func rollout(status, instance string) *service.PlaybookDetail {
 	return &service.PlaybookDetail{
 		ID: "rollout", Runnable: true,
-		Run: &board.PlaybookRun{Status: status, Instance: instance},
+		Run: &board.PlaybookRun{Status: status, Instance: instance, Entry: "e1"},
 		Entries: []service.PlaybookEntryDetail{
 			{PlaybookEntry: board.PlaybookEntry{ID: "e1", Type: board.EntryTypeCard, Project: "alpha", Card: "ALPHA-001"}},
+			{PlaybookEntry: board.PlaybookEntry{ID: "e2", Type: board.EntryTypeCard, Project: "alpha", Card: "ALPHA-002"}},
 		},
 	}
 }
 
-func TestRelaunchRoute(t *testing.T) {
-	other := rollout(board.RunStatusWaiting, "lap-a")
-	other.Entries[0].Card = "ALPHA-002"
+// relaunchOn is rollout's run on entry, waiting on this instance.
+func relaunchOn(entry string) *service.PlaybookDetail {
+	pb := rollout(board.RunStatusWaiting, "lap-a")
+	pb.Run.Entry = entry
 
+	return pb
+}
+
+func TestRelaunchRoute(t *testing.T) {
 	tests := []struct {
 		name   string
 		origin string
@@ -44,7 +52,8 @@ func TestRelaunchRoute(t *testing.T) {
 		{"playbook origin, its run was stopped", OriginPlaybook, rolloutLock(""), nil, routeNone},
 		{"playbook origin, a stopped run read", OriginPlaybook, rolloutLock(board.RunStatusWaiting), rollout(board.RunStatusStopped, "lap-a"), routeNone},
 		{"playbook origin, another instance's run", OriginPlaybook, rolloutLock(board.RunStatusWaiting), rollout(board.RunStatusWaiting, "lap-b"), routeNone},
-		{"playbook origin, the run no longer holds the card", OriginPlaybook, rolloutLock(board.RunStatusWaiting), other, routeNone},
+		{"playbook origin, the run moved on to another card", OriginPlaybook, rolloutLock(board.RunStatusRunning), relaunchOn("e2"), routeNone},
+		{"playbook origin, the run is on no entry", OriginPlaybook, rolloutLock(board.RunStatusWaiting), relaunchOn(""), routeNone},
 		{"playbook origin, no playbook", OriginPlaybook, nil, nil, routeNone},
 		{"rest origin, no lock", OriginREST, nil, nil, routeLaunch},
 		{"mcp origin, an inactive lock", OriginMCP, rolloutLock(""), nil, routeLaunch},
@@ -64,6 +73,16 @@ func TestRelaunchRoute(t *testing.T) {
 	}
 }
 
+// relaunch plans h's rerun and relaunches, as apply does once the fix is written.
+func (e *dispatchEnv) relaunch(t *testing.T, h *Heal, card *board.Card, run Run) error {
+	t.Helper()
+
+	plan, err := e.ctl.planRelaunch(context.Background(), card, run)
+	require.NoError(t, err)
+
+	return e.ctl.relaunch(context.Background(), h, card, run, plan)
+}
+
 func TestRelaunchSavesRerunBeforeLaunching(t *testing.T) {
 	e, h, card, run := applyEnv(t, protocol.DiagnosisModel, nil)
 	card.TokenUsage = &board.TokenUsage{EstimatedCostUSD: 1.25}
@@ -79,7 +98,7 @@ func TestRelaunchSavesRerunBeforeLaunching(t *testing.T) {
 		attempts = e.store.run("alpha", "ALPHA-001").Attempts
 	}
 
-	require.NoError(t, e.ctl.relaunch(context.Background(), h, card, run))
+	require.NoError(t, e.relaunch(t, h, card, run))
 
 	assert.Equal(t, StageRerun, atLaunch.Stage)
 	require.NotNil(t, atLaunch.RelaunchedAt)
@@ -103,7 +122,7 @@ func TestRelaunchPlaybookStopsThenPlays(t *testing.T) {
 	run.Launch.Origin = OriginPlaybook
 	e.pbs["rollout"] = rollout(board.RunStatusWaiting, "lap-a")
 
-	require.NoError(t, e.ctl.relaunch(context.Background(), h, card, run))
+	require.NoError(t, e.relaunch(t, h, card, run))
 
 	assert.Equal(t, []string{"stop rollout " + Agent, "play rollout " + Agent}, e.runner.calls)
 	assert.Empty(t, e.relaunched)
@@ -113,31 +132,46 @@ func TestRelaunchPlaybookStopsThenPlays(t *testing.T) {
 }
 
 func TestRelaunchErrorParks(t *testing.T) {
+	// Raw service errors carry host paths; none may reach the committed reason.
+	const rawPath = "/srv/boards/.git"
+
+	noPath := fmt.Errorf("find transition path in %s: %w", rawPath, &board.ValidationError{Err: board.ErrNoPath})
+
 	tests := []struct {
 		name  string
 		setup func(e *dispatchEnv, card *board.Card, run *Run)
-		cause string
+		keeps []string // what the reason must name
+		calls []string // the runner's calls
 	}{
 		{"the launch is refused", func(e *dispatchEnv, _ *board.Card, _ *Run) {
 			e.relaunchErr = errors.New("card is already being executed by a worker")
-		}, "card is already being executed by a worker"},
-		{"the playbook run is not resumed", func(e *dispatchEnv, card *board.Card, run *Run) {
+		}, []string{"card is already being executed by a worker"}, nil},
+		{"the move to todo is refused", func(e *dispatchEnv, _ *board.Card, _ *Run) {
+			e.cards.refuse = map[string]error{"ALPHA-001": noPath}
+		}, []string{"ALPHA-001", refusedByProject}, nil},
+		{"the playbook run stopped meanwhile", func(e *dispatchEnv, card *board.Card, run *Run) {
 			card.PlaybookLock = rolloutLock(board.RunStatusWaiting)
 			run.Launch.Origin = OriginPlaybook
 			e.pbs["rollout"] = rollout(board.RunStatusWaiting, "lap-a")
-			e.runner.err = errors.New("playbook run inactive")
-		}, "playbook run inactive"},
+			e.runner.err = fmt.Errorf("%w: rollout in %s", playbookrun.ErrRunInactive, rawPath)
+		}, []string{"rollout", refusedByChange}, []string{"stop rollout " + Agent}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			e, h, card, run := applyEnv(t, protocol.DiagnosisModel, nil)
 			tc.setup(e, card, &run)
 
-			require.NoError(t, e.ctl.relaunch(context.Background(), h, card, run))
+			require.NoError(t, e.relaunch(t, h, card, run))
 
 			stored := e.store.heal(h.ID)
 			assert.Equal(t, StageParked, stored.Stage)
-			assert.Contains(t, stored.Reason, tc.cause)
+
+			for _, k := range tc.keeps {
+				assert.Contains(t, stored.Reason, k)
+			}
+
+			assert.NotContains(t, stored.Reason, rawPath)
+			assert.Equal(t, tc.calls, e.runner.calls, "a refused Stop plays nothing")
 			assert.Equal(t, 1, e.store.run("alpha", "ALPHA-001").Attempts, "the attempt was counted before the launch")
 		})
 	}
@@ -148,7 +182,7 @@ func TestRelaunchRouteNoneParksUncounted(t *testing.T) {
 	card.PlaybookLock = rolloutLock(board.RunStatusRunning)
 	e.pbs["rollout"] = rollout(board.RunStatusRunning, "lap-a")
 
-	require.NoError(t, e.ctl.relaunch(context.Background(), h, card, run))
+	require.NoError(t, e.relaunch(t, h, card, run))
 
 	stored := e.store.heal(h.ID)
 	assert.Equal(t, StageParked, stored.Stage)

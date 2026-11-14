@@ -225,13 +225,15 @@ it is on the next card, the run waits on it until the claim goes.
 ### Run and Stop
 
 See [Playbook runs](running-cards.md#playbook-runs) for the runner's
-behavior. Both controls are human-only; `run_playbook` is the MCP path to Run
-and is gated on a `human:` caller. Stop is a web UI control only.
+behavior. Both controls are human-only, apart from Sentinel's in-process use
+below; `run_playbook` is the MCP path to Run and is gated on a `human:`
+caller. Stop is a web UI control only.
 
-Inside a run active on this instance, [Sentinel](sentinel.md) reruns a card it
-fixed through Stop then Run, in process as `system:sentinel`: the stop is
-recorded as `stopped by system:sentinel`, the resumed run's `started_by` reads
-`system:sentinel`, and the runner relaunches the card as on any resume.
+While a run is active on this instance and on a card [Sentinel](sentinel.md)
+fixed, Sentinel reruns that card through Stop then Run, in process as
+`system:sentinel`: the stop is recorded as `stopped by system:sentinel`, the
+resumed run's `started_by` reads `system:sentinel`, and the runner relaunches
+the card as on any resume.
 
 - **Run** requires the playbook to be runnable and no run already active
   (`409 PLAYBOOK_RUN_ACTIVE`), and a configured task backend

@@ -2,7 +2,7 @@ package sentinel
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -171,17 +172,53 @@ func TestApplyFixRefreshesSnapshot(t *testing.T) {
 }
 
 func TestApplyParksARefusedRetire(t *testing.T) {
+	const rawPath = "/srv/boards/alpha/tasks/ALPHA-011.md"
+
+	tests := []struct {
+		name  string
+		err   error
+		class string
+	}{
+		{"the project's transitions refuse it", fmt.Errorf("validate transition in %s: %w", rawPath,
+			&board.ValidationError{Err: board.ErrInvalidTransition}), refusedByProject},
+		{"a claim landed first", fmt.Errorf("agent authorization in %s: %w", rawPath, lock.ErrAgentMismatch), refusedByChange},
+		{"the store failed", fmt.Errorf("write %s: permission denied", rawPath), refusedOther},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fix := sectionFix()
+			fix.RetireSubtasks = []string{"ALPHA-011"}
+			e, h, card, run := applyEnv(t, protocol.DiagnosisCard, fix)
+			e.cards.refuse = map[string]error{"ALPHA-011": tc.err}
+
+			require.NoError(t, e.ctl.apply(context.Background(), h, card, run))
+
+			stored := e.store.heal(h.ID)
+			assert.Equal(t, StageParked, stored.Stage)
+			assert.Contains(t, stored.Reason, "ALPHA-011")
+			assert.Contains(t, stored.Reason, tc.class)
+			assert.NotContains(t, stored.Reason, rawPath, "the reason is committed with the card")
+			assert.Empty(t, e.relaunched)
+			assert.Zero(t, e.store.run("alpha", "ALPHA-001").Attempts)
+		})
+	}
+}
+
+func TestApplyWithNoRerunLeavesTheCardUntouched(t *testing.T) {
 	fix := sectionFix()
 	fix.RetireSubtasks = []string{"ALPHA-011"}
 	e, h, card, run := applyEnv(t, protocol.DiagnosisCard, fix)
-	e.cards.refuse = map[string]error{"ALPHA-011": errors.New("validate transition: todo to not_planned is not allowed")}
+	// A playbook run now holds the card a REST Run launched.
+	card.PlaybookLock = rolloutLock(board.RunStatusRunning)
+	e.pbs["rollout"] = rollout(board.RunStatusRunning, "lap-a")
 
 	require.NoError(t, e.ctl.apply(context.Background(), h, card, run))
 
 	stored := e.store.heal(h.ID)
 	assert.Equal(t, StageParked, stored.Stage)
-	assert.Contains(t, stored.Reason, "ALPHA-011")
-	assert.Contains(t, stored.Reason, "todo to not_planned is not allowed")
-	assert.Empty(t, e.relaunched)
+	assert.NotEmpty(t, stored.Reason)
+	assert.Empty(t, e.cards.patches, "neither the fix nor a retire is written")
+	assert.Zero(t, e.store.refreshes)
 	assert.Zero(t, e.store.run("alpha", "ALPHA-001").Attempts)
+	assert.Empty(t, e.relaunched)
 }

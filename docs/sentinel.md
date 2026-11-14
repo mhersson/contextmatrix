@@ -413,8 +413,10 @@ reason and the rest of the heal's detail stay on its `sentinel_heals` row.
 
 ## Applying a fix
 
-At stage `apply` the pass writes the heal's fix (`apply.go`), then reruns the
-card (`relaunch.go`).
+At stage `apply` the pass decides how the card will rerun, writes the heal's
+fix (`apply.go`), then reruns the card (`relaunch.go`). A heal with no route
+parks before the fix is written, so the card gets only the park's activity
+entry.
 
 `applyFix` writes the fix as `system:sentinel` in one `PatchCard` guarded on
 the card's `updated` as the pass read it: the `## Sentinel` section (section
@@ -423,13 +425,12 @@ upsert) when the fix has one, the verify fields when it has them, and a cleared
 (`ErrCardChanged`); the heal stays at `apply` and the next pass decides again,
 parking it when the edit check finds the edit. Each subtask the fix retires
 then moves to `not_planned`, one guarded write per subtask on a fresh read, so
-a claim that lands first wins; a refused retire, such as a project whose
-transitions do not allow `todo` to `not_planned`, parks the heal with
-`cannot retire <ID>: <error>`. Last, the run row's `edit_snapshot` is replaced
-with the written card's, so the edit check reads Sentinel's write as no edit.
-A heal holding no fix (a `model` diagnosis) writes nothing. The heal records
-the change: the section and verify before and after, the retired subtasks, and
-fresh or resume.
+a claim that lands first wins; a refused retire parks the heal with
+`cannot retire <ID>: <class>` (see [Refusals](#refusals)). Last, the run row's
+`edit_snapshot` is replaced with the written card's, so the edit check reads
+Sentinel's write as no edit. A heal holding no fix (a `model` diagnosis)
+writes nothing. The heal records the change: the section and verify before
+and after, the retired subtasks, and fresh or resume.
 
 A rerun is fresh, its saved phase cleared so the agent plans again, when the
 fix wrote the section or retired subtasks; otherwise it resumes, keeping the
@@ -440,18 +441,30 @@ playbook the card's active `playbook_lock` names:
 
 | Origin           | Route                                                                                                                                         |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `playbook`       | Through the playbook run's Stop then Play, as `system:sentinel`, while that run is active on this instance and holds the card; else it parks |
+| `playbook`       | Through the playbook run's Stop then Play, as `system:sentinel`, while that run is active on this instance and its current entry is the card's, so Stop kills no other card's worker; else it parks |
 | any other origin | Alone: the card moves to `todo` when it is elsewhere, then launches as a hand run with origin `sentinel`; while an active playbook run holds the card it parks |
 
 Before anything launches, `relaunch` counts the attempt on the run row, saves
 the heal at `rerun` with `relaunched_at` and the card's cost with its
 subtasks' as the cost base, and writes the rerun's activity entry, so the
-rerun's run row starts at or after `relaunched_at`. A move to `todo`, launch,
-Stop or Play that fails parks the heal with `rerun refused: <error>`. The launch is
+rerun's run row starts at or after `relaunched_at`. A move to `todo`, Stop or
+Play that fails parks the heal with `rerun refused: cannot <step>: <class>`,
+and a refused launch with `rerun refused: <launch error>`. The launch is
 `backendHandlers.sentinelRelaunch` (`internal/api/backend_runkind.go`), which
 the router hands the controller: a hand run's checks and `launch`, with a raw
-service error reduced to its sanitized class, since the park reason is
-committed with the card.
+service error reduced to its sanitized class.
+
+### Refusals
+
+A park reason is committed with the card, so a refused write's raw error,
+which can carry paths and remote URLs, is only logged (`refused.go`). The
+reason names the step and one class, decided from the error:
+
+| Class                           | Errors                                                                                                   |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `the project does not allow it` | A refused transition, no transition path, or a state the project lacks                                   |
+| `it changed meanwhile`          | A guarded write that lost, a claim, a deleted card, or a playbook run stopped, started or made unrunnable since the pass read it |
+| `refused`                       | Anything else                                                                                            |
 
 ## Where things live
 
@@ -463,8 +476,9 @@ committed with the card.
 | `internal/sentinel/payload.go`              | The pure run-kind payloads: `investigatePayload` under the 1 MiB cap, `checkPayload`, and `siblings`                                                         |
 | `internal/sentinel/dispatch.go`             | Reading a run kind's inputs, `dispatch` (record, then send, then act on the agent's answer) and the no-run-kinds hold                                         |
 | `internal/sentinel/outcome.go`              | The ends of a heal: `park` (with its activity entry, `activityText`), `parkUnreported` (and the ceiling charge) and `closeHeal`                              |
-| `internal/sentinel/apply.go`                | Writing a fix: `applyFix` (the guarded write, retiring subtasks, the snapshot refresh) and `freshRerun`                                                     |
-| `internal/sentinel/relaunch.go`             | Rerunning a card: `relaunchRoute`, `relaunch` (attempt, rerun stage, activity entry, then launch or Stop then Play) and its activity text                  |
+| `internal/sentinel/apply.go`                | Applying a fix: the route first, then `applyFix` (the guarded write, retiring subtasks, the snapshot refresh) and `freshRerun`                              |
+| `internal/sentinel/relaunch.go`             | Rerunning a card: `planRelaunch` and the pure `relaunchRoute`, `relaunch` (attempt, rerun stage, activity entry, then launch or Stop then Play) and its activity text |
+| `internal/sentinel/refused.go`              | Refused writes: `refusal`, the class a park reason names, and `refused`, which logs the raw error                                                            |
 | `internal/sentinel/intake.go`               | `RunKindStatus`: record a run kind's terminal status, its windows and findings                                                                               |
 | `internal/sentinel/limits.go`               | `ValidateRunKindStatus`: the run-kind status values and size limits                                                                                          |
 | `internal/sentinel/spend.go`                | `Pricer` and `priceUsage`: what a run kind's usage costs                                                                                                     |

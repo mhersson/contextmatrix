@@ -21,10 +21,36 @@ const (
 	routeNone                  // not at all: the heal parks
 )
 
+// relaunchPlan is a heal's rerun route, why it has none, and the playbook
+// whose run a playbook route goes through.
+type relaunchPlan struct {
+	route    route
+	reason   string
+	playbook *service.PlaybookDetail
+}
+
+// planRelaunch reads the playbook the card's active lock names and decides
+// the rerun's route.
+func (c *Controller) planRelaunch(ctx context.Context, card *board.Card, run Run) (relaunchPlan, error) {
+	var pb *service.PlaybookDetail
+
+	if c.cfg.Playbooks != nil && card.PlaybookLock.Active() {
+		var err error
+		if pb, err = c.cfg.Playbooks.Get(ctx, card.PlaybookLock.ID); err != nil {
+			return relaunchPlan{}, fmt.Errorf("read playbook %s: %w", card.PlaybookLock.ID, err)
+		}
+	}
+
+	rt, reason := relaunchRoute(run, card, pb, c.cfg.Instance)
+
+	return relaunchPlan{route: rt, reason: reason, playbook: pb}, nil
+}
+
 // relaunchRoute picks the rerun's route. A playbook origin reruns only through
-// its active run on this instance; any other origin reruns alone unless an
-// active playbook run holds the card. pb is the playbook the card's active
-// lock names, nil without one.
+// its active run on this instance, while that run is on the card, so its Stop
+// kills no other card's worker; any other origin reruns alone unless an active
+// playbook run holds the card. pb is the playbook the card's active lock
+// names, nil without one.
 func relaunchRoute(run Run, card *board.Card, pb *service.PlaybookDetail, instance string) (route, string) {
 	if run.Launch.Origin != OriginPlaybook {
 		if card.PlaybookLock.Active() {
@@ -35,37 +61,31 @@ func relaunchRoute(run Run, card *board.Card, pb *service.PlaybookDetail, instan
 	}
 
 	switch {
-	case pb == nil || !pb.Run.Active() || !holdsCard(pb, card):
+	case pb == nil || !pb.Run.Active():
 		return routeNone, "its playbook run is not active"
 	case pb.Run.Instance != instance:
 		return routeNone, "its playbook run belongs to another instance"
+	case !runOn(pb, card):
+		return routeNone, "its playbook run has moved on"
 	}
 
 	return routePlaybook, ""
 }
 
-func holdsCard(pb *service.PlaybookDetail, card *board.Card) bool {
+// runOn reports whether pb's run is on card's entry.
+func runOn(pb *service.PlaybookDetail, card *board.Card) bool {
 	return slices.ContainsFunc(pb.Entries, func(e service.PlaybookEntryDetail) bool {
-		return e.Type == board.EntryTypeCard && e.Project == card.Project && e.Card == card.ID
+		return e.ID == pb.Run.Entry && e.Type == board.EntryTypeCard && e.Project == card.Project && e.Card == card.ID
 	})
 }
 
-// relaunch reruns the card on its route. The attempt is counted and the heal
-// saved at rerun, with RelaunchedAt taken, before anything launches, so the
-// rerun's run row starts at or after it. A refused rerun parks the heal.
-func (c *Controller) relaunch(ctx context.Context, h *Heal, card *board.Card, run Run) error {
-	var pb *service.PlaybookDetail
-
-	if c.cfg.Playbooks != nil && card.PlaybookLock.Active() {
-		var err error
-		if pb, err = c.cfg.Playbooks.Get(ctx, card.PlaybookLock.ID); err != nil {
-			return fmt.Errorf("read playbook %s: %w", card.PlaybookLock.ID, err)
-		}
-	}
-
-	rt, reason := relaunchRoute(run, card, pb, c.cfg.Instance)
-	if rt == routeNone {
-		return c.park(ctx, h, reason)
+// relaunch reruns the card on plan's route; a plan with no route parks. The
+// attempt is counted and the heal saved at rerun, with RelaunchedAt taken,
+// before anything launches, so the rerun's run row starts at or after it. A
+// refused rerun parks the heal.
+func (c *Controller) relaunch(ctx context.Context, h *Heal, card *board.Card, run Run, plan relaunchPlan) error {
+	if plan.route == routeNone {
+		return c.park(ctx, h, plan.reason)
 	}
 
 	if err := c.cfg.Store.IncrementAttempts(ctx, h.Project, h.CardID); err != nil {
@@ -81,7 +101,7 @@ func (c *Controller) relaunch(ctx context.Context, h *Heal, card *board.Card, ru
 
 	logErr := c.logActivity(ctx, h, relaunchText(h.Change, run.Attempts+1))
 
-	if err := c.rerun(ctx, rt, card, pb); err != nil {
+	if err := c.rerun(ctx, plan, card); err != nil {
 		return errors.Join(logErr, c.park(ctx, h, "rerun refused: "+err.Error()))
 	}
 
@@ -89,15 +109,18 @@ func (c *Controller) relaunch(ctx context.Context, h *Heal, card *board.Card, ru
 }
 
 // rerun launches the card alone from todo, or through its playbook run's Stop
-// then Play, whose walker moves the card to todo itself.
-func (c *Controller) rerun(ctx context.Context, rt route, card *board.Card, pb *service.PlaybookDetail) error {
-	if rt == routePlaybook {
+// then Play, whose walker moves the card to todo itself. Every error's text is
+// safe to commit: the launch's is sanitized where it is made.
+func (c *Controller) rerun(ctx context.Context, plan relaunchPlan, card *board.Card) error {
+	if plan.route == routePlaybook {
+		pb := plan.playbook
+
 		if _, err := c.cfg.Runner.Stop(ctx, pb.ID, Agent); err != nil {
-			return fmt.Errorf("stop playbook %s: %w", pb.ID, err)
+			return refused(ctx, "cannot stop playbook "+pb.ID, err)
 		}
 
 		if _, err := c.cfg.Runner.Play(ctx, pb.ID, Agent); err != nil {
-			return fmt.Errorf("play playbook %s: %w", pb.ID, err)
+			return refused(ctx, "cannot play playbook "+pb.ID, err)
 		}
 
 		return nil
@@ -113,7 +136,7 @@ func (c *Controller) rerun(ctx context.Context, rt route, card *board.Card, pb *
 
 	if card.State != board.StateTodo {
 		if _, err := c.cfg.Cards.TransitionTo(ctx, card.Project, card.ID, board.StateTodo); err != nil {
-			return fmt.Errorf("move %s to todo: %w", card.ID, err)
+			return refused(ctx, "cannot move "+card.ID+" to todo", err)
 		}
 	}
 

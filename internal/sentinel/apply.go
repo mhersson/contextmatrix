@@ -11,14 +11,24 @@ import (
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
-// apply writes the heal's fix and reruns the card. A subtask the fix cannot
-// retire parks the heal; a card changed since the pass read it leaves the
-// heal at apply for the next pass to decide.
+// apply writes the heal's fix and reruns the card. A heal that cannot rerun
+// parks before anything is written, and so does a subtask the fix cannot
+// retire; a card changed since the pass read it leaves the heal at apply for
+// the next pass to decide.
 func (c *Controller) apply(ctx context.Context, h *Heal, card *board.Card, run Run) error {
+	plan, err := c.planRelaunch(ctx, card, run)
+	if err != nil {
+		return err
+	}
+
+	if plan.route == routeNone {
+		return c.park(ctx, h, plan.reason)
+	}
+
 	change, err := c.applyFix(ctx, h, card)
 	h.Change = &change
 
-	if re, ok := errors.AsType[*retireError](err); ok {
+	if re, ok := errors.AsType[*refusedError](err); ok {
 		return c.park(ctx, h, re.Error())
 	}
 
@@ -26,7 +36,7 @@ func (c *Controller) apply(ctx context.Context, h *Heal, card *board.Card, run R
 		return err
 	}
 
-	return c.relaunch(ctx, h, card, run)
+	return c.relaunch(ctx, h, card, run, plan)
 }
 
 // freshRerun reports whether a fix restarts the rerun from planning: a
@@ -90,16 +100,6 @@ func fixPatch(card *board.Card, fix protocol.CardFix) service.PatchCardInput {
 	return in
 }
 
-// retireError is a subtask the fix could not retire.
-type retireError struct {
-	id  string
-	err error
-}
-
-func (e *retireError) Error() string { return fmt.Sprintf("cannot retire %s: %v", e.id, e.err) }
-
-func (e *retireError) Unwrap() error { return e.err }
-
 // retire moves a subtask to not_planned as Sentinel, guarded on a fresh read
 // so a claim that lands first wins.
 func (c *Controller) retire(ctx context.Context, project, id string) error {
@@ -111,7 +111,7 @@ func (c *Controller) retire(ctx context.Context, project, id string) error {
 	}
 
 	if err != nil {
-		return &retireError{id: id, err: err}
+		return refused(ctx, "cannot retire "+id, err)
 	}
 
 	return nil
