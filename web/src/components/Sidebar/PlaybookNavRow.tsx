@@ -7,7 +7,7 @@ import { PinIcon } from '../SessionIcons';
 import { WaitBadge } from '../WaitBadge';
 
 const STATUS_DOT = {
-  running: 'var(--aqua)',
+  running: 'var(--green)',
   waiting: 'var(--wait-yellow)',
   stopped: 'var(--orange)',
   completed: 'var(--grey0)',

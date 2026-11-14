@@ -309,7 +309,7 @@ when, once someone has.
   then **Boards** (the Dashboard, then the projects). Every Work row leads with
   a dot and ends with its last activity (`now`, `12m`, `2h`, `1d`), the exact
   time in a tooltip. A chat or blueprint dot is green while active, yellow
-  while warm-idle and muted otherwise; a playbook dot is aqua while running,
+  while warm-idle and muted otherwise; a playbook dot is green while running,
   yellow while waiting, orange when stopped and muted when not started or
   completed, with the state in its tooltip. Each Work section
   shows its pinned rows, then its live ones, then the most recently active of

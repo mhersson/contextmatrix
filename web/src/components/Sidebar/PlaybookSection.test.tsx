@@ -93,7 +93,7 @@ describe('PlaybookSection', () => {
   });
 
   it.each([
-    ['running', 'var(--aqua)', { run: 'running', complete: 1 }],
+    ['running', 'var(--green)', { run: 'running', complete: 1 }],
     ['waiting', 'var(--wait-yellow)', { run: 'waiting' }],
     ['stopped', 'var(--orange)', { run: 'stopped', complete: 2 }],
     ['not started', 'var(--grey0)', {}],
