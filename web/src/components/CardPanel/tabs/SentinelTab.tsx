@@ -43,10 +43,11 @@ function Fact({ label, value }: { label: string; value: string }) {
   );
 }
 
-const DIFF_STYLE: Record<DiffLine['kind'], { color: string; background?: string; mark: string }> = {
-  same: { color: 'var(--grey1)', mark: ' ' },
-  add: { color: 'var(--green)', background: 'var(--bg-green)', mark: '+' },
-  del: { color: 'var(--red)', background: 'var(--bg-red)', mark: '-' },
+// Foreground text on the tint: the coloured --green/--red text fell below 3:1 in light palettes.
+const DIFF_STYLE: Record<DiffLine['kind'], { background?: string; mark: string }> = {
+  same: { mark: ' ' },
+  add: { background: 'var(--bg-green)', mark: '+' },
+  del: { background: 'var(--bg-red)', mark: '-' },
 };
 
 function Diff({ label, before, after }: { label: string; before: string; after: string }) {
@@ -58,7 +59,7 @@ function Diff({ label, before, after }: { label: string; before: string; after: 
       </h4>
       <pre className="text-xs overflow-x-auto rounded p-2" style={{ background: 'var(--bg1)' }}>
         {lineDiff(before, after).map((l, i) => (
-          <div key={i} style={{ color: DIFF_STYLE[l.kind].color, background: DIFF_STYLE[l.kind].background }}>
+          <div key={i} style={{ color: 'var(--fg)', background: DIFF_STYLE[l.kind].background }}>
             {DIFF_STYLE[l.kind].mark} {l.text}
           </div>
         ))}
