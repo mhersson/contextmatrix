@@ -29,6 +29,30 @@ func TestVetFixRunsEveryCheck(t *testing.T) {
 	assert.GreaterOrEqual(t, len(vetFix(c)), 3, "section, shape and retire")
 }
 
+func TestVetFixTagsTheSectionChecks(t *testing.T) {
+	card := &board.Card{ID: "P-1", Title: "t"}
+	c := fixContext{
+		Card:     card,
+		Snapshot: board.TakeEditSnapshot(card),
+		Fix:      protocol.CardFix{Section: "```gen-tool", Verify: &protocol.VerifyConfig{Command: "make test"}},
+		Check:    &protocol.CheckResult{AbsentFromRepo: []string{"gen-tool"}, Candidates: []string{"make test"}},
+	}
+
+	var section, other []string
+
+	for _, v := range vetFix(c) {
+		if v.section {
+			section = append(section, v.text)
+		} else {
+			other = append(other, v.text)
+		}
+	}
+
+	assert.ElementsMatch(t, append(checkSection(c), checkText(c)...), section)
+	assert.ElementsMatch(t, checkVerify(c), other, "the trial did not finish")
+	assert.NotEmpty(t, other)
+}
+
 func TestVetForwardSkipsHealOnlyChecks(t *testing.T) {
 	c := fixContext{
 		Card:  &board.Card{ID: "P-1"},
@@ -38,4 +62,7 @@ func TestVetForwardSkipsHealOnlyChecks(t *testing.T) {
 
 	assert.Empty(t, vetForward(c), "no snapshot and no retire needed for a forward target")
 	assert.NotEmpty(t, vetFix(c), "a heal needs its snapshot")
+
+	c.Fix.Section = "```bad"
+	assert.Equal(t, checkSection(c), vetForward(c), "a forward still runs the section checks")
 }

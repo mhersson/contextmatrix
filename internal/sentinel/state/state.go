@@ -115,6 +115,7 @@ type Heal struct {
 	Check                      *protocol.CheckResult
 	SentSubtasks, SentSiblings []string
 	Change                     *Change
+	Dropped                    []string // why vetting dropped the fix's section; the fix then holds none
 	RelaunchedAt               *time.Time
 	CostBaseUSD                float64 // the card's cost at relaunch
 	SourceCard                 string  // forward rows: the card the fix came from

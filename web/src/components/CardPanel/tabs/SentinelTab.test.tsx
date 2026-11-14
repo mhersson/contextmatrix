@@ -50,6 +50,7 @@ const heal: SentinelHealView = {
     retired: ['T-002'],
     fresh: false,
   },
+  dropped: [],
 };
 
 const finding = (kind: SentinelFindingView['kind'], title: string): SentinelFindingView => ({
@@ -89,6 +90,19 @@ describe('SentinelTab', () => {
   it('shows retired subtasks', async () => {
     renderTab({ run, heals: [heal] });
     expect(await screen.findByText(/Retired subtasks: T-002/)).toBeInTheDocument();
+  });
+
+  it('lists why the section was dropped', async () => {
+    renderTab({ run, heals: [{ ...heal, dropped: ['introduces gen-tool', 'introduces gen.yaml'] }] });
+    expect(await screen.findByRole('heading', { name: /section dropped/i })).toBeInTheDocument();
+    const reasons = screen.getAllByRole('listitem').map((li) => li.textContent);
+    expect(reasons).toEqual(['introduces gen-tool', 'introduces gen.yaml']);
+  });
+
+  it('shows no dropped section when nothing was dropped', async () => {
+    renderTab({ run, heals: [heal] });
+    expect(await screen.findByText('The criteria were vague.')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /section dropped/i })).not.toBeInTheDocument();
   });
 
   it('groups findings and notes', async () => {

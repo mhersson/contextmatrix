@@ -264,7 +264,7 @@ func (c *Controller) advance(ctx context.Context, r *passReads, v *healView) (op
 
 // view reads what nextStep needs for h but the budget and worker slots: the
 // card fresh, its run row, the edit check, and at stage apply the fix checks
-// on a card diagnosis's fix.
+// on a card diagnosis's fix, which trimFix may apply without its section.
 func (c *Controller) view(ctx context.Context, r *passReads, h state.Heal) (healView, error) {
 	v := healView{Heal: h, Healing: r.set.Healing, Now: r.now}
 
@@ -292,15 +292,29 @@ func (c *Controller) view(ctx context.Context, r *passReads, h state.Heal) (heal
 	v.Edited = checkEdits(fixContext{Card: card, Snapshot: v.Run.Launch.Snapshot})
 
 	if fix := healFix(h); h.Stage == state.StageApply && fix != nil {
-		v.Subtasks, v.Rejected, err = c.vet(ctx, h, card, v.Run, *fix)
+		var vs []violation
+
+		if v.Subtasks, vs, err = c.vet(ctx, h, card, v.Run, *fix); err != nil {
+			return v, err
+		}
+
+		kept, dropped, ok := trimFix(*fix, vs)
+
+		switch {
+		case !ok:
+			v.Rejected = texts(vs)
+		case len(dropped) > 0:
+			// The heal's next save, version-guarded like every other, stores it.
+			v.Heal = withFix(v.Heal, kept, dropped)
+		}
 	}
 
-	return v, err
+	return v, nil
 }
 
 // vet runs the fix checks with the card's subtasks and its project's verify
 // read fresh, and returns the subtasks for the fix to decide its rerun by.
-func (c *Controller) vet(ctx context.Context, h state.Heal, card *board.Card, run state.Run, fix protocol.CardFix) ([]*board.Card, []string, error) {
+func (c *Controller) vet(ctx context.Context, h state.Heal, card *board.Card, run state.Run, fix protocol.CardFix) ([]*board.Card, []violation, error) {
 	project, err := c.cfg.Cards.GetProject(ctx, h.Project)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read project: %w", err)

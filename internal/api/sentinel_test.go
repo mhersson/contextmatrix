@@ -233,6 +233,7 @@ func TestCardSentinelViewHealsAndFindings(t *testing.T) {
 			VerifyBefore: &board.VerifyConfig{Command: "make a"}, VerifyAfter: &board.VerifyConfig{Command: "make b"},
 			Retired: []string{"P-002"}, Fresh: true,
 		},
+		Dropped:  []string{"introduces gen-tool"},
 		SpendUSD: 0.42, CreatedAt: at, UpdatedAt: at.Add(time.Minute),
 	}, {ID: 6, Kind: state.HealKindForward, SourceCard: "P-009", CreatedAt: at, UpdatedAt: at}}
 	store.findings = []state.Finding{{HealID: 7, Kind: protocol.FindingGuidance, Title: "t", Text: "x", Evidence: "e", CreatedAt: at}}
@@ -257,9 +258,12 @@ func TestCardSentinelViewHealsAndFindings(t *testing.T) {
 	assert.Equal(t, true, change["fresh"])
 	assert.Equal(t, "make b", change["verify_after"].(map[string]any)["command"])
 
+	assert.Equal(t, []any{"introduces gen-tool"}, h["dropped"])
+
 	fwd := heals[1].(map[string]any)
 	assert.Equal(t, "P-009", fwd["source_card"])
 	assert.NotContains(t, fwd, "change")
+	assert.Equal(t, []any{}, fwd["dropped"])
 
 	f := body["findings"].([]any)[0].(map[string]any)
 	assert.Equal(t, "guidance", f["kind"])

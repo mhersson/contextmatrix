@@ -234,14 +234,19 @@ func TestRelaunchRouteNoneParksUncounted(t *testing.T) {
 func TestRelaunchText(t *testing.T) {
 	retired := &state.Change{Retired: []string{"ALPHA-011", "ALPHA-012"}, Fresh: true}
 
-	text := relaunchText(retired, 1)
+	text := relaunchText(retired, nil, 1)
 	assert.Contains(t, text, "ALPHA-011")
 	assert.Contains(t, text, "ALPHA-012")
 
 	resumed := &state.Change{VerifyAfter: &board.VerifyConfig{Command: "make check"}}
 
-	assert.NotEqual(t, relaunchText(resumed, 1), relaunchText(&state.Change{VerifyAfter: resumed.VerifyAfter, Fresh: true}, 1),
+	assert.NotEqual(t, relaunchText(resumed, nil, 1), relaunchText(&state.Change{VerifyAfter: resumed.VerifyAfter, Fresh: true}, nil, 1),
 		"fresh and resume read apart")
-	assert.NotEqual(t, relaunchText(resumed, 1), relaunchText(resumed, 2), "the attempt is named")
-	assert.NotEqual(t, relaunchText(nil, 1), relaunchText(resumed, 1), "a changed verify is named")
+	assert.NotEqual(t, relaunchText(resumed, nil, 1), relaunchText(resumed, nil, 2), "the attempt is named")
+	assert.NotEqual(t, relaunchText(nil, nil, 1), relaunchText(resumed, nil, 1), "a changed verify is named")
+
+	dropped := relaunchText(resumed, []string{"introduces gen-tool", "introduces gen.yaml"}, 1)
+	assert.NotEqual(t, relaunchText(resumed, nil, 1), dropped, "a dropped section is named")
+	assert.Contains(t, dropped, "introduces gen-tool")
+	assert.Contains(t, dropped, "introduces gen.yaml")
 }

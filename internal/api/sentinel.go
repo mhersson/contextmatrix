@@ -139,6 +139,7 @@ type cardSentinelHeal struct {
 	Diagnosis  string              `json:"diagnosis"`
 	SourceCard string              `json:"source_card,omitempty"`
 	Change     *cardSentinelChange `json:"change,omitempty"`
+	Dropped    []string            `json:"dropped"`
 	SpendUSD   float64             `json:"spend_usd"`
 	CreatedAt  string              `json:"created_at"`
 	UpdatedAt  string              `json:"updated_at"`
@@ -155,7 +156,7 @@ type cardSentinelFinding struct {
 func healView(h state.Heal) cardSentinelHeal {
 	v := cardSentinelHeal{
 		ID: h.ID, Kind: h.Kind, Cause: h.Cause, Stage: h.Stage, Reason: h.Reason,
-		SourceCard: h.SourceCard, SpendUSD: h.SpendUSD,
+		SourceCard: h.SourceCard, Dropped: append([]string{}, h.Dropped...), SpendUSD: h.SpendUSD,
 		CreatedAt: h.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt: h.UpdatedAt.UTC().Format(time.RFC3339),
 	}

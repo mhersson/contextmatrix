@@ -18,11 +18,11 @@ import (
 // order.
 const healMutable = `run_id, cause, response, stage, reason,
 	dispatch_kind, dispatch_mode, dispatch_ceiling_usd, dispatch_at, dispatch_answered_run_id, dispatch_failure,
-	investigation, check_result, sent_subtasks, sent_siblings, change,
+	investigation, check_result, sent_subtasks, sent_siblings, change, dropped,
 	relaunched_at, cost_base_usd, source_card, updated_at`
 
 // healMutableParams holds one parameter per healMutable column.
-const healMutableParams = `?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?`
+const healMutableParams = `?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?`
 
 const healSelect = `SELECT id, kind, project, card_id, run_started, created_at, ` + healMutable + `,
 	(SELECT COALESCE(SUM(usd), 0) FROM sentinel_spend WHERE heal_id = h.id), version
@@ -363,7 +363,7 @@ func healValues(h state.Heal) ([]any, error) {
 		d.Kind, d.Mode, d.CeilingUSD, nullUnixNano(d.At), d.AnsweredRunID, d.Failure,
 	}
 
-	for _, v := range []any{h.Investigation, h.Check, h.SentSubtasks, h.SentSiblings, h.Change} {
+	for _, v := range []any{h.Investigation, h.Check, h.SentSubtasks, h.SentSiblings, h.Change, h.Dropped} {
 		b, err := json.Marshal(v)
 		if err != nil {
 			return nil, fmt.Errorf("encode heal: %w", err)
@@ -377,17 +377,17 @@ func healValues(h state.Heal) ([]any, error) {
 
 func scanHeal(sc scanner) (state.Heal, error) {
 	var (
-		h                                    state.Heal
-		started, created, updated            int64
-		dispatchAt, relaunched               sql.NullInt64
-		inv, check, subtasks, siblings, chng string
+		h                                             state.Heal
+		started, created, updated                     int64
+		dispatchAt, relaunched                        sql.NullInt64
+		inv, check, subtasks, siblings, chng, dropped string
 	)
 
 	d := &h.Dispatch
 	if err := sc.Scan(&h.ID, &h.Kind, &h.Project, &h.CardID, &started, &created,
 		&h.RunID, &h.Cause, &h.Response, &h.Stage, &h.Reason,
 		&d.Kind, &d.Mode, &d.CeilingUSD, &dispatchAt, &d.AnsweredRunID, &d.Failure,
-		&inv, &check, &subtasks, &siblings, &chng,
+		&inv, &check, &subtasks, &siblings, &chng, &dropped,
 		&relaunched, &h.CostBaseUSD, &h.SourceCard, &updated, &h.SpendUSD, &h.Version); err != nil {
 		return state.Heal{}, fmt.Errorf("scan heal: %w", err)
 	}
@@ -401,6 +401,7 @@ func scanHeal(sc scanner) (state.Heal, error) {
 		{subtasks, &h.SentSubtasks},
 		{siblings, &h.SentSiblings},
 		{chng, &h.Change},
+		{dropped, &h.Dropped},
 	} {
 		if err := json.Unmarshal([]byte(doc.text), doc.into); err != nil {
 			return state.Heal{}, fmt.Errorf("decode heal %d: %w", h.ID, err)

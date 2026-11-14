@@ -519,7 +519,67 @@ func TestPassResumesASectionFixWhenASubtaskHasStarted(t *testing.T) {
 
 	logged := e.cards.logged["ALPHA-001"]
 	require.Len(t, logged, 1)
-	assert.Equal(t, relaunchText(h.Change, 1), logged[0].Message, "the entry says the rerun resumes")
+	assert.Equal(t, relaunchText(h.Change, nil, 1), logged[0].Message, "the entry says the rerun resumes")
+}
+
+func TestPassDropsAFailingSectionAndAppliesTheVerifyFix(t *testing.T) {
+	verify := &protocol.VerifyConfig{Command: "make test", TimeoutSeconds: 1800}
+
+	tests := []struct {
+		name    string
+		fix     protocol.CardFix
+		stage   string
+		dropped []string
+	}{
+		{"a verify fix applies without the section", protocol.CardFix{Section: "Run gen-tool first.", Verify: verify}, state.StageRerun, []string{"introduces gen-tool"}},
+		{"a section-only fix has nothing left to apply", protocol.CardFix{Section: "Run gen-tool first."}, state.StageParked, nil},
+		{"a fix that retires subtasks parks", protocol.CardFix{Section: "Run gen-tool first.", Verify: verify, RetireSubtasks: []string{"ALPHA-011"}}, state.StageParked, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newPassEnv(t)
+
+			e.stopped("ALPHA-001", protocol.StopCauseVerifyParked, func(c *board.Card, _ *state.Run) {
+				c.Phase, c.Verify = "execute", &board.VerifyConfig{Command: "make test"}
+			})
+			e.cards.cards = append(e.cards.cards, &board.Card{
+				ID: "ALPHA-011", Project: "alpha", Title: "Part one", Parent: "ALPHA-001", State: board.StateTodo,
+				Updated: epoch.Add(-30 * time.Minute),
+			})
+			e.openHeal(t, "ALPHA-001", state.StageApply, investigated(protocol.DiagnosisCard, &tc.fix), func(h *state.Heal) {
+				h.SentSubtasks = []string{"ALPHA-011"}
+				h.Check = &protocol.CheckResult{Candidates: []string{"make test"}, Trial: protocol.TrialFinished, AbsentFromRepo: []string{"gen-tool"}}
+			})
+
+			require.NoError(t, e.ctl.pass(context.Background()))
+
+			h := e.store.heal(1)
+			assert.Equal(t, tc.stage, h.Stage)
+			assert.Equal(t, tc.dropped, h.Dropped)
+
+			card := storedCard(t, e, "ALPHA-001")
+			assert.Empty(t, sentinelSection(card), "the failing section is never written")
+
+			logged := e.cards.logged["ALPHA-001"]
+			require.Len(t, logged, 1)
+
+			if tc.stage == state.StageParked {
+				assert.Contains(t, h.Reason, "introduces gen-tool")
+				assert.Equal(t, tc.fix, *healFix(h), "a refused fix is kept as the investigation proposed it")
+				assert.Equal(t, activityText(h), logged[0].Message)
+
+				return
+			}
+
+			assert.Equal(t, protocol.CardFix{Verify: verify}, *healFix(h), "the heal holds the fix it applied")
+			assert.Equal(t, 1800, card.Verify.TimeoutSeconds)
+			assert.Equal(t, "execute", card.Phase, "the section did not change, so the rerun resumes")
+			require.NotNil(t, h.Change)
+			assert.False(t, h.Change.Fresh)
+			assert.Equal(t, relaunchText(h.Change, h.Dropped, 1), logged[0].Message, "the one entry names the dropped section")
+			assert.Equal(t, []string{"alpha/ALPHA-001"}, e.relaunched)
+		})
+	}
 }
 
 func TestPassLeavesAFixAnEditRefusedAtApply(t *testing.T) {

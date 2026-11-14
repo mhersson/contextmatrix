@@ -238,7 +238,9 @@ the state as its label.
   facts, each heal shows a header (cause and stage, age, spend), its
   diagnosis, a line diff of the card's `## Sentinel` section and of the verify
   change (additions on a green tint, removals on a red one, text in the
-  foreground colour, long lines wrapped), and the subtasks it retired. Then
+  foreground colour, long lines wrapped), the subtasks it retired, and, when
+  vetting dropped the fix's section and applied its verify change alone,
+  "Section dropped" with the reasons. Then
   come Friction (guidance, code, ecosystem) and Notes (card advice, project
   verify for admins, hard card). All of this text is shown as plain text. The
   tab refetches on Sentinel events and events for the card.

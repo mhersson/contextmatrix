@@ -916,7 +916,7 @@ export interface SentinelChangeView {
   fresh: boolean;
 }
 
-/** One heal or forward row, newest first. `diagnosis` is empty until the investigation answers. */
+/** One heal or forward row, newest first. `diagnosis` is empty until the investigation answers; `dropped` lists why vetting dropped the fix's section, empty when it did not. */
 export interface SentinelHealView {
   id: number;
   kind: 'heal' | 'forward';
@@ -926,6 +926,7 @@ export interface SentinelHealView {
   diagnosis: string;
   source_card?: string;
   change?: SentinelChangeView;
+  dropped: string[];
   spend_usd: number;
   created_at: string;
   updated_at: string;

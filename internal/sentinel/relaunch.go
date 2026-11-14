@@ -131,7 +131,7 @@ func (c *Controller) countRerun(ctx context.Context, h *state.Heal, run state.Ru
 		return "", fmt.Errorf("count the heal attempt: %w", err)
 	}
 
-	return relaunchText(h.Change, run.Attempts+1), nil
+	return relaunchText(h.Change, h.Dropped, run.Attempts+1), nil
 }
 
 // rerun moves the card to todo as Sentinel, guarded on card, then launches it
@@ -183,15 +183,16 @@ func cardCost(card *board.Card) float64 {
 	return cost
 }
 
-// relaunchText is the activity entry of a heal that reruns its card.
-func relaunchText(change *state.Change, attempt int) string {
+// relaunchText is the activity entry of a heal that reruns its card, naming
+// why its fix's section was dropped, if it was.
+func relaunchText(change *state.Change, dropped []string, attempt int) string {
 	how := "to resume"
 	if change != nil && change.Fresh {
 		how = "fresh"
 	}
 
 	return clipActivity(fmt.Sprintf("Sentinel %s; rerunning %s, attempt %d of %d",
-		changeText(change), how, attempt, state.MaxHealAttempts))
+		changeText(change, dropped), how, attempt, state.MaxHealAttempts))
 }
 
 // usageRerunText is the activity entry of a heal that reruns its card after a
@@ -200,11 +201,16 @@ func usageRerunText(rerun int) string {
 	return fmt.Sprintf("Sentinel rerunning to resume after a usage limit, usage-limit rerun %d of %d", rerun, state.MaxUsageReruns)
 }
 
-// changeText names what a fix changed on the card.
-func changeText(change *state.Change) string {
+// changeText names what a fix changed on the card, and the section it
+// dropped with the reasons.
+func changeText(change *state.Change, dropped []string) string {
 	var parts []string
 	if change != nil {
 		parts = changeParts(*change)
+	}
+
+	if len(dropped) > 0 {
+		parts = append(parts, "dropped the ## "+SectionHeading+" section ("+strings.Join(dropped, ", ")+")")
 	}
 
 	if len(parts) == 0 {

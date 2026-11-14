@@ -108,6 +108,18 @@ function Heal({ heal }: { heal: SentinelHealView }) {
           )}
         </>
       )}
+      {heal.dropped.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <h4 className="text-xs uppercase" style={{ color: 'var(--grey1)' }}>
+            Section dropped
+          </h4>
+          <ul className="text-sm list-disc pl-5 wrap-anywhere" style={{ color: 'var(--fg)' }}>
+            {heal.dropped.map((reason, i) => (
+              <li key={i}>{reason}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }

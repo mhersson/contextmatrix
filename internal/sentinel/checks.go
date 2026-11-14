@@ -24,15 +24,28 @@ type fixContext struct {
 // check returns one violation per problem it finds, none when the fix passes.
 type check func(fixContext) []string
 
-// A new check is one function appended to these lists.
+// violation is one problem vetFix found; section marks a section check's,
+// which dropping the fix's section clears.
+type violation struct {
+	text    string
+	section bool
+}
+
+// A new check is one function appended to these lists. The section checks
+// judge only the fix's section, and heals and forwards both run them.
 var (
-	healChecks    = []check{checkShape, checkSection, checkRetire, checkEdits, checkVerify, checkText}
-	forwardChecks = []check{checkShape, checkSection, checkVerify, checkText}
+	healChecks    = []check{checkShape, checkRetire, checkEdits, checkVerify}
+	forwardChecks = []check{checkShape, checkVerify}
+	sectionChecks = []check{checkSection, checkText}
 )
 
-func vetFix(c fixContext) []string { return runChecks(healChecks, c) }
+func vetFix(c fixContext) []violation {
+	return append(tag(runChecks(healChecks, c), false), tag(runChecks(sectionChecks, c), true)...)
+}
 
-func vetForward(c fixContext) []string { return runChecks(forwardChecks, c) }
+func vetForward(c fixContext) []string {
+	return append(runChecks(forwardChecks, c), runChecks(sectionChecks, c)...)
+}
 
 func runChecks(checks []check, c fixContext) []string {
 	var violations []string
@@ -42,4 +55,23 @@ func runChecks(checks []check, c fixContext) []string {
 	}
 
 	return violations
+}
+
+func tag(texts []string, section bool) []violation {
+	vs := make([]violation, 0, len(texts))
+	for _, t := range texts {
+		vs = append(vs, violation{text: t, section: section})
+	}
+
+	return vs
+}
+
+// texts are the violations as a park reason names them.
+func texts(vs []violation) []string {
+	out := make([]string, 0, len(vs))
+	for _, v := range vs {
+		out = append(out, v.text)
+	}
+
+	return out
 }

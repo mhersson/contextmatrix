@@ -202,6 +202,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			sent_subtasks            TEXT NOT NULL,
 			sent_siblings            TEXT NOT NULL,
 			change                   TEXT NOT NULL,
+			dropped                  TEXT NOT NULL DEFAULT 'null',
 			relaunched_at            INTEGER,
 			cost_base_usd            REAL NOT NULL,
 			source_card              TEXT NOT NULL,
@@ -277,6 +278,10 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		if err := addColumnIfMissing(ctx, db, "card_run_modes", col.name, col.decl); err != nil {
 			return err
 		}
+	}
+
+	if err := addColumnIfMissing(ctx, db, "sentinel_heals", "dropped", "TEXT NOT NULL DEFAULT 'null'"); err != nil {
+		return err
 	}
 
 	// After the column loop: an upgraded database has the columns only now.

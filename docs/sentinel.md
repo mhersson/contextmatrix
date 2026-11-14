@@ -122,10 +122,12 @@ run-kind intake records results, findings and spend on them.
   start, so opening it twice returns the first), or per fix forwarded to
   another card. Opening a heal marks its run decided in the same transaction.
   The row holds the stage, the run kind in flight and its answer, the
-  investigation and check results, the subtasks and siblings sent, and the
-  change made to the card; a forward row also holds the card the fix came
-  from. `healed`, `rerun_failed`, `parked` and `closed` end a heal;
-  `forward_passed` and `forward_failed` end a forward row.
+  investigation and check results, the subtasks and siblings sent, the
+  reasons vetting dropped the fix's section (see
+  [Dropping a section](#dropping-a-section)), and the change made to the card;
+  a forward row also holds the card the fix came from. `healed`,
+  `rerun_failed`, `parked` and `closed` end a heal; `forward_passed` and
+  `forward_failed` end a forward row.
 - `sentinel_findings`: the friction findings an investigation reported.
 - `sentinel_spend`: the spend ledger, one row per charge with the LLM channel
   mode it ran on and, for a run kind's status, its run ID.
@@ -320,21 +322,25 @@ claimed, and is not claimed by another instance.
 ## The fix checks
 
 A fix is vetted by plain functions in `internal/sentinel`, each taking a
-`fixContext` and returning its violations (none means it passes). `vetFix`
-runs `healChecks` and `vetForward` runs `forwardChecks`, and each concatenates
-the violations. A new check is one function in `checks.go`'s list. The pass
-runs `checkEdits` on every open heal and `vetFix` at stage `apply`; fix
-forward runs `vetForward` on each card it forwards to (see
-[Fix forward](#fix-forward)).
+`fixContext` and returning its violations (none means it passes). The section
+checks, `checkSection` and `checkText`, judge only the fix's `## Sentinel`
+section and sit in their own list, `sectionChecks`, which heals and forwards
+both run. `vetFix` runs `healChecks`, then `sectionChecks`, and tags each
+violation with whether a section check found it; `vetForward` runs
+`forwardChecks`, then `sectionChecks`, and concatenates the violations. A new
+check is one function in one of `checks.go`'s lists. The pass runs
+`checkEdits` on every open heal and, at stage `apply`, `vetFix` and then
+`trimFix` (see [Dropping a section](#dropping-a-section)); fix forward runs
+`vetForward` on each card it forwards to (see [Fix forward](#fix-forward)).
 
 | Check          | Refuses                                                                                                  | Lists                |
 | -------------- | -------------------------------------------------------------------------------------------------------- | -------------------- |
 | `checkShape`   | A fix that sets no field, or retires an ID the investigation was not sent                                | heal, forward        |
-| `checkSection` | A `## Sentinel` section with an unbalanced code fence (``` or ~~~); H2 lines are not refused, they are demoted on write | heal, forward        |
+| `checkSection` | A `## Sentinel` section with an unbalanced code fence (``` or ~~~); H2 lines are not refused, they are demoted on write | section              |
 | `checkRetire`  | Retiring a subtask that is not this card's, is not in `todo`, is claimed, or has a queued or running worker, or retiring any subtask once a subtask of the card has started (`cannot re-split: subtasks have started`) | heal              |
 | `checkEdits`   | Any change since launch: `title edited`, `verify edited`, `autonomous changed`, `intro edited`, `section "X" edited`, `added` or `removed`; no launch snapshot is also refused | heal |
 | `checkVerify`  | A verify change that adds an env name (`adds env NAME`), drops the command (`removes the verify command`), changes the command for a cause verify did not stop (`changes the verify command, which did not stop the run`) or to one the check run kind did not list as a candidate (`command not declared by the repo`), was never trial-run (`verify not trial-run`), whose trial did not finish (`trial run: <trial>`), or that the card service would refuse, such as a command over one line or a timeout over 7200 seconds (`verify <rule>`, from `service.ValidateVerifyConfig`) | heal, forward |
-| `checkText`    | A fix with a `## Sentinel` section when the check run kind did not run (`text not checked`), or when it reports text absent from the repo that is also absent from the card's human-written title and body (`introduces <entry>`) | heal, forward |
+| `checkText`    | A fix with a `## Sentinel` section when the check run kind did not run (`text not checked`), or when it reports text absent from the repo that is also absent from the card's human-written title and body (`introduces <entry>`) | section |
 
 The verify rule compares the card's resolved verify (card over project) with the
 fix's resolved verify (a fix verify with no content, such as an empty env list, is stored as none, so the card inherits the project's). Commands are compared line by line (blank lines ignored, a newline is significant), each line by whitespace-separated
@@ -350,6 +356,29 @@ agent's orchestrator and CM's workflow skills write, a `(Round N)` suffix
 aside), so text Sentinel or an agent wrote earlier never whitelists new text.
 A section a human wrote under one of those headings is not read either.
 
+### Dropping a section
+
+`trimFix` (`trim.go`) decides, from the tagged violations, what vetting at
+stage `apply` makes of a heal's fix:
+
+- No violations: the fix applies as it is.
+- Every violation comes from a section check, the fix also changes verify
+  (it has a verify), and it retires no subtask: the section is dropped. The
+  fix applies without it, so only the verify change is written, and the heal
+  records the section checks' violations as the reasons (`dropped`). Nothing
+  is refused.
+- Anything else refuses the fix with every violation, and the heal parks
+  (rule 9 of [the heal flow](#the-heal-flow)): any violation from another
+  check, a fix that retires subtasks, and a fix with a section and no verify,
+  which would have nothing left to apply.
+
+The pass puts the trimmed fix on the heal in place of the investigation's, so
+the write at `apply`, a later pass's checks and fix forward all read that one
+fix. The heal's next save, guarded on its version like every other, stores
+the fix and the reasons. The section did not change, so the rerun resumes
+(see [Applying a fix](#applying-a-fix)). A forward is never trimmed:
+`vetForward` refuses a section its target fails.
+
 ## The heal flow
 
 `nextStep` (`internal/sentinel/heal.go`) decides one open heal's next step
@@ -357,7 +386,7 @@ from what a pass read: the heal, the card, the card's run row, the `healing`
 switch, the budget gate, whether a worker slot is free, whether the in-flight
 run kind's container is listed, the run kinds the card's other heals still have
 in flight, the edit check's violations and, at stage `apply`, the fix checks'
-violations. It reads no clock and does no I/O. The
+violations when `trimFix` refused the fix. It reads no clock and does no I/O. The
 pass calls it for every open heal.
 
 A step is to wait, dispatch a run kind, advance to a stage, apply the fix,
@@ -399,8 +428,10 @@ first matching rule wins:
    other heal of the card has a `check` in flight; it runs no model, so the
    budget gate does not hold it. An answer without a result
    parks with its failure; a result advances to `apply`.
-9. **Stage `apply`:** park when the fix checks refuse the fix or the card has
-   used its 2 heal attempts; wait while the budget gate is shut; else apply.
+9. **Stage `apply`:** park when the fix checks refuse the fix (a fix only the
+   section checks refuse applies without its section, see
+   [Dropping a section](#dropping-a-section)) or the card has used its 2 heal
+   attempts; wait while the budget gate is shut; else apply.
 10. **Stage `usage_wait`:** park when the card has used its 3 usage-limit
     reruns; wait until the usage limit resets (`park_resets_at`) and while the
     budget gate is shut; else rerun.
@@ -427,7 +458,8 @@ stage waits.
 4. For every open heal it reads the card and the run row fresh, runs
    `checkEdits` against the launch snapshot and, at stage `apply`, `vetFix` on
    a `card` diagnosis's fix, so a retire-only fix that skipped the check run
-   kind is still vetted. Every heal is read before any acts, so the budget
+   kind is still vetted, then `trimFix`, which drops a section only the
+   section checks refuse. Every heal is read before any acts, so the budget
    gate counts every rerun's cost so far. Then, heal by heal, `nextStep`
    decides and the pass dispatches, advances the stage, parks or closes. A run
    kind it sends takes a worker slot and counts its ceiling against the daily
@@ -467,8 +499,9 @@ action `sentinel`, cut to the card service's 2000-byte limit:
 
 - once it has rerun the card from `apply`, `Sentinel <what it changed>;
   rerunning fresh, attempt N of 2` (`rerunning to resume` for a resumed
-  rerun), naming an updated `## Sentinel` section, a changed verify and the
-  retired subtasks, or that it changed nothing on the card;
+  rerun), naming an updated `## Sentinel` section, a changed verify, the
+  retired subtasks and a dropped `## Sentinel` section with its reasons (the
+  section checks' violations), or that it changed nothing on the card;
 - once it has rerun the card from `usage_wait`, `Sentinel rerunning to resume
   after a usage limit, usage-limit rerun N of 3`;
 - when it parks, `Sentinel left this for a human: <reason>`. A refused rerun
@@ -488,7 +521,7 @@ only those lines; the full reason and the rest of the heal's detail stay on its
 What a heal leaves behind, and where:
 
 - The card: the guarded fix write (verify, the `## Sentinel` section, retired subtasks) and the activity entries above. The section is the note a human reads on the card.
-- `sentinel_heals`: every heal's stage, diagnosis, reasons and spend.
+- `sentinel_heals`: every heal's stage, diagnosis, reasons (with why a fix's section was dropped) and spend.
 - `sentinel_findings`: the friction findings of an investigation, stored only while `friction` is on. `project_verify` findings are shown to admins only in `multi` mode.
 - The board mark (`marks.go`) and the card's Sentinel tab, both read from the latest heal.
 
@@ -505,7 +538,9 @@ upsert) when the fix changes it, with every line the card-body parser reads as
 a section boundary (`## ` at column 0 outside a code fence) demoted to an H3
 line first (`board.DemoteHeadings`), so the text can never start another
 section; the change check compares the section as written, the verify fields when it has them, and a cleared
-`phase` for a fresh rerun. A human edit in between refuses the write
+`phase` for a fresh rerun. A fix whose section vetting dropped (see
+[Dropping a section](#dropping-a-section)) writes only its verify. A human
+edit in between refuses the write
 (`ErrCardChanged`); the heal stays at `apply` and the next pass decides again,
 parking it when the edit check finds the edit. Any other refusal parks the
 heal with `cannot write the fix: <class>` (see [Refusals](#refusals)), so a
@@ -521,7 +556,8 @@ and after, the retired subtasks, and fresh or resume.
 A rerun is fresh, its saved phase cleared so the agent plans again from the
 base branch, when the fix changed the section or retired subtasks and none of
 the card's subtasks, as the fix checks read them, has started (left `todo` for
-anything but `not_planned`). A fix that retires subtasks once any subtask has
+anything but `not_planned`). A fix whose section vetting dropped changes only
+verify, so its rerun resumes on any card. A fix that retires subtasks once any subtask has
 started is refused by `checkRetire` and parks for a human, since a re-split
 needs the planner and a resume would skip it. A section-only or verify fix on
 such a card resumes: the saved phase stays,
@@ -668,7 +704,8 @@ the next pass.
 | `internal/sentinel/pass.go`                 | One pass: read the gate's inputs, the open heals and the run kinds in flight, expire finished heals' silent run kinds, build each heal's view and act on its step, consider undecided runs, record the status |
 | `internal/sentinel/consider.go`             | Considering undecided runs: open a heal for a settled, eligible run, parked at once or at its stage, or mark the run decided; then judge its card's forwarded fixes |
 | `internal/sentinel/causes.go`               | The cause table: one row per cause, `responseFor`                                                                                                            |
-| `internal/sentinel/checks.go`               | `fixContext`, the two check lists, `vetFix` and `vetForward`                                                                                                 |
+| `internal/sentinel/checks.go`               | `fixContext`, the check lists (`healChecks`, `forwardChecks`, `sectionChecks`), `vetFix` with its tagged violations, and `vetForward`                      |
+| `internal/sentinel/trim.go`                 | The pure `trimFix`, which drops a section only the section checks refuse, and `withFix`, which puts the trimmed fix on the heal                             |
 | `internal/sentinel/check_shape.go` | `checkShape` |
 | `internal/sentinel/check_section.go` | `checkSection` |
 | `internal/sentinel/check_retire.go` | `checkRetire` |

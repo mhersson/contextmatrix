@@ -1194,6 +1194,7 @@ none), the card's heals and the friction findings stored for it.
         "retired": ["PROJ-002"],
         "fresh": false
       },
+      "dropped": [],
       "spend_usd": 0.42,
       "created_at": "2026-11-13T10:00:00Z",
       "updated_at": "2026-11-13T10:05:00Z"
@@ -1222,8 +1223,11 @@ omitted otherwise). `diagnosis` is empty until the investigation answers.
 `change` is omitted until the heal changes the card; `section_before` and
 `section_after` are the card's `## Sentinel` section, `verify_before` and
 `verify_after` are omitted when the card had no verify config, `retired` lists
-the retired subtask IDs and `fresh` says the rerun starts fresh. `spend_usd` is
-the heal's recorded spend.
+the retired subtask IDs and `fresh` says the rerun starts fresh. `dropped`
+lists why vetting dropped the fix's `## Sentinel` section and applied its
+verify change alone: the section checks' violations, such as
+`introduces <entry>` (see [Sentinel](sentinel.md#dropping-a-section)). It is
+`[]` when nothing was dropped. `spend_usd` is the heal's recorded spend.
 
 `findings` is newest heal first and is `[]` when there are none. Sentinel
 stores them only while the friction analysis switch is on; switching it off

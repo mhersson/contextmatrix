@@ -52,7 +52,7 @@ type healView struct {
 	Listed   bool          // the in-flight dispatch's container is listed
 	Held     []string      // run kinds another heal of the card still has in flight
 	Edited   []string      // checkEdits violations
-	Rejected []string      // vetFix violations, computed at stage apply when the heal holds a fix
+	Rejected []string      // vetFix violations trimFix refused, computed at stage apply when the heal holds a fix
 	Subtasks []*board.Card // the card's subtasks, read with Rejected
 	Now      time.Time
 }

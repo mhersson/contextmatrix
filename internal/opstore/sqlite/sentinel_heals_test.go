@@ -2,6 +2,8 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/sentinel/state"
+	"github.com/mhersson/contextmatrix/internal/sqliteutil"
 )
 
 // openDispatchedHeal opens an autonomous run of cardID started at runT0 and a
@@ -197,6 +200,7 @@ func TestSaveHealRoundTripsEveryField(t *testing.T) {
 			VerifyAfter:  &board.VerifyConfig{Command: "make test", TimeoutSeconds: 1800},
 			Retired:      []string{"P-002"}, Fresh: true,
 		},
+		Dropped:      []string{"introduces gen-tool"},
 		RelaunchedAt: &relaunched, CostBaseUSD: 1.25, SourceCard: "P-000",
 		CreatedAt: runT0, UpdatedAt: relaunched,
 	}
@@ -204,6 +208,64 @@ func TestSaveHealRoundTripsEveryField(t *testing.T) {
 
 	assert.Equal(t, int64(1), want.Version)
 	assert.Equal(t, want, onlyHeal(t, st, "P-001"))
+}
+
+// The column needs no schema bump: a database without it grows it and keeps
+// its version, and the heal an older image writes, naming no dropped, reads
+// back with nothing dropped.
+func TestSentinelHealsGrowDroppedWithoutABump(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ops.db")
+
+	s, err := Open(path)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	db, err := sql.Open("sqlite", sqliteutil.DSN(path, sqliteutil.WithForeignKeys()))
+	require.NoError(t, err)
+	_, err = db.Exec("ALTER TABLE sentinel_heals DROP COLUMN dropped")
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	st, err := Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = st.Close() })
+
+	assert.True(t, columnExists(t, st.db, "sentinel_heals", "dropped"))
+
+	var v int
+
+	require.NoError(t, st.db.QueryRow("PRAGMA user_version").Scan(&v))
+	assert.Equal(t, 6, v)
+
+	// OpenHeal's and SaveHeal's statements as the older image runs them, verbatim.
+	const v6Columns = `run_id, cause, response, stage, reason,
+	dispatch_kind, dispatch_mode, dispatch_ceiling_usd, dispatch_at, dispatch_answered_run_id, dispatch_failure,
+	investigation, check_result, sent_subtasks, sent_siblings, change,
+	relaunched_at, cost_base_usd, source_card, updated_at`
+
+	const v6Params = `?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?`
+
+	ctx := context.Background()
+	vals := []any{
+		"r1", "verify_parked", "investigate_fix", state.StageApply, "", "", "", 0.0, nil, "", "",
+		"null", "null", "null", "null", "null", nil, 0.0, "", runT0.UnixNano(),
+	}
+
+	_, err = st.db.ExecContext(ctx,
+		`INSERT INTO sentinel_heals (kind, project, card_id, run_started, created_at, `+v6Columns+`)
+		 VALUES (?, ?, ?, ?, ?, `+v6Params+`)`,
+		append([]any{state.HealKindHeal, "p", "P-001", runT0.UnixNano(), runT0.UnixNano()}, vals...)...)
+	require.NoError(t, err)
+
+	vals[3] = state.StageParked
+	_, err = st.db.ExecContext(ctx,
+		`UPDATE sentinel_heals SET (`+v6Columns+`) = (`+v6Params+`), version = version + 1 WHERE id = ? AND version = ?`,
+		append(vals, 1, 0)...)
+	require.NoError(t, err)
+
+	h := onlyHeal(t, st, "P-001")
+	assert.Equal(t, state.StageParked, h.Stage)
+	assert.Nil(t, h.Dropped)
 }
 
 func TestConsecutiveSavesOfOneHealBothLand(t *testing.T) {
