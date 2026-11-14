@@ -894,7 +894,7 @@ export interface SentinelSettings {
   headroom: number;
 }
 
-/** Shape of GET /api/projects/{project}/cards/{id}/sentinel: the card's last run facts, null when this instance launched none. */
+/** Shape of GET /api/projects/{project}/cards/{id}/sentinel: the card's last run facts (null when this instance launched none), its heal and forward rows newest first, and its friction findings. */
 export interface SentinelCardView {
   run: SentinelRunView | null;
   heals: SentinelHealView[];
