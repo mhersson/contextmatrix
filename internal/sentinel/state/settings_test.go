@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSettingsValidate(t *testing.T) {
@@ -46,5 +47,30 @@ func TestSettingsValidate(t *testing.T) {
 
 			assert.ErrorIs(t, err, ErrInvalidSettings)
 		})
+	}
+}
+
+func TestSettingsValidateAnalyseCeiling(t *testing.T) {
+	def := DefaultSettings()
+	assert.False(t, def.AnalyseEveryRun)
+	assert.InDelta(t, 1, def.AnalyseCeilingUSD, 1e-9)
+
+	for _, c := range []float64{0, -1, 100.01, math.NaN(), math.Inf(1)} {
+		s := DefaultSettings()
+		s.AnalyseCeilingUSD = c
+		require.ErrorIs(t, s.Validate(), ErrInvalidSettings, "%v", c)
+	}
+
+	for _, c := range []float64{0.01, 100} {
+		s := DefaultSettings()
+		s.AnalyseCeilingUSD = c
+		assert.NoError(t, s.Validate(), "%v", c)
+	}
+}
+
+func TestSettingsAnalyses(t *testing.T) {
+	for i := range 8 {
+		s := Settings{Enabled: i&1 != 0, Friction: i&2 != 0, AnalyseEveryRun: i&4 != 0}
+		assert.Equal(t, i == 7, s.Analyses(), "%+v", s)
 	}
 }

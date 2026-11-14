@@ -283,6 +283,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		{"human_stop", "INTEGER NOT NULL DEFAULT 0"},
 		{"usage_reruns", "INTEGER NOT NULL DEFAULT 0"},
 		{"decided", "INTEGER NOT NULL DEFAULT 0"},
+		{"analysis_queued", "INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if err := addColumnIfMissing(ctx, db, "card_run_modes", col.name, col.decl); err != nil {
 			return err
@@ -291,6 +292,15 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 
 	if err := addColumnIfMissing(ctx, db, "sentinel_heals", "dropped", "TEXT NOT NULL DEFAULT 'null'"); err != nil {
 		return err
+	}
+
+	for _, col := range []struct{ name, decl string }{
+		{"analyse_every_run", "INTEGER NOT NULL DEFAULT 0"},
+		{"analyse_ceiling_usd", "REAL NOT NULL DEFAULT 1"},
+	} {
+		if err := addColumnIfMissing(ctx, db, "sentinel_settings", col.name, col.decl); err != nil {
+			return err
+		}
 	}
 
 	// After the column loop: an upgraded database has the columns only now.

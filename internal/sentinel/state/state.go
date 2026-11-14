@@ -45,6 +45,7 @@ type Run struct {
 	RunID, StopCause      string // StopCause "" = unknown
 	HumanStop             bool
 	Decided               bool // Sentinel has looked at this run
+	AnalysisQueued        bool // the run is already past the analysis queue
 }
 
 // Heal row kinds: a heal follows one stopped run; a forward row records a fix

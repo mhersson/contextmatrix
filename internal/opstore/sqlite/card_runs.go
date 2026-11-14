@@ -41,7 +41,7 @@ func (s *Store) OpenCardRun(ctx context.Context, project, cardID, mode string, a
 		   edit_snapshot = excluded.edit_snapshot, autonomous = excluded.autonomous, origin = excluded.origin,
 		   attempts = CASE WHEN excluded.origin = 'rest' THEN 0 ELSE attempts END,
 		   usage_reruns = CASE WHEN excluded.origin = 'rest' THEN 0 ELSE usage_reruns END,
-		   run_id = '', stop_cause = '', stopped_at = NULL, human_stop = 0, decided = 0`,
+		   run_id = '', stop_cause = '', stopped_at = NULL, human_stop = 0, decided = 0, analysis_queued = 0`,
 		project, cardID, mode, at.UnixNano(), string(snap), facts.Autonomous, facts.Origin); err != nil {
 		return fmt.Errorf("open card run: %w", err)
 	}
@@ -131,7 +131,7 @@ func (s *Store) RefreshEditSnapshot(ctx context.Context, project, cardID string,
 
 // runColumns are the run row's columns in scanRun order.
 const runColumns = `project, card_id, mode, started_at, ended_at, stopped_at, edit_snapshot,
-	autonomous, origin, attempts, usage_reruns, run_id, stop_cause, human_stop, decided`
+	autonomous, origin, attempts, usage_reruns, run_id, stop_cause, human_stop, decided, analysis_queued`
 
 // CardRunRow returns the card's run row, or nil when this instance never
 // launched one.
@@ -186,7 +186,7 @@ func scanRun(sc scanner) (state.Run, error) {
 
 	if err := sc.Scan(&r.Project, &r.CardID, &r.Mode, &started, &ended, &stopped, &snap,
 		&r.Launch.Autonomous, &r.Launch.Origin, &r.Attempts, &r.UsageReruns, &r.RunID, &r.StopCause,
-		&r.HumanStop, &r.Decided); err != nil {
+		&r.HumanStop, &r.Decided, &r.AnalysisQueued); err != nil {
 		return state.Run{}, err
 	}
 

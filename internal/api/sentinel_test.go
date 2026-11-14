@@ -99,6 +99,8 @@ func TestSentinelGetDefaults(t *testing.T) {
 	assert.InDelta(t, want.DailyCapUSD, settings["daily_cap_usd"], 1e-9)
 	assert.InDelta(t, want.Headroom, settings["headroom"], 1e-9)
 	assert.Equal(t, want.Healing, settings["healing"])
+	assert.Equal(t, false, settings["analyse_every_run"])
+	assert.InDelta(t, 1, settings["analyse_ceiling_usd"], 1e-9)
 }
 
 func TestSentinelPutRequiresAdminInMultiMode(t *testing.T) {
@@ -143,6 +145,19 @@ func TestSentinelPutRejectsInvalid(t *testing.T) {
 	assert.Equal(t, http.StatusUnprocessableEntity, code)
 	assert.Equal(t, ErrCodeValidationError, body["code"])
 	assert.Equal(t, state.DefaultSettings(), store.settings)
+}
+
+func TestSentinelPutRejectsAnalyseCeilingZero(t *testing.T) {
+	store := newFakeSentinelStore()
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
+
+	bad := state.DefaultSettings()
+	bad.AnalyseCeilingUSD = 0
+
+	code, body := sentinelDo(t, srv, http.MethodPut, "/api/admin/sentinel", bad, nil)
+	assert.Equal(t, http.StatusUnprocessableEntity, code)
+	assert.Equal(t, ErrCodeValidationError, body["code"])
+	assert.Contains(t, body["error"], "analyse ceiling")
 }
 
 func TestSentinelPutPublishesAndNudges(t *testing.T) {

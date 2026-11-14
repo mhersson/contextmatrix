@@ -16,15 +16,16 @@ import (
 // whom. Defaults and a zero time mean nothing is stored.
 func (s *Store) SentinelSettings(ctx context.Context) (state.Settings, time.Time, string, error) {
 	var (
-		set                           state.Settings
-		enabled, healing, friction, t int64
-		by                            string
+		set                                    state.Settings
+		enabled, healing, friction, analyse, t int64
+		by                                     string
 	)
 
 	err := s.db.QueryRowContext(ctx,
-		`SELECT enabled, healing, friction, daily_cap_usd, investigate_ceiling_usd, headroom, updated_at, updated_by
+		`SELECT enabled, healing, friction, daily_cap_usd, investigate_ceiling_usd, headroom, updated_at, updated_by,
+		   analyse_every_run, analyse_ceiling_usd
 		 FROM sentinel_settings WHERE id = 1`).
-		Scan(&enabled, &healing, &friction, &set.DailyCapUSD, &set.InvestigateCeilingUSD, &set.Headroom, &t, &by)
+		Scan(&enabled, &healing, &friction, &set.DailyCapUSD, &set.InvestigateCeilingUSD, &set.Headroom, &t, &by, &analyse, &set.AnalyseCeilingUSD)
 	if errors.Is(err, sql.ErrNoRows) {
 		return state.DefaultSettings(), time.Time{}, "", nil
 	}
@@ -34,15 +35,17 @@ func (s *Store) SentinelSettings(ctx context.Context) (state.Settings, time.Time
 	}
 
 	set.Enabled, set.Healing, set.Friction = enabled != 0, healing != 0, friction != 0
+	set.AnalyseEveryRun = analyse != 0
 
 	return set, time.Unix(t, 0).UTC(), by, nil
 }
 
 // PutSentinelSettings validates and replaces the single row; nothing is stored
 // when the settings are invalid. The ecosystem column is left untouched. A save
-// that turns Sentinel or healing on marks every undecided run decided in the
-// same transaction, so switching on starts fresh: a run that stopped while it
-// was off is left for a human.
+// that turns Sentinel or healing on marks every undecided run decided, and one
+// that turns analyses on marks every run analysis-queued, in the same
+// transaction, so switching on starts fresh: a run that stopped while it was
+// off is left for a human.
 func (s *Store) PutSentinelSettings(ctx context.Context, set state.Settings, by string) error {
 	if err := set.Validate(); err != nil {
 		return err
@@ -57,31 +60,41 @@ func (s *Store) PutSentinelSettings(ctx context.Context, set state.Settings, by 
 
 	old := state.DefaultSettings()
 
-	var enabled, healing int64
+	var enabled, healing, friction, analyse int64
 
-	switch err := tx.QueryRowContext(ctx, `SELECT enabled, healing FROM sentinel_settings WHERE id = 1`).
-		Scan(&enabled, &healing); {
+	switch err := tx.QueryRowContext(ctx,
+		`SELECT enabled, healing, friction, analyse_every_run FROM sentinel_settings WHERE id = 1`).
+		Scan(&enabled, &healing, &friction, &analyse); {
 	case err == nil:
-		old.Enabled, old.Healing = enabled != 0, healing != 0
+		old.Enabled, old.Healing, old.Friction = enabled != 0, healing != 0, friction != 0
+		old.AnalyseEveryRun = analyse != 0
 	case !errors.Is(err, sql.ErrNoRows):
 		return fmt.Errorf("put sentinel settings: %w", err)
 	}
 
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO sentinel_settings
-		   (id, enabled, healing, friction, daily_cap_usd, investigate_ceiling_usd, headroom, updated_at, updated_by)
-		 VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+		   (id, enabled, healing, friction, daily_cap_usd, investigate_ceiling_usd, headroom, updated_at, updated_by,
+		   analyse_every_run, analyse_ceiling_usd)
+		 VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled, healing = excluded.healing,
 		   friction = excluded.friction, daily_cap_usd = excluded.daily_cap_usd,
 		   investigate_ceiling_usd = excluded.investigate_ceiling_usd, headroom = excluded.headroom,
-		   updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
+		   updated_at = excluded.updated_at, updated_by = excluded.updated_by,
+		   analyse_every_run = excluded.analyse_every_run, analyse_ceiling_usd = excluded.analyse_ceiling_usd`,
 		b2i(set.Enabled), b2i(set.Healing), b2i(set.Friction), set.DailyCapUSD, set.InvestigateCeilingUSD,
-		set.Headroom, time.Now().Unix(), by); err != nil {
+		set.Headroom, time.Now().Unix(), by, b2i(set.AnalyseEveryRun), set.AnalyseCeilingUSD); err != nil {
 		return fmt.Errorf("put sentinel settings: %w", err)
 	}
 
 	if switchedOn(old, set) {
 		if _, err := tx.ExecContext(ctx, `UPDATE card_run_modes SET decided = 1 WHERE decided = 0`); err != nil {
+			return fmt.Errorf("put sentinel settings: %w", err)
+		}
+	}
+
+	if !old.Analyses() && set.Analyses() {
+		if _, err := tx.ExecContext(ctx, `UPDATE card_run_modes SET analysis_queued = 1 WHERE analysis_queued = 0`); err != nil {
 			return fmt.Errorf("put sentinel settings: %w", err)
 		}
 	}

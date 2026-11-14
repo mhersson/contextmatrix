@@ -23,7 +23,9 @@ so a change needs no restart. `PutSentinelSettings` validates before it writes
 and records the time and the writer; invalid settings store nothing. A save
 that turns `enabled` or `healing` on marks every undecided run decided in the
 same transaction, so switching on starts fresh: a run launched before then,
-stuck or still going, is left for a human to Run.
+stuck or still going, is left for a human to Run. A save that turns analyses
+on (`enabled`, `friction` and `analyse_every_run` all on) likewise marks every
+run `analysis_queued`, so only runs that finish afterwards are analysed.
 
 | Setting                   | Default | Valid range          | Read by                                                        |
 | ------------------------- | ------- | -------------------- | -------------------------------------------------------------- |
@@ -33,6 +35,8 @@ stuck or still going, is left for a human to Run.
 | `daily_cap_usd`           | 20.00   | 0 to 10000           | The budget gate on the endpoint channel                        |
 | `investigate_ceiling_usd` | 2.00    | above 0, at most 100 | The investigate run's `max_cost_usd`                           |
 | `headroom`                | 0.85    | above 0, at most 1   | The budget gate on Claude Code, as a utilization fraction      |
+| `analyse_every_run`       | off     |                      | The analysis queue; analyses run only while `enabled`, `friction` and this are all on |
+| `analyse_ceiling_usd`     | 1.00    | above 0, at most 100 | The endpoint channel's analysis `max_cost_usd`                 |
 
 Numbers must be finite.
 
