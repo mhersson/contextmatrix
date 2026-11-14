@@ -104,6 +104,51 @@ func bodyLines(body string) (intro string, rest []string) {
 	return lines[0], rest
 }
 
+func TestPRTitleFitsLimit(t *testing.T) {
+	const prefix = "Sentinel guidance for "
+
+	room := maxPRTitleBytes - len(prefix)
+
+	tests := []struct {
+		name      string
+		project   string
+		unchanged bool
+	}{
+		{"at the limit", strings.Repeat("a", room), true},
+		{"one byte over", strings.Repeat("a", room+1), false},
+		{"long ascii", strings.Repeat("a", 1000), false},
+		// The 231-byte budget is odd and every rune end is even, so it ends mid-rune.
+		{"budget ends mid-rune", strings.Repeat("ø", 200), false},
+		// Rune ends are odd here, so the budget falls exactly on a boundary.
+		{"budget ends on a rune boundary", "a" + strings.Repeat("ø", 200), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := prTitle(tt.project)
+
+			assert.LessOrEqual(t, len(got), maxPRTitleBytes)
+			assert.True(t, utf8.ValidString(got))
+			assert.True(t, strings.HasPrefix(got, prefix))
+
+			if tt.unchanged {
+				assert.Equal(t, prefix+tt.project, got)
+
+				return
+			}
+
+			assert.True(t, strings.HasSuffix(got, "..."))
+
+			kept := strings.TrimSuffix(strings.TrimPrefix(got, prefix), "...")
+			require.True(t, strings.HasPrefix(tt.project, kept))
+
+			// The cut is the longest: the next rune would not have fit.
+			next, _ := utf8.DecodeRuneInString(tt.project[len(kept):])
+			assert.Greater(t, len(got)+utf8.RuneLen(next), maxPRTitleBytes)
+		})
+	}
+}
+
 func TestPRBody(t *testing.T) {
 	t.Run("an item per finding with its evidence", func(t *testing.T) {
 		long := strings.Repeat("é", 400)
@@ -160,42 +205,4 @@ func TestPRBody(t *testing.T) {
 
 		assert.Equal(t, []string{"- t", "  Evidence: e"}, lines)
 	})
-}
-
-func TestPrTitleFitsLimit(t *testing.T) {
-	const prefix = "Sentinel guidance for "
-
-	room := maxPRTitleBytes - len(prefix)
-
-	tests := []struct {
-		name      string
-		project   string
-		unchanged bool
-	}{
-		{"at the limit", strings.Repeat("a", room), true},
-		{"one byte over", strings.Repeat("a", room+1), false},
-		{"long ascii", strings.Repeat("a", 1000), false},
-		{"multi-byte runes", strings.Repeat("ø", 200), false},
-		// The budget after the dots is odd, so the cut falls inside a rune.
-		{"cut lands mid-rune", "a" + strings.Repeat("ø", 200), false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := prTitle(tt.project)
-
-			assert.LessOrEqual(t, len(got), maxPRTitleBytes)
-			assert.True(t, utf8.ValidString(got))
-			assert.True(t, strings.HasPrefix(got, prefix))
-
-			if tt.unchanged {
-				assert.Equal(t, prefix+tt.project, got)
-
-				return
-			}
-
-			assert.True(t, strings.HasSuffix(got, "..."))
-			assert.True(t, strings.HasPrefix(tt.project, strings.TrimSuffix(strings.TrimPrefix(got, prefix), "...")))
-		})
-	}
 }
