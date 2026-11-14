@@ -227,6 +227,35 @@ func TestForwardRespectsTargetVerify(t *testing.T) {
 	assert.Empty(t, e.cards.logged["ALPHA-001"], "settling writes no activity entry")
 }
 
+func TestForwardDecidesFreshByTheTargetsSubtasks(t *testing.T) {
+	tests := []struct {
+		name  string
+		sub   string
+		fresh bool
+	}{
+		{"only todo subtasks", board.StateTodo, true},
+		{"a started subtask", board.StateInProgress, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := forwardEnv(t, verifyFix())
+			storedCard(t, e, "ALPHA-020").Phase = "execute"
+			e.cards.cards = append(e.cards.cards, &board.Card{
+				ID: "ALPHA-030", Project: "alpha", Title: "Next part", Parent: "ALPHA-020", State: tc.sub,
+				Updated: epoch.Add(-time.Hour),
+			})
+			e.rerunEnded(t, "ALPHA-001", protocol.StopCauseDone, "completed")
+
+			require.NoError(t, e.ctl.pass(context.Background()))
+
+			rows := forwardRows(e, "ALPHA-020")
+			require.Len(t, rows, 1)
+			assert.Equal(t, tc.fresh, rows[0].Change.Fresh)
+			assert.Equal(t, tc.fresh, storedCard(t, e, "ALPHA-020").Phase == "", "a fresh forward clears the saved phase")
+		})
+	}
+}
+
 func TestForwardJudgesACommandChangeByTheSourceCause(t *testing.T) {
 	tests := []struct {
 		name, cause string

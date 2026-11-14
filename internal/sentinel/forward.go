@@ -12,6 +12,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
+	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 // forward applies a healed heal's fix to the siblings its investigation named
@@ -85,10 +86,15 @@ func (c *Controller) forwardTo(ctx context.Context, h *state.Heal, target *board
 		return nil
 	}
 
+	subtasks, err := c.cfg.Cards.ListCards(ctx, target.Project, storage.CardFilter{Parent: target.ID})
+	if err != nil {
+		return fmt.Errorf("list subtasks of %s: %w", target.ID, err)
+	}
+
 	// Taken before the write, so every run that can carry the fix starts after it.
 	now := c.cfg.Clock.Now()
 
-	_, change, err := c.writeFix(ctx, target, fix)
+	_, change, err := c.writeFix(ctx, target, fix, subtasks)
 
 	switch {
 	case err != nil && refusal(err) == refusedByChange:

@@ -292,26 +292,26 @@ func (c *Controller) view(ctx context.Context, r *passReads, h state.Heal) (heal
 	v.Edited = checkEdits(fixContext{Card: card, Snapshot: v.Run.Launch.Snapshot})
 
 	if fix := healFix(h); h.Stage == state.StageApply && fix != nil {
-		v.Rejected, err = c.vet(ctx, h, card, v.Run, *fix)
+		v.Subtasks, v.Rejected, err = c.vet(ctx, h, card, v.Run, *fix)
 	}
 
 	return v, err
 }
 
 // vet runs the fix checks with the card's subtasks and its project's verify
-// read fresh.
-func (c *Controller) vet(ctx context.Context, h state.Heal, card *board.Card, run state.Run, fix protocol.CardFix) ([]string, error) {
+// read fresh, and returns the subtasks for the fix to decide its rerun by.
+func (c *Controller) vet(ctx context.Context, h state.Heal, card *board.Card, run state.Run, fix protocol.CardFix) ([]*board.Card, []string, error) {
 	project, err := c.cfg.Cards.GetProject(ctx, h.Project)
 	if err != nil {
-		return nil, fmt.Errorf("read project: %w", err)
+		return nil, nil, fmt.Errorf("read project: %w", err)
 	}
 
 	subtasks, err := c.cfg.Cards.ListCards(ctx, h.Project, storage.CardFilter{Parent: card.ID})
 	if err != nil {
-		return nil, fmt.Errorf("list subtasks: %w", err)
+		return nil, nil, fmt.Errorf("list subtasks: %w", err)
 	}
 
-	return vetFix(fixContext{
+	return subtasks, vetFix(fixContext{
 		Card: card, Snapshot: run.Launch.Snapshot, Subtasks: subtasks, SentSubtasks: h.SentSubtasks,
 		Project: project.Verify, Cause: h.Cause, Fix: fix, Check: h.Check,
 	}), nil
@@ -356,7 +356,7 @@ func (c *Controller) act(ctx context.Context, r *passReads, v *healView, s step)
 	case stepClose:
 		return c.closeHeal(ctx, h, s.Reason)
 	case stepApply:
-		return c.apply(ctx, h, v.Card, v.Run)
+		return c.apply(ctx, h, v.Card, v.Run, v.Subtasks)
 	case stepUsageRerun:
 		return c.usageRerun(ctx, h, v.Card, v.Run)
 	case stepSettle:

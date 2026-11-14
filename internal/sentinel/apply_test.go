@@ -15,26 +15,49 @@ import (
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
+	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 func TestFreshRerun(t *testing.T) {
 	card := &board.Card{Body: board.UpsertSection("Make the build pass.\n", SectionHeading, "Run make generate first.")}
+	newSection := protocol.CardFix{Section: "Run make tidy first."}
+	retire := protocol.CardFix{RetireSubtasks: []string{"ALPHA-011"}}
+	sub := func(id, st string) *board.Card { return &board.Card{ID: id, Parent: "ALPHA-001", State: st} }
 
 	tests := []struct {
-		name  string
-		fix   *protocol.CardFix
-		fresh bool
+		name     string
+		fix      protocol.CardFix
+		subtasks []*board.Card
+		fresh    bool
 	}{
-		{"a new section", &protocol.CardFix{Section: "Run make tidy first."}, true},
-		{"the same section again", &protocol.CardFix{Section: "  Run make generate first.\n\n"}, false},
-		{"the same section, retiring subtasks", &protocol.CardFix{Section: "Run make generate first.", RetireSubtasks: []string{"ALPHA-011"}}, true},
-		{"retired subtasks", &protocol.CardFix{RetireSubtasks: []string{"ALPHA-011"}}, true},
-		{"verify only", &protocol.CardFix{Verify: &protocol.VerifyConfig{Command: "make check"}}, false},
-		{"no fix", nil, false},
+		{"a new section", newSection, nil, true},
+		{"the same section again", protocol.CardFix{Section: "  Run make generate first.\n\n"}, nil, false},
+		{"the same section, retiring subtasks", protocol.CardFix{Section: "Run make generate first.", RetireSubtasks: []string{"ALPHA-011"}}, nil, true},
+		{"retired subtasks", retire, []*board.Card{sub("ALPHA-011", board.StateTodo)}, true},
+		{"verify only", protocol.CardFix{Verify: &protocol.VerifyConfig{Command: "make check"}}, nil, false},
+		{
+			"a new section with only todo subtasks", newSection,
+			[]*board.Card{sub("ALPHA-011", board.StateTodo), sub("ALPHA-012", board.StateTodo)},
+			true,
+		},
+		{"a new section with an in-progress subtask", newSection, []*board.Card{sub("ALPHA-011", board.StateInProgress)}, false},
+		{"a new section with a done subtask", newSection, []*board.Card{sub("ALPHA-011", board.StateDone)}, false},
+		{"a new section with a not-planned subtask", newSection, []*board.Card{sub("ALPHA-011", board.StateNotPlanned)}, true},
+		{
+			"retiring while another subtask has started", retire,
+			[]*board.Card{sub("ALPHA-011", board.StateTodo), sub("ALPHA-012", board.StateInProgress)},
+			false,
+		},
+		{
+			"verify only with a started subtask",
+			protocol.CardFix{Verify: &protocol.VerifyConfig{Command: "make check"}},
+			[]*board.Card{sub("ALPHA-011", board.StateDone)},
+			false,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.fresh, freshRerun(card, tc.fix))
+			assert.Equal(t, tc.fresh, freshRerun(card, tc.fix, tc.subtasks))
 		})
 	}
 }
@@ -64,6 +87,16 @@ func applyEnv(t *testing.T, cause string, fix *protocol.CardFix) (*dispatchEnv, 
 	return e, &h, card, run
 }
 
+// subtasksOf reads card id's subtasks as the pass does before apply.
+func subtasksOf(t *testing.T, e *dispatchEnv, id string) []*board.Card {
+	t.Helper()
+
+	subs, err := e.cards.ListCards(context.Background(), "alpha", storage.CardFilter{Parent: id})
+	require.NoError(t, err)
+
+	return subs
+}
+
 func storedCard(t *testing.T, e *dispatchEnv, id string) *board.Card {
 	t.Helper()
 
@@ -76,7 +109,7 @@ func storedCard(t *testing.T, e *dispatchEnv, id string) *board.Card {
 func TestApplyFixOneGuardedWrite(t *testing.T) {
 	e, h, card, _ := applyEnv(t, protocol.DiagnosisCard, sectionFix())
 
-	returned, change, err := e.ctl.applyFix(context.Background(), h, card)
+	returned, change, err := e.ctl.applyFix(context.Background(), h, card, subtasksOf(t, e, "ALPHA-001"))
 	require.NoError(t, err)
 	assert.Equal(t, storedCard(t, e, "ALPHA-001"), returned, "the card as written, for the rerun's guarded move")
 
@@ -103,7 +136,7 @@ func TestApplyFixVerifyOnlyKeepsPhase(t *testing.T) {
 	fix := &protocol.CardFix{Verify: &protocol.VerifyConfig{Command: "make check"}}
 	e, h, card, _ := applyEnv(t, protocol.DiagnosisCard, fix)
 
-	_, change, err := e.ctl.applyFix(context.Background(), h, card)
+	_, change, err := e.ctl.applyFix(context.Background(), h, card, subtasksOf(t, e, "ALPHA-001"))
 	require.NoError(t, err)
 
 	require.Len(t, e.cards.patches, 1)
@@ -118,7 +151,7 @@ func TestApplyFixSameSectionResumes(t *testing.T) {
 	e, h, card, _ := applyEnv(t, protocol.DiagnosisCard, fix)
 	card.Body = board.UpsertSection(card.Body, SectionHeading, fix.Section)
 
-	_, change, err := e.ctl.applyFix(context.Background(), h, card)
+	_, change, err := e.ctl.applyFix(context.Background(), h, card, subtasksOf(t, e, "ALPHA-001"))
 	require.NoError(t, err)
 
 	require.Len(t, e.cards.patches, 1)
@@ -133,7 +166,7 @@ func TestApplyFixModelDiagnosisWritesNothing(t *testing.T) {
 	// A model diagnosis holds no fix, whatever its fix field carries.
 	e, h, card, _ := applyEnv(t, protocol.DiagnosisModel, sectionFix())
 
-	_, change, err := e.ctl.applyFix(context.Background(), h, card)
+	_, change, err := e.ctl.applyFix(context.Background(), h, card, subtasksOf(t, e, "ALPHA-001"))
 	require.NoError(t, err)
 
 	assert.Empty(t, e.cards.patches)
@@ -151,7 +184,7 @@ func TestApplyFixHumanEditInBetween(t *testing.T) {
 	edited.Updated = card.Updated.Add(time.Minute)
 	e.cards.cards[0] = &edited
 
-	_, _, err := e.ctl.applyFix(context.Background(), h, card)
+	_, _, err := e.ctl.applyFix(context.Background(), h, card, subtasksOf(t, e, "ALPHA-001"))
 	require.ErrorIs(t, err, service.ErrCardChanged)
 
 	assert.Len(t, e.cards.patches, 1, "no subtask is retired")
@@ -165,7 +198,7 @@ func TestApplyFixRetiresAsSentinel(t *testing.T) {
 	e, h, card, _ := applyEnv(t, protocol.DiagnosisCard, fix)
 	sub := storedCard(t, e, "ALPHA-011")
 
-	_, change, err := e.ctl.applyFix(context.Background(), h, card)
+	_, change, err := e.ctl.applyFix(context.Background(), h, card, subtasksOf(t, e, "ALPHA-001"))
 	require.NoError(t, err)
 
 	require.Len(t, e.cards.patches, 2)
@@ -185,7 +218,7 @@ func TestApplyFixRetiresAsSentinel(t *testing.T) {
 func TestApplyFixRefreshesSnapshot(t *testing.T) {
 	e, h, card, _ := applyEnv(t, protocol.DiagnosisCard, sectionFix())
 
-	_, _, err := e.ctl.applyFix(context.Background(), h, card)
+	_, _, err := e.ctl.applyFix(context.Background(), h, card, subtasksOf(t, e, "ALPHA-001"))
 	require.NoError(t, err)
 
 	written := storedCard(t, e, "ALPHA-001")
@@ -214,7 +247,7 @@ func TestApplyParksARefusedRetire(t *testing.T) {
 			e, h, card, run := applyEnv(t, protocol.DiagnosisCard, fix)
 			e.cards.refuse = map[string]error{"ALPHA-011": tc.err}
 
-			require.NoError(t, e.ctl.apply(context.Background(), h, card, run))
+			require.NoError(t, e.ctl.apply(context.Background(), h, card, run, subtasksOf(t, e, "ALPHA-001")))
 
 			stored := e.store.heal(h.ID)
 			assert.Equal(t, state.StageParked, stored.Stage)
@@ -243,7 +276,7 @@ func TestApplyParksAFixTheCardServiceRefuses(t *testing.T) {
 			e, h, card, run := applyEnv(t, protocol.DiagnosisCard, sectionFix())
 			e.cards.refuse = map[string]error{"ALPHA-001": tc.err}
 
-			require.NoError(t, e.ctl.apply(context.Background(), h, card, run))
+			require.NoError(t, e.ctl.apply(context.Background(), h, card, run, subtasksOf(t, e, "ALPHA-001")))
 
 			stored := e.store.heal(h.ID)
 			assert.Equal(t, state.StageParked, stored.Stage, "a refused fix parks instead of retrying every pass")
@@ -264,7 +297,7 @@ func TestApplyWithNoRerunLeavesTheCardUntouched(t *testing.T) {
 	card.PlaybookLock = rolloutLock(board.RunStatusRunning)
 	e.pbs["rollout"] = rollout(board.RunStatusRunning, "lap-a")
 
-	require.NoError(t, e.ctl.apply(context.Background(), h, card, run))
+	require.NoError(t, e.ctl.apply(context.Background(), h, card, run, subtasksOf(t, e, "ALPHA-001")))
 
 	stored := e.store.heal(h.ID)
 	assert.Equal(t, state.StageParked, stored.Stage)

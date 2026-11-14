@@ -47,12 +47,13 @@ type healView struct {
 	Card     *board.Card // nil = deleted
 	Run      state.Run   // the card's current run row
 	Healing  bool
-	Budget   bool     // budget gate open for the effective mode
-	Room     bool     // a worker slot is free for a run kind
-	Listed   bool     // the in-flight dispatch's container is listed
-	Held     []string // run kinds another heal of the card still has in flight
-	Edited   []string // checkEdits violations
-	Rejected []string // vetFix violations, computed at stage apply when the heal holds a fix
+	Budget   bool          // budget gate open for the effective mode
+	Room     bool          // a worker slot is free for a run kind
+	Listed   bool          // the in-flight dispatch's container is listed
+	Held     []string      // run kinds another heal of the card still has in flight
+	Edited   []string      // checkEdits violations
+	Rejected []string      // vetFix violations, computed at stage apply when the heal holds a fix
+	Subtasks []*board.Card // the card's subtasks, read with Rejected
 	Now      time.Time
 }
 

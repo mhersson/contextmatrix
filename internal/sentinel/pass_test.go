@@ -494,6 +494,34 @@ func TestPassAppliesAFixAndReruns(t *testing.T) {
 	assert.Len(t, e.relaunched, 1)
 }
 
+func TestPassResumesASectionFixWhenASubtaskHasStarted(t *testing.T) {
+	e := newPassEnv(t)
+
+	e.stopped("ALPHA-001", protocol.StopCauseVerifyParked, func(c *board.Card, _ *state.Run) { c.Phase = "execute" })
+	e.cards.cards = append(e.cards.cards, &board.Card{
+		ID: "ALPHA-011", Project: "alpha", Title: "Part one", Parent: "ALPHA-001", State: board.StateInProgress,
+		Updated: epoch.Add(-30 * time.Minute),
+	})
+	e.openHeal(t, "ALPHA-001", state.StageApply,
+		investigated(protocol.DiagnosisCard, &protocol.CardFix{Section: "Run make generate first."}),
+		func(h *state.Heal) { h.Check = &protocol.CheckResult{Trial: protocol.TrialFinished} })
+
+	require.NoError(t, e.ctl.pass(context.Background()))
+
+	h := e.store.heal(1)
+	assert.Equal(t, state.StageRerun, h.Stage)
+	require.NotNil(t, h.Change)
+	assert.False(t, h.Change.Fresh)
+
+	card := storedCard(t, e, "ALPHA-001")
+	assert.Equal(t, "execute", card.Phase, "the rerun resumes on the started work")
+	assert.Contains(t, card.Body, "Run make generate first.", "the section still reaches the agent")
+
+	logged := e.cards.logged["ALPHA-001"]
+	require.Len(t, logged, 1)
+	assert.Equal(t, relaunchText(h.Change, 1), logged[0].Message, "the entry says the rerun resumes")
+}
+
 func TestPassLeavesAFixAnEditRefusedAtApply(t *testing.T) {
 	e := newPassEnv(t)
 

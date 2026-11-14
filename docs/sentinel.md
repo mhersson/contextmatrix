@@ -511,10 +511,15 @@ Sentinel's write as no edit. A heal holding no fix (a `model` diagnosis)
 writes nothing. The heal records the change: the section and verify before
 and after, the retired subtasks, and fresh or resume.
 
-A rerun is fresh, its saved phase cleared so the agent plans again, when the
-fix changed the section or retired subtasks; otherwise it resumes, keeping the
-agent's recorded escalation and sizing. A section that matches the card's own,
-whitespace at either end aside, is no change and is not written again.
+A rerun is fresh, its saved phase cleared so the agent plans again from the
+base branch, when the fix changed the section or retired subtasks and none of
+the card's subtasks, as the fix checks read them, has started (left `todo` for
+anything but `not_planned`). Otherwise it resumes: the saved phase stays,
+so the agent adopts the work branch with its started work and keeps its
+recorded escalation and sizing, and the section reaches it as card text. A
+forward decides the same way from its target's subtasks. A section that
+matches the card's own, whitespace at either end aside, is no change and is
+not written again.
 
 `relaunchRoute` picks how the card reruns, from the run row's origin and the
 playbook the card's active `playbook_lock` names. On either route the card

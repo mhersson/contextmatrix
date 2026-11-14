@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
@@ -17,7 +18,7 @@ import (
 // parks before anything is written, and a refused write or retire parks it; a
 // card changed since the pass read it leaves the heal at apply for the next
 // pass to decide.
-func (c *Controller) apply(ctx context.Context, h *state.Heal, card *board.Card, run state.Run) error {
+func (c *Controller) apply(ctx context.Context, h *state.Heal, card *board.Card, run state.Run, subtasks []*board.Card) error {
 	plan, err := c.planRelaunch(ctx, card, run)
 	if err != nil {
 		return err
@@ -27,7 +28,7 @@ func (c *Controller) apply(ctx context.Context, h *state.Heal, card *board.Card,
 		return c.park(ctx, h, plan.reason)
 	}
 
-	written, change, err := c.applyFix(ctx, h, card)
+	written, change, err := c.applyFix(ctx, h, card, subtasks)
 	h.Change = &change
 
 	if re, ok := errors.AsType[*refusedError](err); ok {
@@ -42,9 +43,15 @@ func (c *Controller) apply(ctx context.Context, h *state.Heal, card *board.Card,
 }
 
 // freshRerun reports whether a fix restarts the rerun from planning: it
-// changes card's own section or retires subtasks.
-func freshRerun(card *board.Card, fix *protocol.CardFix) bool {
-	return fix != nil && (sectionChanges(card, fix.Section) || len(fix.RetireSubtasks) > 0)
+// changes card's own section or retires subtasks while none of subtasks has
+// started, as a fresh run plans again from base and would strand started work.
+func freshRerun(card *board.Card, fix protocol.CardFix, subtasks []*board.Card) bool {
+	return (sectionChanges(card, fix.Section) || len(fix.RetireSubtasks) > 0) && !slices.ContainsFunc(subtasks, started)
+}
+
+// started reports whether a subtask has left todo for anything but not_planned.
+func started(sub *board.Card) bool {
+	return sub.State != board.StateTodo && sub.State != board.StateNotPlanned
 }
 
 // sectionChanges reports whether writing section changes card's own section;
@@ -58,13 +65,13 @@ func sectionChanges(card *board.Card, section string) bool {
 // check reads Sentinel's write as no edit. It returns the card as written, so
 // the rerun's guarded move reads Sentinel's own write as no change. A heal
 // holding no fix writes nothing.
-func (c *Controller) applyFix(ctx context.Context, h *state.Heal, card *board.Card) (*board.Card, state.Change, error) {
+func (c *Controller) applyFix(ctx context.Context, h *state.Heal, card *board.Card, subtasks []*board.Card) (*board.Card, state.Change, error) {
 	fix := healFix(*h)
 	if fix == nil {
 		return card, state.Change{}, nil
 	}
 
-	written, change, err := c.writeFix(ctx, card, *fix)
+	written, change, err := c.writeFix(ctx, card, *fix, subtasks)
 	if err != nil {
 		return nil, state.Change{}, err
 	}
@@ -85,11 +92,14 @@ func (c *Controller) applyFix(ctx context.Context, h *state.Heal, card *board.Ca
 }
 
 // writeFix writes the fix's section and verify in one write guarded on card,
-// and returns the written card and what changed. A card changed since it was
-// read comes back as is, for the next pass to decide again; any other error is
-// a refusal, so the same write is not retried every pass.
-func (c *Controller) writeFix(ctx context.Context, card *board.Card, fix protocol.CardFix) (*board.Card, state.Change, error) {
-	written, err := c.cfg.Cards.PatchCard(ctx, card.Project, card.ID, fixPatch(card, fix))
+// clearing the phase when the rerun is fresh by card's subtasks, and returns
+// the written card and what changed. A card changed since it was read comes
+// back as is, for the next pass to decide again; any other error is a refusal,
+// so the same write is not retried every pass.
+func (c *Controller) writeFix(ctx context.Context, card *board.Card, fix protocol.CardFix, subtasks []*board.Card) (*board.Card, state.Change, error) {
+	fresh := freshRerun(card, fix, subtasks)
+
+	written, err := c.cfg.Cards.PatchCard(ctx, card.Project, card.ID, fixPatch(card, fix, fresh))
 
 	switch {
 	case errors.Is(err, service.ErrCardChanged):
@@ -100,13 +110,13 @@ func (c *Controller) writeFix(ctx context.Context, card *board.Card, fix protoco
 
 	return written, state.Change{
 		SectionBefore: sentinelSection(card), SectionAfter: sentinelSection(written),
-		VerifyBefore: card.Verify, VerifyAfter: written.Verify, Fresh: freshRerun(card, &fix),
+		VerifyBefore: card.Verify, VerifyAfter: written.Verify, Fresh: fresh,
 	}, nil
 }
 
 // fixPatch is the fix as one write guarded on card, its section only when it
 // changes; a fresh rerun also clears the saved phase.
-func fixPatch(card *board.Card, fix protocol.CardFix) service.PatchCardInput {
+func fixPatch(card *board.Card, fix protocol.CardFix, fresh bool) service.PatchCardInput {
 	updated := card.Updated
 	in := service.PatchCardInput{AgentID: Agent, ExpectUpdated: &updated}
 
@@ -118,7 +128,7 @@ func fixPatch(card *board.Card, fix protocol.CardFix) service.PatchCardInput {
 		in.Verify = boardVerify(fix.Verify)
 	}
 
-	if freshRerun(card, &fix) {
+	if fresh {
 		in.Phase = new("")
 	}
 
