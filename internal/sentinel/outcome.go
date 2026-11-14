@@ -121,6 +121,50 @@ func (c *Controller) openHeal(ctx context.Context, h state.Heal) (int64, error) 
 	return id, nil
 }
 
+// queueAnalysis, openRevision, setFindingOutcome and putStandingPR write the
+// other rows a Sentinel view reads and announce them as saveHeal does: an
+// analysis its card, a revision or the standing PR the project, a finding its card.
+func (c *Controller) queueAnalysis(ctx context.Context, h state.Heal) error {
+	if err := c.cfg.Store.QueueAnalysis(ctx, h); err != nil {
+		return err
+	}
+
+	c.healChanged(h.Project, h.CardID)
+
+	return nil
+}
+
+func (c *Controller) openRevision(ctx context.Context, project string, at time.Time) (state.Heal, error) {
+	h, err := c.cfg.Store.OpenRevision(ctx, project, at)
+	if err != nil {
+		return state.Heal{}, err
+	}
+
+	c.healChanged(project, "")
+
+	return h, nil
+}
+
+func (c *Controller) setFindingOutcome(ctx context.Context, f state.Finding, st, reason, output string, revisionID int64, at time.Time) error {
+	if err := c.cfg.Store.SetFindingOutcome(ctx, f.ID, st, reason, output, revisionID, at); err != nil {
+		return err
+	}
+
+	c.healChanged(f.Project, f.CardID)
+
+	return nil
+}
+
+func (c *Controller) putStandingPR(ctx context.Context, rec state.StandingPR) error {
+	if err := c.cfg.Store.PutStandingPR(ctx, rec); err != nil {
+		return err
+	}
+
+	c.healChanged(rec.Project, "")
+
+	return nil
+}
+
 func (c *Controller) healChanged(project, cardID string) {
 	c.cfg.Bus.Publish(events.Event{
 		Type: events.SentinelChanged, Project: project, CardID: cardID, Timestamp: c.cfg.Clock.Now().UTC(),

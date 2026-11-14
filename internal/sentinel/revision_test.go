@@ -91,7 +91,7 @@ func TestTooLong(t *testing.T) {
 		guidance(1, "aaaa"), guidance(2, "aaaaa"), guidance(3, "  aaaa\n\n"), guidance(4, "a b c"),
 	}
 
-	assert.Equal(t, []int64{2, 4}, tooLong(fs, 4), "trimmed as packed, at the cap fits")
+	assert.Equal(t, []state.Finding{fs[1], fs[3]}, tooLong(fs, 4), "trimmed as packed, at the cap fits")
 	assert.Nil(t, tooLong(fs, 5))
 }
 

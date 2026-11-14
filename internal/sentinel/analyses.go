@@ -51,7 +51,7 @@ func (c *Controller) queueRun(ctx context.Context, now time.Time, run state.Run)
 			Kind: state.HealKindAnalysis, Project: run.Project, CardID: run.CardID, RunStarted: run.StartedAt,
 			RunID: run.RunID, Cause: run.StopCause, Stage: state.StageAnalyse, CreatedAt: now, UpdatedAt: now,
 		}
-		if err := c.cfg.Store.QueueAnalysis(ctx, row); err != nil {
+		if err := c.queueAnalysis(ctx, row); err != nil {
 			return fmt.Errorf("queue analysis: %w", err)
 		}
 	}

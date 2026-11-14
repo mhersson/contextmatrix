@@ -42,7 +42,12 @@ func TestQueueAnalysesQueuesASettledRun(t *testing.T) {
 		c.State, c.WorkerStatus = board.StateReview, "completed"
 	})
 
+	ch, unsubscribe := e.bus.Subscribe()
+	t.Cleanup(unsubscribe)
+
 	require.NoError(t, e.ctl.pass(context.Background()))
+
+	assert.Contains(t, cardEvents(ch), "alpha/ALPHA-001", "the queued analysis announces its card")
 
 	rows := analysisRows(e)
 	require.Len(t, rows, 1)

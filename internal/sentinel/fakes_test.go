@@ -37,7 +37,8 @@ type fakeStore struct {
 
 	findings      []state.Finding
 	prs           map[string]state.StandingPR
-	outcomeWrites int // SetFindingOutcome calls
+	outcomeWrites int   // SetFindingOutcome calls
+	outcomeErr    error // answered by SetFindingOutcome
 }
 
 type ledgerRow struct {
@@ -978,6 +979,10 @@ func (f *fakeStore) SetFindingOutcome(_ context.Context, id int64, st, reason, o
 	defer f.mu.Unlock()
 
 	f.outcomeWrites++
+
+	if f.outcomeErr != nil {
+		return f.outcomeErr
+	}
 
 	for i, fd := range f.findings {
 		if fd.ID == id {

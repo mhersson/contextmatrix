@@ -120,7 +120,7 @@ func (c *Controller) routeFinding(ctx context.Context, f state.Finding, pr *proj
 		return nil
 	}
 
-	if err := c.cfg.Store.SetFindingOutcome(ctx, f.ID, newState, reason, output, 0, now); err != nil {
+	if err := c.setFindingOutcome(ctx, f, newState, reason, output, 0, now); err != nil {
 		return fmt.Errorf("set finding outcome: %w", err)
 	}
 

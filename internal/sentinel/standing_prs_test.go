@@ -3,6 +3,7 @@ package sentinel
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -51,6 +52,7 @@ func prEnv(t *testing.T, gh *fakeGitHub, rec state.StandingPR) *dispatchEnv {
 		{ID: 1, Text: "Run ./ci/verify first."},
 		{ID: 2, Text: "Never touch generated files."},
 	} {
+		f.CardID = "ALPHA-00" + strconv.FormatInt(f.ID, 10)
 		f.Project, f.Kind, f.State, f.RevisionID, f.Output = "alpha", "guidance", state.FindingProposed, 4, rec.URL
 		e.store.putFinding(f)
 	}
@@ -67,9 +69,14 @@ func (e *dispatchEnv) pr() state.StandingPR {
 func TestReadStandingPRsMarksAMergedPRsFindings(t *testing.T) {
 	gh := &fakeGitHub{pull: PullState{Merged: true, MergeSHA: "m1"}, file: "Run ./ci/verify  first.\n", found: true}
 	e := prEnv(t, gh, state.StandingPR{HeadSHA: "h1"})
+	ch, unsubscribe := e.bus.Subscribe()
+	t.Cleanup(unsubscribe)
 
 	require.NoError(t, e.ctl.pass(context.Background()))
 
+	cards, projects := changedEvents(ch)
+	assert.Contains(t, projects, "alpha", "the saved read announces the project")
+	assert.Subset(t, cards, []string{"alpha/ALPHA-001", "alpha/ALPHA-002"}, "each settled finding announces its card")
 	assert.Equal(t, state.FindingMerged, e.store.finding(1).State)
 	assert.Equal(t, state.FindingRejected, e.store.finding(2).State)
 	assert.Equal(t, int64(4), e.store.finding(2).RevisionID)

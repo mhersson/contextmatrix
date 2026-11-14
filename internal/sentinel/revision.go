@@ -71,16 +71,16 @@ func packSection(proposed, pending []state.Finding, maxBytes int) (section strin
 
 // tooLong lists the findings whose text alone, trimmed as packSection packs
 // it, is over maxBytes: no section can hold them.
-func tooLong(fs []state.Finding, maxBytes int) []int64 {
-	var ids []int64
+func tooLong(fs []state.Finding, maxBytes int) []state.Finding {
+	var long []state.Finding
 
 	for _, f := range fs {
 		if len(strings.TrimSpace(f.Text)) > maxBytes {
-			ids = append(ids, f.ID)
+			long = append(long, f)
 		}
 	}
 
-	return ids
+	return long
 }
 
 func prTitle(project string) string {

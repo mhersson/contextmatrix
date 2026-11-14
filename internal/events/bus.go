@@ -48,8 +48,10 @@ const (
 	LLMChannelChanged EventType = "llm_channel.changed"
 
 	// SentinelChanged has no data. It has empty Project when Sentinel's status
-	// changes, and the card's Project and CardID when a heal on the card is
-	// opened or saved, or a run kind's result for the card is recorded.
+	// changes, the card's Project and CardID when a Sentinel row of the card
+	// changes (a heal of any kind, a finding, a run kind's result), and the
+	// Project with an empty CardID for a project-level change (a guidance
+	// revision or the standing PR).
 	SentinelChanged EventType = "sentinel.changed"
 
 	// AttentionChanged has empty Project and no data: the waiting list may

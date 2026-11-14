@@ -97,9 +97,12 @@ func TestRevisionPushedRecordsThePRAndProposesTheFindings(t *testing.T) {
 	ctx := context.Background()
 	e, _ := revisionEnv(t, &fakeGitHub{},
 		guidance(1, "Run make generate before make test."), guidance(2, "Never edit files under gen/."))
+	ch, unsubscribe := e.bus.Subscribe()
+	t.Cleanup(unsubscribe)
 
 	require.NoError(t, e.ctl.pass(ctx))
 
+	assert.Contains(t, projectEvents(ch), "alpha", "opening the revision announces the project")
 	require.Len(t, e.backend.sent, 1)
 	p := e.backend.sent[0]
 	assert.Equal(t, protocol.RunKindGuidancePR, p.Kind)

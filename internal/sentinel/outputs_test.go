@@ -38,8 +38,12 @@ func TestRouteFindingsCreatesOneCardAndQueuesGuidance(t *testing.T) {
 		queued(2, "guidance", "", "run make fmt before every commit so lint stays quiet"),
 	)
 
+	ch, unsubscribe := e.bus.Subscribe()
+	t.Cleanup(unsubscribe)
+
 	require.NoError(t, e.ctl.pass(context.Background()))
 
+	assert.Contains(t, cardEvents(ch), "alpha/ALPHA-001", "routing a finding announces its card")
 	require.Len(t, e.cards.created, 1)
 	assert.Equal(t, []string{frictionLabel}, e.cards.created[0].Labels)
 

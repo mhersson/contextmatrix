@@ -185,7 +185,7 @@ func (c *Controller) dispatchRevision(ctx context.Context, r *passReads, v revis
 		return nil
 	}
 
-	row, err := c.cfg.Store.OpenRevision(ctx, v.Project, r.now)
+	row, err := c.openRevision(ctx, v.Project, r.now)
 	if err != nil {
 		return fmt.Errorf("open revision: %w", err)
 	}
@@ -239,13 +239,13 @@ func (c *Controller) failUnsent(ctx context.Context, row *state.Heal, cause erro
 	return fmt.Errorf("fill the guidance_pr payload: %w", cause)
 }
 
-// dropTooLong drops each pending finding ids names as too long for a section.
-func (c *Controller) dropTooLong(ctx context.Context, ids []int64) error {
+// dropTooLong drops each pending finding in fs as too long for a section.
+func (c *Controller) dropTooLong(ctx context.Context, fs []state.Finding) error {
 	now := c.cfg.Clock.Now()
 
-	for _, id := range ids {
-		if err := c.cfg.Store.SetFindingOutcome(ctx, id, state.FindingDropped, reasonTooLong, "", 0, now); err != nil {
-			return fmt.Errorf("drop finding %d: %w", id, err)
+	for _, f := range fs {
+		if err := c.setFindingOutcome(ctx, f, state.FindingDropped, reasonTooLong, "", 0, now); err != nil {
+			return fmt.Errorf("drop finding %d: %w", f.ID, err)
 		}
 	}
 
@@ -303,13 +303,18 @@ func (c *Controller) recordRevised(ctx context.Context, row state.Heal) error {
 		rec.PushedAt = now
 	}
 
-	if err := c.cfg.Store.PutStandingPR(ctx, rec); err != nil {
+	if err := c.putStandingPR(ctx, rec); err != nil {
 		return fmt.Errorf("save standing pr: %w", err)
 	}
 
-	for _, id := range row.SentFindings {
-		if err := c.cfg.Store.SetFindingOutcome(ctx, id, state.FindingProposed, "", res.PRURL, row.ID, now); err != nil {
-			return fmt.Errorf("propose finding %d: %w", id, err)
+	sent, err := c.cfg.Store.Findings(ctx, row.SentFindings)
+	if err != nil {
+		return fmt.Errorf("read sent findings: %w", err)
+	}
+
+	for _, f := range sent {
+		if err := c.setFindingOutcome(ctx, f, state.FindingProposed, "", res.PRURL, row.ID, now); err != nil {
+			return fmt.Errorf("propose finding %d: %w", f.ID, err)
 		}
 	}
 
@@ -330,7 +335,7 @@ func (c *Controller) forgetRead(ctx context.Context, project string) error {
 
 	rec.State, rec.ReadAt = "", time.Time{}
 
-	if err := c.cfg.Store.PutStandingPR(ctx, *rec); err != nil {
+	if err := c.putStandingPR(ctx, *rec); err != nil {
 		return fmt.Errorf("save standing pr: %w", err)
 	}
 
@@ -367,7 +372,7 @@ func (c *Controller) traceRefusal(ctx context.Context, row *state.Heal) error {
 			continue
 		}
 
-		if err := c.cfg.Store.SetFindingOutcome(ctx, f.ID, state.FindingDropped, reason, f.Output, row.ID, now); err != nil {
+		if err := c.setFindingOutcome(ctx, f, state.FindingDropped, reason, f.Output, row.ID, now); err != nil {
 			return fmt.Errorf("drop finding %d: %w", f.ID, err)
 		}
 	}

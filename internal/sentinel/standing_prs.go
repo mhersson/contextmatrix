@@ -64,7 +64,7 @@ func (c *Controller) readStandingPR(ctx context.Context, rec state.StandingPR, n
 		}
 	}
 
-	if err := c.cfg.Store.PutStandingPR(ctx, next); err != nil {
+	if err := c.putStandingPR(ctx, next); err != nil {
 		return rec, fmt.Errorf("save standing pr: %w", err)
 	}
 
@@ -76,7 +76,7 @@ func (c *Controller) readStandingPR(ctx context.Context, rec state.StandingPR, n
 func (c *Controller) keepAttempt(ctx context.Context, rec state.StandingPR, now time.Time, readErr error) (state.StandingPR, error) {
 	rec.ReadAt = now
 
-	if err := c.cfg.Store.PutStandingPR(ctx, rec); err != nil {
+	if err := c.putStandingPR(ctx, rec); err != nil {
 		return rec, errors.Join(readErr, fmt.Errorf("save standing pr: %w", err))
 	}
 
@@ -123,7 +123,7 @@ func (c *Controller) settleFindings(ctx context.Context, gh GitHub, rec state.St
 			st, why = state.FindingMerged, ""
 		}
 
-		if err := c.cfg.Store.SetFindingOutcome(ctx, f.ID, st, why, f.Output, f.RevisionID, now); err != nil {
+		if err := c.setFindingOutcome(ctx, f, st, why, f.Output, f.RevisionID, now); err != nil {
 			return fmt.Errorf("settle finding %d: %w", f.ID, err)
 		}
 	}

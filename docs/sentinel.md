@@ -159,8 +159,10 @@ stage.
 Every write to a heal row bumps its version, and a save carries the version it
 read: one made from a stale read is refused (`ErrHealChanged`), so a pass never
 overwrites an answer recorded since it read the heal. Each heal the controller
-opens or saves publishes `sentinel.changed` with the card's project and ID, so
-the attention list follows every stage move.
+opens or saves, and each analysis row and finding outcome it writes, publishes
+`sentinel.changed` with the card's project and ID; a revision row and the
+standing PR record publish it with the project and no card ID. The attention
+list follows every stage move.
 
 `sentinel_heals` holds Sentinel's work rows of every kind, so every heal reader
 filters by kind. A row is a `heal`, a `forward`, an `analysis` or a `revision`;
