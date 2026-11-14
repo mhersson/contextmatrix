@@ -30,6 +30,8 @@ type fakeSentinelStore struct {
 	findings []state.Finding
 	analyses []state.Heal
 	pr       *state.StandingPR
+	revision *state.Heal
+	asked    string // the project LastRevision was asked for
 }
 
 func newFakeSentinelStore() *fakeSentinelStore {
@@ -74,6 +76,15 @@ func (f *fakeSentinelStore) CardAnalyses(context.Context, string, string) ([]sta
 
 func (f *fakeSentinelStore) StandingPR(context.Context, string) (*state.StandingPR, error) {
 	return f.pr, nil
+}
+
+func (f *fakeSentinelStore) LastRevision(_ context.Context, project string) (*state.Heal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.asked = project
+
+	return f.revision, nil
 }
 
 func sentinelDo(t *testing.T, srv *httptest.Server, method, path string, body any, cookie *http.Cookie) (int, map[string]any) {
@@ -385,6 +396,55 @@ func TestCardSentinelViewCarriesAnalysesOutcomesAndThePR(t *testing.T) {
 	assert.Equal(t, []any{}, body["analyses"])
 	assert.Nil(t, body["standing_pr"])
 	assert.Contains(t, body, "standing_pr")
+}
+
+func TestCardSentinelViewNamesARevisionThatDidNotGoOut(t *testing.T) {
+	at := time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)
+	row := func(stage, reason string) *state.Heal {
+		return &state.Heal{ID: 3, Kind: state.HealKindRevision, Project: "p", Stage: stage, Reason: reason, UpdatedAt: at}
+	}
+
+	tests := []struct {
+		name     string
+		revision *state.Heal
+		want     map[string]any // nil = null
+	}{
+		{"no revision", nil, nil},
+		{"revised", row(state.StageRevised, ""), nil},
+		{"still open", row(state.StageRevise, ""), nil},
+		{
+			"failed", row(state.StageRevisionFailed, "not sent: mint a pull request token: 403"),
+			map[string]any{"stage": state.StageRevisionFailed, "reason": "not sent: mint a pull request token: 403", "updated_at": "2026-11-14T09:00:00Z"},
+		},
+		{
+			"refused", row(state.StageRevisionRefused, "absent from the repo: x"),
+			map[string]any{"stage": state.StageRevisionRefused, "reason": "absent from the repo: x", "updated_at": "2026-11-14T09:00:00Z"},
+		},
+		{
+			"stale", row(state.StageRevisionStale, "stale"),
+			map[string]any{"stage": state.StageRevisionStale, "reason": "stale", "updated_at": "2026-11-14T09:00:00Z"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newFakeSentinelStore()
+			store.revision = tt.revision
+			srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
+
+			_, body := sentinelDo(t, srv, http.MethodGet, "/api/projects/p/cards/p-001/sentinel", nil, nil)
+
+			require.Contains(t, body, "guidance_revision")
+			assert.Nil(t, body["standing_pr"], "set even with no PR on record")
+			assert.Equal(t, "p", store.asked)
+
+			if tt.want == nil {
+				assert.Nil(t, body["guidance_revision"])
+			} else {
+				assert.Equal(t, tt.want, body["guidance_revision"])
+			}
+		})
+	}
 }
 
 func TestSentinelStatusCarriesAnalysing(t *testing.T) {

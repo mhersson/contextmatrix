@@ -906,6 +906,7 @@ export interface SentinelCardView {
   findings: SentinelFindingView[];
   analyses: SentinelAnalysisView[];
   standing_pr: SentinelStandingPR | null;
+  guidance_revision: SentinelGuidanceRevision | null;
 }
 
 export interface SentinelAnalysisView {
@@ -923,6 +924,13 @@ export interface SentinelStandingPR {
   state: 'open' | 'changed_outside' | 'merged' | 'closed' | '';
   file: string;
   pushed_at: string;
+}
+
+/** The project's newest guidance revision when it ended without a push or an unchanged PR (`revision_failed`, `revision_stale` or `revision_refused`); `reason` says why. */
+export interface SentinelGuidanceRevision {
+  stage: 'revision_failed' | 'revision_stale' | 'revision_refused';
+  reason: string;
+  updated_at: string;
 }
 
 export interface SentinelVerify {
@@ -977,7 +985,7 @@ export type SentinelFindingState =
   | 'held'
   | '';
 
-/** `reason` says why a finding was held, dropped or queued; `output` is a friction card's ID or the standing PR's URL. */
+/** `reason` says why a finding was dropped, a duplicate or rejected, or kept queued at the daily card limit; `output` is a friction card's ID or the standing PR's URL. */
 export interface SentinelFindingView {
   id: number;
   state: SentinelFindingState;

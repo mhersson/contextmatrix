@@ -707,6 +707,17 @@ func (s *Store) LastRevisedRevision(ctx context.Context, project string) (*state
 	return h, nil
 }
 
+// LastRevision returns the project's newest revision row, whatever its
+// stage, or nil when there is none.
+func (s *Store) LastRevision(ctx context.Context, project string) (*state.Heal, error) {
+	h, err := s.lastRevision(ctx, `TRUE`, project)
+	if err != nil {
+		return nil, fmt.Errorf("read last revision: %w", err)
+	}
+
+	return h, nil
+}
+
 // lastRevision returns the project's newest revision row that also matches
 // where, a constant of its callers, or nil.
 func (s *Store) lastRevision(ctx context.Context, where, project string, args ...any) (*state.Heal, error) {

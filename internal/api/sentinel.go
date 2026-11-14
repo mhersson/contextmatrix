@@ -25,6 +25,7 @@ type SentinelStore interface {
 	CardFindings(ctx context.Context, project, cardID string) ([]state.Finding, error)
 	CardAnalyses(ctx context.Context, project, cardID string) ([]state.Heal, error)
 	StandingPR(ctx context.Context, project string) (*state.StandingPR, error)
+	LastRevision(ctx context.Context, project string) (*state.Heal, error)
 }
 
 type sentinelHandlers struct {
@@ -163,6 +164,14 @@ type cardSentinelPR struct {
 	PushedAt string `json:"pushed_at"`
 }
 
+// cardSentinelRevision is the project's newest guidance revision when it
+// ended without going out as a push, so the tab can say why.
+type cardSentinelRevision struct {
+	Stage     string `json:"stage"`
+	Reason    string `json:"reason"`
+	UpdatedAt string `json:"updated_at"`
+}
+
 type cardSentinelFinding struct {
 	ID        int64  `json:"id"`
 	State     string `json:"state"`
@@ -253,6 +262,14 @@ func (h *sentinelHandlers) cardRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	revision, err := h.store.LastRevision(ctx, project)
+	if err != nil {
+		slog.Error("sentinel guidance revision failed", "error", err)
+		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to read sentinel guidance revision", "")
+
+		return
+	}
+
 	healViews := make([]cardSentinelHeal, 0, len(heals))
 	for _, hl := range heals {
 		healViews = append(healViews, healView(hl))
@@ -281,10 +298,19 @@ func (h *sentinelHandlers) cardRun(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	out := map[string]any{"run": nil, "heals": healViews, "analyses": analysisViews, "findings": findings, "standing_pr": nil}
+	out := map[string]any{
+		"run": nil, "heals": healViews, "analyses": analysisViews, "findings": findings,
+		"standing_pr": nil, "guidance_revision": nil,
+	}
 	if pr != nil {
 		out["standing_pr"] = cardSentinelPR{
 			URL: pr.URL, State: pr.State, File: pr.File, PushedAt: pr.PushedAt.UTC().Format(time.RFC3339),
+		}
+	}
+
+	if revision != nil && state.Terminal(revision.Stage) && revision.Stage != state.StageRevised {
+		out["guidance_revision"] = cardSentinelRevision{
+			Stage: revision.Stage, Reason: revision.Reason, UpdatedAt: revision.UpdatedAt.UTC().Format(time.RFC3339),
 		}
 	}
 

@@ -199,6 +199,7 @@ card's mark and its waiting-list hold away.
 | `LastRefusedRevision` | `revision`        |
 | `LastFailedRevision`  | `revision`        |
 | `LastRevisedRevision` | `revision`        |
+| `LastRevision`        | `revision`        |
 
 An analysis row ends at `analysed` once its result arrives, at
 `analyse_failed` when its run failed, never reported or was refused, and at
@@ -862,7 +863,11 @@ a write token GitHub refuses to mint, ends the row `revision_failed` with
 `not sent: <why>` as its reason, so rule 5 holds the next try for an hour; the
 findings stay `pending`, and nothing falls back to another token. A dispatch
 record that cannot be saved sends nothing and leaves the row open, so the next
-pass tries again. The outcomes:
+pass tries again. The card view carries the project's newest revision row as
+`guidance_revision` while it is one that ended without going out (failed,
+stale or refused), so its reason can be shown (see the
+[API reference](api-reference.md#get-apiprojectsprojectcardsidsentinel)). The
+outcomes:
 
 - `pushed` ends `revised`: the record takes the result's URL, head SHA and
   file, the state `open` and the push time now, and every sent finding becomes
@@ -1102,10 +1107,10 @@ the next pass.
 | `internal/sentinel/revisions.go`            | `advanceRevisions`: read each project's view and act on its step; `dispatchRevision` (dropping findings too long for a section, packing from the pass's view, the forced PR read, packing again, the row, the send, or ending the row failed when the read fails (`failUnread`) or its payload cannot be filled (`failUnsent`)) and `endRevision`, which does what each outcome asks and ends a refusal that changed nothing failed |
 | `internal/opstore/sqlite/sentinel.go`       | The settings row and the subscription windows the controller reads |
 | `internal/opstore/sqlite/card_runs.go`      | The run row, with the decided and analysis-queued marks |
-| `internal/opstore/sqlite/sentinel_heals.go` | The work rows of every kind and their kind-filtered readers (heals, forwards, analyses, and revisions: `OpenRevision`, `OpenRevisions`, `LastRefusedRevision`, `LastFailedRevision`, `LastRevisedRevision`), findings (`PendingFindings`, `Findings` by ID whatever the state) and the spend ledger |
+| `internal/opstore/sqlite/sentinel_heals.go` | The work rows of every kind and their kind-filtered readers (heals, forwards, analyses, and revisions: `OpenRevision`, `OpenRevisions`, `LastRefusedRevision`, `LastFailedRevision`, `LastRevisedRevision`, `LastRevision`), findings (`PendingFindings`, `Findings` by ID whatever the state) and the spend ledger |
 | `internal/opstore/sqlite/sentinel_prs.go`   | The `sentinel_standing_prs` store methods |
 | `internal/api/backend_runkind.go`           | `runKindBase`: a run kind's common payload fields and its contents-read token; `guidanceBase`: a `guidance_pr` run's payload fields and its write token; `sentinelRelaunch`: Sentinel's launch of a rerun |
-| `internal/api/sentinel.go`                  | The `/api/sentinel` settings and status endpoints and the per-card view: the run, heals, analyses, findings and the project's standing PR |
+| `internal/api/sentinel.go`                  | The `/api/sentinel` settings and status endpoints and the per-card view: the run, heals, analyses, findings, the project's standing PR and its newest revision when that ended without going out |
 | `internal/api/sentinel_github.go`           | `sentinelGitHub`: reads a project's standing PR state and merged file from GitHub with the project's own credentials |
 | `internal/config/secrets.go`                | `Config.SecretValues`: every secret the config holds, for the secret check |
 

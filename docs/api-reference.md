@@ -1171,7 +1171,8 @@ outside 0-10000, `investigate_ceiling_usd` not above 0 or over 100, or
 ### GET /api/projects/{project}/cards/{id}/sentinel
 
 The last run this instance launched for the card (`run` is null when there is
-none), the card's heals and the friction findings stored for it.
+none), the card's heals, analyses and the friction findings stored for it, and
+the project's standing guidance PR and failed guidance revision.
 
 ```json
 {
@@ -1236,6 +1237,11 @@ none), the card's heals and the friction findings stored for it.
     "state": "open",
     "file": "AGENTS.md",
     "pushed_at": "2026-11-13T10:30:00Z"
+  },
+  "guidance_revision": {
+    "stage": "revision_failed",
+    "reason": "not sent: read the standing pr: API rate limit exceeded",
+    "updated_at": "2026-11-13T11:00:00Z"
   }
 }
 ```
@@ -1271,6 +1277,12 @@ became: a friction card's ID, or the standing PR's URL.
 `stage` is `analyse`, `analysed`, `analyse_failed` or `analyse_skipped` and
 `spend_usd` is the analysis's recorded spend. `standing_pr` is the project's
 standing guidance PR as Sentinel last read it, or null when it has none.
+`guidance_revision` is the project's newest guidance revision when it ended
+without going out (`stage` `revision_failed`, `revision_stale` or
+`revision_refused`), with `reason` saying why, such as a write token GitHub
+refused to mint; it is null when there is none, when the newest revision is
+still open or when it ended `revised`, and it is set whether or not the
+project has a standing PR.
 
 ## Attention Endpoints
 

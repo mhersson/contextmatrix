@@ -1088,6 +1088,14 @@ func TestEveryRowReaderReturnsOnlyItsKinds(t *testing.T) {
 
 			return []state.Heal{*h}, err
 		}},
+		{"LastRevision", []string{state.HealKindRevision}, func() ([]state.Heal, error) {
+			h, err := st.LastRevision(ctx, "p")
+			if h == nil {
+				return nil, err
+			}
+
+			return []state.Heal{*h}, err
+		}},
 	}
 
 	for _, tt := range tests {
@@ -1295,6 +1303,32 @@ func TestLastFailedAndLastRevisedRevision(t *testing.T) {
 	got, err = st.LastRevisedRevision(ctx, "q")
 	require.NoError(t, err)
 	assert.Nil(t, got)
+}
+
+func TestLastRevisionIsTheNewestWhateverItsStage(t *testing.T) {
+	ctx := context.Background()
+	st := openLadderStore(t)
+
+	got, err := st.LastRevision(ctx, "p")
+	require.NoError(t, err)
+	assert.Nil(t, got)
+
+	for i, r := range []struct{ project, stage string }{
+		{"p", state.StageRevisionFailed},
+		{"p", state.StageRevise},
+		{"q", state.StageRevised},
+	} {
+		at := runT0.Add(time.Duration(i) * time.Hour)
+		insertRow(t, st, state.Heal{
+			Kind: state.HealKindRevision, Project: r.project, Stage: r.stage, CreatedAt: at, UpdatedAt: at,
+		})
+	}
+
+	got, err = st.LastRevision(ctx, "p")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, state.StageRevise, got.Stage)
+	assert.True(t, got.UpdatedAt.Equal(runT0.Add(time.Hour)))
 }
 
 func TestFindingsReadsByIDWhateverTheState(t *testing.T) {

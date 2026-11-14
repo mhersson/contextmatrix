@@ -29,7 +29,7 @@ const run: SentinelRunView = {
 };
 
 function renderTab(view: Partial<SentinelCardView> & { run: SentinelRunView | null }) {
-  vi.spyOn(api, 'getCardSentinel').mockResolvedValue({ heals: [], findings: [], analyses: [], standing_pr: null, ...view });
+  vi.spyOn(api, 'getCardSentinel').mockResolvedValue({ heals: [], findings: [], analyses: [], standing_pr: null, guidance_revision: null, ...view });
   return render(
     <MemoryRouter>
       <SentinelTab card={card} />
