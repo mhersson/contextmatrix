@@ -29,7 +29,7 @@ stuck or still going, is left for a human to Run.
 | ------------------------- | ------- | -------------------- | -------------------------------------------------------------- |
 | `enabled`                 | off     |                      | The controller: off reports `off` and reads nothing else       |
 | `healing`                 | on      |                      | The pass: off opens no heal, dispatches nothing, reruns nothing and forwards no fix; open heals still close, park and settle |
-| `friction`                | on      |                      | The run-kind intake: off stores no findings                    |
+| `friction`                | on      |                      | The run-kind intake: off stores no new findings; those already stored stay shown |
 | `daily_cap_usd`           | 20.00   | 0 to 10000           | The budget gate on the endpoint channel                        |
 | `investigate_ceiling_usd` | 2.00    | above 0, at most 100 | The investigate run's `max_cost_usd`                           |
 | `headroom`                | 0.85    | above 0, at most 1   | The budget gate on Claude Code, as a utilization fraction      |

@@ -1225,8 +1225,9 @@ omitted otherwise). `diagnosis` is empty until the investigation answers.
 the retired subtask IDs and `fresh` says the rerun starts fresh. `spend_usd` is
 the heal's recorded spend.
 
-`findings` is newest heal first and is `[]` when there are none; only the
-friction analysis switch makes Sentinel store them. `kind` is `guidance`,
+`findings` is newest heal first and is `[]` when there are none. Sentinel
+stores them only while the friction analysis switch is on; switching it off
+stores no new ones and keeps those already stored, which are still returned. `kind` is `guidance`,
 `code`, `ecosystem`, `card_advice`, `project_verify` or `hard_card`.
 `project_verify` findings are returned to admins in `multi` mode and to every
 caller in `none` mode.

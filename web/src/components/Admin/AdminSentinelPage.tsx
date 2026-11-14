@@ -153,7 +153,7 @@ export function AdminSentinelPage() {
           />
           <Switch
             label="Friction analysis"
-            hint="Keep and show the friction findings and notes each investigation reports"
+            hint="Store the friction findings and notes each investigation reports. Off stores no new ones; those already stored stay shown."
             checked={draft.friction}
             disabled={!draft.enabled}
             onChange={(friction) => set({ friction })}
