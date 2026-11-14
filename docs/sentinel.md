@@ -580,7 +580,7 @@ diagnosis with a fix and only inside the card's active playbook run on this
 instance; fixing forward outside a playbook run is not done. `forwardTargets`
 keeps the named cards that were sent as siblings and are still unstarted
 entries of that run, by the rule the siblings were chosen by (`siblings` in
-`payload.go`): card entries in the card's project that are incomplete, in
+`playbook.go`): card entries in the card's project that are incomplete, in
 `todo`, vetted and with no worker status. The playbook runner launches the
 next entry as soon as the healed card is `done`, while Sentinel settles the
 rerun only once its worker has ended, so that card has usually started and
@@ -623,11 +623,12 @@ the next pass.
 | `internal/sentinel/state/settings.go`       | `Settings`, the defaults and validation                                                                                                                      |
 | `internal/sentinel/state/state.go`          | The durable-state types: the run row (`Run`, `LaunchFacts`), launch origins, the caps, and the heal records (`Heal`, the stages, `Finding`, `RunKindReport`) |
 | `internal/sentinel/controller.go`           | The loop: `Start`, `Shutdown`, `Nudge`, `Status`, the panic-safe pass and the wake-up filter; the `Store`, `Backend`, `Cards`, `Playbooks` and `PlaybookRunner` it uses |
-| `internal/sentinel/payload.go`              | The pure run-kind payloads: `investigatePayload` under the 1 MiB cap, `checkPayload`, and `siblings`                                                         |
+| `internal/sentinel/payload.go`              | The pure run-kind payloads: `investigatePayload` under the 1 MiB cap and `checkPayload`                                                                      |
+| `internal/sentinel/playbook.go`             | The playbook run holding a card: `activePlaybook`, the project's `todoCards`, and the pure `siblings`                                                        |
 | `internal/sentinel/dispatch.go`             | Reading a run kind's inputs, `dispatch` (record, then send, then act on the agent's answer) and the no-run-kinds hold                                         |
 | `internal/sentinel/outcome.go`              | The ends of a heal: `park` (with its activity entry, `activityText`), `parkUnreported` and, for a finished heal, `failUnreported` (each with the ceiling charge), and `closeHeal`                              |
 | `internal/sentinel/apply.go`                | Applying a fix: the route first, then `applyFix` (the guarded write `writeFix`, retiring subtasks, the snapshot refresh) and `freshRerun`                   |
-| `internal/sentinel/relaunch.go`             | Rerunning a card: `planRelaunch` (through `activePlaybook`, the playbook whose active run holds a card) and the pure `relaunchRoute`, `usageRerun`, `relaunch` (counting the rerun, rerun stage, then the move to `todo` and launch or Stop then Play, then the activity entry) and the activity texts |
+| `internal/sentinel/relaunch.go`             | Rerunning a card: `planRelaunch` (through `activePlaybook`) and the pure `relaunchRoute`, `usageRerun`, `relaunch` (counting the rerun, rerun stage, then the move to `todo` and launch or Stop then Play, then the activity entry) and the activity texts |
 | `internal/sentinel/settle.go`               | Settling a rerun: `settle` (the stage, then the charge, then a healed heal's fix forward) and the pure `rerunCharge`                                        |
 | `internal/sentinel/forward.go`              | Fix forward: `forward`, the pure `forwardTargets`, `forwardFix` and `forwardOutcome`, `forwardTo` (vet, guarded write, forward row, activity entry), and the circuit breaker's `onTrial` and `judge` |
 | `internal/sentinel/refused.go`              | Refused writes: `refusal`, the class a park reason names, and `refused`, which logs the raw error                                                            |

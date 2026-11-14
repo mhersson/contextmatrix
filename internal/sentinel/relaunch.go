@@ -43,21 +43,6 @@ func (c *Controller) planRelaunch(ctx context.Context, card *board.Card, run sta
 	return relaunchPlan{route: rt, reason: reason, playbook: pb}, nil
 }
 
-// activePlaybook reads the playbook the card's active lock names; nil when
-// playbooks are off or no active run holds the card.
-func (c *Controller) activePlaybook(ctx context.Context, card *board.Card) (*service.PlaybookDetail, error) {
-	if c.cfg.Playbooks == nil || !card.PlaybookLock.Active() {
-		return nil, nil //nolint:nilnil // no active playbook run holds the card
-	}
-
-	pb, err := c.cfg.Playbooks.Get(ctx, card.PlaybookLock.ID)
-	if err != nil {
-		return nil, fmt.Errorf("read playbook %s: %w", card.PlaybookLock.ID, err)
-	}
-
-	return pb, nil
-}
-
 // relaunchRoute picks the rerun's route. A playbook origin reruns only through
 // its active run on this instance, while that run is on the card, so its Stop
 // normally finds no other card's worker to kill; any other origin reruns alone

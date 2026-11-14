@@ -8,7 +8,6 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 
 	"github.com/mhersson/contextmatrix/internal/board"
-	"github.com/mhersson/contextmatrix/internal/service"
 )
 
 // maxRunKindBody is the agent's cap on a run-kind request body.
@@ -111,30 +110,6 @@ func investigateStopCause(cause string) string {
 	}
 
 	return cause
-}
-
-// siblings are the cards of pb's active run on instance that have not started:
-// card entries in card's project that are incomplete, in todo, vetted, with no
-// worker status, and not card itself, in entry order. todo holds the
-// candidates by ID.
-func siblings(pb *service.PlaybookDetail, instance string, card cardRef, todo map[string]*board.Card) []*board.Card {
-	if pb == nil || !pb.Runnable || !pb.Run.Active() || pb.Run.Instance != instance {
-		return nil
-	}
-
-	var out []*board.Card
-
-	for _, e := range pb.Entries {
-		c := todo[e.Card]
-		if e.Type != board.EntryTypeCard || e.Project != card.project || e.Complete || e.Card == card.id ||
-			c == nil || c.State != board.StateTodo || c.NeedsVetting() || c.WorkerStatus != "" {
-			continue
-		}
-
-		out = append(out, c)
-	}
-
-	return out
 }
 
 // cardFiles renders each card as its stored file.

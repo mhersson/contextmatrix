@@ -111,21 +111,6 @@ func (c *Controller) unstartedSiblings(ctx context.Context, card *board.Card) ([
 	return siblings(pb, c.cfg.Instance, cardRef{card.Project, card.ID}, todo), nil
 }
 
-// todoCards reads the project's todo cards by ID.
-func (c *Controller) todoCards(ctx context.Context, project string) (map[string]*board.Card, error) {
-	cards, err := c.cfg.Cards.ListCards(ctx, project, storage.CardFilter{State: board.StateTodo})
-	if err != nil {
-		return nil, fmt.Errorf("list todo cards of %s: %w", project, err)
-	}
-
-	byID := make(map[string]*board.Card, len(cards))
-	for _, card := range cards {
-		byID[card.ID] = card
-	}
-
-	return byID, nil
-}
-
 // dispatchCheck sends the check run for the fix h's investigation proposed,
 // with its verify resolved as the card will store it.
 func (c *Controller) dispatchCheck(ctx context.Context, h *state.Heal) error {
