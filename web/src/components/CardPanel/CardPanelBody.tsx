@@ -82,11 +82,14 @@ export function CardPanelBody({
   // collapsed width to the expanded width and the left column shrinks by
   // the same amount. Widths come from CSS custom properties defined in
   // `index.css` so themes/breakpoints can override without touching JSX.
+  // The Sentinel tab plus the width controls do not fit the 340px rail.
   const gridTemplate = singleColumn
     ? '1fr'
     : railMode === 'expanded'
       ? '1fr var(--rail-expanded-width, 600px)'
-      : '1fr var(--rail-collapsed-width, 340px)';
+      : renderedTabs.some((t) => t.key === 'sentinel')
+        ? '1fr var(--rail-collapsed-wide-width, 420px)'
+        : '1fr var(--rail-collapsed-width, 340px)';
 
   return (
     <div

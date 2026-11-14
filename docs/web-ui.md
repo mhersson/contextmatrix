@@ -228,14 +228,16 @@ the state as its label.
 - The strip loads with the page and on every event-stream reconnect, and
   refreshes on Sentinel events and every minute.
 - While Sentinel is enabled, a card's rail gains a Sentinel tab between Info
-  and Danger. It shows where the card's last run was launched from (UI or
+  and Danger, and the collapsed rail widens from 340 to 420 px to fit the five
+  tabs and the width controls. It shows where the card's last run was launched from (UI or
   REST, MCP, playbook or Sentinel), whether the card was autonomous at launch,
   the heal attempts used against the cap, and the last stop (its cause and
   time, or that a human stopped it). A card this instance never launched shows
   a note that Sentinel acts only on runs this instance launched. Below the
   facts, each heal shows a header (cause and stage, age, spend), its
   diagnosis, a line diff of the card's `## Sentinel` section and of the verify
-  change (additions green, removals red), and the subtasks it retired. Then
+  change (additions on a green tint, removals on a red one, text in the
+  foreground colour), and the subtasks it retired. Then
   come Friction (guidance, code, ecosystem) and Notes (card advice, project
   verify for admins, hard card). All of this text is shown as plain text. The
   tab refetches on Sentinel events and events for the card.
