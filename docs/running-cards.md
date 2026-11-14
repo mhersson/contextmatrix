@@ -230,7 +230,7 @@ without a human (which stop causes qualify is in
   reset and kept like the 2 above, which they do not use.
 - A run a human stopped (Stop, Stop All) is never rerun.
 - The rerun starts fresh, its saved phase cleared so the agent plans again,
-  when Sentinel wrote the card's `## Sentinel` section or retired subtasks. When
+  when Sentinel changed the card's `## Sentinel` section or retired subtasks. When
   it changed only verify, or nothing on the card, the rerun resumes where the
   run stopped.
 - The card is moved back to `todo` first. Outside a playbook run it then runs

@@ -483,7 +483,7 @@ entry.
 
 `applyFix` writes the fix as `system:sentinel` in one `PatchCard` guarded on
 the card's `updated` as the pass read it: the `## Sentinel` section (section
-upsert) when the fix has one, the verify fields when it has them, and a cleared
+upsert) when the fix changes it, the verify fields when it has them, and a cleared
 `phase` for a fresh rerun. A human edit in between refuses the write
 (`ErrCardChanged`); the heal stays at `apply` and the next pass decides again,
 parking it when the edit check finds the edit. Any other refusal parks the
@@ -498,8 +498,9 @@ writes nothing. The heal records the change: the section and verify before
 and after, the retired subtasks, and fresh or resume.
 
 A rerun is fresh, its saved phase cleared so the agent plans again, when the
-fix wrote the section or retired subtasks; otherwise it resumes, keeping the
-agent's recorded escalation and sizing.
+fix changed the section or retired subtasks; otherwise it resumes, keeping the
+agent's recorded escalation and sizing. A section that matches the card's own,
+whitespace at either end aside, is no change and is not written again.
 
 `relaunchRoute` picks how the card reruns, from the run row's origin and the
 playbook the card's active `playbook_lock` names. On either route the card

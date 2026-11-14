@@ -18,19 +18,23 @@ import (
 )
 
 func TestFreshRerun(t *testing.T) {
+	card := &board.Card{Body: board.UpsertSection("Make the build pass.\n", SectionHeading, "Run make generate first.")}
+
 	tests := []struct {
 		name  string
 		fix   *protocol.CardFix
 		fresh bool
 	}{
-		{"a section", &protocol.CardFix{Section: "Run make generate first."}, true},
+		{"a new section", &protocol.CardFix{Section: "Run make tidy first."}, true},
+		{"the same section again", &protocol.CardFix{Section: "  Run make generate first.\n\n"}, false},
+		{"the same section, retiring subtasks", &protocol.CardFix{Section: "Run make generate first.", RetireSubtasks: []string{"ALPHA-011"}}, true},
 		{"retired subtasks", &protocol.CardFix{RetireSubtasks: []string{"ALPHA-011"}}, true},
 		{"verify only", &protocol.CardFix{Verify: &protocol.VerifyConfig{Command: "make check"}}, false},
 		{"no fix", nil, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.fresh, freshRerun(tc.fix))
+			assert.Equal(t, tc.fresh, freshRerun(card, tc.fix))
 		})
 	}
 }
@@ -106,6 +110,22 @@ func TestApplyFixVerifyOnlyKeepsPhase(t *testing.T) {
 	assert.Nil(t, e.cards.patches[0].In.UpsertSection)
 	assert.Equal(t, "execute", storedCard(t, e, "ALPHA-001").Phase, "a verify-only rerun resumes")
 	assert.False(t, change.Fresh)
+}
+
+func TestApplyFixSameSectionResumes(t *testing.T) {
+	fix := sectionFix()
+	e, h, card, _ := applyEnv(t, protocol.DiagnosisCard, fix)
+	card.Body = board.UpsertSection(card.Body, SectionHeading, fix.Section)
+
+	change, err := e.ctl.applyFix(context.Background(), h, card)
+	require.NoError(t, err)
+
+	require.Len(t, e.cards.patches, 1)
+	assert.Nil(t, e.cards.patches[0].In.UpsertSection, "an unchanged section is not written again")
+	assert.Nil(t, e.cards.patches[0].In.Phase)
+	assert.Equal(t, "execute", storedCard(t, e, "ALPHA-001").Phase, "the rerun resumes")
+	assert.False(t, change.Fresh)
+	assert.Equal(t, change.SectionBefore, change.SectionAfter)
 }
 
 func TestApplyFixModelDiagnosisWritesNothing(t *testing.T) {

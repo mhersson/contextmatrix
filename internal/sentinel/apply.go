@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
 
@@ -40,10 +41,16 @@ func (c *Controller) apply(ctx context.Context, h *state.Heal, card *board.Card,
 	return c.relaunch(ctx, h, card, run, plan)
 }
 
-// freshRerun reports whether a fix restarts the rerun from planning: a
-// changed section or retired subtasks.
-func freshRerun(fix *protocol.CardFix) bool {
-	return fix != nil && (fix.Section != "" || len(fix.RetireSubtasks) > 0)
+// freshRerun reports whether a fix restarts the rerun from planning: it
+// changes card's own section or retires subtasks.
+func freshRerun(card *board.Card, fix *protocol.CardFix) bool {
+	return fix != nil && (sectionChanges(card, fix.Section) || len(fix.RetireSubtasks) > 0)
+}
+
+// sectionChanges reports whether writing section changes card's own section;
+// whitespace at either end does not count.
+func sectionChanges(card *board.Card, section string) bool {
+	return section != "" && strings.TrimSpace(section) != strings.TrimSpace(sentinelSection(card))
 }
 
 // applyFix writes the heal's fix in one write guarded on the card the pass
@@ -91,17 +98,17 @@ func (c *Controller) writeFix(ctx context.Context, card *board.Card, fix protoco
 
 	return written, state.Change{
 		SectionBefore: sentinelSection(card), SectionAfter: sentinelSection(written),
-		VerifyBefore: card.Verify, VerifyAfter: written.Verify, Fresh: freshRerun(&fix),
+		VerifyBefore: card.Verify, VerifyAfter: written.Verify, Fresh: freshRerun(card, &fix),
 	}, nil
 }
 
-// fixPatch is the fix as one write guarded on card; a fresh rerun also clears
-// the saved phase.
+// fixPatch is the fix as one write guarded on card, its section only when it
+// changes; a fresh rerun also clears the saved phase.
 func fixPatch(card *board.Card, fix protocol.CardFix) service.PatchCardInput {
 	updated := card.Updated
 	in := service.PatchCardInput{AgentID: Agent, ExpectUpdated: &updated}
 
-	if fix.Section != "" {
+	if sectionChanges(card, fix.Section) {
 		in.UpsertSection = &service.SectionPatch{Heading: SectionHeading, Content: fix.Section}
 	}
 
@@ -109,7 +116,7 @@ func fixPatch(card *board.Card, fix protocol.CardFix) service.PatchCardInput {
 		in.Verify = boardVerify(fix.Verify)
 	}
 
-	if freshRerun(&fix) {
+	if freshRerun(card, &fix) {
 		in.Phase = new("")
 	}
 
