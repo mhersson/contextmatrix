@@ -419,7 +419,7 @@ describe('Sidebar LLM channel', () => {
     const strip = await screen.findByRole('button', { name: /LLM channel: Claude Code/ });
     const follows = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(follows(screen.getByRole('heading', { level: 1 }), strip)).toBe(true);
-    expect(follows(strip, screen.getByRole('navigation', { name: 'Projects' }))).toBe(true);
+    expect(follows(strip, screen.getByRole('navigation', { name: 'Sidebar' }))).toBe(true);
 
     fireEvent.click(screen.getByTitle('Collapse sidebar'));
     expect(await screen.findByRole('img', { name: 'LLM channel: Claude Code' })).toBeInTheDocument();

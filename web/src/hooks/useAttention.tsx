@@ -58,6 +58,9 @@ export function AttentionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.title = tabTitle(items.length);
+    return () => {
+      document.title = tabTitle(0);
+    };
   }, [items.length]);
 
   const value = useMemo<AttentionState>(

@@ -58,7 +58,8 @@ describe('AttentionProvider', () => {
     get.mockResolvedValueOnce([item('a'), item('b', { kind: 'card', project: 'p' })]);
     renderIt();
     await waitFor(() => expect(screen.getByTestId('ids').textContent).toBe('a,b'));
-    expect(document.title).toBe(tabTitle(2));
+    // The title effect is passive: it can trail the commit that shows the list.
+    await waitFor(() => expect(document.title).toBe(tabTitle(2)));
     expect(screen.getByTestId('bp').textContent).toBe('a');
     expect(screen.getByTestId('proj').textContent).toBe('{"p":1}');
 
@@ -66,6 +67,14 @@ describe('AttentionProvider', () => {
     emit();
     await waitFor(() => expect(document.title).toBe(tabTitle(0)));
     expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves the plain tab title behind when it unmounts', async () => {
+    get.mockResolvedValueOnce([item('a'), item('b')]);
+    const { unmount } = renderIt();
+    await waitFor(() => expect(document.title).toBe(tabTitle(2)));
+    unmount();
+    expect(document.title).toBe(tabTitle(0));
   });
 
   it('refetches on reconnect and on nothing else', async () => {

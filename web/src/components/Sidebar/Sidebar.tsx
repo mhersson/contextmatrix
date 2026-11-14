@@ -182,7 +182,7 @@ export function Sidebar({ onNewProject, onNewSession, mobileOpen = false, onMobi
         <StatusRow />
       </div>
 
-      <nav aria-label="Projects" className="flex-1 overflow-y-auto py-1.5">
+      <nav aria-label="Sidebar" className="flex-1 overflow-y-auto py-1.5">
         <WaitingSection />
         <div className="sb-eyebrow flex items-baseline justify-between px-5 pt-2 pb-0.5">
           Work

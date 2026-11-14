@@ -55,6 +55,12 @@ describe('WaitingSection', () => {
     expect(rows[1].textContent).toMatch(/shared/);
   });
 
+  it.each(['card', 'sentinel'] as const)('leads a %s row with its card id', (kind) => {
+    state.items = [mk({ kind, id: 'AB-1', project: 'p', title: 'T' })];
+    renderIt();
+    expect(within(screen.getByRole('region')).getByRole('button').textContent).toMatch(/^AB-1/);
+  });
+
   it('names the playbook a card item holds', () => {
     state.items = [mk({ kind: 'card', id: 'AB-1', project: 'p', title: 'T', playbook: { id: 'pb', title: 'Release run' } })];
     renderIt();

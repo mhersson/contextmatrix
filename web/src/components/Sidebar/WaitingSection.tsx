@@ -57,7 +57,7 @@ export function WaitingSection() {
               </span>
               <span className="min-w-0">
                 <span className="sb-waiting__title">
-                  {item.kind === 'card' && <span className="font-mono">{item.id} </span>}
+                  {(item.kind === 'card' || item.kind === 'sentinel') && <span className="font-mono">{item.id} </span>}
                   {item.title}
                   <span className="sb-waiting__who">
                     {!item.mine && 'shared · '}
