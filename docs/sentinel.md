@@ -329,11 +329,15 @@ first matching rule wins:
 
 1. **Stage `rerun`** (the card still exists): until a run starts at or after
    the relaunch, wait, and park once 10 minutes have passed
-   (`relaunchGrace`). While the worker is queued or running, wait. A card in
-   `done` settles `healed`. Otherwise, once the run settles (`causeKey`), a
-   `done` stop settles `healed` and any other stop `rerun_failed`. The rerun
-   holds the card's claim and worker, so no later rule applies to it. This
-   holds for a rerun from `apply` and from `usage_wait` alike.
+   (`relaunchGrace`). A run that started since with an origin a rerun never
+   has (a UI or REST Run, or `run_card`; a rerun's is `sentinel` or
+   `playbook`) closes the heal, since a human or another run took over: it
+   is neither settled nor charged. While the worker is queued or running,
+   wait. A card in `done` settles `healed`. Otherwise, once the run settles
+   (`causeKey`), a `done` stop settles `healed` and any other stop
+   `rerun_failed`. The rerun holds the card's claim and worker, so no later
+   rule applies to it. This holds for a rerun from `apply` and from
+   `usage_wait` alike.
 2. The card is deleted, `done` or `not_planned`: close.
 3. A worker is queued or running, the card is claimed, or the run row is a
    newer run than the one the heal follows: close, since a human or another
@@ -496,7 +500,8 @@ A card that has used its 3 usage-limit reruns parks instead.
 ## Settling a rerun
 
 Once a heal's rerun ends (stage `rerun`, rule 1 of
-[the heal flow](#the-heal-flow)), `settle` (`settle.go`) saves the heal at
+[the heal flow](#the-heal-flow); a run a human or `run_card` started since
+closes the heal instead), `settle` (`settle.go`) saves the heal at
 `healed` or `rerun_failed`, then charges the ledger one row for the rerun:
 the card's cost with its subtasks' now, less the cost base taken at the
 relaunch, never below zero (`rerunCharge`), on the mode the rerun's run row

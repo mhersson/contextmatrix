@@ -88,13 +88,17 @@ func TestNextStep(t *testing.T) {
 	}
 	rerunGoing := func(v *healView) {
 		relaunched(30 * time.Minute)(v)
-		v.Run = Run{StartedAt: now.Add(-29 * time.Minute), Attempts: 1}
+		v.Run = Run{StartedAt: now.Add(-29 * time.Minute), Launch: LaunchFacts{Origin: OriginSentinel}, Attempts: 1}
 	}
 	rerunStopped := func(cause string) func(*healView) {
 		return func(v *healView) {
 			rerunGoing(v)
 			v.Run.StoppedAt, v.Run.StopCause = ago(time.Minute), cause
 		}
+	}
+	// launchedFrom gives the run row started after the relaunch origin.
+	launchedFrom := func(origin string) func(*healView) {
+		return func(v *healView) { v.Run.Launch.Origin = origin }
 	}
 
 	wait := step{Kind: stepWait}
@@ -118,6 +122,10 @@ func TestNextStep(t *testing.T) {
 		{"rerun failed", with(rerunStopped("verify_parked"), cardIs(board.StateInProgress, "failed")), step{Kind: stepSettle, Stage: StageRerunFailed}, nil},
 		{"rerun parked before its callback", with(rerunGoing, cardIs(board.StateReview, "parked")), wait, nil},
 		{"rerun card deleted", with(rerunGoing, deleted), closeHeal, nil},
+		{"a REST Run after the relaunch", with(rerunStopped("done"), launchedFrom(OriginREST), cardIs(board.StateReview, "completed")), closeHeal, nil},
+		{"an MCP run after the relaunch", with(rerunStopped("done"), launchedFrom(OriginMCP), cardIs(board.StateReview, "completed")), closeHeal, nil},
+		{"a sentinel rerun settles", with(rerunStopped("done"), launchedFrom(OriginSentinel), cardIs(board.StateReview, "completed")), step{Kind: stepSettle, Stage: StageHealed}, nil},
+		{"a playbook rerun settles", with(rerunStopped("verify_parked"), launchedFrom(OriginPlaybook), cardIs(board.StateInProgress, "failed")), step{Kind: stepSettle, Stage: StageRerunFailed}, nil},
 
 		// Rule 2: the card is gone or finished.
 		{"card deleted", with(deleted), closeHeal, nil},

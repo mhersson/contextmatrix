@@ -15,6 +15,8 @@ const relaunchGrace = 10 * time.Minute
 
 var reasonAttemptsUsed = fmt.Sprintf("heal attempts used (%[1]d of %[1]d)", MaxHealAttempts)
 
+const reasonTakenOver = "a human or another run took over"
+
 type stepKind int
 
 const (
@@ -62,7 +64,7 @@ func nextStep(v healView) step {
 	case v.Card == nil || board.IsTerminalState(v.Card.State):
 		return closeStep("the card was closed")
 	case takenOver(v):
-		return closeStep("a human or another run took over")
+		return closeStep(reasonTakenOver)
 	case len(v.Edited) > 0:
 		return parkStep("edited since launch: " + strings.Join(v.Edited, ", "))
 	case inFlight(h.Dispatch):
@@ -86,7 +88,8 @@ func nextStep(v healView) step {
 }
 
 // rerunStep waits for the relaunched run, then settles on its outcome. The
-// rerun holds the card's claim and worker, so no takeover rule applies.
+// rerun holds the card's claim and worker, so only a run Sentinel's rerun
+// could not have launched counts as a takeover.
 func rerunStep(v healView) step {
 	if !rerunStarted(v.Heal, v.Run) {
 		if younger(v.Heal.RelaunchedAt, relaunchGrace, v.Now) {
@@ -97,6 +100,8 @@ func rerunStep(v healView) step {
 	}
 
 	switch {
+	case !rerunOrigin(v.Run.Launch.Origin):
+		return closeStep(reasonTakenOver)
 	case workerBusy(v.Card):
 		return waitStep()
 	case v.Card.State == board.StateDone:
@@ -119,6 +124,12 @@ func rerunStep(v healView) step {
 // replaces the row, so the rerun's started at or after the relaunch.
 func rerunStarted(h Heal, run Run) bool {
 	return h.RelaunchedAt != nil && !run.StartedAt.Before(*h.RelaunchedAt)
+}
+
+// rerunOrigin reports whether a Sentinel rerun launches with origin: alone
+// it is sentinel, through a playbook run's Play it is playbook.
+func rerunOrigin(origin string) bool {
+	return origin == OriginSentinel || origin == OriginPlaybook
 }
 
 // takenOver reports whether someone else is working the card, or a newer run
