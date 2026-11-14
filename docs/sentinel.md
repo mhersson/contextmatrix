@@ -504,7 +504,9 @@ whitespace at either end aside, is no change and is not written again.
 
 `relaunchRoute` picks how the card reruns, from the run row's origin and the
 playbook the card's active `playbook_lock` names. On either route the card
-first moves to `todo` when it is elsewhere:
+first moves to `todo` when it is elsewhere, as `system:sentinel` and guarded
+on the card's `updated` as the pass read it or Sentinel's fix wrote it
+(`CardService.TransitionToAs`), so a write in between refuses the move:
 
 | Origin           | Route                                                                                                                                         |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |

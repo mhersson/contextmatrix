@@ -153,7 +153,7 @@ func TestUsageRerunWaitsForResetThenResumes(t *testing.T) {
 	assert.Equal(t, e.clk.Now(), *h.RelaunchedAt)
 	assert.Nil(t, h.Change, "a usage-limit rerun writes no fix")
 	assert.Equal(t, []string{"alpha/ALPHA-001"}, e.relaunched)
-	assert.Equal(t, []string{"ALPHA-001 todo"}, e.cards.transitions)
+	assert.Equal(t, []string{"ALPHA-001 todo system:sentinel"}, e.cards.transitions)
 	assert.Empty(t, e.cards.patches, "nothing is written to the card")
 	assert.Equal(t, "execute", storedCard(t, e, "ALPHA-001").Phase, "the rerun resumes")
 

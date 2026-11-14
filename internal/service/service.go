@@ -5,7 +5,7 @@
 // The package is split across several files along domain axes:
 //
 //   - service.go           - CardService struct, constructor, lifecycle
-//     accessors, TransitionTo orchestrator, HealthCheck.
+//     accessors, TransitionTo and TransitionToAs orchestrator, HealthCheck.
 //   - service_cards.go     - Card CRUD + applyCardMutation driver + helpers.
 //   - service_projects.go  - Project CRUD + config accessors.
 //   - service_locks.go     - Claim/Release/Heartbeat + stall detection.
@@ -21,6 +21,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -458,6 +459,23 @@ func (s *CardService) Clock() clock.Clock {
 // ordering is preserved by the commit queue's per-project worker.
 // Returns the card in its final state, or an error if any step fails.
 func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetState string) (*board.Card, error) {
+	return s.transitionTo(ctx, project, cardID, targetState, "", nil)
+}
+
+// TransitionToAs walks the same path as TransitionTo under agentID, and only
+// while the card's updated time still equals expectUpdated: a write since the
+// caller read the card refuses it with ErrCardChanged.
+func (s *CardService) TransitionToAs(
+	ctx context.Context, project, cardID, targetState, agentID string, expectUpdated time.Time,
+) (*board.Card, error) {
+	return s.transitionTo(ctx, project, cardID, targetState, agentID, &expectUpdated)
+}
+
+// transitionTo walks to targetState under agentID, "" meaning system, guarded
+// on expectUpdated when it is set.
+func (s *CardService) transitionTo(
+	ctx context.Context, project, cardID, targetState, agentID string, expectUpdated *time.Time,
+) (*board.Card, error) {
 	cardID = strings.ToUpper(cardID)
 
 	s.writeMu.Lock()
@@ -466,6 +484,10 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 	card, err := s.store.GetCard(ctx, project, cardID)
 	if err != nil {
 		return nil, fmt.Errorf("get card: %w", err)
+	}
+
+	if expectUpdated != nil && !card.Updated.Equal(*expectUpdated) {
+		return nil, ErrCardChanged
 	}
 
 	if card.State == targetState {
@@ -485,7 +507,7 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 	}
 
 	for _, state := range path {
-		card, err = s.transitionStep(ctx, project, cardID, state, cfg)
+		card, err = s.transitionStep(ctx, project, cardID, state, agentID, cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -503,7 +525,7 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 // that landed during a previous step's commit await are not clobbered.
 func (s *CardService) transitionStep(
 	ctx context.Context,
-	project, cardID, state string,
+	project, cardID, state, agentID string,
 	cfg *board.ProjectConfig,
 ) (*board.Card, error) {
 	// Always reload under writeMu so concurrent writes that landed while
@@ -546,7 +568,7 @@ func (s *CardService) transitionStep(
 	card.State = state
 	card.Updated = s.clk.Now()
 
-	appendStateChangeLog(card, oldState, state, "", card.Updated)
+	appendStateChangeLog(card, oldState, state, agentID, card.Updated)
 
 	// State-change invariants: see applyTerminalInvariants.
 	s.applyTerminalInvariants(project, card, oldState)
@@ -561,7 +583,7 @@ func (s *CardService) transitionStep(
 
 	// Enqueue under writeMu so the per-project worker preserves order
 	// with any other write that is racing for the same project.
-	commitDone, notify := s.enqueueCardCommitFor(ctx, stepSnapshot, project, cardID, "", "transitioned to "+state)
+	commitDone, notify := s.enqueueCardCommitFor(ctx, stepSnapshot, project, cardID, agentID, "transitioned to "+state)
 
 	// Flush deferred commits on not_planned/review under writeMu so
 	// the shared deferredPaths map stays serialized; the flush itself
@@ -581,17 +603,15 @@ func (s *CardService) transitionStep(
 		return nil, rollbackErr
 	}
 
-	// TransitionTo is currently called only by system-driven paths
-	// (stall checker, MCP transition_card without agent context). Tag
-	// the SSE event with "system" so consumers that filter by agent
-	// (e.g. NowRail) don't drop these silently - and the displayed
-	// agent matches the "system" stamp appendStateChangeLog writes
-	// into the activity log.
+	// System-driven paths pass no agent. Tag the SSE event with "system"
+	// then, so consumers that filter by agent (e.g. NowRail) don't drop
+	// these silently - and the displayed agent matches the stamp
+	// appendStateChangeLog writes into the activity log.
 	s.bus.Publish(events.Event{
 		Type:      events.CardStateChanged,
 		Project:   project,
 		CardID:    cardID,
-		Agent:     "system",
+		Agent:     cmp.Or(agentID, "system"),
 		Timestamp: card.Updated,
 		Data: map[string]any{
 			"old_state": oldState,

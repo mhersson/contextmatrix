@@ -1011,3 +1011,31 @@ func TestPatchCardExpectUpdated(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "human", got.Title)
 }
+
+func TestTransitionToAs(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "t", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	started, err := svc.TransitionTo(ctx, "test-project", card.ID, board.StateInProgress)
+	require.NoError(t, err)
+
+	_, err = svc.TransitionToAs(ctx, "test-project", card.ID, board.StateTodo, "system:sentinel", card.Updated)
+	require.ErrorIs(t, err, ErrCardChanged, "a write since the caller read the card wins")
+
+	unmoved, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, board.StateInProgress, unmoved.State)
+
+	moved, err := svc.TransitionToAs(ctx, "test-project", card.ID, board.StateTodo, "system:sentinel", started.Updated)
+	require.NoError(t, err)
+	assert.Equal(t, board.StateTodo, moved.State)
+
+	last := moved.ActivityLog[len(moved.ActivityLog)-1]
+	assert.Equal(t, board.StateChangedAction, last.Action)
+	assert.Equal(t, "system:sentinel", last.Agent)
+}

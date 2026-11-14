@@ -149,14 +149,15 @@ func (c *Controller) countRerun(ctx context.Context, h *state.Heal, run state.Ru
 	return relaunchText(h.Change, run.Attempts+1), nil
 }
 
-// rerun moves the card to todo, then launches it alone or through its
-// playbook run's Stop then Play. The walker relaunches a resumed run's card
-// only from todo or after a failed, killed, parked or stalled run, and a run
-// that ended completed without a park leaves no worker status. Every error's
-// text is safe to commit: the launch's is sanitized where it is made.
+// rerun moves the card to todo as Sentinel, guarded on card, then launches it
+// alone or through its playbook run's Stop then Play. The walker relaunches a
+// resumed run's card only from todo or after a failed, killed, parked or
+// stalled run, and a run that ended completed without a park leaves no worker
+// status. Every error's text is safe to commit: the launch's is sanitized
+// where it is made.
 func (c *Controller) rerun(ctx context.Context, plan relaunchPlan, card *board.Card) error {
 	if card.State != board.StateTodo {
-		if _, err := c.cfg.Cards.TransitionTo(ctx, card.Project, card.ID, board.StateTodo); err != nil {
+		if _, err := c.cfg.Cards.TransitionToAs(ctx, card.Project, card.ID, board.StateTodo, Agent, card.Updated); err != nil {
 			return refused(ctx, "cannot move "+card.ID+" to todo", err)
 		}
 	}

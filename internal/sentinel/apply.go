@@ -27,7 +27,7 @@ func (c *Controller) apply(ctx context.Context, h *state.Heal, card *board.Card,
 		return c.park(ctx, h, plan.reason)
 	}
 
-	change, err := c.applyFix(ctx, h, card)
+	written, change, err := c.applyFix(ctx, h, card)
 	h.Change = &change
 
 	if re, ok := errors.AsType[*refusedError](err); ok {
@@ -38,7 +38,7 @@ func (c *Controller) apply(ctx context.Context, h *state.Heal, card *board.Card,
 		return err
 	}
 
-	return c.relaunch(ctx, h, card, run, plan)
+	return c.relaunch(ctx, h, written, run, plan)
 }
 
 // freshRerun reports whether a fix restarts the rerun from planning: it
@@ -55,31 +55,33 @@ func sectionChanges(card *board.Card, section string) bool {
 
 // applyFix writes the heal's fix in one write guarded on the card the pass
 // read, retires its subtasks, then refreshes the run's snapshot so the edit
-// check reads Sentinel's write as no edit. A heal holding no fix writes nothing.
-func (c *Controller) applyFix(ctx context.Context, h *state.Heal, card *board.Card) (state.Change, error) {
+// check reads Sentinel's write as no edit. It returns the card as written, so
+// the rerun's guarded move reads Sentinel's own write as no change. A heal
+// holding no fix writes nothing.
+func (c *Controller) applyFix(ctx context.Context, h *state.Heal, card *board.Card) (*board.Card, state.Change, error) {
 	fix := healFix(*h)
 	if fix == nil {
-		return state.Change{}, nil
+		return card, state.Change{}, nil
 	}
 
 	written, change, err := c.writeFix(ctx, card, *fix)
 	if err != nil {
-		return state.Change{}, err
+		return nil, state.Change{}, err
 	}
 
 	for _, id := range fix.RetireSubtasks {
 		if err := c.retire(ctx, card.Project, id); err != nil {
-			return change, err
+			return nil, change, err
 		}
 
 		change.Retired = append(change.Retired, id)
 	}
 
 	if err := c.cfg.Store.RefreshEditSnapshot(ctx, card.Project, card.ID, board.TakeEditSnapshot(written)); err != nil {
-		return change, fmt.Errorf("refresh the launch snapshot: %w", err)
+		return nil, change, fmt.Errorf("refresh the launch snapshot: %w", err)
 	}
 
-	return change, nil
+	return written, change, nil
 }
 
 // writeFix writes the fix's section and verify in one write guarded on card,

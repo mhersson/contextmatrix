@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -111,7 +112,7 @@ func TestRelaunchSavesRerunBeforeLaunching(t *testing.T) {
 	assert.Equal(t, run.Attempts+1, attempts)
 	assert.Zero(t, atLaunchEntries, "the rerun's entry waits until the rerun is launched")
 
-	assert.Equal(t, []string{"ALPHA-001 todo"}, e.cards.transitions, "launch runs a todo card")
+	assert.Equal(t, []string{"ALPHA-001 todo system:sentinel"}, e.cards.transitions, "launch runs a todo card")
 	assert.Equal(t, []string{"alpha/ALPHA-001"}, e.relaunched)
 	assert.Empty(t, e.runner.calls)
 
@@ -128,7 +129,7 @@ func TestRelaunchPlaybookStopsThenPlays(t *testing.T) {
 		transitions []string
 	}{
 		// A completed run leaves no worker status, which the walker relaunches only from todo.
-		{"a completed run in review moves to todo first", board.StateReview, []string{"ALPHA-001 todo"}},
+		{"a completed run in review moves to todo first", board.StateReview, []string{"ALPHA-001 todo system:sentinel"}},
 		{"a card in todo stays put", board.StateTodo, nil},
 	}
 	for _, tc := range tests {
@@ -173,6 +174,11 @@ func TestRelaunchErrorParks(t *testing.T) {
 		{"the move to todo is refused", func(e *dispatchEnv, _ *board.Card, _ *state.Run) {
 			e.cards.refuse = map[string]error{"ALPHA-001": noPath}
 		}, []string{"ALPHA-001", refusedByProject}, nil},
+		{"the card was written since the pass read it", func(e *dispatchEnv, card *board.Card, _ *state.Run) {
+			edited := *card
+			edited.Updated = card.Updated.Add(time.Minute)
+			e.cards.cards[0] = &edited
+		}, []string{"ALPHA-001", refusedByChange}, nil},
 		{"the move to todo before a playbook rerun is refused", func(e *dispatchEnv, card *board.Card, run *state.Run) {
 			card.PlaybookLock = rolloutLock(board.RunStatusWaiting)
 			run.Launch.Origin = state.OriginPlaybook

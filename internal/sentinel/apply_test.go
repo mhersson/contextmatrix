@@ -76,8 +76,9 @@ func storedCard(t *testing.T, e *dispatchEnv, id string) *board.Card {
 func TestApplyFixOneGuardedWrite(t *testing.T) {
 	e, h, card, _ := applyEnv(t, protocol.DiagnosisCard, sectionFix())
 
-	change, err := e.ctl.applyFix(context.Background(), h, card)
+	returned, change, err := e.ctl.applyFix(context.Background(), h, card)
 	require.NoError(t, err)
+	assert.Equal(t, storedCard(t, e, "ALPHA-001"), returned, "the card as written, for the rerun's guarded move")
 
 	require.Len(t, e.cards.patches, 1)
 	in := e.cards.patches[0].In
@@ -102,7 +103,7 @@ func TestApplyFixVerifyOnlyKeepsPhase(t *testing.T) {
 	fix := &protocol.CardFix{Verify: &protocol.VerifyConfig{Command: "make check"}}
 	e, h, card, _ := applyEnv(t, protocol.DiagnosisCard, fix)
 
-	change, err := e.ctl.applyFix(context.Background(), h, card)
+	_, change, err := e.ctl.applyFix(context.Background(), h, card)
 	require.NoError(t, err)
 
 	require.Len(t, e.cards.patches, 1)
@@ -117,7 +118,7 @@ func TestApplyFixSameSectionResumes(t *testing.T) {
 	e, h, card, _ := applyEnv(t, protocol.DiagnosisCard, fix)
 	card.Body = board.UpsertSection(card.Body, SectionHeading, fix.Section)
 
-	change, err := e.ctl.applyFix(context.Background(), h, card)
+	_, change, err := e.ctl.applyFix(context.Background(), h, card)
 	require.NoError(t, err)
 
 	require.Len(t, e.cards.patches, 1)
@@ -132,7 +133,7 @@ func TestApplyFixModelDiagnosisWritesNothing(t *testing.T) {
 	// A model diagnosis holds no fix, whatever its fix field carries.
 	e, h, card, _ := applyEnv(t, protocol.DiagnosisModel, sectionFix())
 
-	change, err := e.ctl.applyFix(context.Background(), h, card)
+	_, change, err := e.ctl.applyFix(context.Background(), h, card)
 	require.NoError(t, err)
 
 	assert.Empty(t, e.cards.patches)
@@ -150,7 +151,7 @@ func TestApplyFixHumanEditInBetween(t *testing.T) {
 	edited.Updated = card.Updated.Add(time.Minute)
 	e.cards.cards[0] = &edited
 
-	_, err := e.ctl.applyFix(context.Background(), h, card)
+	_, _, err := e.ctl.applyFix(context.Background(), h, card)
 	require.ErrorIs(t, err, service.ErrCardChanged)
 
 	assert.Len(t, e.cards.patches, 1, "no subtask is retired")
@@ -164,7 +165,7 @@ func TestApplyFixRetiresAsSentinel(t *testing.T) {
 	e, h, card, _ := applyEnv(t, protocol.DiagnosisCard, fix)
 	sub := storedCard(t, e, "ALPHA-011")
 
-	change, err := e.ctl.applyFix(context.Background(), h, card)
+	_, change, err := e.ctl.applyFix(context.Background(), h, card)
 	require.NoError(t, err)
 
 	require.Len(t, e.cards.patches, 2)
@@ -184,7 +185,7 @@ func TestApplyFixRetiresAsSentinel(t *testing.T) {
 func TestApplyFixRefreshesSnapshot(t *testing.T) {
 	e, h, card, _ := applyEnv(t, protocol.DiagnosisCard, sectionFix())
 
-	_, err := e.ctl.applyFix(context.Background(), h, card)
+	_, _, err := e.ctl.applyFix(context.Background(), h, card)
 	require.NoError(t, err)
 
 	written := storedCard(t, e, "ALPHA-001")

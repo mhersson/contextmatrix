@@ -508,9 +508,9 @@ func (f *fakeBackend) Health(context.Context) (protocol.HealthResponse, error) {
 // fakeCards serves cards and projects from memory; ListCards filters by
 // parent and state only. It keeps every system log entry by card ID, served
 // or not, and counts every call; onGet runs before GetCard answers. PatchCard
-// and TransitionTo replace the stored card with an updated copy, as the
-// service writes a new file, and answer a card ID in refuse with its error;
-// PatchCard keeps every input.
+// and TransitionToAs replace the stored card with an updated copy, as the
+// service writes a new file, refuse a stale guard, and answer a card ID in
+// refuse with its error; PatchCard keeps every input.
 type fakeCards struct {
 	cards       []*board.Card
 	projects    map[string]*board.ProjectConfig
@@ -519,7 +519,7 @@ type fakeCards struct {
 	onGet       func()
 	patches     []patchCall
 	refuse      map[string]error
-	transitions []string // "<ID> <state>"
+	transitions []string // "<ID> <state> <agent>"
 }
 
 type patchCall struct {
@@ -560,15 +560,21 @@ func (f *fakeCards) PatchCard(_ context.Context, project, id string, in service.
 	})
 }
 
-func (f *fakeCards) TransitionTo(_ context.Context, project, id, state string) (*board.Card, error) {
+func (f *fakeCards) TransitionToAs(
+	_ context.Context, project, id, state, agentID string, expectUpdated time.Time,
+) (*board.Card, error) {
 	f.calls++
-	f.transitions = append(f.transitions, id+" "+state)
+	f.transitions = append(f.transitions, id+" "+state+" "+agentID)
 
 	if err := f.refuse[id]; err != nil {
 		return nil, err
 	}
 
 	return f.write(project, id, func(c *board.Card) error {
+		if !c.Updated.Equal(expectUpdated) {
+			return service.ErrCardChanged
+		}
+
 		c.State = state
 
 		return nil
