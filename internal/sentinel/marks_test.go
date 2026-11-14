@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
@@ -68,6 +69,100 @@ func TestMarkFor(t *testing.T) {
 
 	assert.NotEqual(t, changed.Label, unchanged.Label)
 	assert.Equal(t, unchanged.Label, empty.Label)
+}
+
+func TestMarkForWorking(t *testing.T) {
+	tests := []struct {
+		stage   string
+		working bool
+	}{
+		{state.StageInvestigate, true},
+		{state.StageCheck, true},
+		{state.StageApply, true},
+		{state.StageRerun, true},
+		{state.StageUsageWait, false},
+		{state.StageHealed, false},
+		{state.StageParked, false},
+		{state.StageRerunFailed, false},
+		{state.StageForwarded, false},
+		{state.StageForwardPassed, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.stage, func(t *testing.T) {
+			m, ok := markFor(state.Heal{Stage: tt.stage})
+			require.True(t, ok)
+			assert.Equal(t, tt.working, m.Working)
+		})
+	}
+}
+
+func TestWithAnalysis(t *testing.T) {
+	mk := func(action string, working bool) board.SentinelMark {
+		return board.SentinelMark{Action: action, Label: action, Working: working}
+	}
+
+	tests := []struct {
+		name    string
+		current board.SentinelMark
+		has     bool
+		want    string
+		working bool
+	}{
+		{name: "alone", want: markAnalysing, working: true},
+		{name: "working heal wins", current: mk(markHealing, true), has: true, want: markHealing, working: true},
+		{name: "usage wait stays", current: mk(markHealing, false), has: true, want: markHealing},
+		{name: "parked stays", current: mk(markParked, false), has: true, want: markParked},
+		{name: "beats healed", current: mk(markHealed, false), has: true, want: markAnalysing, working: true},
+		{name: "beats edited", current: mk(markEdited, false), has: true, want: markAnalysing, working: true},
+		{name: "beats created", current: mk(markCreated, false), has: true, want: markAnalysing, working: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := withAnalysis(tt.current, tt.has)
+			assert.Equal(t, tt.want, m.Action)
+			assert.Equal(t, tt.working, m.Working)
+			assert.NotEmpty(t, m.Label)
+		})
+	}
+}
+
+func TestSentinelMarksAnalysisInFlight(t *testing.T) {
+	sent := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	analysis := func(id int64, project, card string, d state.Dispatch) state.Heal {
+		return state.Heal{ID: id, Kind: state.HealKindAnalysis, Project: project, CardID: card, Stage: state.StageAnalyse, Dispatch: d}
+	}
+	dispatched := state.Dispatch{Kind: "analyse", At: &sent}
+	answered := state.Dispatch{Kind: "analyse", At: &sent, AnsweredRunID: "r1"}
+
+	st := &fakeStore{
+		settings: state.Settings{Enabled: true},
+		heals: map[int64]state.Heal{
+			1:  analysis(1, "p", "P-001", dispatched),
+			2:  analysis(2, "p", "P-002", state.Dispatch{}), // waiting for budget or a slot
+			3:  analysis(3, "other", "O-001", dispatched),
+			4:  analysis(4, "p", "P-003", answered),
+			5:  {ID: 5, Kind: state.HealKindHeal, Project: "p", CardID: "P-004", Stage: state.StageHealed},
+			6:  analysis(6, "p", "P-004", dispatched),
+			7:  {ID: 7, Kind: state.HealKindHeal, Project: "p", CardID: "P-005", Stage: state.StageApply},
+			8:  analysis(8, "p", "P-005", dispatched),
+			9:  {ID: 9, Kind: state.HealKindHeal, Project: "p", CardID: "P-006", Stage: state.StageParked, Reason: "x"},
+			10: analysis(10, "p", "P-006", dispatched),
+		},
+	}
+
+	marks, err := New(Config{Store: st, Pricer: ratePricer{}}).SentinelMarks(context.Background(), "p")
+	require.NoError(t, err)
+
+	assert.Equal(t, markAnalysing, marks["P-001"].Action)
+	assert.True(t, marks["P-001"].Working)
+	assert.NotContains(t, marks, "P-002", "an undispatched analysis marks nothing")
+	assert.NotContains(t, marks, "O-001", "another project's analysis")
+	assert.NotContains(t, marks, "P-003", "an answered analysis")
+	assert.Equal(t, markAnalysing, marks["P-004"].Action, "beats healed")
+	assert.Equal(t, markHealing, marks["P-005"].Action, "a working heal wins")
+	assert.Equal(t, markParked, marks["P-006"].Action, "parked keeps its place")
 }
 
 func TestSentinelMarks(t *testing.T) {

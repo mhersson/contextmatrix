@@ -1011,8 +1011,10 @@ export interface SentinelRunView {
 
 /** Read-only mark on a card Sentinel touched. */
 export interface SentinelMark {
-  action: 'healing' | 'healed' | 'edited' | 'parked' | 'created';
+  action: 'healing' | 'healed' | 'edited' | 'parked' | 'created' | 'analysing';
   label: string;
+  /** True while Sentinel is acting on the card; the board tile animates the shield. */
+  working?: boolean;
 }
 
 /** Shape of GET /api/sentinel and PUT /api/admin/sentinel. */

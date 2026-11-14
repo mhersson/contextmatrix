@@ -10459,3 +10459,26 @@ button.bp-rv-head {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Board tile: the Sentinel shield breathes while Sentinel works on the card. */
+@keyframes sentinel-working-breathe {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.88);
+  }
+}
+
+.sentinel-working {
+  animation: sentinel-working-breathe 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sentinel-working {
+    animation: none;
+  }
+}

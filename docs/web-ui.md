@@ -319,12 +319,16 @@ its label.
   events for the card or for its project as a whole, and at once on events for
   the card.
 - A purple shield joins the board card's signal icons when the card carries a
-  Sentinel mark (healing, healed, edited, parked or created); its label is the
-  mark's label. The server sends no mark while Sentinel is off. A card is marked
-  healing while a heal is in flight or a rerun is pending, healed once its rerun
-  passed, edited when a fix from another card was applied to it, and parked when
-  a rerun failed or Sentinel left it for a human, until the card is launched
-  again. A card Sentinel created from a run's friction is marked created.
+  Sentinel mark (healing, healed, edited, parked, created or analysing); its
+  label is the mark's label. The server sends no mark while Sentinel is off. A
+  card is marked healing while a heal is in flight or a rerun is pending, healed
+  once its rerun passed, edited when a fix from another card was applied to it,
+  and parked when a rerun failed or Sentinel left it for a human, until the card
+  is launched again. A card Sentinel created from a run's friction is marked
+  created, and a card whose last run an analysis is reading is marked analysing.
+  The shield breathes (a slow pulse) on the board tile while Sentinel is working
+  on the card, and is static for every other mark and under reduced motion. The
+  board refreshes its cards a second after a Sentinel event of its project.
 
 The settings page at `/admin/sentinel` (admin only in `multi` mode) has four
 switches (Sentinel, Healing, Friction analysis, Analyse every run), the daily

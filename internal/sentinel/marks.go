@@ -17,12 +17,16 @@ const (
 	markEdited  = "edited"
 	markParked  = "parked"
 	markCreated = "created"
+	// markAnalysing is a card whose run an analysis is reading.
+	markAnalysing = "analysing"
 )
 
 const maxMarkReason = 120
 
 // createdLabel is the mark of a card Sentinel created from a finding.
 const createdLabel = "Sentinel created this card from a run's friction"
+
+const analysingLabel = "Sentinel is analysing the last run"
 
 // SentinelMarks answers each card's board mark from its latest heal. It
 // answers none while Sentinel is off.
@@ -67,7 +71,49 @@ func (c *Controller) SentinelMarks(ctx context.Context, project string) (map[str
 		return nil, err
 	}
 
+	if err := c.addAnalysingMarks(ctx, project, marks); err != nil {
+		return nil, err
+	}
+
 	return marks, nil
+}
+
+// withAnalysis is the mark a card shows while an analysis of it is in flight,
+// given the mark it would otherwise show. A working or static heal and a
+// parked mark keep their place; healed, edited, created and no mark give way.
+func withAnalysis(current board.SentinelMark, has bool) board.SentinelMark {
+	if has && (current.Working || current.Action == markHealing || current.Action == markParked) {
+		return current
+	}
+
+	return board.SentinelMark{Action: markAnalysing, Label: analysingLabel, Working: true}
+}
+
+// analysisInFlight is whether an open analysis row has been sent and not answered.
+func analysisInFlight(h state.Heal) bool {
+	d := h.Dispatch
+
+	return d.At != nil && d.AnsweredRunID == "" && d.Failure == ""
+}
+
+// addAnalysingMarks overlays the analysing mark on each card of the project
+// with an analysis in flight, by withAnalysis's precedence.
+func (c *Controller) addAnalysingMarks(ctx context.Context, project string, marks map[string]board.SentinelMark) error {
+	open, err := c.cfg.Store.OpenAnalyses(ctx)
+	if err != nil {
+		return fmt.Errorf("open analyses: %w", err)
+	}
+
+	for _, h := range open {
+		if h.Project != project || !analysisInFlight(h) {
+			continue
+		}
+
+		current, has := marks[h.CardID]
+		marks[h.CardID] = withAnalysis(current, has)
+	}
+
+	return nil
 }
 
 // CardHold is where Sentinel stands on a card a human may need to act on.
@@ -130,7 +176,7 @@ func (c *Controller) parkStands(ctx context.Context, project string, h state.Hea
 // markFor is the mark a card's latest heal earns; closed and failed forwards earn none.
 func markFor(h state.Heal) (board.SentinelMark, bool) {
 	mark := func(action, label string) (board.SentinelMark, bool) {
-		return board.SentinelMark{Action: action, Label: label}, true
+		return board.SentinelMark{Action: action, Label: label, Working: working(h.Stage)}, true
 	}
 
 	switch h.Stage {
@@ -159,6 +205,17 @@ func markFor(h state.Heal) (board.SentinelMark, bool) {
 	}
 
 	return board.SentinelMark{}, false
+}
+
+// working is whether Sentinel is acting on the card in stage: a heal waiting
+// for the usage limit to reset is not.
+func working(stage string) bool {
+	switch stage {
+	case state.StageInvestigate, state.StageCheck, state.StageApply, state.StageRerun:
+		return true
+	}
+
+	return false
 }
 
 // firstLine is s up to its first line break, cut to max runes.

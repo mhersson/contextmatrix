@@ -716,6 +716,13 @@ What a heal leaves behind, and where:
   latest heal, and the waiting list's Sentinel parks (`CardHolds`). A parked
   mark or hold lasts until the card's next launch. A card made from a finding
   with no heal mark of its own reads `created`.
+- An analysis in flight (an open analysis row whose dispatch is sent and not
+  answered; one still waiting for budget or a slot is not) marks its card
+  `analysing`. The mark is `working`, as is a `healing` mark at `investigate`,
+  `check`, `apply` or `rerun`; a heal waiting for the usage limit is static.
+  Precedence per card: a working heal wins; a parked mark and a usage-wait
+  `healing` mark stay; otherwise `analysing` wins over `healed`, `edited` and
+  `created`. Holds and the waiting list ignore analyses.
 
 ### Routing findings
 
