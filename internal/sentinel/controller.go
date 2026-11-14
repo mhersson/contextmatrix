@@ -116,6 +116,8 @@ type Config struct {
 	Playbooks Playbooks
 	Runner    PlaybookRunner
 	Instance  string
+	// Secrets returns the secret values CM holds; may be nil.
+	Secrets func() []string
 }
 
 // Controller is Sentinel's level-triggered loop: each pass decides from

@@ -618,6 +618,7 @@ func main() {
 		sentinelCfg := sentinel.Config{
 			Store: opStore, Channel: llmChannel, Bus: bus, Clock: clk, Pricer: svc,
 			Backend: backendSys.Client, Cards: svc, Instance: cfg.Instance.ID,
+			Secrets: cfg.SecretValues,
 		}
 
 		// A nil *PlaybookService or *Runner must stay a nil interface.
