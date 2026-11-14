@@ -445,14 +445,17 @@ the ceiling is the only charge.
 A heal writes its activity entries on its card, as `system:sentinel` with
 action `sentinel`, cut to the card service's 2000-byte limit:
 
-- when it reruns the card from `apply`, `Sentinel <what it changed>;
+- once it has rerun the card from `apply`, `Sentinel <what it changed>;
   rerunning fresh, attempt N of 2` (`rerunning to resume` for a resumed
   rerun), naming an updated `## Sentinel` section, a changed verify and the
   retired subtasks, or that it changed nothing on the card;
-- when it reruns the card from `usage_wait`, `Sentinel rerunning to resume
+- once it has rerun the card from `usage_wait`, `Sentinel rerunning to resume
   after a usage limit, usage-limit rerun N of 3`;
-- when it parks, `Sentinel left this for a human: <reason>`. A rerun that is
-  refused or never starts parks, so its heal writes both;
+- when it parks, `Sentinel left this for a human: <reason>`. A refused rerun
+  parks before its rerun entry is written, so it writes only this one. A rerun
+  that was launched but never starts (rule 1 of
+  [the heal flow](#the-heal-flow)) has written its rerun entry, so its park
+  adds a second;
 - when a healed heal forwards its fix, on each card it forwarded to,
   `Sentinel applied a fix from <SOURCE>`, the healed card's ID.
 
@@ -510,12 +513,13 @@ card only from `todo` or after a failed, killed, parked or stalled run, and a
 run whose `completed` status arrived without a park leaves the card with no
 worker status.
 
-Before anything launches, `relaunch` counts the rerun on the run row, saves
+Before anything launches, `relaunch` counts the rerun on the run row and saves
 the heal at `rerun` with `relaunched_at` and the card's cost with its
-subtasks' as the cost base, and writes the rerun's activity entry, so the
-rerun's run row starts at or after `relaunched_at`. A move to `todo`, Stop or
-Play that fails parks the heal with `rerun refused: cannot <step>: <class>`,
-and a refused launch with `rerun refused: <launch error>`. The launch is
+subtasks' as the cost base, so the rerun's run row starts at or after
+`relaunched_at`. A move to `todo`, Stop or Play that fails parks the heal with
+`rerun refused: cannot <step>: <class>`, and a refused launch with
+`rerun refused: <launch error>`; the attempt stays counted. Only a rerun that
+launched writes the rerun's activity entry. The launch is
 `backendHandlers.sentinelRelaunch` (`internal/api/backend_runkind.go`), which
 the router hands the controller: a hand run's checks and `launch`, with a raw
 service error reduced to its sanitized class.
@@ -618,7 +622,7 @@ the next pass.
 | `internal/sentinel/dispatch.go`             | Reading a run kind's inputs, `dispatch` (record, then send, then act on the agent's answer) and the no-run-kinds hold                                         |
 | `internal/sentinel/outcome.go`              | The ends of a heal: `park` (with its activity entry, `activityText`), `parkUnreported` and, for a finished heal, `failUnreported` (each with the ceiling charge), and `closeHeal`                              |
 | `internal/sentinel/apply.go`                | Applying a fix: the route first, then `applyFix` (the guarded write `writeFix`, retiring subtasks, the snapshot refresh) and `freshRerun`                   |
-| `internal/sentinel/relaunch.go`             | Rerunning a card: `planRelaunch` (through `activePlaybook`, the playbook whose active run holds a card) and the pure `relaunchRoute`, `usageRerun`, `relaunch` (counting the rerun, rerun stage, activity entry, then the move to `todo` and launch or Stop then Play) and the activity texts |
+| `internal/sentinel/relaunch.go`             | Rerunning a card: `planRelaunch` (through `activePlaybook`, the playbook whose active run holds a card) and the pure `relaunchRoute`, `usageRerun`, `relaunch` (counting the rerun, rerun stage, then the move to `todo` and launch or Stop then Play, then the activity entry) and the activity texts |
 | `internal/sentinel/settle.go`               | Settling a rerun: `settle` (the stage, then the charge, then a healed heal's fix forward) and the pure `rerunCharge`                                        |
 | `internal/sentinel/forward.go`              | Fix forward: `forward`, the pure `forwardTargets`, `forwardFix` and `forwardOutcome`, `forwardTo` (vet, guarded write, forward row, activity entry), and the circuit breaker's `onTrial` and `judge` |
 | `internal/sentinel/refused.go`              | Refused writes: `refusal`, the class a park reason names, and `refused`, which logs the raw error                                                            |

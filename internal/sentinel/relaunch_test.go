@@ -91,13 +91,15 @@ func TestRelaunchSavesRerunBeforeLaunching(t *testing.T) {
 	card.SubtaskCostUSD = 0.5
 
 	var (
-		atLaunch state.Heal
-		attempts int
+		atLaunch        state.Heal
+		attempts        int
+		atLaunchEntries int
 	)
 
 	e.onRelaunch = func() {
 		atLaunch = e.store.heal(h.ID)
 		attempts = e.store.run("alpha", "ALPHA-001").Attempts
+		atLaunchEntries = len(e.cards.logged["ALPHA-001"])
 	}
 
 	require.NoError(t, e.relaunch(t, h, card, run))
@@ -107,6 +109,7 @@ func TestRelaunchSavesRerunBeforeLaunching(t *testing.T) {
 	assert.Equal(t, epoch, *atLaunch.RelaunchedAt)
 	assert.InDelta(t, 1.75, atLaunch.CostBaseUSD, 1e-9)
 	assert.Equal(t, run.Attempts+1, attempts)
+	assert.Zero(t, atLaunchEntries, "the rerun's entry waits until the rerun is launched")
 
 	assert.Equal(t, []string{"ALPHA-001 todo"}, e.cards.transitions, "launch runs a todo card")
 	assert.Equal(t, []string{"alpha/ALPHA-001"}, e.relaunched)
@@ -198,6 +201,9 @@ func TestRelaunchErrorParks(t *testing.T) {
 			}
 
 			assert.NotContains(t, stored.Reason, rawPath)
+			assert.Equal(t, []board.ActivityEntry{{
+				Agent: Agent, Timestamp: epoch, Action: activityAction, Message: activityText(stored),
+			}}, e.cards.logged["ALPHA-001"], "a refused rerun writes only its park entry")
 			assert.Equal(t, tc.calls, e.runner.calls, "a refused Stop plays nothing")
 			assert.Equal(t, 1, e.store.run("alpha", "ALPHA-001").Attempts, "the attempt was counted before the launch")
 		})

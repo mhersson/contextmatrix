@@ -105,7 +105,8 @@ func (c *Controller) usageRerun(ctx context.Context, h *state.Heal, card *board.
 // relaunch reruns the card on plan's route; a plan with no route parks. The
 // rerun is counted and the heal saved at rerun, with RelaunchedAt taken,
 // before anything launches, so the rerun's run row starts at or after it. A
-// refused rerun parks the heal.
+// refused rerun parks the heal, so its park is its one activity entry; the
+// rerun's own entry is written once the rerun is launched.
 func (c *Controller) relaunch(ctx context.Context, h *state.Heal, card *board.Card, run state.Run, plan relaunchPlan) error {
 	if plan.route == routeNone {
 		return c.park(ctx, h, plan.reason)
@@ -123,13 +124,11 @@ func (c *Controller) relaunch(ctx context.Context, h *state.Heal, card *board.Ca
 		return fmt.Errorf("save the rerun: %w", err)
 	}
 
-	logErr := c.logActivity(ctx, h, text)
-
 	if err := c.rerun(ctx, plan, card); err != nil {
-		return errors.Join(logErr, c.park(ctx, h, "rerun refused: "+err.Error()))
+		return c.park(ctx, h, "rerun refused: "+err.Error())
 	}
 
-	return logErr
+	return c.logActivity(ctx, h, text)
 }
 
 // countRerun counts h's rerun on the card's run row and returns its activity
