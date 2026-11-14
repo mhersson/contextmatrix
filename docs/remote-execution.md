@@ -97,6 +97,9 @@ Request headers are not part of the signed content.
 identical body, so a body-only signature could be replayed across endpoints.
 Binding the query keeps two same-second requests to one path (`GET
 /logs?project=A` vs `?project=B`) from colliding in the replay cache.
+CM's signed GETs to every backend (`/containers`, `/images`, `/health`) also
+carry a random `nonce` query parameter, so two reads of one path in the same
+second sign differently; the backends ignore it.
 
 **Verification.** The receiver recomputes the HMAC and compares in constant
 time. Timestamps outside the asymmetric skew window are rejected: up to 5
@@ -1276,9 +1279,7 @@ one; a failed probe reports `unreachable`.
 The project-settings image pickers read `GET /api/backends/{backend}/images`
 (`backend` is `agent` or `chat`), which proxies that backend's `GET /images`.
 `internal/api/backend_images.go` caches each backend's result for 30 seconds
-behind singleflight, with a 5-second probe timeout on a detached context. The
-30-second window is load-bearing: concurrent same-second signed GETs would
-produce identical signatures and collide in the backend's replay cache.
+behind singleflight, with a 5-second probe timeout on a detached context.
 
 The route is registered unconditionally and admin-gated in multi mode (the
 same gate as the project-settings `PUT` the picker feeds). It returns `404

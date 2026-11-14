@@ -2713,9 +2713,7 @@ open in none mode.
 - 503 `BACKEND_DISABLED` when that backend is not configured.
 - 502 `BACKEND_UNAVAILABLE` when the probe fails (5 s timeout).
 
-Results are cached per backend for 30 seconds behind a singleflight. The
-cache is load-bearing: concurrent same-second signed GETs would otherwise
-collide in the backend's HMAC replay cache.
+Results are cached per backend for 30 seconds behind a singleflight.
 
 ### GET /api/worker/logs
 
