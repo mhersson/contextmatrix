@@ -153,6 +153,12 @@ func (f *fakeStore) RecordRunKindStatus(_ context.Context, r state.RunKindReport
 		}
 	}
 
+	if r.Result != nil && r.Kind == protocol.RunKindGuidancePR {
+		if err := json.Unmarshal(r.Result, &newest.Revision); err != nil {
+			return 0, false, err
+		}
+	}
+
 	newest.Version++
 	f.heals[newest.ID] = *newest
 
@@ -996,4 +1002,107 @@ func (f *fakeCards) CreateCard(_ context.Context, project string, in service.Cre
 	f.cards = append(f.cards, c)
 
 	return c, nil
+}
+
+func (f *fakeStore) PendingFindings(_ context.Context, project string) ([]state.Finding, error) {
+	return f.findingsWhere(func(fd state.Finding) bool {
+		return fd.Project == project && fd.Kind == protocol.FindingGuidance && fd.State == state.FindingPending
+	}), nil
+}
+
+// OpenRevision keeps one revision row at stage revise per project.
+func (f *fakeStore) OpenRevision(_ context.Context, project string, at time.Time) (state.Heal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	if f.heals == nil {
+		f.heals = make(map[int64]state.Heal)
+	}
+
+	var maxID int64
+
+	for _, h := range f.heals {
+		if h.Kind == state.HealKindRevision && h.Stage == state.StageRevise && h.Project == project {
+			return h, nil
+		}
+
+		maxID = max(maxID, h.ID)
+	}
+
+	h := state.Heal{
+		ID: maxID + 1, Kind: state.HealKindRevision, Project: project, Stage: state.StageRevise, CreatedAt: at, UpdatedAt: at,
+	}
+	f.heals[h.ID] = h
+
+	return h, nil
+}
+
+func (f *fakeStore) OpenRevisions(context.Context) ([]state.Heal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	var rows []state.Heal
+
+	for _, h := range f.heals {
+		if h.Kind == state.HealKindRevision && h.Stage == state.StageRevise {
+			rows = append(rows, h)
+		}
+	}
+
+	slices.SortFunc(rows, func(a, b state.Heal) int { return int(a.ID - b.ID) })
+
+	return rows, nil
+}
+
+func (f *fakeStore) LastRefusedRevision(_ context.Context, project string, since time.Time) (*state.Heal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	var newest *state.Heal
+
+	for _, h := range f.heals {
+		if h.Kind == state.HealKindRevision && h.Stage == state.StageRevisionRefused && h.Project == project &&
+			h.CreatedAt.After(since) && (newest == nil || h.ID > newest.ID) {
+			newest = &h
+		}
+	}
+
+	return newest, nil
+}
+
+func (f *fakeStore) LastFailedRevision(_ context.Context, project string) (*state.Heal, error) {
+	return f.lastRevision(project, state.StageRevisionFailed, state.StageRevisionStale), nil
+}
+
+func (f *fakeStore) LastRevisedRevision(_ context.Context, project string) (*state.Heal, error) {
+	return f.lastRevision(project, state.StageRevised), nil
+}
+
+// lastRevision is the project's newest revision row at one of stages.
+func (f *fakeStore) lastRevision(project string, stages ...string) *state.Heal {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	var newest *state.Heal
+
+	for _, h := range f.heals {
+		if h.Kind == state.HealKindRevision && h.Project == project && slices.Contains(stages, h.Stage) &&
+			(newest == nil || h.ID > newest.ID) {
+			newest = &h
+		}
+	}
+
+	return newest
+}
+
+func (f *fakeStore) Findings(_ context.Context, ids []int64) ([]state.Finding, error) {
+	return f.findingsWhere(func(fd state.Finding) bool { return slices.Contains(ids, fd.ID) }), nil
 }

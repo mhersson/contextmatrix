@@ -185,3 +185,21 @@ func TestAnalysePayloadFillsUnderTheCap(t *testing.T) {
 	_, ok = analysePayload(investigateBase(), in, nil)
 	assert.False(t, ok, "a card alone over the cap is not sent")
 }
+
+func TestGuidancePayload(t *testing.T) {
+	base := protocol.RunKindPayload{
+		CardID: "ALPHA-001", Project: "alpha", RepoURL: "https://github.com/acme/alpha.git", GitToken: "pr-tok",
+		WorkerImage: "img", MaxCostUSD: 2,
+	}
+	in := protocol.GuidancePRInput{Section: "s", Title: "t", Body: "b", ExpectHead: "h1", Allowed: []string{"a"}}
+
+	p := guidancePayload(base, in)
+
+	assert.Equal(t, protocol.RunKindGuidancePR, p.Kind)
+	assert.Empty(t, p.CardID, "a project-level kind names no card")
+	assert.Zero(t, p.MaxCostUSD, "no model runs")
+	assert.Equal(t, &in, p.GuidancePR)
+	assert.Equal(t, "pr-tok", p.GitToken)
+	assert.Equal(t, "img", p.WorkerImage)
+	assert.Equal(t, "https://github.com/acme/alpha.git", p.RepoURL)
+}

@@ -251,12 +251,19 @@ func (c *Controller) dispatch(ctx context.Context, h *state.Heal, p protocol.Run
 }
 
 // endRefused ends a row whose run kind the agent refused: a heal parks, and
-// an analysis, which never writes the card, ends failed without an activity
-// entry.
+// an analysis or a revision, which never writes a card, ends failed without an
+// activity entry.
 func (c *Controller) endRefused(ctx context.Context, h *state.Heal, reason string) error {
-	if h.Kind == state.HealKindAnalysis {
+	switch h.Kind {
+	case state.HealKindAnalysis:
 		if err := c.saveStage(ctx, h, state.StageAnalyseFailed, reason); err != nil {
 			return fmt.Errorf("end the refused analysis: %w", err)
+		}
+
+		return nil
+	case state.HealKindRevision:
+		if err := c.saveStage(ctx, h, state.StageRevisionFailed, reason); err != nil {
+			return fmt.Errorf("end the refused revision: %w", err)
 		}
 
 		return nil

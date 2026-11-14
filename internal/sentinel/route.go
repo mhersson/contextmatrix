@@ -16,9 +16,14 @@ const (
 	maxFrictionTitle        = 200
 	limitReason             = "today's friction-card limit reached"
 	secretReason            = "holds a secret"
+	markerReason            = "holds a guidance block marker"
 	frictionDefaultType     = "task"
 	frictionDefaultPriority = "medium"
 )
+
+// guidanceMarker begins every marker of a guidance block; the agent refuses a
+// section that holds it.
+const guidanceMarker = "<!-- sentinel:"
 
 // holdsSecretFinding reports whether any part of the finding holds a secret.
 func holdsSecretFinding(f state.Finding, secrets []string) bool {
@@ -26,11 +31,15 @@ func holdsSecretFinding(f state.Finding, secrets []string) bool {
 }
 
 // routeGuidance decides a queued guidance finding: dropped when it holds a
-// secret, a duplicate of an earlier finding already pending or in a guidance
-// PR, else pending. earlier may hold findings in any state.
+// secret or its text a guidance block marker, a duplicate of an earlier
+// finding already pending or in a guidance PR, else pending. earlier may hold
+// findings in any state.
 func routeGuidance(f state.Finding, earlier []state.Finding, secrets []string) (newState, reason string) {
-	if holdsSecretFinding(f, secrets) {
+	switch {
+	case holdsSecretFinding(f, secrets):
 		return state.FindingDropped, secretReason
+	case strings.Contains(f.Text, guidanceMarker):
+		return state.FindingDropped, markerReason
 	}
 
 	for _, e := range earlier {

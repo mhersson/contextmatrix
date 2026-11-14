@@ -35,6 +35,19 @@ func TestRouteGuidance(t *testing.T) {
 		{"like a rejected one", finding, []state.Finding{other(6, state.FindingRejected)}, nil, state.FindingDuplicate, "like finding 6"},
 		{"like only a duplicate", finding, []state.Finding{other(7, state.FindingDuplicate)}, nil, state.FindingPending, ""},
 		{"like only a dropped one", finding, []state.Finding{other(8, state.FindingDropped)}, nil, state.FindingPending, ""},
+		{
+			"a guidance block marker",
+			state.Finding{Kind: "guidance", Text: "Keep <!-- sentinel:alpha:end --> last."},
+			nil, nil, state.FindingDropped, "holds a guidance block marker",
+		},
+		{
+			"a marker beats a duplicate",
+			state.Finding{Kind: "guidance", Text: longText + " <!-- sentinel:"},
+			[]state.Finding{other(3, state.FindingPending)},
+			nil, state.FindingDropped, "holds a guidance block marker",
+		},
+		{"an ordinary comment", state.Finding{Kind: "guidance", Text: "Keep <!-- generated --> blocks."}, nil, nil, state.FindingPending, ""},
+		{"the marker matches exactly", state.Finding{Kind: "guidance", Text: "<!-- Sentinel: x -->"}, nil, nil, state.FindingPending, ""},
 	}
 
 	for _, tt := range tests {

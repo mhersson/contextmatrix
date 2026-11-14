@@ -19,10 +19,10 @@ import (
 const healMutable = `run_id, cause, response, stage, reason,
 	dispatch_kind, dispatch_mode, dispatch_ceiling_usd, dispatch_at, dispatch_answered_run_id, dispatch_failure,
 	investigation, check_result, sent_subtasks, sent_siblings, change, dropped,
-	relaunched_at, cost_base_usd, source_card, updated_at`
+	relaunched_at, cost_base_usd, source_card, updated_at, sent_findings, allowed`
 
 // healMutableParams holds one parameter per healMutable column.
-const healMutableParams = `?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?`
+const healMutableParams = `?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?`
 
 const healSelect = `SELECT id, kind, project, card_id, run_started, created_at, ` + healMutable + `,
 	(SELECT COALESCE(SUM(usd), 0) FROM sentinel_spend WHERE heal_id = h.id), version, result
@@ -352,7 +352,18 @@ func healValues(h state.Heal) ([]any, error) {
 		vals = append(vals, string(b))
 	}
 
-	return append(vals, nullUnixNano(h.RelaunchedAt), h.CostBaseUSD, h.SourceCard, unixNano(h.UpdatedAt)), nil
+	vals = append(vals, nullUnixNano(h.RelaunchedAt), h.CostBaseUSD, h.SourceCard, unixNano(h.UpdatedAt))
+
+	for _, v := range []any{h.SentFindings, h.Allowed} {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return nil, fmt.Errorf("encode heal: %w", err)
+		}
+
+		vals = append(vals, string(b))
+	}
+
+	return vals, nil
 }
 
 func scanHeal(sc scanner) (state.Heal, error) {
@@ -361,7 +372,7 @@ func scanHeal(sc scanner) (state.Heal, error) {
 		started, created, updated                     int64
 		dispatchAt, relaunched                        sql.NullInt64
 		inv, check, subtasks, siblings, chng, dropped string
-		result                                        string
+		sentFindings, allowed, result                 string
 	)
 
 	d := &h.Dispatch
@@ -370,7 +381,7 @@ func scanHeal(sc scanner) (state.Heal, error) {
 		&h.RunID, &h.Cause, &h.Response, &h.Stage, &h.Reason,
 		&d.Kind, &d.Mode, &d.CeilingUSD, &dispatchAt, &d.AnsweredRunID, &d.Failure,
 		&inv, &check, &subtasks, &siblings, &chng, &dropped,
-		&relaunched, &h.CostBaseUSD, &h.SourceCard, &updated, &h.SpendUSD, &h.Version, &result)
+		&relaunched, &h.CostBaseUSD, &h.SourceCard, &updated, &sentFindings, &allowed, &h.SpendUSD, &h.Version, &result)
 	if err != nil {
 		return state.Heal{}, fmt.Errorf("scan heal: %w", err)
 	}
@@ -385,6 +396,8 @@ func scanHeal(sc scanner) (state.Heal, error) {
 		{siblings, &h.SentSiblings},
 		{chng, &h.Change},
 		{dropped, &h.Dropped},
+		{sentFindings, &h.SentFindings},
+		{allowed, &h.Allowed},
 	} {
 		if err := json.Unmarshal([]byte(doc.text), doc.into); err != nil {
 			return state.Heal{}, fmt.Errorf("decode heal %d: %w", h.ID, err)
@@ -608,4 +621,114 @@ func (s *Store) queryFindings(ctx context.Context, where string, args ...any) ([
 	}
 
 	return findings, nil
+}
+
+// OpenRevision returns the project's open revision row, at stage revise,
+// inserting one created at at when there is none.
+func (s *Store) OpenRevision(ctx context.Context, project string, at time.Time) (state.Heal, error) {
+	vals, err := healValues(state.Heal{Stage: state.StageRevise, UpdatedAt: at})
+	if err != nil {
+		return state.Heal{}, fmt.Errorf("open revision: %w", err)
+	}
+
+	args := append([]any{state.HealKindRevision, project, "", int64(0), unixNano(at)}, vals...)
+
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO sentinel_heals (kind, project, card_id, run_started, created_at, `+healMutable+`)
+		 VALUES (?, ?, ?, ?, ?, `+healMutableParams+`)
+		 ON CONFLICT(project) WHERE kind = 'revision' AND stage = 'revise' DO NOTHING`, args...); err != nil {
+		return state.Heal{}, fmt.Errorf("open revision: %w", err)
+	}
+
+	rows, err := s.queryHeals(ctx, `kind = ? AND stage = ? AND project = ?`, state.HealKindRevision, state.StageRevise, project)
+	if err != nil {
+		return state.Heal{}, fmt.Errorf("open revision: %w", err)
+	}
+
+	if len(rows) == 0 {
+		return state.Heal{}, fmt.Errorf("open revision: no open row for %s", project)
+	}
+
+	return rows[0], nil
+}
+
+// OpenRevisions returns every revision row still at the revise stage, oldest
+// first.
+func (s *Store) OpenRevisions(ctx context.Context) ([]state.Heal, error) {
+	rows, err := s.queryHeals(ctx, `kind = ? AND stage = ? ORDER BY id`, state.HealKindRevision, state.StageRevise)
+	if err != nil {
+		return nil, fmt.Errorf("list open revisions: %w", err)
+	}
+
+	return rows, nil
+}
+
+// LastRefusedRevision returns the project's newest refused revision row
+// created after since, or nil when there is none.
+func (s *Store) LastRefusedRevision(ctx context.Context, project string, since time.Time) (*state.Heal, error) {
+	h, err := s.lastRevision(ctx, `stage = ? AND created_at > ?`, project, state.StageRevisionRefused, unixNano(since))
+	if err != nil {
+		return nil, fmt.Errorf("read last refused revision: %w", err)
+	}
+
+	return h, nil
+}
+
+// LastFailedRevision returns the project's newest revision row that ended
+// failed or stale, or nil when there is none.
+func (s *Store) LastFailedRevision(ctx context.Context, project string) (*state.Heal, error) {
+	h, err := s.lastRevision(ctx, `stage IN (?, ?)`, project, state.StageRevisionFailed, state.StageRevisionStale)
+	if err != nil {
+		return nil, fmt.Errorf("read last failed revision: %w", err)
+	}
+
+	return h, nil
+}
+
+// LastRevisedRevision returns the project's newest revision row that ended
+// revised, or nil when there is none.
+func (s *Store) LastRevisedRevision(ctx context.Context, project string) (*state.Heal, error) {
+	h, err := s.lastRevision(ctx, `stage = ?`, project, state.StageRevised)
+	if err != nil {
+		return nil, fmt.Errorf("read last revised revision: %w", err)
+	}
+
+	return h, nil
+}
+
+// lastRevision returns the project's newest revision row that also matches
+// where, a constant of its callers, or nil.
+func (s *Store) lastRevision(ctx context.Context, where, project string, args ...any) (*state.Heal, error) {
+	rows, err := s.queryHeals(ctx, `kind = ? AND project = ? AND `+where+` ORDER BY id DESC LIMIT 1`,
+		append([]any{state.HealKindRevision, project}, args...)...)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(rows) == 0 {
+		return nil, nil //nolint:nilnil // nil, nil means no such revision
+	}
+
+	return &rows[0], nil
+}
+
+// PendingFindings returns the project's guidance findings waiting for the
+// standing PR, oldest first.
+func (s *Store) PendingFindings(ctx context.Context, project string) ([]state.Finding, error) {
+	return s.queryFindings(ctx, `project = ? AND kind = 'guidance' AND state = 'pending' ORDER BY id`, project)
+}
+
+// Findings returns the findings with the given IDs, whatever their state, in
+// ID order.
+func (s *Store) Findings(ctx context.Context, ids []int64) ([]state.Finding, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+
+	return s.queryFindings(ctx, `id IN (`+placeholders(len(ids))+`) ORDER BY id`, args...)
 }

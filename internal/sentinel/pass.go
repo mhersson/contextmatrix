@@ -35,6 +35,7 @@ type passReads struct {
 	containers []backend.ContainerInfo // listed only while a dispatch is in flight
 	listFailed bool                    // a failed listing counts every dispatch as listed
 	health     protocol.HealthResponse // read only when a dispatch may go out; zero leaves no room
+	healthRead bool                    // health was read this pass
 }
 
 type cardRef struct{ project, id string }
@@ -42,8 +43,11 @@ type cardRef struct{ project, id string }
 // pass advances every open heal, then opens heals for runs that settled, then
 // steps every open analysis, and records the status. A switched-off Sentinel
 // reads nothing beyond its settings. While analyses are on it also queues one
-// per settled run. A pass that moved a heal on, opened one, or found one
-// changed under it nudges once, so the next step is decided at once.
+// per settled run; while friction is on it routes findings and reads the
+// standing PRs. Last it steps each project's guidance, sending a revision only
+// while friction is on. A pass that moved a heal on, opened one, found one
+// changed under it, or ended a revision nudges once, so the next step is
+// decided at once.
 func (c *Controller) pass(ctx context.Context) error {
 	set, _, _, err := c.cfg.Store.SentinelSettings(ctx)
 	if err != nil {
@@ -99,6 +103,13 @@ func (c *Controller) pass(ctx context.Context) error {
 			return err
 		}
 	}
+
+	revised, err := c.advanceRevisions(ctx, r)
+	if err != nil {
+		return err
+	}
+
+	again = again || revised
 
 	healed, err := c.cfg.Store.HealedSince(ctx, dayStart(now))
 	if err != nil {
@@ -162,12 +173,24 @@ func (c *Controller) read(ctx context.Context, set state.Settings, now time.Time
 	}
 
 	if r.mayDispatchAny() {
-		if r.health, err = c.cfg.Backend.Health(ctx); err != nil {
-			log.Warn("sentinel: reading the agent's health failed", "error", err)
-		}
+		c.readHealth(ctx, r)
 	}
 
 	return r, nil
+}
+
+// readHealth reads the agent's health at most once per pass.
+func (c *Controller) readHealth(ctx context.Context, r *passReads) {
+	if r.healthRead {
+		return
+	}
+
+	r.healthRead = true
+
+	var err error
+	if r.health, err = c.cfg.Backend.Health(ctx); err != nil {
+		ctxlog.Logger(ctx).Warn("sentinel: reading the agent's health failed", "error", err)
+	}
 }
 
 // mayDispatchAny reports whether a heal or an analysis could send a run kind

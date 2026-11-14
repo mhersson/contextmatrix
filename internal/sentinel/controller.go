@@ -80,6 +80,25 @@ type Store interface {
 	// CardedFindings returns the IDs of the project's cards made from a finding.
 	CardedFindings(ctx context.Context, project string) (map[string]bool, error)
 	SetFindingOutcome(ctx context.Context, id int64, state, reason, output string, revisionID int64, at time.Time) error
+	// PendingFindings returns the project's guidance findings in state pending,
+	// oldest first.
+	PendingFindings(ctx context.Context, project string) ([]state.Finding, error)
+	// OpenRevision returns the project's open revision row, opening one at at
+	// when there is none; a project has at most one.
+	OpenRevision(ctx context.Context, project string, at time.Time) (state.Heal, error)
+	// OpenRevisions returns every revision row at stage revise, oldest first.
+	OpenRevisions(ctx context.Context) ([]state.Heal, error)
+	// LastRefusedRevision answers nil when the project has no refused revision
+	// created after since.
+	LastRefusedRevision(ctx context.Context, project string, since time.Time) (*state.Heal, error)
+	// LastFailedRevision answers nil when the project has no revision that
+	// ended revision_failed or revision_stale.
+	LastFailedRevision(ctx context.Context, project string) (*state.Heal, error)
+	// LastRevisedRevision answers nil when the project has no revision that
+	// ended revised.
+	LastRevisedRevision(ctx context.Context, project string) (*state.Heal, error)
+	// Findings returns the findings with the given IDs, whatever their state.
+	Findings(ctx context.Context, ids []int64) ([]state.Finding, error)
 }
 
 // Channel gives the LLM channel mode a fresh run of a backend kind starts in,

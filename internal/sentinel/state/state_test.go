@@ -20,6 +20,12 @@ func TestTerminal(t *testing.T) {
 		StageClosed:        true,
 		StageForwardPassed: true,
 		StageForwardFailed: true,
+
+		StageRevise:          false,
+		StageRevised:         true,
+		StageRevisionStale:   true,
+		StageRevisionRefused: true,
+		StageRevisionFailed:  true,
 	} {
 		assert.Equal(t, want, Terminal(stage), stage)
 	}

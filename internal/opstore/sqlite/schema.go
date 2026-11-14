@@ -251,6 +251,8 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			pr_state  TEXT NOT NULL DEFAULT '',
 			read_at   INTEGER NOT NULL DEFAULT 0
 		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_sentinel_revision_open
+			ON sentinel_heals(project) WHERE kind = 'revision' AND stage = 'revise'`,
 	}
 
 	for _, s := range stmts {
@@ -326,6 +328,12 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		{"updated_at", "INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if err := addColumnIfMissing(ctx, db, "sentinel_findings", col.name, col.decl); err != nil {
+			return err
+		}
+	}
+
+	for _, col := range []string{"sent_findings", "allowed"} {
+		if err := addColumnIfMissing(ctx, db, "sentinel_heals", col, "TEXT NOT NULL DEFAULT 'null'"); err != nil {
 			return err
 		}
 	}

@@ -59,8 +59,8 @@ const (
 	HealKindRevision = "revision"
 )
 
-// Heal stages; the three after closed are a forward row's, the last four an
-// analysis row's.
+// Heal stages; the three after closed are a forward row's, then four an
+// analysis row's and five a revision row's.
 const (
 	StageInvestigate   = "investigate"
 	StageCheck         = "check"
@@ -79,6 +79,12 @@ const (
 	StageAnalysed       = "analysed"
 	StageAnalyseFailed  = "analyse_failed"
 	StageAnalyseSkipped = "analyse_skipped"
+
+	StageRevise          = "revise"
+	StageRevised         = "revised"
+	StageRevisionStale   = "revision_stale"
+	StageRevisionRefused = "revision_refused"
+	StageRevisionFailed  = "revision_failed"
 )
 
 // TerminalStages are the stages a row never moves on from; the store reads
@@ -86,6 +92,7 @@ const (
 var TerminalStages = []string{
 	StageHealed, StageRerunFailed, StageParked, StageClosed, StageForwardPassed, StageForwardFailed,
 	StageAnalysed, StageAnalyseFailed, StageAnalyseSkipped,
+	StageRevised, StageRevisionStale, StageRevisionRefused, StageRevisionFailed,
 }
 
 // Terminal reports whether a row in stage never moves again.
@@ -128,6 +135,8 @@ type Heal struct {
 	Analysis                   *protocol.AnalyseResult    // rows dispatched as analyse
 	Revision                   *protocol.GuidancePRResult // rows dispatched as guidance_pr
 	SentSubtasks, SentSiblings []string
+	SentFindings               []int64  // revision rows: the findings packed into its section, in order
+	Allowed                    []string // revision rows: the text-check entries it was sent as allowed
 	Change                     *Change
 	Dropped                    []string // why vetting dropped the fix's section; the fix then holds none
 	RelaunchedAt               *time.Time

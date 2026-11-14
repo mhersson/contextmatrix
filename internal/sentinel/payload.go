@@ -110,6 +110,14 @@ func checkPayload(base protocol.RunKindPayload, before, after *board.VerifyConfi
 	return base
 }
 
+// guidancePayload is the guidance_pr run of in, a project-level kind with no
+// model.
+func guidancePayload(base protocol.RunKindPayload, in protocol.GuidancePRInput) protocol.RunKindPayload {
+	base.Kind, base.CardID, base.MaxCostUSD, base.GuidancePR = protocol.RunKindGuidancePR, "", 0, &in
+
+	return base
+}
+
 func protocolVerify(v *board.VerifyConfig) *protocol.VerifyConfig {
 	if v == nil {
 		return nil
