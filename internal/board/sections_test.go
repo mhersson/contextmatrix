@@ -126,6 +126,7 @@ func TestDemoteHeadings(t *testing.T) {
 		{"bare ## is no heading", "##", "##"},
 		{"multiple headings", "## A\nx\n## B\n```\n## C\n```\n## D\n", "### A\nx\n### B\n```\n## C\n```\n### D\n"},
 		{"CRLF", "## A\r\nx\r\n", "### A\r\nx\r\n"},
+		{"a backtick fence closes a tilde fence", "~~~\nx\n```\n## A", "~~~\nx\n```\n### A"},
 	}
 
 	for _, tt := range tests {

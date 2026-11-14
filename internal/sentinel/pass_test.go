@@ -533,6 +533,7 @@ func TestPassDropsAFailingSectionAndAppliesTheVerifyFix(t *testing.T) {
 	}{
 		{"a verify fix applies without the section", protocol.CardFix{Section: "Run gen-tool first.", Verify: verify}, state.StageRerun, []string{"introduces gen-tool"}},
 		{"a section-only fix has nothing left to apply", protocol.CardFix{Section: "Run gen-tool first."}, state.StageParked, nil},
+		{"a verify that changes nothing leaves nothing to apply", protocol.CardFix{Section: "Run gen-tool first.", Verify: &protocol.VerifyConfig{Command: "make test"}}, state.StageParked, nil},
 		{"a fix that retires subtasks parks", protocol.CardFix{Section: "Run gen-tool first.", Verify: verify, RetireSubtasks: []string{"ALPHA-011"}}, state.StageParked, nil},
 	}
 	for _, tc := range tests {

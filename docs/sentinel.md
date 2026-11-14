@@ -336,7 +336,7 @@ check is one function in one of `checks.go`'s lists. The pass runs
 | Check          | Refuses                                                                                                  | Lists                |
 | -------------- | -------------------------------------------------------------------------------------------------------- | -------------------- |
 | `checkShape`   | A fix that sets no field, or retires an ID the investigation was not sent                                | heal, forward        |
-| `checkSection` | A `## Sentinel` section with an unbalanced code fence (``` or ~~~); H2 lines are not refused, they are demoted on write | section              |
+| `checkSection` | A `## Sentinel` section whose write would change the card's sections (`section would change the card's sections`): the body the writer builds (the section's headings demoted, then upserted into the card's body), with one more section appended after it, must read by `board.BodySections` as the card's own headings, then `Sentinel` when the card had none, then the appended one, in that order. So a section that lands inside a fence the card leaves open, or leaves a fence open that hides a later section, is refused, and a card whose body ends inside a fence takes no section. H2 lines are not refused, they are demoted on write | section              |
 | `checkRetire`  | Retiring a subtask that is not this card's, is not in `todo`, is claimed, or has a queued or running worker, or retiring any subtask once a subtask of the card has started (`cannot re-split: subtasks have started`) | heal              |
 | `checkEdits`   | Any change since launch: `title edited`, `verify edited`, `autonomous changed`, `intro edited`, `section "X" edited`, `added` or `removed`; no launch snapshot is also refused | heal |
 | `checkVerify`  | A verify change that adds an env name (`adds env NAME`), drops the command (`removes the verify command`), changes the command for a cause verify did not stop (`changes the verify command, which did not stop the run`) or to one the check run kind did not list as a candidate (`command not declared by the repo`), was never trial-run (`verify not trial-run`), whose trial did not finish (`trial run: <trial>`), or that the card service would refuse, such as a command over one line or a timeout over 7200 seconds (`verify <rule>`, from `service.ValidateVerifyConfig`) | heal, forward |
@@ -362,20 +362,24 @@ A section a human wrote under one of those headings is not read either.
 stage `apply` makes of a heal's fix:
 
 - No violations: the fix applies as it is.
-- Every violation comes from a section check, the fix also changes verify
-  (it has a verify), and it retires no subtask: the section is dropped. The
-  fix applies without it, so only the verify change is written, and the heal
+- Every violation comes from a section check, the fix's verify changes the
+  card's in force, and it retires no subtask: the section is dropped. The fix
+  applies without it, so only the verify change is written, and the heal
   records the section checks' violations as the reasons (`dropped`). Nothing
-  is refused.
+  is refused. `verifyChanges` (`check_verify.go`) compares the verify as
+  `checkVerify` resolves it: the command by the verify rule's line and field
+  comparison, the timeout, and the set of env names.
 - Anything else refuses the fix with every violation, and the heal parks
   (rule 9 of [the heal flow](#the-heal-flow)): any violation from another
-  check, a fix that retires subtasks, and a fix with a section and no verify,
-  which would have nothing left to apply.
+  check, a fix that retires subtasks, and a fix with a section and no verify
+  change, which would have nothing left to apply.
 
 The pass puts the trimmed fix on the heal in place of the investigation's, so
 the write at `apply`, a later pass's checks and fix forward all read that one
 fix. The heal's next save, guarded on its version like every other, stores
-the fix and the reasons. The section did not change, so the rerun resumes
+the fix and the reasons. `dropped` is vetting's outcome: the verify change is
+written only when the heal goes on to apply, and a heal that parks or closes
+in the same pass keeps the reasons with nothing written. The section did not change, so the rerun resumes
 (see [Applying a fix](#applying-a-fix)). A forward is never trimmed:
 `vetForward` refuses a section its target fails.
 
@@ -500,8 +504,9 @@ action `sentinel`, cut to the card service's 2000-byte limit:
 - once it has rerun the card from `apply`, `Sentinel <what it changed>;
   rerunning fresh, attempt N of 2` (`rerunning to resume` for a resumed
   rerun), naming an updated `## Sentinel` section, a changed verify, the
-  retired subtasks and a dropped `## Sentinel` section with its reasons (the
-  section checks' violations), or that it changed nothing on the card;
+  retired subtasks, that its proposed `## Sentinel` text was not written and
+  why (the section checks' violations), or that it changed nothing on the
+  card;
 - once it has rerun the card from `usage_wait`, `Sentinel rerunning to resume
   after a usage limit, usage-limit rerun N of 3`;
 - when it parks, `Sentinel left this for a human: <reason>`. A refused rerun
@@ -533,12 +538,15 @@ parks before the fix is written, so the card gets only the park's activity
 entry.
 
 `applyFix` writes the fix as `system:sentinel` in one `PatchCard` guarded on
-the card's `updated` as the pass read it: the `## Sentinel` section (section
-upsert) when the fix changes it, with every line the card-body parser reads as
-a section boundary (`## ` at column 0 outside a code fence) demoted to an H3
-line first (`board.DemoteHeadings`), so the text can never start another
-section; the change check compares the section as written, the verify fields when it has them, and a cleared
-`phase` for a fresh rerun. A fix whose section vetting dropped (see
+the card's `updated` as the pass read it. The write holds the `## Sentinel`
+section (section upsert) when the fix changes it, the verify fields when the
+fix has them, and a cleared `phase` for a fresh rerun. Before the upsert,
+every line the card-body parser reads as a section boundary (`## ` at column 0
+outside a code fence) is demoted to an H3 line (`board.DemoteHeadings`), and
+`checkSection` has already judged the body this write builds (see
+[The fix checks](#the-fix-checks)), so the text can never start, hide or
+swallow a section. Whether the section changes is judged on the section as
+written, its headings demoted. A fix whose section vetting dropped (see
 [Dropping a section](#dropping-a-section)) writes only its verify. A human
 edit in between refuses the write
 (`ErrCardChanged`); the heal stays at `apply` and the next pass decides again,
@@ -707,10 +715,10 @@ the next pass.
 | `internal/sentinel/checks.go`               | `fixContext`, the check lists (`healChecks`, `forwardChecks`, `sectionChecks`), `vetFix` with its tagged violations, and `vetForward`                      |
 | `internal/sentinel/trim.go`                 | The pure `trimFix`, which drops a section only the section checks refuse, and `withFix`, which puts the trimmed fix on the heal                             |
 | `internal/sentinel/check_shape.go` | `checkShape` |
-| `internal/sentinel/check_section.go` | `checkSection` |
+| `internal/sentinel/check_section.go` | `checkSection`, which judges the section's write through the card's parser |
 | `internal/sentinel/check_retire.go` | `checkRetire` |
 | `internal/sentinel/check_edits.go` | `checkEdits` |
-| `internal/sentinel/check_verify.go` | `checkVerify` and its resolved-verify helpers |
+| `internal/sentinel/check_verify.go` | `checkVerify`, `verifyChanges` and their resolved-verify helpers |
 | `internal/sentinel/check_text.go` | `checkText` and `agentHeadings` |
 | `internal/sentinel/trigger.go`              | The pure triggers: `causeKey` (settled and cause), `eligible`, and `openStage` (the stage a new heal opens at)                                               |
 | `internal/sentinel/heal.go`                 | The pure heal flow: `nextStep` over a `healView`, one rule per stage and exit; `healFix`                                                                     |

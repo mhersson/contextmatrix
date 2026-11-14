@@ -292,13 +292,14 @@ func (c *Controller) view(ctx context.Context, r *passReads, h state.Heal) (heal
 	v.Edited = checkEdits(fixContext{Card: card, Snapshot: v.Run.Launch.Snapshot})
 
 	if fix := healFix(h); h.Stage == state.StageApply && fix != nil {
-		var vs []violation
-
-		if v.Subtasks, vs, err = c.vet(ctx, h, card, v.Run, *fix); err != nil {
+		fc, err := c.fixInputs(ctx, h, card, v.Run, *fix)
+		if err != nil {
 			return v, err
 		}
 
-		kept, dropped, ok := trimFix(*fix, vs)
+		vs := vetFix(fc)
+		kept, dropped, ok := trimFix(fc, vs)
+		v.Subtasks = fc.Subtasks
 
 		switch {
 		case !ok:
@@ -312,23 +313,23 @@ func (c *Controller) view(ctx context.Context, r *passReads, h state.Heal) (heal
 	return v, nil
 }
 
-// vet runs the fix checks with the card's subtasks and its project's verify
-// read fresh, and returns the subtasks for the fix to decide its rerun by.
-func (c *Controller) vet(ctx context.Context, h state.Heal, card *board.Card, run state.Run, fix protocol.CardFix) ([]*board.Card, []violation, error) {
+// fixInputs is what the fix checks read for h's fix, with the card's
+// subtasks and its project's verify read fresh.
+func (c *Controller) fixInputs(ctx context.Context, h state.Heal, card *board.Card, run state.Run, fix protocol.CardFix) (fixContext, error) {
 	project, err := c.cfg.Cards.GetProject(ctx, h.Project)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read project: %w", err)
+		return fixContext{}, fmt.Errorf("read project: %w", err)
 	}
 
 	subtasks, err := c.cfg.Cards.ListCards(ctx, h.Project, storage.CardFilter{Parent: card.ID})
 	if err != nil {
-		return nil, nil, fmt.Errorf("list subtasks: %w", err)
+		return fixContext{}, fmt.Errorf("list subtasks: %w", err)
 	}
 
-	return subtasks, vetFix(fixContext{
+	return fixContext{
 		Card: card, Snapshot: run.Launch.Snapshot, Subtasks: subtasks, SentSubtasks: h.SentSubtasks,
 		Project: project.Verify, Cause: h.Cause, Fix: fix, Check: h.Check,
-	}), nil
+	}, nil
 }
 
 // act carries out s for the heal v holds.

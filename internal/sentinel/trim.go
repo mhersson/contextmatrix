@@ -8,15 +8,18 @@ import (
 	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
-// trimFix decides whether a fix may apply, and in what form. A fix with no
-// violations applies as it is. One whose violations all come from the section
-// checks, that changes verify and retires nothing, applies without its
-// section, and dropped names why; any other fix is refused.
-func trimFix(fix protocol.CardFix, vs []violation) (kept protocol.CardFix, dropped []string, ok bool) {
+// trimFix decides whether the fix c holds may apply, and in what form. A fix
+// with no violations applies as it is. One whose violations all come from the
+// section checks, whose verify changes the card's and that retires nothing,
+// applies without its section, and dropped names why; any other fix is
+// refused.
+func trimFix(c fixContext, vs []violation) (kept protocol.CardFix, dropped []string, ok bool) {
+	fix := c.Fix
+
 	switch {
 	case len(vs) == 0:
 		return fix, nil, true
-	case fix.Verify == nil, len(fix.RetireSubtasks) > 0, slices.ContainsFunc(vs, func(v violation) bool { return !v.section }):
+	case !verifyChanges(c), len(fix.RetireSubtasks) > 0, slices.ContainsFunc(vs, func(v violation) bool { return !v.section }):
 		return fix, nil, false
 	}
 

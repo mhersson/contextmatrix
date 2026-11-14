@@ -239,7 +239,7 @@ the state as its label.
   diagnosis, a line diff of the card's `## Sentinel` section and of the verify
   change (additions on a green tint, removals on a red one, text in the
   foreground colour, long lines wrapped), the subtasks it retired, and, when
-  vetting dropped the fix's section and applied its verify change alone,
+  the fix's proposed section failed the section checks and was not written,
   "Section dropped" with the reasons. Then
   come Friction (guidance, code, ecosystem) and Notes (card advice, project
   verify for admins, hard card). All of this text is shown as plain text. The

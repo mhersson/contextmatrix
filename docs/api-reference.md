@@ -1224,8 +1224,8 @@ omitted otherwise). `diagnosis` is empty until the investigation answers.
 `section_after` are the card's `## Sentinel` section, `verify_before` and
 `verify_after` are omitted when the card had no verify config, `retired` lists
 the retired subtask IDs and `fresh` says the rerun starts fresh. `dropped`
-lists why vetting dropped the fix's `## Sentinel` section and applied its
-verify change alone: the section checks' violations, such as
+lists why the fix's proposed `## Sentinel` section failed the section checks
+and was not written: the section checks' violations, such as
 `introduces <entry>` (see [Sentinel](sentinel.md#dropping-a-section)). It is
 `[]` when nothing was dropped. `spend_usd` is the heal's recorded spend.
 

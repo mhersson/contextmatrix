@@ -56,6 +56,20 @@ func checkVerify(c fixContext) []string {
 	return violations
 }
 
+// verifyChanges reports whether the fix's verify, resolved as checkVerify
+// resolves it, differs from the card's in force: the command by sameCommand,
+// the timeout, or the set of env names.
+func verifyChanges(c fixContext) bool {
+	if c.Fix.Verify == nil {
+		return false
+	}
+
+	before, after := resolved(c.Card.Verify, c.Project), resolvedFix(c.Fix.Verify, c.Project)
+
+	return !sameCommand(before.Command, after.Command) || before.TimeoutSeconds != after.TimeoutSeconds ||
+		!slices.Equal(slices.Sorted(slices.Values(before.Env)), slices.Sorted(slices.Values(after.Env)))
+}
+
 // resolved is the verify config as the card will resolve it. A card verify
 // with no intent (such as an empty env list) is stored as nil, so the card
 // inherits the project's; the service's normalizeVerify does the same on write.

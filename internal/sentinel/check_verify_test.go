@@ -199,3 +199,31 @@ func TestCheckVerifyCommandChangeByCause(t *testing.T) {
 		assert.Empty(t, got)
 	})
 }
+
+func TestVerifyChanges(t *testing.T) {
+	project := &board.VerifyConfig{Command: "make test", TimeoutSeconds: 600, Env: []string{"A"}}
+
+	tests := []struct {
+		name string
+		card *board.VerifyConfig
+		fix  *protocol.VerifyConfig
+		want bool
+	}{
+		{"no verify in the fix", nil, nil, false},
+		{"the project's verify restated", nil, &protocol.VerifyConfig{Command: "make  test", TimeoutSeconds: 600, Env: []string{"A"}}, false},
+		{"an empty verify inherits the project's", nil, &protocol.VerifyConfig{Env: []string{}}, false},
+		{"the card's verify restated", &board.VerifyConfig{Command: "make lint"}, &protocol.VerifyConfig{Command: "make lint"}, false},
+		{"env names reordered", &board.VerifyConfig{Env: []string{"A", "B"}}, &protocol.VerifyConfig{Env: []string{"B", "A"}}, false},
+		{"timeout raised", nil, &protocol.VerifyConfig{TimeoutSeconds: 900}, true},
+		{"command changed", nil, &protocol.VerifyConfig{Command: "go test ./..."}, true},
+		{"a command line added", nil, &protocol.VerifyConfig{Command: "make test\nmake lint"}, true},
+		{"env name removed", &board.VerifyConfig{Env: []string{"A", "B"}}, &protocol.VerifyConfig{Env: []string{"A"}}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := fixContext{Card: &board.Card{Verify: tt.card}, Project: project, Fix: protocol.CardFix{Verify: tt.fix}}
+			assert.Equal(t, tt.want, verifyChanges(c))
+		})
+	}
+}

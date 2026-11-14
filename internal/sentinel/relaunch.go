@@ -184,7 +184,7 @@ func cardCost(card *board.Card) float64 {
 }
 
 // relaunchText is the activity entry of a heal that reruns its card, naming
-// why its fix's section was dropped, if it was.
+// why its fix's proposed section was not written, if it was dropped.
 func relaunchText(change *state.Change, dropped []string, attempt int) string {
 	how := "to resume"
 	if change != nil && change.Fresh {
@@ -201,8 +201,8 @@ func usageRerunText(rerun int) string {
 	return fmt.Sprintf("Sentinel rerunning to resume after a usage limit, usage-limit rerun %d of %d", rerun, state.MaxUsageReruns)
 }
 
-// changeText names what a fix changed on the card, and the section it
-// dropped with the reasons.
+// changeText names what a fix changed on the card, and why its proposed
+// section was not written when vetting dropped it.
 func changeText(change *state.Change, dropped []string) string {
 	var parts []string
 	if change != nil {
@@ -210,7 +210,7 @@ func changeText(change *state.Change, dropped []string) string {
 	}
 
 	if len(dropped) > 0 {
-		parts = append(parts, "dropped the ## "+SectionHeading+" section ("+strings.Join(dropped, ", ")+")")
+		parts = append(parts, "did not write its proposed ## "+SectionHeading+" text ("+strings.Join(dropped, ", ")+")")
 	}
 
 	if len(parts) == 0 {
