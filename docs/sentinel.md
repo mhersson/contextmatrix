@@ -245,7 +245,8 @@ dispatched and the heal parks.
 
 `dispatch` (`dispatch.go`) records the dispatch on the heal (kind, mode,
 ceiling, time) before it sends, so a run the agent starts is always on
-record. A save refused because the heal changed since it was read sends
+record. The backend client sends a run kind once and never retries it, so the
+agent is never asked for the same dispatch twice. A save refused because the heal changed since it was read sends
 nothing. Only a definite answer that started nothing clears the dispatch:
 
 | Agent answer                       | Effect                                                                                                    |

@@ -250,8 +250,10 @@ and never writes the card. The body is `protocol.RunKindPayload`. `202` means
 the agent accepted it and launches asynchronously. CM's client maps `404` to
 `ErrRunKindsUnavailable` (the agent has no run kinds), `429` and `503` to
 `ErrRunKindBusy`, and any other `4xx` to `ErrRunKindRejected` wrapping the
-agent's detail. Any other `5xx` is retried like every other webhook and then
-returned as a plain transport error, never as a rejection. The agent keys a
+agent's detail. Unlike the other webhooks, a run kind is sent once and never
+retried: after a timeout or a lost answer the agent may have admitted it, and
+a second send would start a second run. Any other `5xx` or transport failure
+is returned as a plain error, never as a rejection. The agent keys a
 run kind on (project, card ID, kind), so it coexists with the card's own run.
 Run kinds share the agent's `max_concurrent` and count in `/health`
 `running_containers`.

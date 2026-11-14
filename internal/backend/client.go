@@ -104,10 +104,12 @@ func (c *Client) Trigger(ctx context.Context, p protocol.TriggerPayload) error {
 	})
 }
 
-// RunKind dispatches a run kind. A 5xx other than 503 comes back as the
-// retried transport error, not a rejection: the run may still be dispatchable.
+// RunKind dispatches a run kind, sending it once: after a timeout or a lost
+// answer the agent may have admitted the run, and a second send would start a
+// second one. A 5xx other than 503 comes back as a transport error, not a
+// rejection: the run may still be dispatchable.
 func (c *Client) RunKind(ctx context.Context, p protocol.RunKindPayload) error {
-	err := c.send(ctx, c.baseURL+"/run-kind", p, nil)
+	err := c.post(ctx, c.baseURL+"/run-kind", p, 1, nil)
 
 	we, ok := errors.AsType[*webhookError](err)
 	if !ok {
@@ -308,6 +310,11 @@ func newCorrelationID() (string, error) {
 // receives each (id, attempt) pair for logging; nil suppresses the header
 // (non-trigger calls).
 func (c *Client) send(ctx context.Context, rawURL string, payload any, correlate func(id string, attempt int)) error {
+	return c.post(ctx, rawURL, payload, maxRetries, correlate)
+}
+
+// post is send with at most tries attempts.
+func (c *Client) post(ctx context.Context, rawURL string, payload any, tries int, correlate func(id string, attempt int)) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshal payload: %w", err)
@@ -323,7 +330,7 @@ func (c *Client) send(ctx context.Context, rawURL string, payload any, correlate
 		prevTS  int64
 	)
 
-	for attempt := range maxRetries {
+	for attempt := range tries {
 		now := time.Now().Unix()
 		tsVal := max(now, prevTS+1)
 		prevTS = tsVal
@@ -349,6 +356,10 @@ func (c *Client) send(ctx context.Context, rawURL string, payload any, correlate
 		if isClientError(lastErr) {
 			return lastErr
 		}
+
+		if attempt+1 == tries {
+			break
+		}
 		// Exponential backoff with ±25% jitter to spread concurrent retries.
 		// Cap the shift at 30 to avoid int overflow if maxRetries ever grows
 		// past ~30 (1<<31 overflows int32 on 32-bit; 1<<63 overflows int64).
@@ -372,7 +383,11 @@ func (c *Client) send(ctx context.Context, rawURL string, payload any, correlate
 		}
 	}
 
-	return fmt.Errorf("backend webhook failed after %d attempts: %w", maxRetries, lastErr)
+	if tries == 1 {
+		return lastErr
+	}
+
+	return fmt.Errorf("backend webhook failed after %d attempts: %w", tries, lastErr)
 }
 
 // sendGet signs and performs a GET against rawURL, returning the raw response

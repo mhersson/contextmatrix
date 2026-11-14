@@ -962,6 +962,38 @@ func TestRunKindServerErrorIsNotRejected(t *testing.T) {
 	require.NotErrorIs(t, err, ErrRunKindsUnavailable)
 }
 
+func TestRunKindSendsOnce(t *testing.T) {
+	tests := []struct {
+		name   string
+		answer func(w http.ResponseWriter)
+	}{
+		{"a server error", func(w http.ResponseWriter) { w.WriteHeader(http.StatusBadGateway) }},
+		{"busy", func(w http.ResponseWriter) { w.WriteHeader(http.StatusServiceUnavailable) }},
+		{"a dropped connection", func(w http.ResponseWriter) {
+			conn, _, err := http.NewResponseController(w).Hijack()
+			if err == nil {
+				_ = conn.Close()
+			}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var requests atomic.Int32
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests.Add(1)
+				tt.answer(w)
+			}))
+			defer srv.Close()
+
+			c := NewClient(srv.URL, "key", WithBackoffBase(time.Millisecond))
+			require.Error(t, c.RunKind(context.Background(), protocol.RunKindPayload{Kind: protocol.RunKindCheck}))
+
+			assert.Equal(t, int32(1), requests.Load(), "a run kind is sent once; a later pass retries what was not admitted")
+		})
+	}
+}
+
 func TestListContainersDecodesKind(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
