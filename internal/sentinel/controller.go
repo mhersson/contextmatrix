@@ -62,6 +62,16 @@ type Store interface {
 	Charge(ctx context.Context, healID int64, mode string, usd float64, at time.Time) error
 	SpentSince(ctx context.Context, mode string, since time.Time) (float64, error)
 	HealedSince(ctx context.Context, since time.Time) (int, error)
+	// QueuedFindings returns the findings waiting to be routed, oldest first.
+	QueuedFindings(ctx context.Context) ([]state.Finding, error)
+	// ProjectGuidance returns the project's guidance findings that are pending,
+	// proposed, merged or rejected.
+	ProjectGuidance(ctx context.Context, project string) ([]state.Finding, error)
+	// CardedSince counts the project's findings that became cards at or after since.
+	CardedSince(ctx context.Context, project string, since time.Time) (int, error)
+	// CardedFindings returns the IDs of the project's cards made from a finding.
+	CardedFindings(ctx context.Context, project string) (map[string]bool, error)
+	SetFindingOutcome(ctx context.Context, id int64, state, reason, output string, revisionID int64, at time.Time) error
 }
 
 // Channel gives the LLM channel mode a fresh run of a backend kind starts in,
@@ -87,6 +97,7 @@ type Cards interface {
 	TransitionToAs(ctx context.Context, project, id, state, agentID string, expectUpdated time.Time) (*board.Card, error)
 	AddSystemLogEntry(ctx context.Context, project, id string, e board.ActivityEntry) (*board.Card, error)
 	GetProject(ctx context.Context, project string) (*board.ProjectConfig, error)
+	CreateCard(ctx context.Context, project string, in service.CreateCardInput) (*board.Card, error)
 }
 
 // Playbooks reads a playbook with its run and resolved entries.

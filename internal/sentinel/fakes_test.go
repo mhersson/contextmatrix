@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,6 +34,9 @@ type fakeStore struct {
 	runs      []state.Run
 	ledger    []ledgerRow
 	refreshes int // RefreshEditSnapshot calls
+
+	findings      []state.Finding
+	outcomeWrites int // SetFindingOutcome calls
 }
 
 type ledgerRow struct {
@@ -641,6 +646,7 @@ type fakeCards struct {
 	patches     []patchCall
 	refuse      map[string]error
 	transitions []string // "<ID> <state> <agent>"
+	created     []service.CreateCardInput
 }
 
 type patchCall struct {
@@ -773,6 +779,7 @@ func (f *fakeCards) ListCards(_ context.Context, project string, filter storage.
 
 	for _, c := range f.cards {
 		if c.Project == project && (filter.Parent == "" || c.Parent == filter.Parent) &&
+			(filter.Label == "" || slices.Contains(c.Labels, filter.Label)) &&
 			(filter.State == "" || c.State == filter.State) {
 			out = append(out, c)
 		}
@@ -833,4 +840,104 @@ func enabledSettings() state.Settings {
 	s.Enabled = true
 
 	return s
+}
+
+func (f *fakeStore) putFinding(fd state.Finding) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.findings = append(f.findings, fd)
+}
+
+func (f *fakeStore) finding(id int64) state.Finding {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	for _, fd := range f.findings {
+		if fd.ID == id {
+			return fd
+		}
+	}
+
+	return state.Finding{}
+}
+
+// findingsWhere returns the findings keep accepts, in ID order.
+func (f *fakeStore) findingsWhere(keep func(state.Finding) bool) []state.Finding {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	var out []state.Finding
+
+	for _, fd := range f.findings {
+		if keep(fd) {
+			out = append(out, fd)
+		}
+	}
+
+	slices.SortFunc(out, func(a, b state.Finding) int { return int(a.ID - b.ID) })
+
+	return out
+}
+
+func (f *fakeStore) QueuedFindings(context.Context) ([]state.Finding, error) {
+	return f.findingsWhere(func(fd state.Finding) bool { return fd.State == state.FindingQueued }), nil
+}
+
+func (f *fakeStore) ProjectGuidance(_ context.Context, project string) ([]state.Finding, error) {
+	return f.findingsWhere(func(fd state.Finding) bool {
+		return fd.Project == project && fd.Kind == protocol.FindingGuidance &&
+			slices.Contains([]string{state.FindingPending, state.FindingProposed, state.FindingMerged, state.FindingRejected}, fd.State)
+	}), nil
+}
+
+func (f *fakeStore) CardedSince(_ context.Context, project string, since time.Time) (int, error) {
+	return len(f.findingsWhere(func(fd state.Finding) bool {
+		return fd.Project == project && fd.State == state.FindingCarded && !fd.UpdatedAt.Before(since)
+	})), nil
+}
+
+func (f *fakeStore) CardedFindings(_ context.Context, project string) (map[string]bool, error) {
+	out := map[string]bool{}
+
+	for _, fd := range f.findingsWhere(func(fd state.Finding) bool {
+		return fd.Project == project && fd.State == state.FindingCarded && fd.Output != ""
+	}) {
+		out[fd.Output] = true
+	}
+
+	return out, nil
+}
+
+func (f *fakeStore) SetFindingOutcome(_ context.Context, id int64, st, reason, output string, revisionID int64, at time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.outcomeWrites++
+
+	for i, fd := range f.findings {
+		if fd.ID == id {
+			f.findings[i].State, f.findings[i].Reason, f.findings[i].Output = st, reason, output
+			f.findings[i].RevisionID, f.findings[i].UpdatedAt = revisionID, at
+
+			return nil
+		}
+	}
+
+	return nil
+}
+
+func (f *fakeCards) CreateCard(_ context.Context, project string, in service.CreateCardInput) (*board.Card, error) {
+	f.calls++
+	f.created = append(f.created, in)
+
+	c := &board.Card{
+		ID: strings.ToUpper(project) + "-" + strconv.Itoa(99+len(f.created)), Project: project, Title: in.Title,
+		Type: in.Type, State: board.StateTodo, Labels: in.Labels, Body: in.Body,
+	}
+	f.cards = append(f.cards, c)
+
+	return c, nil
 }

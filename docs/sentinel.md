@@ -611,7 +611,9 @@ stage waits.
    (see [The circuit breaker](#the-circuit-breaker)).
 6. While analyses are on, it queues an analysis row for every settled run;
    then, on or off, it steps every open analysis (see [Analyses](#analyses)).
-7. It records the status.
+7. While `friction` is on, it routes the queued findings (see
+   [Routing findings](#routing-findings)).
+8. It records the status.
 
 A heal whose read or step fails is logged and decided again on the next pass.
 A pass that advanced a heal, opened one, or found one written since it read it
@@ -660,8 +662,44 @@ What a heal leaves behind, and where:
 
 - The card: the guarded fix write (verify, the `## Sentinel` section, retired subtasks) and the activity entries above. The section is the note a human reads on the card.
 - `sentinel_heals`: every heal's stage, diagnosis, reasons (with why a fix's section was dropped) and spend.
-- `sentinel_findings`: the friction findings of an investigation, stored only while `friction` is on. `project_verify` findings are shown to admins only in `multi` mode.
-- The board mark (`marks.go`) and the card's Sentinel tab, both read from the latest heal, and the waiting list's Sentinel parks (`CardHolds`). A parked mark or hold lasts until the card's next launch.
+- `sentinel_findings`: the friction findings of an investigation or analysis, stored only while `friction` is on. `project_verify` findings are shown to admins only in `multi` mode.
+- Friction cards: new cards for `code` findings (see [Routing findings](#routing-findings)).
+- The board mark (`marks.go`) and the card's Sentinel tab, both read from the latest heal, and the waiting list's Sentinel parks (`CardHolds`). A parked mark or hold lasts until the card's next launch. A card made from a finding with no heal mark of its own reads `created`.
+
+### Routing findings
+
+Each stored finding starts in a state by its kind: `guidance` and `code` are
+`queued`, `ecosystem` is `held`, every other kind is a `note`, and rows stored
+before findings had states keep an empty state. While `friction` is on, each
+pass routes the `queued` findings oldest first (`routeFindings`,
+`outputs.go`; the decisions are the pure `routeGuidance` and `routeCode` in
+`route.go`). A finding is written only when its state or reason changes, so a
+finding held by the daily limit is not rewritten every pass. A project that
+cannot be read leaves its findings queued.
+
+- A finding that holds one of CM's secret values (8 bytes or more) in its
+  title, text or evidence is `dropped` with the reason `holds a secret`.
+- A `guidance` finding is a `duplicate` of an earlier guidance finding of the
+  project that is `pending`, `proposed`, `merged` or `rejected` when their texts
+  are similar, else it becomes `pending`, waiting for the guidance PR. Similar
+  means word 3-shingles with a Jaccard of 0.5 or more, or one text containing the
+  other. A finding routed earlier in the same pass counts as earlier.
+- A `code` finding is a `duplicate` of a friction card (label
+  `sentinel-friction`) of the project in any state but `done` when the titles
+  are equal after normalisation or title and text are similar to the card's.
+  A card moved to `not_planned` therefore counts as rejected. Otherwise, while
+  fewer than 5 findings of the project became cards since 00:00 UTC, it becomes
+  `carded` and a card is created, and its ID is the finding's output. At the
+  limit the finding stays `queued` with the reason `today's friction-card limit
+  reached` and is decided again the next day.
+- The friction card is created through the card service as `system:sentinel`,
+  labelled `sentinel-friction`, never autonomous, in `todo`. Its title is the
+  finding's title, else the first line of its text cut to 200 runes. Its type
+  is `task` when the project lists it, else the project's first type, and its
+  priority is `medium` likewise. Its body is the text, then a `## Evidence`
+  section. Its first activity entry is `Sentinel created this card from the
+  friction a run of <CARD> showed`. The text is not checked: the card is a
+  proposal for a human, not an edit to a running card.
 
 ## Applying a fix
 
@@ -861,7 +899,7 @@ the next pass.
 | `internal/sentinel/heal.go`                 | The pure heal flow: `nextStep` over a `healView`, one rule per stage and exit; `healFix`                                                                     |
 | `internal/sentinel/gate.go`                 | The pure budget gate, what work in flight counts against the cap (`inFlightReserve`, `rerunAccrued`), the daily cap's day (`dayStart`) and the worker-slot check (`roomFor`) |
 | `internal/sentinel/status.go`               | `Status`, the states and the pure summary                                                                                                                    |
-| `internal/sentinel/marks.go`                | `SentinelMarks`: each card's board mark from its latest heal, `markFor`, and `CardHolds`: whether a card is being healed or parked for a human               |
+| `internal/sentinel/marks.go`                | `SentinelMarks`: each card's board mark from its latest heal, or `created` for a card made from a finding; `markFor`, and `CardHolds`: whether a card is being healed or parked for a human               |
 | `internal/opstore/sqlite/sentinel.go`       | The settings row and the subscription windows the controller reads                                                                                           |
 | `internal/opstore/sqlite/card_runs.go`      | The run row                                                                                                                                                  |
 | `internal/opstore/sqlite/sentinel_heals.go` | Heals, findings and the spend ledger                                                                                                                         |
@@ -872,6 +910,8 @@ the next pass.
 | `internal/sentinel/gate.go` (analyses) | The pure analysis gate and ceiling: `analysisGate`, `analyseCeiling` |
 | `internal/sentinel/payload.go` (analyses) | The pure `analysePayload`, under the same 1 MiB cap |
 | `internal/sentinel/dispatch.go` (analyses) | `dispatchAnalyse`; `endRefused`, which ends a refused row by its kind; the unknown-kind hold (`holdKind`, `kindHeld`) |
+| `internal/sentinel/route.go` | The pure routing: `routeGuidance`, `routeCode` and `frictionCardInput` |
+| `internal/sentinel/outputs.go` | `routeFindings`: read the queued findings and each project's friction cards, guidance and today's count, apply the decisions and write the outcomes |
 | `internal/sentinel/pass.go` (analyses) | Reading the open analyses, `mayDispatchAny` (the one health read for heals and analyses), `sent` (the slot and spend accounting both flows share), and stepping the analyses after the heals; the expiry covers finished rows of every kind |
 
 `internal/sentinel/state` holds only types, constants and their trivial

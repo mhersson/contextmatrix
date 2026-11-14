@@ -227,7 +227,7 @@ type SubtaskUsage struct {
 }
 
 // SentinelMark is the board icon state of a card Sentinel touched. Action is
-// healing, healed, edited or parked.
+// healing, healed, edited, parked or created.
 type SentinelMark struct {
 	Action string `json:"action"`
 	Label  string `json:"label"`

@@ -220,3 +220,26 @@ func TestSentinelMarksIgnoreAnalysisRows(t *testing.T) {
 	require.Len(t, marks, 1, "an analysis alone marks no card")
 	assert.Equal(t, "parked", marks["P-001"].Action, "a newer analysis does not replace the parked heal")
 }
+
+func TestSentinelMarksMarksCreatedCards(t *testing.T) {
+	st := &fakeStore{
+		settings: state.Settings{Enabled: true},
+		heals: map[int64]state.Heal{
+			1: {ID: 1, Kind: state.HealKindHeal, Project: "p", CardID: "P-002", Stage: state.StageParked, Reason: "needs a key"},
+		},
+		findings: []state.Finding{
+			{ID: 1, Project: "p", State: state.FindingCarded, Output: "P-001"},
+			{ID: 2, Project: "p", State: state.FindingCarded, Output: "P-002"},
+			{ID: 3, Project: "p", State: state.FindingDuplicate, Output: "P-003"},
+			{ID: 4, Project: "other", State: state.FindingCarded, Output: "O-001"},
+		},
+	}
+	ctl := New(Config{Store: st, Pricer: ratePricer{}})
+
+	marks, err := ctl.SentinelMarks(context.Background(), "p")
+	require.NoError(t, err)
+	require.Len(t, marks, 2)
+	assert.Equal(t, "created", marks["P-001"].Action)
+	assert.Equal(t, "Sentinel created this card from a run's friction", marks["P-001"].Label)
+	assert.Equal(t, "parked", marks["P-002"].Action, "a heal mark wins")
+}

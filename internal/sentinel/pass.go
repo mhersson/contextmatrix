@@ -90,6 +90,12 @@ func (c *Controller) pass(ctx context.Context) error {
 
 	analysing := c.advanceAnalyses(ctx, r)
 
+	if set.Friction {
+		if err := c.routeFindings(ctx, now); err != nil {
+			return err
+		}
+	}
+
 	healed, err := c.cfg.Store.HealedSince(ctx, dayStart(now))
 	if err != nil {
 		return fmt.Errorf("count healed cards: %w", err)

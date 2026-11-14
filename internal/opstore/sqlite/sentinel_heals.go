@@ -275,37 +275,7 @@ func (s *Store) AddFindings(ctx context.Context, healID int64, project, cardID s
 // CardFindings returns the card's findings, newest heal first, each heal's in
 // their reported order.
 func (s *Store) CardFindings(ctx context.Context, project, cardID string) ([]state.Finding, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, heal_id, project, card_id, kind, title, text, evidence, state, reason, output, revision_id,
-		        created_at, updated_at FROM sentinel_findings
-		 WHERE project = ? AND card_id = ? ORDER BY heal_id DESC, id`, project, cardID)
-	if err != nil {
-		return nil, fmt.Errorf("list card findings: %w", err)
-	}
-	defer rows.Close()
-
-	var findings []state.Finding
-
-	for rows.Next() {
-		var (
-			f                state.Finding
-			created, updated int64
-		)
-
-		if err := rows.Scan(&f.ID, &f.HealID, &f.Project, &f.CardID, &f.Kind, &f.Title, &f.Text, &f.Evidence,
-			&f.State, &f.Reason, &f.Output, &f.RevisionID, &created, &updated); err != nil {
-			return nil, fmt.Errorf("list card findings: %w", err)
-		}
-
-		f.CreatedAt, f.UpdatedAt = fromUnixNano(created), fromUnixNano(updated)
-		findings = append(findings, f)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list card findings: %w", err)
-	}
-
-	return findings, nil
+	return s.queryFindings(ctx, `project = ? AND card_id = ? ORDER BY heal_id DESC, id`, project, cardID)
 }
 
 // Charge adds one row to a heal's spend ledger, tied to no run kind's status.
@@ -529,4 +499,107 @@ func (s *Store) RunHeal(ctx context.Context, project, cardID string, started tim
 	}
 
 	return &heals[0], nil
+}
+
+const findingColumns = `id, heal_id, project, card_id, kind, title, text, evidence, state, reason, output, revision_id,
+	created_at, updated_at`
+
+// QueuedFindings returns the findings waiting to be routed, oldest first.
+func (s *Store) QueuedFindings(ctx context.Context) ([]state.Finding, error) {
+	return s.queryFindings(ctx, `state = 'queued' ORDER BY id`)
+}
+
+// ProjectGuidance returns the project's guidance findings that are pending or
+// already in, or turned down from, a guidance PR.
+func (s *Store) ProjectGuidance(ctx context.Context, project string) ([]state.Finding, error) {
+	return s.queryFindings(ctx,
+		`project = ? AND kind = 'guidance' AND state IN ('pending', 'proposed', 'merged', 'rejected') ORDER BY id`, project)
+}
+
+// CardedSince counts the project's findings that became friction cards at or
+// after since.
+func (s *Store) CardedSince(ctx context.Context, project string, since time.Time) (int, error) {
+	var n int
+
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sentinel_findings WHERE project = ? AND state = 'carded' AND updated_at >= ?`,
+		project, unixNano(since)).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count carded findings: %w", err)
+	}
+
+	return n, nil
+}
+
+// CardedFindings returns the IDs of the project's cards Sentinel created from
+// a finding.
+func (s *Store) CardedFindings(ctx context.Context, project string) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT output FROM sentinel_findings WHERE project = ? AND state = 'carded' AND output != ''`, project)
+	if err != nil {
+		return nil, fmt.Errorf("list carded findings: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[string]bool{}
+
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("list carded findings: %w", err)
+		}
+
+		out[id] = true
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list carded findings: %w", err)
+	}
+
+	return out, nil
+}
+
+// SetFindingOutcome moves a finding to st with the reason, output and revision
+// that explain it.
+func (s *Store) SetFindingOutcome(ctx context.Context, id int64, st, reason, output string, revisionID int64, at time.Time) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE sentinel_findings SET state = ?, reason = ?, output = ?, revision_id = ?, updated_at = ? WHERE id = ?`,
+		st, reason, output, revisionID, unixNano(at), id)
+	if err != nil {
+		return fmt.Errorf("set finding outcome: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Store) queryFindings(ctx context.Context, where string, args ...any) ([]state.Finding, error) {
+	// where is a constant of this file's callers, never user input.
+	rows, err := s.db.QueryContext(ctx, `SELECT `+findingColumns+` FROM sentinel_findings WHERE `+where, args...) //nolint:gosec // see above
+	if err != nil {
+		return nil, fmt.Errorf("list findings: %w", err)
+	}
+	defer rows.Close()
+
+	var findings []state.Finding
+
+	for rows.Next() {
+		var (
+			f                state.Finding
+			created, updated int64
+		)
+
+		if err := rows.Scan(&f.ID, &f.HealID, &f.Project, &f.CardID, &f.Kind, &f.Title, &f.Text, &f.Evidence,
+			&f.State, &f.Reason, &f.Output, &f.RevisionID, &created, &updated); err != nil {
+			return nil, fmt.Errorf("list findings: %w", err)
+		}
+
+		f.CreatedAt, f.UpdatedAt = fromUnixNano(created), fromUnixNano(updated)
+		findings = append(findings, f)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list findings: %w", err)
+	}
+
+	return findings, nil
 }

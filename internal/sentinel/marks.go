@@ -16,6 +16,7 @@ const (
 	markHealed  = "healed"
 	markEdited  = "edited"
 	markParked  = "parked"
+	markCreated = "created"
 )
 
 const maxMarkReason = 120
@@ -57,6 +58,10 @@ func (c *Controller) SentinelMarks(ctx context.Context, project string) (map[str
 		}
 
 		marks[id] = m
+	}
+
+	if err := c.addCreatedMarks(ctx, project, marks); err != nil {
+		return nil, err
 	}
 
 	return marks, nil
@@ -163,4 +168,21 @@ func firstLine(s string, limit int) string {
 	}
 
 	return line
+}
+
+// addCreatedMarks marks each card Sentinel created from a finding that has no
+// heal mark.
+func (c *Controller) addCreatedMarks(ctx context.Context, project string, marks map[string]board.SentinelMark) error {
+	carded, err := c.cfg.Store.CardedFindings(ctx, project)
+	if err != nil {
+		return fmt.Errorf("carded findings: %w", err)
+	}
+
+	for id := range carded {
+		if _, ok := marks[id]; !ok {
+			marks[id] = board.SentinelMark{Action: markCreated, Label: "Sentinel created this card from a run's friction"}
+		}
+	}
+
+	return nil
 }

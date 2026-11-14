@@ -1080,3 +1080,56 @@ func TestSentinelHealsGrowAnalysisIndexWithoutABump(t *testing.T) {
 	require.NoError(t, st.db.QueryRow("PRAGMA user_version").Scan(&v))
 	assert.Equal(t, 6, v)
 }
+
+func TestFindingRouting(t *testing.T) {
+	ctx := context.Background()
+	st := openLadderStore(t)
+
+	healID, err := st.OpenHeal(ctx, state.Heal{Kind: state.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0})
+	require.NoError(t, err)
+
+	at := runT0.Add(time.Hour)
+	fs := []protocol.FrictionFinding{
+		{Kind: protocol.FindingCode, Title: "a", Text: "a", Evidence: "e"},
+		{Kind: protocol.FindingGuidance, Text: "b", Evidence: "e"},
+		{Kind: protocol.FindingGuidance, Text: "c", Evidence: "e"},
+		{Kind: protocol.FindingHardCard, Text: "d", Evidence: "e"},
+	}
+	require.NoError(t, st.AddFindings(ctx, healID, "p", "P-001", fs, at))
+	require.NoError(t, st.AddFindings(ctx, healID, "q", "Q-001", fs[:1], at))
+
+	queued, err := st.QueuedFindings(ctx)
+	require.NoError(t, err)
+	require.Len(t, queued, 4)
+	assert.Equal(t, "a", queued[0].Title, "oldest first")
+
+	require.NoError(t, st.SetFindingOutcome(ctx, queued[0].ID, state.FindingCarded, "", "P-009", 0, at))
+	require.NoError(t, st.SetFindingOutcome(ctx, queued[1].ID, state.FindingPending, "", "", 0, at))
+	require.NoError(t, st.SetFindingOutcome(ctx, queued[2].ID, state.FindingDuplicate, "like finding 2", "", 0, at))
+	require.NoError(t, st.SetFindingOutcome(ctx, queued[3].ID, state.FindingCarded, "", "Q-009", 0, at.Add(-48*time.Hour)))
+
+	left, err := st.QueuedFindings(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, left)
+
+	guidance, err := st.ProjectGuidance(ctx, "p")
+	require.NoError(t, err)
+	require.Len(t, guidance, 1, "a duplicate guidance finding is not listed")
+	assert.Equal(t, "b", guidance[0].Text)
+
+	n, err := st.CardedSince(ctx, "p", at.Add(-time.Hour))
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+
+	n, err = st.CardedSince(ctx, "q", at.Add(-time.Hour))
+	require.NoError(t, err)
+	assert.Zero(t, n, "an older card does not count today")
+
+	carded, err := st.CardedFindings(ctx, "p")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]bool{"P-009": true}, carded)
+
+	got, err := st.CardFindings(ctx, "p", "P-001")
+	require.NoError(t, err)
+	assert.Equal(t, "like finding 2", got[2].Reason)
+}
