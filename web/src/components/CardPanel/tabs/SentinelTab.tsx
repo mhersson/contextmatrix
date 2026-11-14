@@ -58,7 +58,7 @@ function Diff({ label, before, after }: { label: string; before: string; after: 
       <h4 className="text-xs uppercase" style={{ color: 'var(--grey1)' }}>
         {label}
       </h4>
-      <pre className="text-xs overflow-x-auto rounded p-2" style={{ background: 'var(--bg1)' }}>
+      <pre className="text-xs whitespace-pre-wrap wrap-anywhere rounded p-2" style={{ background: 'var(--bg1)' }}>
         {lineDiff(before, after).map((l, i) => (
           <div key={i} style={{ color: 'var(--fg)', background: DIFF_STYLE[l.kind].background }}>
             {DIFF_STYLE[l.kind].mark} {l.text}

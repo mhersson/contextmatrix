@@ -75,6 +75,17 @@ describe('SentinelTab', () => {
     expect(screen.getByText('+ command: make b')).toBeInTheDocument();
   });
 
+  // jsdom has no layout, so only the properties that stop a long line from clipping can be observed.
+  it('wraps long lines in both diffs', async () => {
+    renderTab({ run, heals: [heal] });
+    const section = (await screen.findByText('+ new line')).closest('pre');
+    const verify = screen.getByText('+ command: make b').closest('pre');
+    for (const pre of [section, verify]) {
+      expect(pre).toHaveClass('whitespace-pre-wrap');
+      expect(pre).toHaveClass('wrap-anywhere');
+    }
+  });
+
   it('shows retired subtasks', async () => {
     renderTab({ run, heals: [heal] });
     expect(await screen.findByText(/Retired subtasks: T-002/)).toBeInTheDocument();
