@@ -35,6 +35,8 @@ type Store interface {
 	OpenHeals(ctx context.Context) ([]Heal, error)
 	// CardHeals returns the card's heal and forward rows, newest first.
 	CardHeals(ctx context.Context, project, cardID string) ([]Heal, error)
+	// LatestHeals returns each card's newest heal or forward row in the project.
+	LatestHeals(ctx context.Context, project string) (map[string]Heal, error)
 	UndecidedRuns(ctx context.Context) ([]Run, error)
 	MarkRunDecided(ctx context.Context, project, cardID string, started time.Time) error
 	// CardRunRow answers nil when this instance never launched the card.

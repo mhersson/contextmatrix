@@ -68,6 +68,7 @@ type CardSummary struct {
 	// PlaybookLock names the runnable playbook that owns this card's execution
 	// settings, with its run status while a run is active. Computed on read.
 	PlaybookLock *board.CardPlaybookLock `json:"playbook_lock,omitempty"`
+	Sentinel     *board.SentinelMark     `json:"sentinel,omitempty"`
 	Created      time.Time               `json:"created"`
 	Updated      time.Time               `json:"updated"`
 }
@@ -130,6 +131,7 @@ func summarizeCard(c *board.Card) *CardSummary {
 		ParkResetsAt:            c.ParkResetsAt,
 		InPlaybooks:             c.InPlaybooks,
 		PlaybookLock:            c.PlaybookLock,
+		Sentinel:                c.Sentinel,
 		Created:                 c.Created,
 		Updated:                 c.Updated,
 	}

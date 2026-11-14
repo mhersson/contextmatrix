@@ -236,7 +236,10 @@ the state as its label.
   refetches on Sentinel events and events for the card.
 - A purple shield joins the board card's signal icons when the card carries a
   Sentinel mark (healing, healed, edited or parked); its label is the mark's
-  label. It is hidden while Sentinel is off.
+  label. The server sends no mark while Sentinel is off. A card is marked
+  healing while a heal is in flight or a rerun is pending, healed once its
+  rerun passed, edited when a fix from another card was applied to it, and
+  parked when a rerun failed or Sentinel left it for a human.
 
 The settings page at `/admin/sentinel` (admin only in `multi` mode) has three
 switches (Sentinel, Healing, Friction analysis), the daily spend cap in USD

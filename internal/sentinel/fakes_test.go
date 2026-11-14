@@ -256,6 +256,23 @@ func (f *fakeStore) CardHeals(_ context.Context, project, cardID string) ([]Heal
 	return heals, nil
 }
 
+func (f *fakeStore) LatestHeals(_ context.Context, project string) (map[string]Heal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	latest := map[string]Heal{}
+
+	for _, h := range f.heals {
+		if cur, ok := latest[h.CardID]; h.Project == project && (!ok || h.ID > cur.ID) {
+			latest[h.CardID] = h
+		}
+	}
+
+	return latest, nil
+}
+
 func (f *fakeStore) Charge(_ context.Context, healID int64, mode string, usd float64, at time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

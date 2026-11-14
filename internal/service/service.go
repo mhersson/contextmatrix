@@ -146,6 +146,8 @@ type CardService struct {
 	// parkResets is optional; when non-nil it holds the usage-limit reset
 	// times of parked cards. Wired via SetParkResetStore once at startup.
 	parkResets ParkResetStore
+	// sentinelMarks is optional; when non-nil it supplies the cards' Sentinel marks.
+	sentinelMarks SentinelMarkSource
 
 	// editSnapshots is optional; when non-nil a run's own writes keep its
 	// launch snapshot current. Wired via SetEditSnapshotStore at startup.
@@ -182,6 +184,38 @@ type ParkResetStore interface {
 // no reset time is kept or shown.
 func (s *CardService) SetParkResetStore(st ParkResetStore) {
 	s.parkResets = st
+}
+
+// SentinelMarkSource gives the Sentinel mark of each card in a project that has one.
+type SentinelMarkSource interface {
+	SentinelMarks(ctx context.Context, project string) (map[string]board.SentinelMark, error)
+}
+
+// SetSentinelMarks wires the Sentinel mark source. Nil-safe: without one, no
+// card carries a mark.
+func (s *CardService) SetSentinelMarks(src SentinelMarkSource) {
+	s.sentinelMarks = src
+}
+
+// enrichSentinelMarks sets Sentinel on the cards that have a mark.
+// Best-effort: the mark is presentation, so a failure leaves the cards unmarked.
+func (s *CardService) enrichSentinelMarks(ctx context.Context, project string, cards ...*board.Card) {
+	if s.sentinelMarks == nil || len(cards) == 0 {
+		return
+	}
+
+	marks, err := s.sentinelMarks.SentinelMarks(ctx, project)
+	if err != nil {
+		ctxlog.Logger(ctx).Warn("sentinel mark enrichment skipped", "project", project, "error", err)
+
+		return
+	}
+
+	for _, c := range cards {
+		if m, ok := marks[c.ID]; ok {
+			c.Sentinel = &m
+		}
+	}
 }
 
 // EditSnapshotStore keeps a card's launch snapshot current with its worker's own writes.

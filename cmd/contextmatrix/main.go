@@ -623,6 +623,7 @@ func main() {
 		}
 
 		sentinelCtl = sentinel.New(sentinelCfg)
+		svc.SetSentinelMarks(sentinelCtl)
 	}
 
 	// Attribute backend-generated audit-trail entries to the agent backend
