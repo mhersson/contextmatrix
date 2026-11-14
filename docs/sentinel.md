@@ -432,6 +432,15 @@ Closing or settling a heal writes none on its card. The activity log carries
 only those lines; the full reason and the rest of the heal's detail stay on its
 `sentinel_heals` row.
 
+### Outputs
+
+What a heal leaves behind, and where:
+
+- The card: the guarded fix write (verify, the `## Sentinel` section, retired subtasks) and the activity entries above. The section is the note a human reads on the card.
+- `sentinel_heals`: every heal's stage, diagnosis, reasons and spend.
+- `sentinel_findings`: the friction findings of an investigation, stored only while `friction` is on. `project_verify` findings are shown to admins only in `multi` mode.
+- The board mark (`marks.go`) and the card's Sentinel tab, both read from the latest heal.
+
 ## Applying a fix
 
 At stage `apply` the pass decides how the card will rerun, writes the heal's
@@ -589,14 +598,21 @@ the next pass.
 | `internal/sentinel/consider.go`             | Considering undecided runs: open a heal for a settled, eligible run, parked at once or at its stage, or mark the run decided; then judge its card's forwarded fixes |
 | `internal/sentinel/causes.go`               | The cause table: one row per cause, `responseFor`                                                                                                            |
 | `internal/sentinel/checks.go`               | `fixContext`, the two check lists, `vetFix` and `vetForward`                                                                                                 |
-| `internal/sentinel/check_*.go`              | One check per file: shape, section, retire, edits, verify, text                                                                                                            |
+| `internal/sentinel/check_shape.go` | `checkShape` |
+| `internal/sentinel/check_section.go` | `checkSection` |
+| `internal/sentinel/check_retire.go` | `checkRetire` |
+| `internal/sentinel/check_edits.go` | `checkEdits` |
+| `internal/sentinel/check_verify.go` | `checkVerify` and its resolved-verify helpers |
+| `internal/sentinel/check_text.go` | `checkText` |
 | `internal/sentinel/trigger.go`              | The pure triggers: `causeKey` (settled and cause), `eligible`, and `openStage` (the stage a new heal opens at)                                               |
 | `internal/sentinel/heal.go`                 | The pure heal flow: `nextStep` over a `healView`, one rule per stage and exit; `healFix`                                                                     |
 | `internal/sentinel/gate.go`                 | The pure budget gate, the daily cap's day (`dayStart`) and the worker-slot check (`roomFor`)                                                                 |
 | `internal/sentinel/status.go`               | `Status`, the states and the pure summary                                                                                                                    |
+| `internal/sentinel/marks.go` | `SentinelMarks`: each card's board mark from its latest heal, and `markFor` |
 | `internal/opstore/sqlite/sentinel.go`       | The settings row and the subscription windows the controller reads                                                                                           |
 | `internal/opstore/sqlite/card_runs.go`      | The run row                                                                                                                                                  |
 | `internal/opstore/sqlite/sentinel_heals.go` | Heals, findings and the spend ledger                                                                                                                         |
 | `internal/api/backend_runkind.go`           | `runKindBase`: a run kind's common payload fields and its contents-read token; `sentinelRelaunch`: Sentinel's launch of a rerun                            |
+| `internal/api/sentinel.go` | The `/api/sentinel` settings and status endpoints and the per-card heal view |
 
 Tests sit next to each file.

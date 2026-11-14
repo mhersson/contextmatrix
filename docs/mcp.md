@@ -205,6 +205,8 @@ through `run_playbook`; stopping a run and setting the base branch stay web UI
 controls. Card summaries (`get_card`, `list_cards`,
 task context) carry `playbook_lock` mirrored from the card, naming the
 runnable playbook that owns its execution settings.
+Card summaries also carry `sentinel`, the board mark of a card Sentinel touched
+([data model](data-model.md)); it is computed on read and absent otherwise.
 
 ### Knowledge
 

@@ -177,6 +177,13 @@ accept it and is admin-gated in multi mode.
 "UI = human" holds in both modes: a convention behind the CSRF gate in none
 mode, a proof in multi mode.
 
+**Sentinel's authority is CM's own.** Its triggers come only from the
+HMAC-signed status callback and CM's own stall and lost-worker detection; no
+MCP call and no browser request can start a heal. It acts through in-process
+service calls under the agent ID `system:sentinel`, never over MCP, so the
+`mcp_api_key` gives no route to it. Run kinds get no MCP key and a
+contents-read token (see Worker credentials). See [Sentinel](sentinel.md).
+
 ### Worker credentials
 
 Every process in a worker container shares one UID, so any GitHub token a worker
