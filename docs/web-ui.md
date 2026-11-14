@@ -266,31 +266,58 @@ its label.
   refreshes on Sentinel events and every minute.
 - While Sentinel is enabled, a card's rail gains a Sentinel tab between Info
   and Danger, and the collapsed rail widens from 340 to 420 px to fit the five
-  tabs and the width controls. It shows where the card's last run was launched
-  from (UI or REST, MCP, playbook or Sentinel), whether the card was autonomous
-  at launch, the heal attempts used against the cap, and the last stop (its
-  cause, or "cause unknown" when it came with none, and its time, or that a
-  human stopped it). A card this instance never launched shows a note that
-  Sentinel acts only on runs this instance launched. Below the facts, each heal
-  shows a header (cause and stage, age, spend), its diagnosis, a line diff of
-  the card's `## Sentinel` section and of the verify change (additions on a
-  green tint, removals on a red one, text in the foreground colour, long lines
-  wrapped), the subtasks it retired, whether the rerun that followed its
-  investigation started fresh or resumed (once that rerun has launched), and,
-  when the fix's proposed section failed the section checks and was not written,
-  "Section dropped" with the reasons. Then come the project's standing guidance
-  PR (a link to it, its state - open, changed outside Sentinel, merged or
-  closed, shown only once CM has read the PR from GitHub - and its file),
-  Friction (guidance, code, ecosystem) and Notes (card advice, project verify
-  for admins, hard card). Each finding carries an outcome line: waiting to be
-  routed (or the reason it is queued), waiting for the next guidance PR, "In the
-  standing PR" (a link to the PR, opened in a new tab), merged, rejected in
-  review, the duplicate's reason, "Dropped:" with the reason, or "Friction card
-  ID" (a link to that card); notes and held findings have none. Last comes
-  Analyses, newest first: each run analysis's stage, age, spend and reason. All
-  of this text is shown as plain text. The tab refetches a second after a burst
-  of Sentinel events for the card or for its project as a whole, and at once on
-  events for the card.
+  tabs and the width controls. A card whose last run this instance did not
+  launch opens with a note that Sentinel acts only on runs this instance
+  launched. A summary of four boxes follows: the status (the shield and a pill:
+  healing while a heal is open, analysing while a run analysis is, needs a
+  human while a parked heal or a failed rerun stands, until the card is
+  launched again, healed when the latest heal healed, watching, or not ours for
+  a card this instance never launched), the heal attempts used against the cap,
+  Sentinel's total spend on the card (heals and analyses) and the count of
+  friction findings. Below it, sub-tabs Heals, Findings, Analyses and PR, each
+  but PR with its count, show one compact table at a time. The tab opens on
+  Heals, or on Findings when the card has no heals; the choice is not kept.
+  The tables fit the 420 px rail: a cell too long for its column ends in an
+  ellipsis with the full text in a tooltip, and an expanded row shows its cells
+  in full.
+  - Heals: the facts first (where the last run was launched from - UI or REST,
+    MCP, playbook or Sentinel - whether the card was autonomous at launch, the
+    heal attempts against the cap, and the last stop: its cause, or "cause
+    unknown" when it came with none, and its time, or that a human stopped it),
+    then one row per heal or forward, newest first: the cause (for a forward,
+    the card it came from), the stage and the age, plus the spend on the
+    600 px rail. A row expands to the diagnosis, a line diff of the card's
+    `## Sentinel` section and of the verify change (additions on a green tint,
+    removals on a red one, text in the foreground colour, long lines wrapped),
+    the subtasks it retired, whether the rerun that followed its investigation
+    started fresh or resumed (once that rerun has launched), "Section dropped"
+    with the reasons when the fix's proposed section failed the section checks
+    and was not written, the heal's reason (a park reason in the wait yellow)
+    and, on the 420 px rail, the spend. The newest row starts expanded.
+  - Findings: one row per friction finding (guidance, code, ecosystem): its
+    kind, title (with none, its text's first line, else its kind) and state.
+    A row expands to the text, the evidence and an outcome line: waiting to be
+    routed (or the reason it is queued), waiting for the next guidance PR, "In
+    the standing PR" (a link to the PR, opened in a new tab), merged, rejected
+    in review, the duplicate's reason, "Dropped:" with the reason, or "Friction
+    card ID" (a link to that card); held findings have none. Notes follow: card
+    advice, project verify (marked admin, sent only to admins in `multi` mode)
+    and hard card, each with its title, text and evidence.
+  - Analyses: each run analysis, newest first: its age, result (analysed,
+    failed, skipped, or analysing while open), reason and cost.
+  - PR: the project's standing guidance PR (a link to it, its state - open,
+    changed outside Sentinel, merged or closed, shown only once CM has read the
+    PR from GitHub - its file and its last push), then, when the project's
+    newest guidance revision ended without going out, that revision's stage,
+    reason and age.
+
+  Pills are green for healed, merged and analysed, the wait yellow for parked,
+  needs a human and a PR changed outside Sentinel, red for a failed or refused
+  stage, and aqua for a proposed finding, an open PR and work in flight; the
+  rest are neutral. A sub-tab with nothing to show says so. All of this text
+  is shown as plain text. The tab refetches a second after a burst of Sentinel
+  events for the card or for its project as a whole, and at once on events for
+  the card.
 - A purple shield joins the board card's signal icons when the card carries a
   Sentinel mark (healing, healed, edited, parked or created); its label is the
   mark's label. The server sends no mark while Sentinel is off. A card is marked
