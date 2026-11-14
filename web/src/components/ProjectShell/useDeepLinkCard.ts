@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import type { Card } from '../../types';
+import type { RailTabKey } from '../CardPanel/CardPanelBody';
 
 interface UseDeepLinkCardArgs {
   /** Cards currently loaded for the active project. */
@@ -25,8 +26,10 @@ interface UseDeepLinkCardArgs {
  * board (not the same as still-loading - we wait for `loading=false`), strip
  * the URL once so the dead link does not interfere with future interactions.
  *
- * Outbound: when a consumed deep-link panel closes, strip `?card=` from the
- * URL (the user closed the deep-linked panel).
+ * `&tab=sentinel` asks for the panel's Sentinel tab (any other value is ignored).
+ *
+ * Outbound: when a consumed deep-link panel closes, strip `?card=` and `?tab=`
+ * from the URL (the user closed the deep-linked panel).
  *
  * Click-driven panel opens deliberately do NOT write to the URL - full
  * URL ↔ panel sync is a deferred follow-up.
@@ -46,7 +49,7 @@ export function useDeepLinkCard({
   selectedCard,
   setSelectedCard,
   project,
-}: UseDeepLinkCardArgs): void {
+}: UseDeepLinkCardArgs): { initialTab: RailTabKey | undefined } {
   const [searchParams, setSearchParams] = useSearchParams();
   const urlCardId = searchParams.get('card');
 
@@ -107,9 +110,12 @@ export function useDeepLinkCard({
     setSearchParams(
       (p) => {
         p.delete('card');
+        p.delete('tab');
         return p;
       },
       { replace: true },
     );
   }, [pendingUrlStrip, setSearchParams]);
+
+  return { initialTab: searchParams.get('tab') === 'sentinel' ? 'sentinel' : undefined };
 }

@@ -98,7 +98,7 @@ export function ProjectShell() {
 
   // Deep-link handling for ?card=ID - see useDeepLinkCard for full rationale.
   // Click-driven panel opens deliberately do NOT write to the URL.
-  useDeepLinkCard({ cards, loading, selectedCard, setSelectedCard, project });
+  const { initialTab } = useDeepLinkCard({ cards, loading, selectedCard, setSelectedCard, project });
 
   // Hydrate the selected card via single-card GET when the panel opens.
   // The list endpoint (useBoard's `cards`) deliberately omits fields that are
@@ -372,6 +372,7 @@ export function ProjectShell() {
             onSubtaskClick={handleSubtaskClick} currentAgentId={identity}
             onRunCard={handleRunCard} onStopCard={handleStopCard}
             onForceRelease={handleForceRelease}
+            initialTab={initialTab}
           />
         </ErrorBoundary>
       )}

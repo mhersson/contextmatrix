@@ -10,7 +10,7 @@ reference for people using the UI; execution semantics live in
 | Route                                       | View                                                     |
 | ------------------------------------------- | -------------------------------------------------------- |
 | `/`, `/all`                                 | All-projects dashboard                                   |
-| `/projects/:project`                        | Board. `?card=ID` opens that card's detail panel         |
+| `/projects/:project`                        | Board. `?card=ID` opens that card's detail panel (`&tab=sentinel` on its Sentinel tab) |
 | `/projects/:project/settings`               | Project settings                                         |
 | `/chat`, `/chat/:id`                        | Global chat surface. `/chat?new=1` opens the New Chat dialog on Chat, `?new=blueprint` on Blueprint |
 | `/playbooks`, `/playbooks/:id`              | Playbook list and detail (see [playbooks](playbooks.md)) |
