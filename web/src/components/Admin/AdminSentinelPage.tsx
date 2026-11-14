@@ -160,7 +160,7 @@ export function AdminSentinelPage() {
           />
           <NumberField
             label="Daily spend cap (USD)"
-            hint="Applies on the endpoint channel. 0 means no investigations."
+            hint="Applies on the endpoint channel to investigations and reruns, counting work still in flight. 0 stops both."
             step={1}
             value={draft.daily_cap_usd}
             onChange={(daily_cap_usd) => set({ daily_cap_usd })}

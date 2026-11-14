@@ -27,8 +27,9 @@ type passReads struct {
 	now        time.Time
 	mode       llmchannel.Mode
 	windows    []protocol.SubscriptionUsage
-	spent      float64 // the endpoint ledger since 00:00 UTC
-	budget     bool
+	charged    float64 // the endpoint ledger since 00:00 UTC
+	spent      float64 // what the daily cap counts: charged, plus work in flight, kept current through the pass
+	budget     bool    // the gate as the pass began
 	gateReason string
 	heals      []state.Heal            // the open heals
 	inFlight   []state.Heal            // every heal with a run kind in flight, whatever its stage
@@ -81,9 +82,9 @@ func (c *Controller) pass(ctx context.Context) error {
 		return fmt.Errorf("count healed cards: %w", err)
 	}
 
-	in.Mode, in.Windows, in.GateOpen, in.GateReason = r.mode, r.windows, r.budget, r.gateReason
-	in.NoRunKinds = c.noRunKinds(now)
-	in.Healing, in.HealedToday, in.SpentToday = len(open), healed, r.spent
+	in.GateOpen, in.GateReason = r.gate()
+	in.Mode, in.Windows, in.NoRunKinds = r.mode, r.windows, c.noRunKinds(now)
+	in.Healing, in.HealedToday, in.SpentToday = len(open), healed, r.charged
 	c.record(in)
 
 	if again {
@@ -102,7 +103,7 @@ func (c *Controller) read(ctx context.Context, set state.Settings, now time.Time
 		return nil, fmt.Errorf("read subscription windows: %w", err)
 	}
 
-	spent, err := c.cfg.Store.SpentSince(ctx, string(llmchannel.ModeEndpoint), dayStart(now))
+	charged, err := c.cfg.Store.SpentSince(ctx, string(llmchannel.ModeEndpoint), dayStart(now))
 	if err != nil {
 		return nil, fmt.Errorf("read today's spend: %w", err)
 	}
@@ -119,9 +120,9 @@ func (c *Controller) read(ctx context.Context, set state.Settings, now time.Time
 
 	r := &passReads{
 		set: set, now: now, mode: c.cfg.Channel.Effective(config.BackendNameAgent),
-		windows: windows, spent: spent, heals: heals, inFlight: inFlight,
+		windows: windows, charged: charged, spent: charged + inFlightReserve(inFlight), heals: heals, inFlight: inFlight,
 	}
-	r.budget, r.gateReason = budgetGate(r.mode, set, spent, windows, now)
+	r.budget, r.gateReason = r.gate()
 	log := ctxlog.Logger(ctx)
 
 	if len(inFlight) > 0 {
@@ -139,6 +140,11 @@ func (c *Controller) read(ctx context.Context, set state.Settings, now time.Time
 	}
 
 	return r, nil
+}
+
+// gate is the budget gate on what the pass has counted so far.
+func (r *passReads) gate() (open bool, reason string) {
+	return budgetGate(r.mode, r.set, r.spent, r.windows, r.now)
 }
 
 // listed reports whether the agent lists h's in-flight run kind.
@@ -188,15 +194,34 @@ func (c *Controller) expireDispatches(ctx context.Context, r *passReads) {
 	r.inFlight = kept
 }
 
-// advanceHeals acts on each open heal's next step. It returns the cards whose
-// heal is still open, and whether one moved on or changed under the pass.
+// advanceHeals reads every open heal's view, so the daily cap counts every
+// rerun's cost so far before any heal decides, then acts on each heal's next
+// step. It returns the cards whose heal is still open, and whether one moved
+// on or changed under the pass. A heal whose read failed stays open for the
+// next pass to decide.
 func (c *Controller) advanceHeals(ctx context.Context, r *passReads) (open map[cardRef]bool, again bool) {
 	open = make(map[cardRef]bool, len(r.heals))
+	views := make([]healView, 0, len(r.heals))
 
 	for _, h := range r.heals {
-		stillOpen, moved := c.advance(ctx, r, h)
-		if stillOpen {
+		v, err := c.view(ctx, r, h)
+		if err != nil {
+			ctxlog.Logger(ctx).Warn("sentinel: heal not advanced",
+				"project", h.Project, "card_id", h.CardID, "heal_id", h.ID, "error", err)
+
 			open[cardRef{h.Project, h.CardID}] = true
+
+			continue
+		}
+
+		r.spent += rerunAccrued(v)
+		views = append(views, v)
+	}
+
+	for i := range views {
+		stillOpen, moved := c.advance(ctx, r, &views[i])
+		if stillOpen {
+			open[cardRef{views[i].Heal.Project, views[i].Heal.CardID}] = true
 		}
 
 		again = again || moved
@@ -205,22 +230,20 @@ func (c *Controller) advanceHeals(ctx context.Context, r *passReads) (open map[c
 	return open, again
 }
 
-// advance acts on one heal's next step. A heal whose read or step failed, or
-// that changed since it was read, or whose card did, stays open for the next
-// pass to decide.
-func (c *Controller) advance(ctx context.Context, r *passReads, h state.Heal) (open, again bool) {
+// advance acts on one heal's next step, judged on the budget and worker slots
+// as the heals before it left them. A heal whose step failed, or that changed
+// since it was read, or whose card did, stays open for the next pass to
+// decide.
+func (c *Controller) advance(ctx context.Context, r *passReads, v *healView) (open, again bool) {
+	h := v.Heal
 	log := ctxlog.Logger(ctx).With("project", h.Project, "card_id", h.CardID, "heal_id", h.ID)
 
-	v, err := c.view(ctx, r, h)
-	if err != nil {
-		log.Warn("sentinel: heal not advanced", "error", err)
+	v.Budget, _ = r.gate()
+	v.Room = roomFor(r.health)
 
-		return true, false
-	}
+	s := nextStep(*v)
 
-	s := nextStep(v)
-
-	err = c.act(ctx, r, &v, s)
+	err := c.act(ctx, r, v, s)
 
 	switch {
 	case errors.Is(err, state.ErrHealChanged), errors.Is(err, service.ErrCardChanged):
@@ -234,10 +257,11 @@ func (c *Controller) advance(ctx context.Context, r *passReads, h state.Heal) (o
 	return !state.Terminal(v.Heal.Stage), s.Kind == stepAdvance
 }
 
-// view reads what nextStep needs for h: the card fresh, its run row, the edit
-// check, and at stage apply the fix checks on a card diagnosis's fix.
+// view reads what nextStep needs for h but the budget and worker slots: the
+// card fresh, its run row, the edit check, and at stage apply the fix checks
+// on a card diagnosis's fix.
 func (c *Controller) view(ctx context.Context, r *passReads, h state.Heal) (healView, error) {
-	v := healView{Heal: h, Healing: r.set.Healing, Budget: r.budget, Room: roomFor(r.health), Now: r.now}
+	v := healView{Heal: h, Healing: r.set.Healing, Now: r.now}
 
 	card, err := c.cfg.Cards.GetCard(ctx, h.Project, h.CardID)
 
@@ -308,9 +332,11 @@ func (c *Controller) act(ctx context.Context, r *passReads, v *healView, s step)
 			return nil
 		}
 
-		// The run may hold a worker slot now, which the next heal's room counts.
+		// The run may hold a worker slot now, and may charge its ceiling, which
+		// the next heal's room and budget count.
 		if inFlight(h.Dispatch) {
 			r.health.RunningContainers++
+			r.spent += inFlightReserve([]state.Heal{*h})
 		}
 
 		return err

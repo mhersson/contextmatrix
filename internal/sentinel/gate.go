@@ -16,8 +16,9 @@ const (
 )
 
 // budgetGate reports whether Sentinel may start paid work now. The endpoint
-// channel is bounded by the daily cap. On Claude Code cost does not count:
-// every window that has not reset must be below the headroom threshold.
+// channel is bounded by the daily cap, against spentToday: what is charged and
+// what work in flight will charge. On Claude Code cost does not count: every
+// window that has not reset must be below the headroom threshold.
 func budgetGate(
 	mode llmchannel.Mode, s state.Settings, spentToday float64, windows []protocol.SubscriptionUsage, now time.Time,
 ) (open bool, reason string) {
@@ -55,4 +56,28 @@ func windowReset(w protocol.SubscriptionUsage, now time.Time) bool {
 // one free for card runs.
 func roomFor(h protocol.HealthResponse) bool {
 	return h.RunningContainers+1 < h.MaxConcurrent
+}
+
+// inFlightReserve is what the run kinds in flight will charge the endpoint
+// ledger at most: each endpoint dispatch's ceiling.
+func inFlightReserve(heals []state.Heal) float64 {
+	var usd float64
+
+	for _, h := range heals {
+		if h.Dispatch.Mode == string(llmchannel.ModeEndpoint) {
+			usd += h.Dispatch.CeilingUSD
+		}
+	}
+
+	return usd
+}
+
+// rerunAccrued is what a heal's rerun on the endpoint has cost so far: the
+// charge its settle would make now.
+func rerunAccrued(v healView) float64 {
+	if v.Heal.Stage != state.StageRerun || v.Card == nil || v.Run.Mode != string(llmchannel.ModeEndpoint) {
+		return 0
+	}
+
+	return rerunCharge(v.Heal, v.Card)
 }

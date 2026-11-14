@@ -12,6 +12,7 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/llmchannel"
 	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
@@ -576,6 +577,62 @@ func TestPassReadsTheAgentOnlyWhenNeeded(t *testing.T) {
 			assert.Len(t, e.backend.sent, tc.dispatched)
 		})
 	}
+}
+
+func TestPassReservesTheDailyCapForWorkInFlight(t *testing.T) {
+	e := newPassEnv(t)
+	ctx := context.Background()
+	e.backend.health.MaxConcurrent = 10
+
+	set := enabledSettings()
+	set.DailyCapUSD = 3.5
+	e.store.set(set)
+	e.ctl.SetRunKindBase(func(_ context.Context, project, cardID string, _ bool) (protocol.RunKindPayload, llmchannel.Mode, error) {
+		return protocol.RunKindPayload{Project: project, CardID: cardID}, llmchannel.ModeEndpoint, nil
+	})
+
+	// One investigation is in flight; two heals wait to send theirs.
+	e.stopped("ALPHA-001", protocol.StopCauseVerifyParked)
+	e.openHeal(t, "ALPHA-001", state.StageInvestigate, dispatchedAgo(protocol.RunKindInvestigate, time.Minute))
+	e.stopped("ALPHA-002", protocol.StopCauseVerifyParked)
+	e.openHeal(t, "ALPHA-002", state.StageInvestigate)
+	e.stopped("ALPHA-003", protocol.StopCauseVerifyParked)
+	e.openHeal(t, "ALPHA-003", state.StageInvestigate)
+
+	require.NoError(t, e.ctl.pass(ctx))
+
+	require.Len(t, e.backend.sent, 1, "2.00 in flight leaves room for one more 2.00 ceiling under 3.50, not two")
+	assert.Equal(t, "ALPHA-002", e.backend.sent[0].CardID)
+
+	st := e.ctl.Status()
+	assert.Equal(t, StatePaused, st.State)
+	assert.Equal(t, "daily cap reached", st.Reason)
+	assert.Zero(t, st.SpentTodayUSD, "nothing is charged yet")
+}
+
+func TestPassReservesTheDailyCapForARerunsCostSoFar(t *testing.T) {
+	e := newPassEnv(t)
+	ctx := context.Background()
+
+	set := enabledSettings()
+	set.DailyCapUSD = 2
+	e.store.set(set)
+
+	e.stopped("ALPHA-001", protocol.StopCauseVerifyParked)
+	e.openHeal(t, "ALPHA-001", state.StageInvestigate)
+
+	// A later heal's rerun is still going and has cost 2.00 since its relaunch.
+	relaunched := epoch.Add(-30 * time.Minute)
+	e.stopped("ALPHA-002", protocol.StopCauseVerifyParked, func(c *board.Card, r *state.Run) {
+		c.WorkerStatus, c.TokenUsage = "running", &board.TokenUsage{EstimatedCostUSD: 2.5}
+		r.StartedAt, r.StoppedAt, r.Launch.Origin = relaunched.Add(time.Minute), nil, state.OriginSentinel
+	})
+	e.openHeal(t, "ALPHA-002", state.StageRerun, relaunchedAt(relaunched, 0.5))
+
+	require.NoError(t, e.ctl.pass(ctx))
+
+	assert.Empty(t, e.backend.sent, "the rerun's cost so far fills the cap")
+	assert.Equal(t, StatePaused, e.ctl.Status().State)
 }
 
 func TestPassReportsSpendAndHealedToday(t *testing.T) {

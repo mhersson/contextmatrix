@@ -57,8 +57,15 @@ The gate uses the agent's effective LLM channel mode: the current mode, or
 `endpoint` when the agent does not support `claude_code`.
 
 - **Endpoint:** open while today's Sentinel spend on the endpoint channel
-  (its ledger rows since 00:00 UTC, settled heal reruns included) is below
-  `daily_cap_usd`, else `daily cap reached`.
+  (its ledger rows since 00:00 UTC, settled heal reruns included) plus what
+  work in flight may still charge is below `daily_cap_usd`, else
+  `daily cap reached`. Work in flight is each endpoint run kind in flight, at
+  its ceiling, and each heal rerun still going on the endpoint, at its cost so
+  far (the card's cost with its subtasks', less the cost base taken at the
+  relaunch). The pass decides the gate for each heal in turn and counts a run
+  kind's ceiling as soon as it sends one, so one pass cannot dispatch past the
+  cap. A rerun counts only what it has cost so far, so one started under the
+  cap can finish over it.
 - **Claude Code:** cost does not count. Open while every stored subscription
   window whose reset time is still ahead has a status other than `rejected`
   and a utilization below `headroom`, else
@@ -169,7 +176,8 @@ channel mode its dispatch ran on, once per run ID (`spend.go`):
 A heal's rerun is an ordinary card run, so its cost is on the card. When the
 rerun settles, the heal's ledger is charged one row for it (see
 [Settling a rerun](#settling-a-rerun)), so on the endpoint channel heal reruns
-count toward `daily_cap_usd`. A rerun still going is not counted yet.
+count toward `daily_cap_usd`; while it is still going, the budget gate counts
+its cost so far.
 
 ## Status
 
@@ -194,6 +202,8 @@ on Claude Code the `windows` that have not reset. `healing` counts the heals
 still open after the pass, `healed_today` the cards whose heal reached `healed`
 since 00:00 UTC, and `spent_today_usd` the endpoint ledger since 00:00 UTC; a
 pass reads the spend before it acts, so a charge it makes shows on the next.
+The gate also counts work in flight, so the status can read
+`daily cap reached` while `spent_today_usd` is still below the cap.
 
 ## Run kinds
 
@@ -394,9 +404,11 @@ stage waits.
 4. For every open heal it reads the card and the run row fresh, runs
    `checkEdits` against the launch snapshot and, at stage `apply`, `vetFix` on
    a `card` diagnosis's fix, so a retire-only fix that skipped the check run
-   kind is still vetted. `nextStep` decides, and the pass dispatches, advances
-   the stage, parks or closes. A run kind it sends takes a worker slot for the
-   rest of the pass. At `apply` it writes the fix and reruns the card, at
+   kind is still vetted. Every heal is read before any acts, so the budget
+   gate counts every rerun's cost so far. Then, heal by heal, `nextStep`
+   decides and the pass dispatches, advances the stage, parks or closes. A run
+   kind it sends takes a worker slot and counts its ceiling against the daily
+   cap for the rest of the pass. At `apply` it writes the fix and reruns the card, at
    `usage_wait` it reruns the card to resume, and at `rerun` it settles the
    heal once the rerun ends, forwarding a healed heal's fix.
 5. While `healing` is on, it considers every undecided run whose card has no
