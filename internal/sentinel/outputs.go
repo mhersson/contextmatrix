@@ -92,10 +92,7 @@ func (c *Controller) readRouting(ctx context.Context, project string, now time.T
 // routeFinding applies one finding's decision and folds it into the project's
 // routing, so a later finding of the pass sees it.
 func (c *Controller) routeFinding(ctx context.Context, f state.Finding, pr *projectRouting, secrets []string, now time.Time) error {
-	var (
-		newState, reason, output string
-		created                  *board.Card
-	)
+	var newState, reason, output string
 
 	switch f.Kind {
 	case protocol.FindingGuidance:
@@ -104,12 +101,14 @@ func (c *Controller) routeFinding(ctx context.Context, f state.Finding, pr *proj
 		newState, reason = routeCode(f, pr.cards, secrets, pr.createdToday)
 
 		if newState == state.FindingCarded {
-			var err error
-
-			if created, err = c.cfg.Cards.CreateCard(ctx, f.Project, frictionCardInput(f, pr.config)); err != nil {
+			created, err := c.cfg.Cards.CreateCard(ctx, f.Project, frictionCardInput(f, pr.config))
+			if err != nil {
 				return fmt.Errorf("create friction card: %w", err)
 			}
 
+			// Folded in before the outcome write: the card exists even if the write fails.
+			pr.cards = append(pr.cards, created)
+			pr.createdToday++
 			output = created.ID
 		}
 	default:
@@ -124,11 +123,7 @@ func (c *Controller) routeFinding(ctx context.Context, f state.Finding, pr *proj
 		return fmt.Errorf("set finding outcome: %w", err)
 	}
 
-	switch {
-	case created != nil:
-		pr.cards = append(pr.cards, created)
-		pr.createdToday++
-	case newState == state.FindingPending:
+	if newState == state.FindingPending {
 		f.State = newState
 		pr.guidance = append(pr.guidance, f)
 	}

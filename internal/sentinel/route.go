@@ -17,6 +17,7 @@ const (
 	limitReason             = "today's friction-card limit reached"
 	secretReason            = "holds a secret"
 	markerReason            = "holds a guidance block marker"
+	blankReason             = "has no text"
 	frictionDefaultType     = "task"
 	frictionDefaultPriority = "medium"
 )
@@ -31,13 +32,15 @@ func holdsSecretFinding(f state.Finding, secrets []string) bool {
 }
 
 // routeGuidance decides a queued guidance finding: dropped when it holds a
-// secret or its text a guidance block marker, a duplicate of an earlier
-// finding already pending or in a guidance PR, else pending. earlier may hold
-// findings in any state.
+// secret, has no text or its text holds a guidance block marker, a duplicate
+// of an earlier finding already pending or in a guidance PR, else pending.
+// earlier may hold findings in any state.
 func routeGuidance(f state.Finding, earlier []state.Finding, secrets []string) (newState, reason string) {
 	switch {
 	case holdsSecretFinding(f, secrets):
 		return state.FindingDropped, secretReason
+	case strings.TrimSpace(f.Text) == "":
+		return state.FindingDropped, blankReason
 	case strings.Contains(f.Text, guidanceMarker):
 		return state.FindingDropped, markerReason
 	}

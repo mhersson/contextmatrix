@@ -729,9 +729,10 @@ cannot be read leaves its findings queued.
 
 - A finding that holds one of CM's secret values (8 bytes or more) in its
   title, text or evidence is `dropped` with the reason `holds a secret`.
-- A `guidance` finding whose text holds the guidance block marker prefix
-  `<!-- sentinel:`, which the agent refuses in a section, is `dropped` with the
-  reason `holds a guidance block marker`.
+- A `guidance` finding with no text is `dropped` with the reason
+  `has no text`, since no section can carry it. One whose text holds the
+  guidance block marker prefix `<!-- sentinel:`, which the agent refuses in a
+  section, is `dropped` with the reason `holds a guidance block marker`.
 - A `guidance` finding is a `duplicate` of an earlier guidance finding of the
   project that is `pending`, `proposed`, `merged` or `rejected` when their texts
   are similar, else it becomes `pending`, waiting for the guidance PR. Similar
@@ -814,7 +815,8 @@ and a revision never writes a card. With no guidance base wired, or while
    record's push time), or the project's newest `revision_failed` or
    `revision_stale` row ended less than an hour ago: wait. So a revision that
    fails the same way is tried at most once an hour. A refused revision pushed
-   nothing and sets no push time, so its retry goes out at once. There is no
+   nothing and sets no push time, so its retry goes out at once (one whose
+   refusal changed nothing ends failed instead, below). There is no
    daily cap: each push carries every pending finding that fits.
 6. No worker slot is free: wait.
 7. Otherwise send `guidance_pr` (see [Run kinds](#run-kinds)): `expect_head`
@@ -825,10 +827,15 @@ and a revision never writes a card. With no guidance base wired, or while
    `revision_refused` row created since the last push, up to the agent's 64
    entries (`maxAllowed`).
 
-Before it sends, the pass reads the PR from GitHub however recent the last
-read (a merged or closed record is final and not read again), settles the
-proposed findings of a PR that merged or closed, and decides again on what it
-shows; a failed read sends nothing. While the agent holds the kind, nothing is
+Before it sends, the pass drops the pending findings too long for any section
+(below) and packs the section from what it has already read. A pack that
+holds no pending finding sends nothing and reads nothing, so a full PR costs
+only the 15-minute reads. Otherwise the pass reads the PR from GitHub however
+recent the last read (a merged or closed record is final and not read again),
+settles the proposed findings of a PR that merged or closed, decides again on
+what it shows and packs again. A failed read ends the project's revision row
+`revision_failed` with `not sent: read the standing pr: <why>`, so rule 5
+holds the next try for an hour. While the agent holds the kind, nothing is
 read or sent.
 
 The section is the open PR's `proposed` findings, then the `pending` ones
@@ -839,7 +846,9 @@ as published is `dropped` with `too long for the guidance section`. A section
 that holds no pending finding would propose nothing new, so nothing is sent:
 pending guidance that does not fit beside a full PR waits until it merges or
 closes. Card IDs are redacted to `a card` with every project's prefix in the
-section and the body, as settling compares them; project and repo names stay.
+section and the body, and card-run branches (`cm/<card ID in lower case>`,
+with any suffix) to `a card branch`, as settling compares them; project and
+repo names stay.
 The title is `Sentinel guidance for <project>`. The body is one intro line,
 then per finding an item with its text's first line and, indented below it,
 `Evidence: ` with its evidence's first line, each cut to 300 runes. Items stop
@@ -873,7 +882,10 @@ pass tries again. The outcomes:
   holds drops every sent finding with `refused: <entry> not traced to a
   finding`. Only `pending` and `proposed` findings are written. The row's
   `allowed` keeps the entries it was sent with, so a retry never loses one an
-  earlier refusal allowed.
+  earlier refusal allowed. A refusal that neither allows an entry nor drops a
+  finding would be refused again the same way, so it ends `revision_failed`
+  instead, with the refusal as its reason, and rule 5 holds the next try for
+  an hour.
 
 The pass that ends a revision nudges, so a refused revision's retry with the
 remaining findings is decided at once.
@@ -1082,12 +1094,12 @@ the next pass.
 | `internal/sentinel/route.go`                | The pure routing: `routeGuidance`, `routeCode` and `frictionCardInput` |
 | `internal/sentinel/outputs.go`              | `routeFindings`: read the queued findings and each project's friction cards, guidance and today's count, apply the decisions and write the outcomes |
 | `internal/sentinel/dedup.go`                | The pure `similar`: word 3-shingle Jaccard or containment between two texts |
-| `internal/sentinel/safety.go`               | `holdsSecret` and `redactCardIDs`: what keeps a secret or a card ID out of published text; `published` and `publishedText`, a finding as Sentinel publishes it, which packing and settling share |
+| `internal/sentinel/safety.go`               | `holdsSecret` and `redactCardIDs`: what keeps a secret, a card ID or a card-run branch out of published text; `published` and `publishedText`, a finding as Sentinel publishes it, which packing and settling share |
 | `internal/sentinel/standing_pr.go`          | The pure `prState` and `mergedFates` |
 | `internal/sentinel/standing_prs.go`         | `readStandingPRs` and `readStandingPR`: read a due PR from GitHub, settle a merged or closed PR's proposed findings (`settleFindings`), save the state; `projectPrefixes` |
 | `internal/sentinel/guidance_pack.go`        | The pure builders of the guidance PR: `packSection`, `tooLong`, `prTitle`, `prBody` (with its count line, `unlisted`) and `withIDs` |
 | `internal/sentinel/revision.go`             | The pure revision decisions: `nextRevision` over a `revisionView`, and tracing a refusal (`attributeAbsent`, `withAllowed`) |
-| `internal/sentinel/revisions.go`            | `advanceRevisions`: read each project's view and act on its step; `dispatchRevision` (the forced PR read, dropping findings too long for a section, packing, the row, the send, or ending the row failed when its payload cannot be filled) and `endRevision`, which does what each outcome asks |
+| `internal/sentinel/revisions.go`            | `advanceRevisions`: read each project's view and act on its step; `dispatchRevision` (dropping findings too long for a section, packing from the pass's view, the forced PR read, packing again, the row, the send, or ending the row failed when the read fails (`failUnread`) or its payload cannot be filled (`failUnsent`)) and `endRevision`, which does what each outcome asks and ends a refusal that changed nothing failed |
 | `internal/opstore/sqlite/sentinel.go`       | The settings row and the subscription windows the controller reads |
 | `internal/opstore/sqlite/card_runs.go`      | The run row, with the decided and analysis-queued marks |
 | `internal/opstore/sqlite/sentinel_heals.go` | The work rows of every kind and their kind-filtered readers (heals, forwards, analyses, and revisions: `OpenRevision`, `OpenRevisions`, `LastRefusedRevision`, `LastFailedRevision`, `LastRevisedRevision`), findings (`PendingFindings`, `Findings` by ID whatever the state) and the spend ledger |

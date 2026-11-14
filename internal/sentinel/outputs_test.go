@@ -2,6 +2,7 @@ package sentinel
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -118,4 +119,17 @@ func TestRouteFindingsIsOffWithFriction(t *testing.T) {
 
 	assert.Empty(t, e.cards.created)
 	assert.Equal(t, state.FindingQueued, e.store.finding(1).State)
+}
+
+func TestRouteFindingsCountsACreatedCardWhoseOutcomeWriteFailed(t *testing.T) {
+	text := "the loader reads every file twice because the cache key ignores the path"
+	e := routeEnv(t,
+		queued(1, "code", "Cache the config loader", text),
+		queued(2, "code", "Cache the config loader", text),
+	)
+	e.store.outcomeErr = errors.New("disk full")
+
+	require.NoError(t, e.ctl.pass(context.Background()))
+
+	assert.Len(t, e.cards.created, 1, "the second finding sees the card the first one made")
 }

@@ -46,6 +46,8 @@ func TestRouteGuidance(t *testing.T) {
 			[]state.Finding{other(3, state.FindingPending)},
 			nil, state.FindingDropped, "holds a guidance block marker",
 		},
+		{"no text", state.Finding{Kind: "guidance", Text: " \n\t", Evidence: "ev"}, nil, nil, state.FindingDropped, blankReason},
+		{"a secret beats no text", state.Finding{Kind: "guidance", Evidence: "hunter2hunter2"}, nil, []string{"hunter2hunter2"}, state.FindingDropped, secretReason},
 		{"an ordinary comment", state.Finding{Kind: "guidance", Text: "Keep <!-- generated --> blocks."}, nil, nil, state.FindingPending, ""},
 		{"the marker matches exactly", state.Finding{Kind: "guidance", Text: "<!-- Sentinel: x -->"}, nil, nil, state.FindingPending, ""},
 	}

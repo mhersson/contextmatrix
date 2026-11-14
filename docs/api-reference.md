@@ -2796,7 +2796,7 @@ record it, so the backend's retry delivers it again.
 | `card_id`       | Empty exactly for `guidance_pr`, which names no card; every other kind names its card                        |
 | `worker_status` | `completed` or `failed`; a run kind sends no `running` status                                                |
 | `result`        | Only on `completed` with `stop_cause` `done`; holds exactly the member `kind` names |
-| `usage`         | At most 16 rows, one per model: `model` plus the token counts, `cost_usd`, `cost_basis` and `subscription` of a usage frame |
+| `usage`         | At most 16 rows, one per model: `model` plus the token counts, `cost_usd`, `cost_basis` and `subscription` of a usage frame; none on `guidance_pr`, which runs no model |
 
 A status that breaks any rule or limit is 422 `VALIDATION_ERROR`, and nothing
 in it is recorded:

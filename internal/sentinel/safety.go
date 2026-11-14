@@ -11,21 +11,28 @@ import (
 // would match ordinary words.
 const minSecretBytes = 8
 
-// redactCardIDs replaces each whole-word <PREFIX>-<digits> for a listed
-// prefix with "a card". Prefixes are upper-case, so matching is case-sensitive.
+// redactCardIDs replaces each whole-word <PREFIX>-<digits> for a listed prefix
+// with "a card", and each card-run branch cm/<prefix>-<digits>, its prefix in
+// lower case and with any -<word> suffixes, with "a card branch". Matching is
+// case-sensitive; an empty prefix is skipped.
 func redactCardIDs(text string, prefixes []string) string {
-	if len(prefixes) == 0 {
+	var ids, branches []string
+
+	for _, p := range prefixes {
+		if p != "" {
+			ids = append(ids, regexp.QuoteMeta(p))
+			branches = append(branches, regexp.QuoteMeta(strings.ToLower(p)))
+		}
+	}
+
+	if len(ids) == 0 {
 		return text
 	}
 
-	quoted := make([]string, len(prefixes))
-	for i, p := range prefixes {
-		quoted[i] = regexp.QuoteMeta(p)
-	}
+	branch := regexp.MustCompile(`\bcm/(?:` + strings.Join(branches, "|") + `)-\d+(?:-\w+)*\b`)
+	id := regexp.MustCompile(`\b(?:` + strings.Join(ids, "|") + `)-\d+\b`)
 
-	re := regexp.MustCompile(`\b(?:` + strings.Join(quoted, "|") + `)-\d+\b`)
-
-	return re.ReplaceAllString(text, "a card")
+	return id.ReplaceAllString(branch.ReplaceAllString(text, "a card branch"), "a card")
 }
 
 // published is each finding with its text and evidence as Sentinel publishes

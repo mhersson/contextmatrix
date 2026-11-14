@@ -134,9 +134,7 @@ func (c *Controller) projectPrefixes(ctx context.Context) ([]string, error) {
 
 	prefixes := make([]string, 0, len(projects))
 	for _, p := range projects {
-		if p.Prefix != "" {
-			prefixes = append(prefixes, p.Prefix)
-		}
+		prefixes = append(prefixes, p.Prefix)
 	}
 
 	return prefixes, nil

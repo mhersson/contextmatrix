@@ -55,6 +55,8 @@ func ValidateRunKindStatus(p protocol.StatusCallbackPayload, bodyLen int) error 
 		return fmt.Errorf("unknown run kind %q", p.Kind)
 	case p.Kind == protocol.RunKindGuidancePR && p.CardID != "":
 		return errors.New("a guidance_pr status names no card")
+	case p.Kind == protocol.RunKindGuidancePR && len(p.Usage) > 0:
+		return errors.New("a guidance_pr status carries no usage")
 	case p.Kind != protocol.RunKindGuidancePR && p.CardID == "":
 		return errors.New("a run-kind status names its card")
 	case p.WorkerStatus != statusCompleted && p.WorkerStatus != statusFailed:

@@ -283,6 +283,9 @@ func TestValidateRunKindStatusGuidancePR(t *testing.T) {
 			*gp(p) = protocol.GuidancePRResult{Outcome: protocol.GuidanceStale, AbsentFromRepo: []string{"x"}}
 		}, "stale"},
 		{"an unknown outcome", func(p *protocol.StatusCallbackPayload) { gp(p).Outcome = "merged" }, "outcome"},
+		{"usage", func(p *protocol.StatusCallbackPayload) {
+			p.Usage = []protocol.RunUsage{{Model: "vendor/model-a", LogTokenUsage: protocol.LogTokenUsage{InputTokens: 10}}}
+		}, "usage"},
 		{"an analyse result", func(p *protocol.StatusCallbackPayload) {
 			p.Result = &protocol.RunKindResult{Analyse: &protocol.AnalyseResult{}}
 		}, "exactly"},

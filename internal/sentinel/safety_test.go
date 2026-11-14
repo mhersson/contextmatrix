@@ -19,6 +19,15 @@ func TestRedactCardIDs(t *testing.T) {
 		{"leading letter", "XABC-12", []string{"ABC"}, "XABC-12"},
 		{"lower case", "abc-12", []string{"ABC"}, "abc-12"},
 		{"no prefixes", "ABC-12", nil, "ABC-12"},
+		{"an empty prefix is skipped", "x-5 and ABC-1", []string{"", "ABC"}, "x-5 and a card"},
+		{"only an empty prefix", "x-5", []string{""}, "x-5"},
+		{"a card branch", "push cm/abc-12 first", []string{"ABC"}, "push a card branch first"},
+		{"a card branch with a key", "cm/abc-12-PROJ-7 is ahead", []string{"ABC"}, "a card branch is ahead"},
+		{"a card branch with a word", "cm/abc-12-retry.", []string{"ABC"}, "a card branch."},
+		{"a branch on a remote", "origin/cm/abc-12", []string{"ABC"}, "origin/a card branch"},
+		{"a branch of an unlisted prefix", "cm/xyz-3", []string{"ABC"}, "cm/xyz-3"},
+		{"a branch with a trailing letter", "cm/abc-12x", []string{"ABC"}, "cm/abc-12x"},
+		{"an upper-case branch keeps the ID rule", "cm/ABC-12", []string{"ABC"}, "cm/a card"},
 	}
 
 	for _, tt := range tests {

@@ -561,3 +561,84 @@ func TestRevisionsShareTheWorkerSlots(t *testing.T) {
 	assert.Len(t, e.backend.sent, 1, "one free slot is left for run kinds")
 	assert.Equal(t, 1, e.backend.healths, "the agent's health is read once")
 }
+
+func TestAFullPRIsReadOnlyOnTheQuarterHour(t *testing.T) {
+	gh := &fakeGitHub{pull: PullState{Open: true, HeadSHA: "h1"}}
+	e, _ := revisionEnv(t, gh, guidance(2, "Run make generate before make test."))
+	e.putPR(t, state.StandingPR{HeadSHA: "h1", State: state.PROpen, PushedAt: epoch.Add(-2 * time.Hour), ReadAt: epoch})
+	e.store.putFinding(state.Finding{
+		ID: 1, Project: "alpha", CardID: "ALPHA-001", Kind: protocol.FindingGuidance, Text: strings.Repeat("p", maxSectionBytes-10),
+		State: state.FindingProposed, RevisionID: 4, Output: prURL,
+	})
+
+	for range 31 {
+		require.NoError(t, e.ctl.pass(context.Background()))
+		e.clk.Advance(time.Minute)
+	}
+
+	assert.Equal(t, 2, gh.pullCalls, "a revision that sends nothing reads nothing; only the 15-minute reads ran")
+	assert.Empty(t, e.backend.sent)
+	assert.Empty(t, revisionRows(e))
+}
+
+func TestAFailedForcedReadEndsTheRevisionFailed(t *testing.T) {
+	ctx := context.Background()
+	gh := &fakeGitHub{pullErr: errors.New("API rate limit exceeded")}
+	e, _ := revisionEnv(t, gh, guidance(1, "Run make generate before make test."))
+	e.putPR(t, state.StandingPR{HeadSHA: "h1", State: state.PROpen, PushedAt: epoch.Add(-2 * time.Hour), ReadAt: epoch})
+
+	require.NoError(t, e.ctl.pass(ctx))
+
+	assert.Equal(t, 1, gh.pullCalls, "the forced read")
+	assert.Empty(t, e.backend.sent)
+	assert.Equal(t, state.FindingPending, e.store.finding(1).State)
+
+	rows := revisionRows(e)
+	require.Len(t, rows, 1)
+	assert.Equal(t, state.StageRevisionFailed, rows[0].Stage)
+	assert.Contains(t, rows[0].Reason, "API rate limit exceeded", "the tab can say why")
+
+	for range 59 {
+		e.clk.Advance(time.Minute)
+		require.NoError(t, e.ctl.pass(ctx))
+	}
+
+	assert.Equal(t, 1+3, gh.pullCalls, "within the hour only the 15-minute reads ran")
+	assert.Len(t, revisionRows(e), 1)
+
+	e.clk.Advance(time.Minute)
+	require.NoError(t, e.ctl.pass(ctx))
+
+	assert.Len(t, revisionRows(e), 2, "the hour over, the revision reads again")
+}
+
+func TestARefusalThatChangesNothingEndsFailed(t *testing.T) {
+	ctx := context.Background()
+	e, _ := revisionEnv(t, &fakeGitHub{}, guidance(1, "Deploy only through deploy.example.net."))
+	e.cards.cards = append(e.cards.cards, &board.Card{
+		ID: "ALPHA-001", Project: "alpha", Title: "Ship it", Body: "The release goes out through deploy.example.net.\n",
+	})
+
+	// The agent refused an entry it was already sent as allowed.
+	at := epoch.Add(-time.Minute)
+	e.store.putHeal(state.Heal{
+		ID: 5, Kind: state.HealKindRevision, Project: "alpha", Stage: state.StageRevise, CreatedAt: at, UpdatedAt: at,
+		SentFindings: []int64{1}, Allowed: []string{"deploy.example.net"},
+		Dispatch: state.Dispatch{Kind: protocol.RunKindGuidancePR, At: &at, AnsweredRunID: "gp-1"},
+		Revision: &protocol.GuidancePRResult{Outcome: protocol.GuidanceRefused, AbsentFromRepo: []string{"deploy.example.net"}},
+	})
+
+	require.NoError(t, e.ctl.pass(ctx))
+
+	row := e.store.heal(5)
+	assert.Equal(t, state.StageRevisionFailed, row.Stage)
+	assert.Contains(t, row.Reason, "deploy.example.net", "the refusal is the reason")
+	assert.Equal(t, state.FindingPending, e.store.finding(1).State)
+
+	require.NoError(t, e.ctl.pass(ctx))
+	assert.Empty(t, e.backend.sent, "the same send would be refused again, so it waits the hour")
+
+	e.clk.Advance(pushEvery)
+	require.NoError(t, e.ctl.pass(ctx))
+	assert.Len(t, e.backend.sent, 1)
+}

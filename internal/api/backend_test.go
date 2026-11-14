@@ -1880,6 +1880,20 @@ func TestWorkerStatusAcceptsAGuidancePRStatusWithoutACard(t *testing.T) {
 	f.runs.mu.Unlock()
 }
 
+func TestWorkerStatusRefusesUsageOnAGuidancePRStatus(t *testing.T) {
+	f := runKindCallbackServer(t, true)
+
+	code, body := signedStatus(t, f.server.URL, f.apiKey, []byte(
+		`{"card_id":"","project":"test-project","worker_status":"completed","run_id":"g1","stop_cause":"done","kind":"guidance_pr",`+
+			`"usage":[{"model":"vendor/model-a","input_tokens":10,"output_tokens":0,"cache_read_tokens":0,"cache_creation_tokens":0}],`+
+			`"result":{"guidance_pr":{"outcome":"stale"}}}`))
+	assert.Equal(t, http.StatusUnprocessableEntity, code)
+
+	var apiErr APIError
+	require.NoError(t, json.Unmarshal([]byte(body), &apiErr))
+	assert.Equal(t, ErrCodeValidationError, apiErr.Code)
+}
+
 func TestStatusCallbackRejectsInvalidRunKindStatus(t *testing.T) {
 	f := runKindCallbackServer(t, true)
 

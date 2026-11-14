@@ -147,25 +147,17 @@ func (c *Controller) readRevision(ctx context.Context, r *passReads, project str
 	return v, nil
 }
 
-// dispatchRevision reads the project's PR from GitHub, as every revision must,
-// decides again on what it shows, drops the pending findings no section can
-// hold, then sends the guidance_pr run of the findings that fit the section on
-// the project's open revision row. A payload that cannot be filled, such as a
-// token GitHub refuses to mint, ends the row failed with why. Nothing is read
-// or sent while the agent holds the kind.
+// dispatchRevision drops the pending findings no section can hold and packs
+// the rest from the pass's own view; a pack with no pending finding sends
+// nothing, so GitHub is not read for it. Otherwise it reads the project's PR
+// from GitHub, as every revision must, decides again on what it shows, and
+// sends the guidance_pr run of the findings that fit the section on the
+// project's open revision row. A failed read, or a payload that cannot be
+// filled, such as a token GitHub refuses to mint, ends the row failed with
+// why. Nothing is read or sent while the agent holds the kind.
 func (c *Controller) dispatchRevision(ctx context.Context, r *passReads, v revisionView) error {
 	base := c.guidance()
 	if base == nil || c.noRunKinds(r.now) || c.kindHeld(protocol.RunKindGuidancePR, r.now) {
-		return nil
-	}
-
-	v, err := c.refreshPR(ctx, v)
-	if err != nil {
-		return err
-	}
-
-	s := nextRevision(v)
-	if s.Action != revisionDispatch {
 		return nil
 	}
 
@@ -174,11 +166,27 @@ func (c *Controller) dispatchRevision(ctx context.Context, r *passReads, v revis
 		return err
 	}
 
-	proposed, pending := published(v.Proposed, prefixes), published(v.Pending, prefixes)
+	pending := published(v.Pending, prefixes)
 
 	if err := c.dropTooLong(ctx, tooLong(pending, maxSectionBytes)); err != nil {
 		return err
 	}
+
+	if _, ids := packSection(published(v.Proposed, prefixes), pending, maxSectionBytes); len(ids) == 0 {
+		return nil
+	}
+
+	v, err = c.refreshPR(ctx, v)
+	if err != nil {
+		return c.failUnread(ctx, v.Project, r.now, err)
+	}
+
+	s := nextRevision(v)
+	if s.Action != revisionDispatch {
+		return nil
+	}
+
+	proposed := published(v.Proposed, prefixes)
 
 	section, ids := packSection(proposed, pending, maxSectionBytes)
 	if len(ids) == 0 {
@@ -229,14 +237,25 @@ func (c *Controller) refreshPR(ctx context.Context, v revisionView) (revisionVie
 	return v, nil
 }
 
-// failUnsent ends row failed with why its payload could not be filled, so the
-// back-off after a failure holds the next try; its findings stay pending.
+// failUnread ends the project's open revision row, opened if need be, failed
+// with the read error, as failUnsent does.
+func (c *Controller) failUnread(ctx context.Context, project string, now time.Time, readErr error) error {
+	row, err := c.openRevision(ctx, project, now)
+	if err != nil {
+		return errors.Join(readErr, fmt.Errorf("open revision: %w", err))
+	}
+
+	return c.failUnsent(ctx, &row, readErr)
+}
+
+// failUnsent ends row failed with why it could not be sent, so the back-off
+// after a failure holds the next try; its findings stay pending.
 func (c *Controller) failUnsent(ctx context.Context, row *state.Heal, cause error) error {
 	if err := c.saveStage(ctx, row, state.StageRevisionFailed, "not sent: "+cause.Error()); err != nil {
 		return errors.Join(cause, fmt.Errorf("end the unsent revision: %w", err))
 	}
 
-	return fmt.Errorf("fill the guidance_pr payload: %w", cause)
+	return fmt.Errorf("revision not sent: %w", cause)
 }
 
 // dropTooLong drops each pending finding in fs as too long for a section.
@@ -254,7 +273,8 @@ func (c *Controller) dropTooLong(ctx context.Context, fs []state.Finding) error 
 
 // endRevision does what the open revision's outcome asks, then ends it as s
 // says. A dispatch that never reported is marked failed in the same save, so a
-// late report matches nothing.
+// late report matches nothing. A refusal whose trace changed nothing would be
+// refused again the same way, so it ends failed and waits like one.
 func (c *Controller) endRevision(ctx context.Context, row *state.Heal, s revisionStep) error {
 	var err error
 
@@ -264,7 +284,10 @@ func (c *Controller) endRevision(ctx context.Context, row *state.Heal, s revisio
 	case state.StageRevisionStale:
 		err = c.forgetRead(ctx, row.Project)
 	case state.StageRevisionRefused:
-		err = c.traceRefusal(ctx, row)
+		var changed bool
+		if changed, err = c.traceRefusal(ctx, row); err == nil && !changed {
+			s.Stage = state.StageRevisionFailed
+		}
 	}
 
 	if err != nil {
@@ -346,21 +369,22 @@ func (c *Controller) forgetRead(ctx context.Context, project string) error {
 // check refused, and adds every entry traced to a source card to the row's
 // allowed list, keeping the ones it was sent with. Every sent finding counts
 // as a holder whatever its state now, so a retried end decides the same; only
-// pending and proposed ones are written.
-func (c *Controller) traceRefusal(ctx context.Context, row *state.Heal) error {
+// pending and proposed ones are written. It reports whether the trace dropped
+// a finding or grew allowed.
+func (c *Controller) traceRefusal(ctx context.Context, row *state.Heal) (bool, error) {
 	sent, err := c.cfg.Store.Findings(ctx, row.SentFindings)
 	if err != nil {
-		return fmt.Errorf("read sent findings: %w", err)
+		return false, fmt.Errorf("read sent findings: %w", err)
 	}
 
 	prefixes, err := c.projectPrefixes(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	sources, err := c.sourceTexts(ctx, sent)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	allowed, dropped := attributeAbsent(row.Allowed, row.Revision.AbsentFromRepo, published(sent, prefixes), sources)
@@ -373,13 +397,14 @@ func (c *Controller) traceRefusal(ctx context.Context, row *state.Heal) error {
 		}
 
 		if err := c.setFindingOutcome(ctx, f, state.FindingDropped, reason, f.Output, row.ID, now); err != nil {
-			return fmt.Errorf("drop finding %d: %w", f.ID, err)
+			return false, fmt.Errorf("drop finding %d: %w", f.ID, err)
 		}
 	}
 
+	changed := len(dropped) > 0 || len(allowed) > len(row.Allowed)
 	row.Allowed = allowed
 
-	return nil
+	return changed, nil
 }
 
 // sourceTexts reads the human-written text of each finding's source card, by
