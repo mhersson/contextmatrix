@@ -28,6 +28,8 @@ type fakeSentinelStore struct {
 	run      *state.Run
 	heals    []state.Heal
 	findings []state.Finding
+	analyses []state.Heal
+	pr       *state.StandingPR
 }
 
 func newFakeSentinelStore() *fakeSentinelStore {
@@ -64,6 +66,14 @@ func (f *fakeSentinelStore) CardHeals(context.Context, string, string) ([]state.
 
 func (f *fakeSentinelStore) CardFindings(context.Context, string, string) ([]state.Finding, error) {
 	return f.findings, nil
+}
+
+func (f *fakeSentinelStore) CardAnalyses(context.Context, string, string) ([]state.Heal, error) {
+	return f.analyses, nil
+}
+
+func (f *fakeSentinelStore) StandingPR(context.Context, string) (*state.StandingPR, error) {
+	return f.pr, nil
 }
 
 func sentinelDo(t *testing.T, srv *httptest.Server, method, path string, body any, cookie *http.Cookie) (int, map[string]any) {
@@ -317,4 +327,69 @@ func TestCardSentinelViewHidesAdminNotesFromNonAdmins(t *testing.T) {
 
 	_, body = sentinelDo(t, none, http.MethodGet, path, nil, nil)
 	assert.Equal(t, []string{protocol.FindingProjectVerify, protocol.FindingHardCard}, findingKinds(body))
+}
+
+func TestCardSentinelViewCarriesAnalysesOutcomesAndThePR(t *testing.T) {
+	store := newFakeSentinelStore()
+	at := time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)
+	store.analyses = []state.Heal{{
+		ID: 11, Kind: state.HealKindAnalysis, RunID: "run-1", Stage: state.StageAnalysed, Reason: "answered",
+		SpendUSD: 0.31, CreatedAt: at,
+	}}
+	store.findings = []state.Finding{
+		{ID: 5, Kind: protocol.FindingCode, Title: "t", State: state.FindingCarded, Reason: "new", Output: "ABC-40", CreatedAt: at},
+		{ID: 6, Kind: protocol.FindingProjectVerify, Title: "v", State: state.FindingProposed, Output: "https://x/pull/1", CreatedAt: at},
+	}
+	store.pr = &state.StandingPR{Project: "p", URL: "https://x/pull/1", File: "AGENTS.md", State: "open", PushedAt: at}
+	path := "/api/projects/p/cards/p-001/sentinel"
+
+	check := func(t *testing.T, body map[string]any, wantFindings int) {
+		t.Helper()
+
+		a := body["analyses"].([]any)
+		require.Len(t, a, 1)
+
+		row := a[0].(map[string]any)
+		assert.EqualValues(t, 11, row["id"])
+		assert.Equal(t, "run-1", row["run_id"])
+		assert.Equal(t, state.StageAnalysed, row["stage"])
+		assert.Equal(t, "answered", row["reason"])
+		assert.InDelta(t, 0.31, row["spend_usd"], 1e-9)
+		assert.Equal(t, "2026-11-14T09:00:00Z", row["created_at"])
+
+		require.Len(t, body["findings"], wantFindings)
+
+		f := body["findings"].([]any)[0].(map[string]any)
+		assert.EqualValues(t, 5, f["id"])
+		assert.Equal(t, state.FindingCarded, f["state"])
+		assert.Equal(t, "new", f["reason"])
+		assert.Equal(t, "ABC-40", f["output"])
+
+		pr := body["standing_pr"].(map[string]any)
+		assert.Equal(t, "https://x/pull/1", pr["url"])
+		assert.Equal(t, "open", pr["state"])
+		assert.Equal(t, "AGENTS.md", pr["file"])
+		assert.Equal(t, "2026-11-14T09:00:00Z", pr["pushed_at"])
+	}
+
+	none := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
+	_, body := sentinelDo(t, none, http.MethodGet, path, nil, nil)
+	check(t, body, 2)
+
+	multi := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, true)
+	_, body = sentinelDo(t, multi, http.MethodGet, path, nil, login(t, multi, "bob", "bob password1"))
+	check(t, body, 1)
+
+	empty := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore()}, false)
+	_, body = sentinelDo(t, empty, http.MethodGet, path, nil, nil)
+	assert.Equal(t, []any{}, body["analyses"])
+	assert.Nil(t, body["standing_pr"])
+	assert.Contains(t, body, "standing_pr")
+}
+
+func TestSentinelStatusCarriesAnalysing(t *testing.T) {
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore()}, false)
+
+	_, body := sentinelDo(t, srv, http.MethodGet, "/api/sentinel", nil, nil)
+	assert.EqualValues(t, 0, body["status"].(map[string]any)["analysing"])
 }

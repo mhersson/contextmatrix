@@ -1038,6 +1038,9 @@ func TestEveryRowReaderReturnsOnlyItsKinds(t *testing.T) {
 			[]string{state.HealKindHeal, state.HealKindForward, state.HealKindAnalysis, state.HealKindRevision},
 			func() ([]state.Heal, error) { return st.InFlightRows(ctx) },
 		},
+		{"CardAnalyses", []string{state.HealKindAnalysis}, oneCard(func(card string) ([]state.Heal, error) {
+			return st.CardAnalyses(ctx, "p", card)
+		})},
 		{"OpenAnalyses", []string{state.HealKindAnalysis}, func() ([]state.Heal, error) { return st.OpenAnalyses(ctx) }},
 		{"OpenRevisions", []string{state.HealKindRevision}, func() ([]state.Heal, error) { return st.OpenRevisions(ctx) }},
 		{"LastRefusedRevision", []string{state.HealKindRevision}, func() ([]state.Heal, error) {

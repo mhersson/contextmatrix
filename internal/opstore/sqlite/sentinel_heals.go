@@ -154,6 +154,17 @@ func (s *Store) CardHeals(ctx context.Context, project, cardID string) ([]state.
 	return heals, nil
 }
 
+// CardAnalyses returns the card's analysis rows, newest first.
+func (s *Store) CardAnalyses(ctx context.Context, project, cardID string) ([]state.Heal, error) {
+	rows, err := s.queryHeals(ctx,
+		`kind = ? AND project = ? AND card_id = ? ORDER BY id DESC`, state.HealKindAnalysis, project, cardID)
+	if err != nil {
+		return nil, fmt.Errorf("list card analyses: %w", err)
+	}
+
+	return rows, nil
+}
+
 // LatestHeals returns each card's newest heal or forward row in the project,
 // by card ID.
 func (s *Store) LatestHeals(ctx context.Context, project string) (map[string]state.Heal, error) {

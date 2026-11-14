@@ -1125,6 +1125,7 @@ Sentinel's status and stored settings.
     "state": "watching",
     "mode": "endpoint",
     "healing": 0,
+    "analysing": 0,
     "healed_today": 0,
     "spent_today_usd": 0,
     "daily_cap_usd": 20,
@@ -1136,7 +1137,9 @@ Sentinel's status and stored settings.
     "friction": true,
     "daily_cap_usd": 20,
     "investigate_ceiling_usd": 2,
-    "headroom": 0.85
+    "headroom": 0.85,
+    "analyse_every_run": false,
+    "analyse_ceiling_usd": 1
   },
   "updated_at": "2026-11-13T10:00:00Z",
   "updated_by": "human:alice"
@@ -1162,7 +1165,8 @@ considered. `updated_by` is the caller's identity, or `human:web` without one.
 **Errors:** `400 BAD_REQUEST` (malformed JSON), `403 FORBIDDEN` (non-admin in
 `multi` mode), `422 VALIDATION_ERROR` (a non-finite number, `daily_cap_usd`
 outside 0-10000, `investigate_ceiling_usd` not above 0 or over 100, or
-`headroom` not above 0 or over 1).
+`headroom` not above 0 or over 1, or `analyse_ceiling_usd` not above 0 or over
+100).
 
 ### GET /api/projects/{project}/cards/{id}/sentinel
 
@@ -1206,13 +1210,33 @@ none), the card's heals and the friction findings stored for it.
   ],
   "findings": [
     {
+      "id": 5,
+      "state": "carded",
+      "reason": "",
+      "output": "PROJ-040",
       "kind": "guidance",
       "title": "...",
       "text": "...",
       "evidence": "...",
       "created_at": "2026-11-13T10:05:00Z"
     }
-  ]
+  ],
+  "analyses": [
+    {
+      "id": 11,
+      "run_id": "run-1",
+      "stage": "analysed",
+      "reason": "",
+      "spend_usd": 0.31,
+      "created_at": "2026-11-13T10:06:00Z"
+    }
+  ],
+  "standing_pr": {
+    "url": "https://github.com/acme/app/pull/12",
+    "state": "open",
+    "file": "AGENTS.md",
+    "pushed_at": "2026-11-13T10:30:00Z"
+  }
 }
 ```
 
@@ -1238,7 +1262,14 @@ stores them only while the friction analysis switch is on; switching it off
 stores no new ones and keeps those already stored, which are still returned. `kind` is `guidance`,
 `code`, `ecosystem`, `card_advice`, `project_verify` or `hard_card`.
 `project_verify` findings are returned to admins in `multi` mode and to every
-caller in `none` mode.
+caller in `none` mode. `state` is where the finding sits on its way to an output,
+`reason` says why a finding was held or dropped, and `output` names what it
+became: a friction card's ID, or the standing PR's URL.
+
+`analyses` is the card's run analyses, newest first, `[]` when there are none;
+`stage` is `analyse`, `analysed`, `analyse_failed` or `analyse_skipped` and
+`spend_usd` is the analysis's recorded spend. `standing_pr` is the project's
+standing guidance PR as Sentinel last read it, or null when it has none.
 
 ## Attention Endpoints
 
