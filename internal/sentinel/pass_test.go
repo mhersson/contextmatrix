@@ -626,6 +626,7 @@ func TestPassReservesTheDailyCapForARerunsCostSoFar(t *testing.T) {
 
 	// A later heal's rerun is still going and has cost 2.00 since its relaunch.
 	relaunched := epoch.Add(-30 * time.Minute)
+
 	e.stopped("ALPHA-002", protocol.StopCauseVerifyParked, func(c *board.Card, r *state.Run) {
 		c.WorkerStatus, c.TokenUsage = "running", &board.TokenUsage{EstimatedCostUSD: 2.5}
 		r.StartedAt, r.StoppedAt, r.Launch.Origin = relaunched.Add(time.Minute), nil, state.OriginSentinel
