@@ -69,7 +69,8 @@ func TestValidateRunKindStatus(t *testing.T) {
 		{"investigate result", investigateStatus, nil, 100, true},
 		{"body at 1 MiB", investigateStatus, nil, 1 << 20, true},
 		{"body over 1 MiB", investigateStatus, nil, 1<<20 + 1, false},
-		{"reserved kind", checkStatus, func(p *protocol.StatusCallbackPayload) { p.Kind = protocol.RunKindAnalyse }, 100, false},
+		{"unknown kind", checkStatus, func(p *protocol.StatusCallbackPayload) { p.Kind = "weather" }, 100, false},
+		{"check without a card", checkStatus, func(p *protocol.StatusCallbackPayload) { p.CardID = "" }, 100, false},
 		{"running status", checkStatus, func(p *protocol.StatusCallbackPayload) {
 			p.WorkerStatus, p.StopCause, p.Result = "running", "", nil
 		}, 100, false},
@@ -167,6 +168,141 @@ func TestValidateRunKindStatus(t *testing.T) {
 				assert.NoError(t, err)
 			} else {
 				assert.Error(t, err)
+			}
+		})
+	}
+}
+
+func analyseStatus() protocol.StatusCallbackPayload {
+	return protocol.StatusCallbackPayload{
+		CardID: "ALPHA-001", Project: "alpha", WorkerStatus: "completed", RunID: "k1",
+		StopCause: protocol.StopCauseDone, Kind: protocol.RunKindAnalyse,
+		Result: &protocol.RunKindResult{Analyse: &protocol.AnalyseResult{Findings: findings(2)}},
+	}
+}
+
+func TestValidateRunKindStatusAnalyse(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(p *protocol.StatusCallbackPayload)
+		ok     bool
+	}{
+		{"two findings", nil, true},
+		{"no findings", func(p *protocol.StatusCallbackPayload) { p.Result.Analyse.Findings = nil }, true},
+		{"50 findings", func(p *protocol.StatusCallbackPayload) { p.Result.Analyse.Findings = findings(50) }, true},
+		{"51 findings", func(p *protocol.StatusCallbackPayload) { p.Result.Analyse.Findings = findings(51) }, false},
+		{"unknown finding kind", func(p *protocol.StatusCallbackPayload) { p.Result.Analyse.Findings[0].Kind = "gossip" }, false},
+		{"title over 200 B", func(p *protocol.StatusCallbackPayload) { p.Result.Analyse.Findings[0].Title = bytesOf(201) }, false},
+		{"text over 16 KiB", func(p *protocol.StatusCallbackPayload) { p.Result.Analyse.Findings[0].Text = bytesOf(16<<10 + 1) }, false},
+		{"evidence over 4 KiB", func(p *protocol.StatusCallbackPayload) { p.Result.Analyse.Findings[0].Evidence = bytesOf(4<<10 + 1) }, false},
+		{"an investigate result", func(p *protocol.StatusCallbackPayload) {
+			p.Result = &protocol.RunKindResult{Investigate: investigateStatus().Result.Investigate}
+		}, false},
+		{"both results", func(p *protocol.StatusCallbackPayload) { p.Result.Check = checkStatus().Result.Check }, false},
+		{"no card", func(p *protocol.StatusCallbackPayload) { p.CardID = "" }, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := analyseStatus()
+			if tt.mutate != nil {
+				tt.mutate(&p)
+			}
+
+			err := ValidateRunKindStatus(p, 100)
+			if tt.ok {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+			}
+		})
+	}
+}
+
+func guidanceStatus() protocol.StatusCallbackPayload {
+	return protocol.StatusCallbackPayload{
+		Project: "alpha", WorkerStatus: "completed", RunID: "g1",
+		StopCause: protocol.StopCauseDone, Kind: protocol.RunKindGuidancePR,
+		Result: &protocol.RunKindResult{GuidancePR: &protocol.GuidancePRResult{
+			Outcome: protocol.GuidancePushed, PRURL: "https://github.com/o/r/pull/7",
+			HeadSHA: strings.Repeat("a", 40), File: "AGENTS.md",
+		}},
+	}
+}
+
+func TestValidateRunKindStatusGuidancePR(t *testing.T) {
+	gp := func(p *protocol.StatusCallbackPayload) *protocol.GuidancePRResult { return p.Result.GuidancePR }
+	tests := []struct {
+		name   string
+		mutate func(p *protocol.StatusCallbackPayload)
+		want   string // "" = valid, else a fragment of the error
+	}{
+		{"pushed", nil, ""},
+		{"unchanged", func(p *protocol.StatusCallbackPayload) { gp(p).Outcome = protocol.GuidanceUnchanged }, ""},
+		{"a card ID", func(p *protocol.StatusCallbackPayload) { p.CardID = "ABC-1" }, "a guidance_pr status names no card"},
+		{"failed without a result", func(p *protocol.StatusCallbackPayload) {
+			p.WorkerStatus, p.StopCause, p.Result = "failed", protocol.StopCauseKilled, nil
+		}, ""},
+		{"CLAUDE.md", func(p *protocol.StatusCallbackPayload) { gp(p).File = "CLAUDE.md" }, ""},
+		{"a symlink target", func(p *protocol.StatusCallbackPayload) { gp(p).File = "docs/AGENTS.md" }, ""},
+		{"no file", func(p *protocol.StatusCallbackPayload) { gp(p).File = "" }, "file"},
+		{"a rooted file", func(p *protocol.StatusCallbackPayload) { gp(p).File = "/AGENTS.md" }, "file"},
+		{"a dot segment", func(p *protocol.StatusCallbackPayload) { gp(p).File = "./AGENTS.md" }, "file"},
+		{"a parent segment", func(p *protocol.StatusCallbackPayload) { gp(p).File = "../AGENTS.md" }, "file"},
+		{"an inner parent segment", func(p *protocol.StatusCallbackPayload) { gp(p).File = "docs/../AGENTS.md" }, "file"},
+		{"an empty segment", func(p *protocol.StatusCallbackPayload) { gp(p).File = "docs//AGENTS.md" }, "file"},
+		{"a NUL", func(p *protocol.StatusCallbackPayload) { gp(p).File = "a\x00b" }, "file"},
+		{"a file at 512 B", func(p *protocol.StatusCallbackPayload) { gp(p).File = bytesOf(512) }, ""},
+		{"a file over 512 B", func(p *protocol.StatusCallbackPayload) { gp(p).File = bytesOf(513) }, "file"},
+		{"a 64 digit sha", func(p *protocol.StatusCallbackPayload) { gp(p).HeadSHA = strings.Repeat("0", 64) }, ""},
+		{"a short sha", func(p *protocol.StatusCallbackPayload) { gp(p).HeadSHA = "xyz" }, "head_sha"},
+		{"an upper-case sha", func(p *protocol.StatusCallbackPayload) { gp(p).HeadSHA = strings.Repeat("A", 40) }, "head_sha"},
+		{"an http URL", func(p *protocol.StatusCallbackPayload) { gp(p).PRURL = "http://github.com/o/r/pull/7" }, "pr_url"},
+		{"no URL", func(p *protocol.StatusCallbackPayload) { gp(p).PRURL = "" }, "pr_url"},
+		{"a URL over 2 KiB", func(p *protocol.StatusCallbackPayload) { gp(p).PRURL = "https://" + bytesOf(2<<10) }, "pr_url"},
+		{"refused", func(p *protocol.StatusCallbackPayload) {
+			*gp(p) = protocol.GuidancePRResult{Outcome: protocol.GuidanceRefused, AbsentFromRepo: []string{"make gen"}}
+		}, ""},
+		{"refused with 64", func(p *protocol.StatusCallbackPayload) {
+			*gp(p) = protocol.GuidancePRResult{Outcome: protocol.GuidanceRefused, AbsentFromRepo: entries(64, 512)}
+		}, ""},
+		{"refused with none", func(p *protocol.StatusCallbackPayload) {
+			*gp(p) = protocol.GuidancePRResult{Outcome: protocol.GuidanceRefused}
+		}, "absent"},
+		{"refused with 65", func(p *protocol.StatusCallbackPayload) {
+			*gp(p) = protocol.GuidancePRResult{Outcome: protocol.GuidanceRefused, AbsentFromRepo: entries(65, 8)}
+		}, "absent_from_repo"},
+		{"refused with an entry over 512 B", func(p *protocol.StatusCallbackPayload) {
+			*gp(p) = protocol.GuidancePRResult{Outcome: protocol.GuidanceRefused, AbsentFromRepo: entries(1, 513)}
+		}, "absent_from_repo"},
+		{"stale", func(p *protocol.StatusCallbackPayload) {
+			*gp(p) = protocol.GuidancePRResult{Outcome: protocol.GuidanceStale}
+		}, ""},
+		{"stale with a URL", func(p *protocol.StatusCallbackPayload) { gp(p).Outcome = protocol.GuidanceStale }, "stale"},
+		{"stale with an absent entry", func(p *protocol.StatusCallbackPayload) {
+			*gp(p) = protocol.GuidancePRResult{Outcome: protocol.GuidanceStale, AbsentFromRepo: []string{"x"}}
+		}, "stale"},
+		{"an unknown outcome", func(p *protocol.StatusCallbackPayload) { gp(p).Outcome = "merged" }, "outcome"},
+		{"usage", func(p *protocol.StatusCallbackPayload) {
+			p.Usage = []protocol.RunUsage{{Model: "vendor/model-a", LogTokenUsage: protocol.LogTokenUsage{InputTokens: 10}}}
+		}, "usage"},
+		{"an analyse result", func(p *protocol.StatusCallbackPayload) {
+			p.Result = &protocol.RunKindResult{Analyse: &protocol.AnalyseResult{}}
+		}, "exactly"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := guidanceStatus()
+			if tt.mutate != nil {
+				tt.mutate(&p)
+			}
+
+			err := ValidateRunKindStatus(p, 100)
+			if tt.want == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tt.want)
 			}
 		})
 	}

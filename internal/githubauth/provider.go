@@ -23,4 +23,7 @@ type TokenGenerator interface {
 	// GenerateRepoReadToken covers one repository with contents read only; a PAT
 	// cannot be narrowed and is returned unchanged.
 	GenerateRepoReadToken(ctx context.Context, repo string) (token string, expiresAt time.Time, err error)
+	// GenerateRepoPRToken covers one repository with contents and pull requests
+	// write only; a PAT cannot be narrowed and is returned unchanged.
+	GenerateRepoPRToken(ctx context.Context, repo string) (token string, expiresAt time.Time, err error)
 }

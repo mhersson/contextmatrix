@@ -10174,3 +10174,305 @@ button.bp-rv-head {
   font-size: 12px;
   margin-left: 6px;
 }
+
+/* Card Sentinel tab: a summary, sub-tabs and compact tables that fit the 420 px
+   rail. The tab body is the container: the expanded rail gains a Spend column. */
+.snt-tab {
+  container: snt-tab / inline-size;
+}
+.snt-callout {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--grey1);
+  border: 1px dashed var(--bg3);
+  border-radius: 8px;
+}
+.snt-summary {
+  display: grid;
+  grid-template-columns: minmax(max-content, 1.4fr) repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.snt-stat {
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--bg2);
+  border-radius: 8px;
+}
+.snt-stat-label {
+  overflow: hidden;
+  font: 9.5px var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--grey0);
+}
+.snt-stat-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 15px;
+  white-space: nowrap;
+  color: var(--fg);
+}
+.snt-stat-value--mono {
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+}
+.snt-shield {
+  display: inline-flex;
+  color: var(--purple);
+}
+.snt-subtabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--bg3);
+}
+.snt-subtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: -1px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  color: var(--grey1);
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+.snt-subtab:hover {
+  color: var(--fg);
+}
+.snt-subtab[aria-selected='true'] {
+  font-weight: 600;
+  color: var(--fg);
+  border-bottom-color: var(--aqua);
+}
+.snt-subtab-count {
+  font: 10.5px var(--font-mono);
+  color: var(--grey1);
+}
+.snt-heading {
+  margin-bottom: 6px;
+  font: 10px var(--font-mono);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--grey0);
+}
+.snt-heading-count {
+  margin-left: 8px;
+  letter-spacing: 0;
+  color: var(--grey1);
+}
+.snt-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  color: var(--fg);
+}
+.snt-table th {
+  overflow: hidden;
+  padding: 6px 8px;
+  font: 500 9.5px var(--font-mono);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--grey2);
+  background: var(--bg1);
+  border-bottom: 1px solid var(--bg2);
+}
+.snt-table td {
+  overflow: hidden;
+  padding: 6px 8px;
+  vertical-align: top;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--bg1);
+}
+.snt-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.snt-table tbody + tbody tr:first-child td {
+  border-top: 1px solid var(--bg2);
+}
+.snt-table .snt-caret-col {
+  padding-right: 0;
+}
+.snt-table .snt-right {
+  text-align: right;
+}
+.snt-table td.snt-wrap,
+.snt-table .snt-row--open td:not(.snt-wide) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.snt-kv td:first-child {
+  width: 40%;
+  font-size: 12px;
+  color: var(--grey1);
+}
+.snt-row {
+  cursor: pointer;
+}
+.snt-row:hover td,
+.snt-row--open td {
+  background: var(--bg1);
+}
+.snt-caret {
+  display: inline-block;
+  width: 10px;
+  padding: 0;
+  font-size: 9px;
+  line-height: 18px;
+  color: var(--grey1);
+  background: transparent;
+  cursor: pointer;
+}
+.snt-table td.snt-detail {
+  padding: 10px 12px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  background: var(--bg-dim);
+}
+.snt-label {
+  margin: 10px 0 4px;
+  font: 9.5px var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--grey0);
+}
+.snt-detail > .snt-label:first-child {
+  margin-top: 0;
+}
+.snt-text {
+  font-size: 12.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  color: var(--fg);
+}
+.snt-muted {
+  font-size: 12px;
+  color: var(--grey1);
+}
+.snt-park {
+  font-size: 12px;
+  color: var(--wait-yellow);
+}
+.snt-evidence {
+  margin-top: 6px;
+  padding: 4px 6px;
+  font: 11px var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--grey1);
+  background: var(--bg1);
+  border-radius: 4px;
+}
+.snt-outcome {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--grey1);
+}
+.snt-kind {
+  font: 10.5px var(--font-mono);
+  color: var(--grey2);
+}
+.snt-mono {
+  font: 11.5px var(--font-mono);
+}
+.snt-num {
+  font: 11.5px var(--font-mono);
+  color: var(--grey2);
+}
+.snt-link {
+  color: var(--blueprint-ink-aqua);
+  text-decoration: none;
+}
+.snt-link:hover {
+  text-decoration: underline;
+}
+.snt-pill {
+  display: inline-block;
+  padding: 0 7px;
+  font: 10.5px/17px var(--font-mono);
+  white-space: nowrap;
+  color: var(--grey1);
+  border: 1px solid var(--bg3);
+  border-radius: 99px;
+}
+/* Tone pills take the tone's ink for text: the bare tone misses 4.5:1 on its tint
+   in the light palettes. */
+.snt-pill--green {
+  color: var(--blueprint-ink-green);
+  border-color: var(--green);
+  background: color-mix(in srgb, var(--bg-green) 60%, transparent);
+}
+.snt-pill--wait {
+  color: var(--wait-yellow);
+  border-color: var(--wait-yellow);
+  background: color-mix(in srgb, var(--bg-yellow) 60%, transparent);
+}
+.snt-pill--red {
+  color: var(--blueprint-ink-red);
+  border-color: var(--red);
+  background: color-mix(in srgb, var(--bg-red) 60%, transparent);
+}
+.snt-pill--aqua {
+  color: var(--blueprint-ink-aqua);
+  border-color: var(--aqua);
+}
+.snt-empty {
+  padding: 8px 0;
+  font-size: 12.5px;
+  font-style: italic;
+  color: var(--grey1);
+}
+/* The Spend column stays in the table at zero width, so the detail row's span
+   always matches the column count. */
+.snt-table .snt-wide {
+  width: 0;
+  padding: 0;
+  visibility: hidden;
+}
+@container snt-tab (min-width: 480px) {
+  .snt-table .snt-wide {
+    width: 72px;
+    padding: 6px 8px;
+    visibility: visible;
+  }
+  .snt-narrow {
+    display: none;
+  }
+}
+@container snt-tab (max-width: 379px) {
+  .snt-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Board tile: the Sentinel shield breathes while Sentinel works on the card. */
+@keyframes sentinel-working-breathe {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.88);
+  }
+}
+
+.sentinel-working {
+  animation: sentinel-working-breathe 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sentinel-working {
+    animation: none;
+  }
+}

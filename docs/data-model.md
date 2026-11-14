@@ -615,13 +615,16 @@ computed on read and never written to frontmatter. `blocked_by` is the subset of
 `depends_on` that is not `done`, in `depends_on` order; absent when every
 dependency is met.
 
-`sentinel` is `{action, label}`: the mark of a card Sentinel touched, from the
-card's latest heal. `action` is `healing` (investigating, checking or applying
-a fix, waiting for a usage limit, or rerunning), `healed`, `edited` (a fix
-forwarded from another card's heal) or `parked` (a failed rerun, or left for a
-human); `label` is the tooltip text. A closed heal and a failed forward leave
-no mark, and nothing is marked while Sentinel is off. List and get reads carry
-it; a failure reading it leaves the cards unmarked.
+`sentinel` is `{action, label, working}`: the mark of a card Sentinel touched,
+from the card's latest heal. `action` is `healing` (investigating, checking or
+applying a fix, waiting for a usage limit, or rerunning), `healed`, `edited` (a
+fix forwarded from another card's heal), `parked` (a failed rerun, or left for a
+human), `created` (a card made from a finding) or `analysing` (an analysis of
+the card's last run is in flight); `label` is the tooltip text. `working` is
+present and true while Sentinel is acting on the card: a heal investigating,
+checking, applying or rerunning, or an analysis in flight. A closed heal and a
+failed forward leave no mark, and nothing is marked while Sentinel is off. List
+and get reads carry it; a failure reading it leaves the cards unmarked.
 
 `subtask_cost_usd` sums the `estimated_cost_usd` of direct subtasks
 (single-card GET only; omitted when zero) and `subtask_cost_has_estimates`

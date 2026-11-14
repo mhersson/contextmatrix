@@ -53,3 +53,13 @@ func TestPATProvider_GenerateRepoReadToken_ReturnsPAT(t *testing.T) {
 	assert.Equal(t, "ghp_example", token)
 	assert.Equal(t, patExpiry, expiresAt)
 }
+
+func TestPATProviderPRTokenIsThePAT(t *testing.T) {
+	p, err := NewPATProvider("ghp_example")
+	require.NoError(t, err)
+
+	token, expiresAt, err := p.GenerateRepoPRToken(context.Background(), "widgets")
+	require.NoError(t, err)
+	assert.Equal(t, "ghp_example", token)
+	assert.Equal(t, patExpiry, expiresAt)
+}

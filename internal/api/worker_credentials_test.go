@@ -206,6 +206,10 @@ func (c *countingTokenProvider) GenerateToken(ctx context.Context) (string, time
 	return c.inner.GenerateToken(ctx)
 }
 
+func (c *countingTokenProvider) GenerateRepoPRToken(ctx context.Context, repo string) (string, time.Time, error) {
+	return c.inner.GenerateRepoPRToken(ctx, repo)
+}
+
 func (c *countingTokenProvider) GenerateRepoReadToken(ctx context.Context, repo string) (string, time.Time, error) {
 	return c.inner.GenerateRepoReadToken(ctx, repo)
 }

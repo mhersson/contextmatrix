@@ -1,0 +1,197 @@
+package sentinel
+
+import (
+	"strings"
+	"testing"
+
+	protocol "github.com/mhersson/contextmatrix-protocol"
+	"github.com/stretchr/testify/assert"
+
+	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
+)
+
+const longText = "the config loader reads every file twice because the cache key ignores the path"
+
+func TestRouteGuidance(t *testing.T) {
+	finding := state.Finding{ID: 9, Kind: "guidance", Text: longText}
+	other := func(id int64, st string) state.Finding {
+		return state.Finding{ID: id, Kind: "guidance", Text: longText, State: st}
+	}
+
+	tests := []struct {
+		name       string
+		f          state.Finding
+		earlier    []state.Finding
+		secrets    []string
+		wantState  string
+		wantReason string
+	}{
+		{"distinct", finding, []state.Finding{{ID: 1, Text: "always run make fmt before committing a change", State: state.FindingPending}}, nil, state.FindingPending, ""},
+		{"no earlier", finding, nil, nil, state.FindingPending, ""},
+		{"secret", state.Finding{Kind: "guidance", Text: "use token hunter2hunter2 here"}, nil, []string{"hunter2hunter2"}, state.FindingDropped, secretReason},
+		{"secret in evidence", state.Finding{Kind: "guidance", Text: "x", Evidence: "hunter2hunter2"}, nil, []string{"hunter2hunter2"}, state.FindingDropped, secretReason},
+		{"like a pending one", finding, []state.Finding{other(3, state.FindingPending)}, nil, state.FindingDuplicate, likeFindingReason + "3"},
+		{"like a proposed one", finding, []state.Finding{other(4, state.FindingProposed)}, nil, state.FindingDuplicate, likeFindingReason + "4"},
+		{"like a merged one", finding, []state.Finding{other(5, state.FindingMerged)}, nil, state.FindingDuplicate, likeFindingReason + "5"},
+		{"like a rejected one", finding, []state.Finding{other(6, state.FindingRejected)}, nil, state.FindingDuplicate, likeFindingReason + "6"},
+		{"like only a duplicate", finding, []state.Finding{other(7, state.FindingDuplicate)}, nil, state.FindingPending, ""},
+		{"like only a dropped one", finding, []state.Finding{other(8, state.FindingDropped)}, nil, state.FindingPending, ""},
+		{"no text", state.Finding{Kind: "guidance", Text: " \n\t", Evidence: "ev"}, nil, nil, state.FindingDropped, blankReason},
+		{"a secret beats no text", state.Finding{Kind: "guidance", Evidence: "hunter2hunter2"}, nil, []string{"hunter2hunter2"}, state.FindingDropped, secretReason},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotKind, gotState, gotReason := routeGuidance(tt.f, tt.earlier, tt.secrets)
+			assert.Equal(t, protocol.FindingGuidance, gotKind)
+			assert.Equal(t, tt.wantState, gotState)
+			assert.Equal(t, tt.wantReason, gotReason)
+		})
+	}
+}
+
+func TestRouteGuidanceReroutesWhatNamesCM(t *testing.T) {
+	terms := []string{"Sentinel", "ContextMatrix", "worker image", "agent run", "the worker"}
+	variants := []func(string) string{strings.ToLower, strings.ToUpper, func(s string) string { return s }}
+
+	for _, term := range terms {
+		for _, vary := range variants {
+			phrase := vary(term)
+
+			for field, f := range map[string]state.Finding{
+				"title": {Kind: "guidance", Title: "Note on " + phrase + ".", Text: longText},
+				"text":  {Kind: "guidance", Text: "Beware: " + phrase + ", always."},
+			} {
+				t.Run(phrase+" in "+field, func(t *testing.T) {
+					kind, st, reason := routeGuidance(f, nil, nil)
+					assert.Equal(t, protocol.FindingProjectVerify, kind)
+					assert.Equal(t, state.FindingNote, st)
+					assert.Equal(t, rerouteReason, reason)
+				})
+			}
+		}
+	}
+}
+
+func TestRouteGuidanceBackstopMatchesWholeWordsOnly(t *testing.T) {
+	for _, text := range []string{
+		"Sentinels guard the gate", "ask a coworker about it", "the agent runner is flaky",
+		"ContextMatrixes are not a thing", "a worker images pool", "the workers vary", "myContextMatrix",
+	} {
+		t.Run(text, func(t *testing.T) {
+			kind, st, _ := routeGuidance(state.Finding{Kind: "guidance", Text: text}, nil, nil)
+			assert.Equal(t, protocol.FindingGuidance, kind)
+			assert.Equal(t, state.FindingPending, st)
+		})
+	}
+}
+
+func TestRouteGuidanceBackstopOrder(t *testing.T) {
+	cm := longText + " in the worker image"
+	dup := state.Finding{ID: 3, Kind: "guidance", Text: cm, State: state.FindingPending}
+
+	tests := []struct {
+		name      string
+		f         state.Finding
+		earlier   []state.Finding
+		secrets   []string
+		wantKind  string
+		wantState string
+	}{
+		{"a secret beats the backstop", state.Finding{Kind: "guidance", Text: "the worker has hunter2hunter2"}, nil, []string{"hunter2hunter2"}, "guidance", state.FindingDropped},
+		{"blank beats the backstop", state.Finding{Kind: "guidance", Title: "the worker", Text: " "}, nil, nil, "guidance", state.FindingDropped},
+		{"the backstop beats a duplicate", state.Finding{Kind: "guidance", Text: cm}, []state.Finding{dup}, nil, protocol.FindingProjectVerify, state.FindingNote},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kind, st, _ := routeGuidance(tt.f, tt.earlier, tt.secrets)
+			assert.Equal(t, tt.wantKind, kind)
+			assert.Equal(t, tt.wantState, st)
+		})
+	}
+}
+
+// frictionCard is a labelled card; body defaults to longText.
+func frictionCard(id, title, st string, body ...string) *board.Card {
+	text := longText
+	if len(body) > 0 {
+		text = body[0]
+	}
+
+	return &board.Card{ID: id, Title: title, State: st, Labels: []string{frictionLabel}, Body: text + "\n"}
+}
+
+func TestRouteCode(t *testing.T) {
+	finding := state.Finding{Kind: "code", Title: "Cache the config loader", Text: longText, Evidence: "ev"}
+
+	tests := []struct {
+		name       string
+		f          state.Finding
+		cards      []*board.Card
+		secrets    []string
+		today      int
+		wantState  string
+		wantReason string
+	}{
+		{"free", finding, nil, nil, 0, state.FindingCarded, ""},
+		{"like an open card", finding, []*board.Card{frictionCard("P-001", "Something else entirely", board.StateTodo)}, nil, 0, state.FindingDuplicate, likeCardReason + "P-001"},
+		{
+			"equal title",
+			state.Finding{Kind: "code", Title: "cache  the CONFIG loader!", Text: "different words altogether here"},
+			[]*board.Card{frictionCard("P-002", "Cache the config loader", board.StateTodo)},
+			nil, 0, state.FindingDuplicate, likeCardReason + "P-002",
+		},
+		{"like a not_planned card", finding, []*board.Card{frictionCard("P-003", "Cache the config loader", board.StateNotPlanned)}, nil, 0, state.FindingDuplicate, likeCardReason + "P-003"},
+		{"like a done card", finding, []*board.Card{frictionCard("P-004", "Cache the config loader", board.StateDone)}, nil, 0, state.FindingCarded, ""},
+		{"distinct card", finding, []*board.Card{frictionCard("P-005", "Unrelated", board.StateTodo, "the board column order resets whenever a user drags a card across lanes")}, nil, 0, state.FindingCarded, ""},
+		{"limit reached", finding, nil, nil, 5, state.FindingQueued, limitReason},
+		{"one under the limit", finding, nil, nil, 4, state.FindingCarded, ""},
+		{"secret beats the limit", state.Finding{Kind: "code", Text: "hunter2hunter2"}, nil, []string{"hunter2hunter2"}, 5, state.FindingDropped, secretReason},
+		{"duplicate beats the limit", finding, []*board.Card{frictionCard("P-006", "Cache the config loader", board.StateTodo)}, nil, 5, state.FindingDuplicate, likeCardReason + "P-006"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotState, gotReason := routeCode(tt.f, tt.cards, tt.secrets, tt.today)
+			assert.Equal(t, tt.wantState, gotState)
+			assert.Equal(t, tt.wantReason, gotReason)
+		})
+	}
+}
+
+func TestFrictionCardInput(t *testing.T) {
+	long := string(make([]rune, 0))
+	for range 250 {
+		long += "x"
+	}
+
+	f := state.Finding{Kind: "code", CardID: "ALPHA-007", Title: "Split the loader", Text: "body text", Evidence: "it failed"}
+
+	in := frictionCardInput(f, &board.ProjectConfig{Types: []string{"bug", "chore"}, Priorities: []string{"low", "high"}})
+	assert.Equal(t, "Split the loader", in.Title)
+	assert.Equal(t, "bug", in.Type)
+	assert.Equal(t, "low", in.Priority)
+	assert.Equal(t, []string{frictionLabel}, in.Labels)
+
+	if assert.NotNil(t, in.Autonomous) {
+		assert.False(t, *in.Autonomous)
+	}
+
+	assert.Equal(t, "body text\n\n## Evidence\n\nit failed", in.Body)
+
+	if assert.NotNil(t, in.Log) {
+		assert.Equal(t, Agent, in.Log.Agent)
+		assert.Equal(t, activityAction, in.Log.Action)
+		assert.Contains(t, in.Log.Message, "ALPHA-007", "the entry names the card whose run showed the friction")
+	}
+
+	listed := frictionCardInput(f, &board.ProjectConfig{Types: []string{"bug", "task"}, Priorities: []string{"low", "medium"}})
+	assert.Equal(t, "task", listed.Type)
+	assert.Equal(t, "medium", listed.Priority)
+
+	untitled := frictionCardInput(state.Finding{Text: long + "\nsecond line"}, &board.ProjectConfig{})
+	assert.Len(t, []rune(untitled.Title), 200)
+	assert.Equal(t, "task", untitled.Type, "a project listing no types falls back to task")
+}

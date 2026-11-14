@@ -73,6 +73,13 @@ describe('cardSignals sentinel mark', () => {
     expect(s?.color).toBe('var(--purple)');
   });
 
+  it('shows the created mark\'s label', () => {
+    const created = baseCard({ sentinel: { action: 'created', label: 'Sentinel created this card from a run\'s friction' } });
+    expect(cardSignals(created, true).find((x) => x.key === 'sentinel')?.label).toBe(
+      'Sentinel created this card from a run\'s friction',
+    );
+  });
+
   it('hides it while Sentinel is off', () => {
     expect(cardSignals(marked, false).some((x) => x.key === 'sentinel')).toBe(false);
   });

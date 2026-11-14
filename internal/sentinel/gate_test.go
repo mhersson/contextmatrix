@@ -123,3 +123,43 @@ func TestRerunAccrued(t *testing.T) {
 		})
 	}
 }
+
+func TestAnalysisGate(t *testing.T) {
+	now := time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
+	win := func(util float64, resets time.Time) []protocol.SubscriptionUsage {
+		return []protocol.SubscriptionUsage{{Window: "five_hour", Utilization: util, Status: "allowed", ResetsAt: resets}}
+	}
+
+	s := state.DefaultSettings()
+	s.DailyCapUSD = 20
+	s.Headroom = 0.85
+
+	rows := []struct {
+		name  string
+		mode  llmchannel.Mode
+		spent float64
+		w     []protocol.SubscriptionUsage
+		open  bool
+	}{
+		{"endpoint under half the cap", llmchannel.ModeEndpoint, 9.99, nil, true},
+		{"endpoint at half the cap", llmchannel.ModeEndpoint, 10, nil, false},
+		{"endpoint ignores windows", llmchannel.ModeEndpoint, 0, win(1, now.Add(time.Hour)), true},
+		{"cc below headroom", llmchannel.ModeClaudeCode, 0, win(0.84, now.Add(time.Hour)), true},
+		{"cc at headroom", llmchannel.ModeClaudeCode, 0, win(0.85, now.Add(time.Hour)), false},
+		{"cc window already reset", llmchannel.ModeClaudeCode, 0, win(1, now.Add(-time.Minute)), true},
+		{"cc spend ignored", llmchannel.ModeClaudeCode, 500, nil, true},
+	}
+	for _, tc := range rows {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.open, analysisGate(tc.mode, s, tc.spent, tc.w, now))
+		})
+	}
+}
+
+func TestAnalyseCeiling(t *testing.T) {
+	s := state.DefaultSettings()
+	s.InvestigateCeilingUSD, s.AnalyseCeilingUSD = 2, 1
+
+	assert.InDelta(t, 1.0, analyseCeiling(llmchannel.ModeEndpoint, s), 0)
+	assert.InDelta(t, 2.0, analyseCeiling(llmchannel.ModeClaudeCode, s), 0, "Claude Code takes healing's per-run bound")
+}

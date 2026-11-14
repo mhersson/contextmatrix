@@ -14,6 +14,8 @@ export interface CardSignal {
   color: string;
   icon: ReactNode;
   pulse?: boolean;
+  /** Animates the icon with Sentinel's calm breathing. */
+  working?: boolean;
   /** Lower survives the header cap first. */
   importance: number;
 }
@@ -211,6 +213,7 @@ export function cardSignals(card: Card, sentinelOn = false, now: number = Date.n
       label: card.sentinel.label,
       color: 'var(--purple)',
       icon: <ShieldCheckIcon size={14} />,
+      working: card.sentinel.working === true,
       importance: 2,
     });
   }

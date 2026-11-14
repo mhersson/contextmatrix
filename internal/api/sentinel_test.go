@@ -28,6 +28,10 @@ type fakeSentinelStore struct {
 	run      *state.Run
 	heals    []state.Heal
 	findings []state.Finding
+	analyses []state.Heal
+	pr       *state.StandingPR
+	revision *state.Heal
+	asked    string // the project LastRevision was asked for
 }
 
 func newFakeSentinelStore() *fakeSentinelStore {
@@ -66,6 +70,23 @@ func (f *fakeSentinelStore) CardFindings(context.Context, string, string) ([]sta
 	return f.findings, nil
 }
 
+func (f *fakeSentinelStore) CardAnalyses(context.Context, string, string) ([]state.Heal, error) {
+	return f.analyses, nil
+}
+
+func (f *fakeSentinelStore) StandingPR(context.Context, string) (*state.StandingPR, error) {
+	return f.pr, nil
+}
+
+func (f *fakeSentinelStore) LastRevision(_ context.Context, project string) (*state.Heal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.asked = project
+
+	return f.revision, nil
+}
+
 func sentinelDo(t *testing.T, srv *httptest.Server, method, path string, body any, cookie *http.Cookie) (int, map[string]any) {
 	t.Helper()
 
@@ -99,6 +120,8 @@ func TestSentinelGetDefaults(t *testing.T) {
 	assert.InDelta(t, want.DailyCapUSD, settings["daily_cap_usd"], 1e-9)
 	assert.InDelta(t, want.Headroom, settings["headroom"], 1e-9)
 	assert.Equal(t, want.Healing, settings["healing"])
+	assert.Equal(t, false, settings["analyse_every_run"])
+	assert.InDelta(t, 1, settings["analyse_ceiling_usd"], 1e-9)
 }
 
 func TestSentinelPutRequiresAdminInMultiMode(t *testing.T) {
@@ -143,6 +166,19 @@ func TestSentinelPutRejectsInvalid(t *testing.T) {
 	assert.Equal(t, http.StatusUnprocessableEntity, code)
 	assert.Equal(t, ErrCodeValidationError, body["code"])
 	assert.Equal(t, state.DefaultSettings(), store.settings)
+}
+
+func TestSentinelPutRejectsAnalyseCeilingZero(t *testing.T) {
+	store := newFakeSentinelStore()
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
+
+	bad := state.DefaultSettings()
+	bad.AnalyseCeilingUSD = 0
+
+	code, body := sentinelDo(t, srv, http.MethodPut, "/api/admin/sentinel", bad, nil)
+	assert.Equal(t, http.StatusUnprocessableEntity, code)
+	assert.Equal(t, ErrCodeValidationError, body["code"])
+	assert.Contains(t, body["error"], "analyse ceiling")
 }
 
 func TestSentinelPutPublishesAndNudges(t *testing.T) {
@@ -283,6 +319,7 @@ func TestCardSentinelViewHidesAdminNotesFromNonAdmins(t *testing.T) {
 		store := newFakeSentinelStore()
 		store.findings = []state.Finding{
 			{Kind: protocol.FindingProjectVerify, Title: "verify"},
+			{Kind: protocol.FindingProjectVerify, Title: "rerouted", State: state.FindingNote, Reason: "re-routed: mentions CM"},
 			{Kind: protocol.FindingHardCard, Title: "hard"},
 		}
 
@@ -296,10 +333,124 @@ func TestCardSentinelViewHidesAdminNotesFromNonAdmins(t *testing.T) {
 	assert.Equal(t, []string{protocol.FindingHardCard}, findingKinds(body))
 
 	_, body = sentinelDo(t, srv, http.MethodGet, path, nil, login(t, srv, "root", "root password1"))
-	assert.Equal(t, []string{protocol.FindingProjectVerify, protocol.FindingHardCard}, findingKinds(body))
+	assert.Equal(t, []string{protocol.FindingProjectVerify, protocol.FindingProjectVerify, protocol.FindingHardCard}, findingKinds(body))
 
 	none := newSelectorAdminServer(t, RouterConfig{SentinelStore: newStore()}, false)
 
 	_, body = sentinelDo(t, none, http.MethodGet, path, nil, nil)
-	assert.Equal(t, []string{protocol.FindingProjectVerify, protocol.FindingHardCard}, findingKinds(body))
+	assert.Equal(t, []string{protocol.FindingProjectVerify, protocol.FindingProjectVerify, protocol.FindingHardCard}, findingKinds(body))
+}
+
+func TestCardSentinelViewCarriesAnalysesOutcomesAndThePR(t *testing.T) {
+	store := newFakeSentinelStore()
+	at := time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)
+	store.analyses = []state.Heal{{
+		ID: 11, Kind: state.HealKindAnalysis, RunID: "run-1", Stage: state.StageAnalysed, Reason: "answered",
+		SpendUSD: 0.31, CreatedAt: at,
+	}}
+	store.findings = []state.Finding{
+		{ID: 5, Kind: protocol.FindingCode, Title: "t", State: state.FindingCarded, Reason: "new", Output: "ABC-40", CreatedAt: at},
+		{ID: 6, Kind: protocol.FindingProjectVerify, Title: "v", State: state.FindingProposed, Output: "https://x/pull/1", CreatedAt: at},
+	}
+	store.pr = &state.StandingPR{Project: "p", URL: "https://x/pull/1", File: "AGENTS.md", State: "open", PushedAt: at}
+	path := "/api/projects/p/cards/p-001/sentinel"
+
+	check := func(t *testing.T, body map[string]any, wantFindings int) {
+		t.Helper()
+
+		a := body["analyses"].([]any)
+		require.Len(t, a, 1)
+
+		row := a[0].(map[string]any)
+		assert.EqualValues(t, 11, row["id"])
+		assert.Equal(t, "run-1", row["run_id"])
+		assert.Equal(t, state.StageAnalysed, row["stage"])
+		assert.Equal(t, "answered", row["reason"])
+		assert.InDelta(t, 0.31, row["spend_usd"], 1e-9)
+		assert.Equal(t, "2026-11-14T09:00:00Z", row["created_at"])
+
+		require.Len(t, body["findings"], wantFindings)
+
+		f := body["findings"].([]any)[0].(map[string]any)
+		assert.EqualValues(t, 5, f["id"])
+		assert.Equal(t, state.FindingCarded, f["state"])
+		assert.Equal(t, "new", f["reason"])
+		assert.Equal(t, "ABC-40", f["output"])
+
+		pr := body["standing_pr"].(map[string]any)
+		assert.Equal(t, "https://x/pull/1", pr["url"])
+		assert.Equal(t, "open", pr["state"])
+		assert.Equal(t, "AGENTS.md", pr["file"])
+		assert.Equal(t, "2026-11-14T09:00:00Z", pr["pushed_at"])
+	}
+
+	none := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
+	_, body := sentinelDo(t, none, http.MethodGet, path, nil, nil)
+	check(t, body, 2)
+
+	multi := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, true)
+	_, body = sentinelDo(t, multi, http.MethodGet, path, nil, login(t, multi, "bob", "bob password1"))
+	check(t, body, 1)
+
+	empty := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore()}, false)
+	_, body = sentinelDo(t, empty, http.MethodGet, path, nil, nil)
+	assert.Equal(t, []any{}, body["analyses"])
+	assert.Nil(t, body["standing_pr"])
+	assert.Contains(t, body, "standing_pr")
+}
+
+func TestCardSentinelViewNamesARevisionThatDidNotGoOut(t *testing.T) {
+	at := time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)
+	row := func(stage, reason string) *state.Heal {
+		return &state.Heal{ID: 3, Kind: state.HealKindRevision, Project: "p", Stage: stage, Reason: reason, UpdatedAt: at}
+	}
+
+	tests := []struct {
+		name     string
+		revision *state.Heal
+		want     map[string]any // nil = null
+	}{
+		{"no revision", nil, nil},
+		{"revised", row(state.StageRevised, ""), nil},
+		{"still open", row(state.StageRevise, ""), nil},
+		{
+			"failed", row(state.StageRevisionFailed, "not sent: mint a pull request token: 403"),
+			map[string]any{"stage": state.StageRevisionFailed, "reason": "not sent: mint a pull request token: 403", "updated_at": "2026-11-14T09:00:00Z"},
+		},
+		{
+			"refused", row(state.StageRevisionRefused, "absent from the repo: x"),
+			map[string]any{"stage": state.StageRevisionRefused, "reason": "absent from the repo: x", "updated_at": "2026-11-14T09:00:00Z"},
+		},
+		{
+			"stale", row(state.StageRevisionStale, "stale"),
+			map[string]any{"stage": state.StageRevisionStale, "reason": "stale", "updated_at": "2026-11-14T09:00:00Z"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newFakeSentinelStore()
+			store.revision = tt.revision
+			srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
+
+			_, body := sentinelDo(t, srv, http.MethodGet, "/api/projects/p/cards/p-001/sentinel", nil, nil)
+
+			require.Contains(t, body, "guidance_revision")
+			assert.Nil(t, body["standing_pr"], "set even with no PR on record")
+			assert.Equal(t, "p", store.asked)
+
+			if tt.want == nil {
+				assert.Nil(t, body["guidance_revision"])
+			} else {
+				assert.Equal(t, tt.want, body["guidance_revision"])
+			}
+		})
+	}
+}
+
+func TestSentinelStatusCarriesAnalysing(t *testing.T) {
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore()}, false)
+
+	_, body := sentinelDo(t, srv, http.MethodGet, "/api/sentinel", nil, nil)
+	assert.EqualValues(t, 0, body["status"].(map[string]any)["analysing"])
 }

@@ -227,10 +227,12 @@ type SubtaskUsage struct {
 }
 
 // SentinelMark is the board icon state of a card Sentinel touched. Action is
-// healing, healed, edited or parked.
+// healing, healed, edited, parked, created or analysing. Working is true
+// while Sentinel is acting on the card: the board animates the icon.
 type SentinelMark struct {
-	Action string `json:"action"`
-	Label  string `json:"label"`
+	Action  string `json:"action"`
+	Label   string `json:"label"`
+	Working bool   `json:"working,omitempty"`
 }
 
 // CardPlaybookLock is the derived pointer from a card to the runnable

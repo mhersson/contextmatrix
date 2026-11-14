@@ -41,12 +41,13 @@ function sentinel(enabled: boolean): SentinelInfo {
       state: enabled ? 'watching' : 'off',
       mode: enabled ? 'endpoint' : '',
       healing: 0,
+      analysing: 0,
       healed_today: 0,
       spent_today_usd: 0,
       daily_cap_usd: 20,
       headroom: 0.85,
     },
-    settings: { enabled, healing: true, friction: true, daily_cap_usd: 20, investigate_ceiling_usd: 2, headroom: 0.85 },
+    settings: { enabled, healing: true, friction: true, daily_cap_usd: 20, investigate_ceiling_usd: 2, headroom: 0.85, analyse_every_run: false, analyse_ceiling_usd: 1 },
   };
 }
 

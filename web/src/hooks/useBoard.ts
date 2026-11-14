@@ -3,6 +3,8 @@ import type { Card, ProjectConfig, BoardEvent, CardFilter } from '../types';
 import { api, isAPIError } from '../api/client';
 import { useSSEBus } from './useSSEBus';
 
+const SENTINEL_REFRESH_DEBOUNCE_MS = 1_000;
+
 // Monotonic request counter - mirrors the useProjectSummaries pattern so only
 // the latest fetchData call commits its result to state.  Declared at module
 // scope to avoid needing to thread it through the hook signature.
@@ -340,14 +342,24 @@ export function useBoard(
     const unsubSync = subscribe('sync.*', handleEvent);
     const unsubPlaybook = subscribe('playbook.*', handleEvent);
     const unsubProjectUpdated = subscribe('project.updated', handleEvent);
+    // A Sentinel mark changes with no card event (an analysis starting or
+    // ending), so refresh the list, debounced, for this project's events.
+    let sentinelTimer: ReturnType<typeof setTimeout> | undefined;
+    const unsubSentinel = subscribe('sentinel.*', (event) => {
+      if (event.project !== project) return;
+      clearTimeout(sentinelTimer);
+      sentinelTimer = setTimeout(refreshCards, SENTINEL_REFRESH_DEBOUNCE_MS);
+    });
     return () => {
+      clearTimeout(sentinelTimer);
+      unsubSentinel();
       unsubCard();
       unsubWorker();
       unsubSync();
       unsubPlaybook();
       unsubProjectUpdated();
     };
-  }, [subscribe, handleEvent]);
+  }, [subscribe, handleEvent, project, refreshCards]);
 
   const updateCardLocally = useCallback((cardId: string, updates: Partial<Card>) => {
     setCards((prev) =>

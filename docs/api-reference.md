@@ -1125,6 +1125,7 @@ Sentinel's status and stored settings.
     "state": "watching",
     "mode": "endpoint",
     "healing": 0,
+    "analysing": 0,
     "healed_today": 0,
     "spent_today_usd": 0,
     "daily_cap_usd": 20,
@@ -1136,7 +1137,9 @@ Sentinel's status and stored settings.
     "friction": true,
     "daily_cap_usd": 20,
     "investigate_ceiling_usd": 2,
-    "headroom": 0.85
+    "headroom": 0.85,
+    "analyse_every_run": false,
+    "analyse_ceiling_usd": 1
   },
   "updated_at": "2026-11-13T10:00:00Z",
   "updated_by": "human:alice"
@@ -1162,12 +1165,14 @@ considered. `updated_by` is the caller's identity, or `human:web` without one.
 **Errors:** `400 BAD_REQUEST` (malformed JSON), `403 FORBIDDEN` (non-admin in
 `multi` mode), `422 VALIDATION_ERROR` (a non-finite number, `daily_cap_usd`
 outside 0-10000, `investigate_ceiling_usd` not above 0 or over 100, or
-`headroom` not above 0 or over 1).
+`headroom` not above 0 or over 1, or `analyse_ceiling_usd` not above 0 or over
+100).
 
 ### GET /api/projects/{project}/cards/{id}/sentinel
 
 The last run this instance launched for the card (`run` is null when there is
-none), the card's heals and the friction findings stored for it.
+none), the card's heals, analyses and the friction findings stored for it, and
+the project's standing guidance PR and failed guidance revision.
 
 ```json
 {
@@ -1206,13 +1211,38 @@ none), the card's heals and the friction findings stored for it.
   ],
   "findings": [
     {
+      "id": 5,
+      "state": "carded",
+      "reason": "",
+      "output": "PROJ-040",
       "kind": "guidance",
       "title": "...",
       "text": "...",
       "evidence": "...",
       "created_at": "2026-11-13T10:05:00Z"
     }
-  ]
+  ],
+  "analyses": [
+    {
+      "id": 11,
+      "run_id": "run-1",
+      "stage": "analysed",
+      "reason": "",
+      "spend_usd": 0.31,
+      "created_at": "2026-11-13T10:06:00Z"
+    }
+  ],
+  "standing_pr": {
+    "url": "https://github.com/acme/app/pull/12",
+    "state": "open",
+    "file": "AGENTS.md",
+    "pushed_at": "2026-11-13T10:30:00Z"
+  },
+  "guidance_revision": {
+    "stage": "revision_failed",
+    "reason": "not sent: read the standing pr: API rate limit exceeded",
+    "updated_at": "2026-11-13T11:00:00Z"
+  }
 }
 ```
 
@@ -1237,8 +1267,24 @@ and was not written: the section checks' violations, such as
 stores them only while the friction analysis switch is on; switching it off
 stores no new ones and keeps those already stored, which are still returned. `kind` is `guidance`,
 `code`, `ecosystem`, `card_advice`, `project_verify` or `hard_card`.
-`project_verify` findings are returned to admins in `multi` mode and to every
-caller in `none` mode.
+`project_verify` findings, the project's CM execution setup (verify command,
+worker image) for admins, are returned to admins in `multi` mode and to every
+caller in `none` mode; guidance that names CM is re-routed to this kind.
+`state` is where the finding sits on its way to an output,
+`reason` says why a finding is `dropped`, a `duplicate` or `rejected`, or
+kept `queued` at the daily card limit, and `output` names what it
+became: a friction card's ID, or the standing PR's URL.
+
+`analyses` is the card's run analyses, newest first, `[]` when there are none;
+`stage` is `analyse`, `analysed`, `analyse_failed` or `analyse_skipped` and
+`spend_usd` is the analysis's recorded spend. `standing_pr` is the project's
+standing guidance PR as Sentinel last read it, or null when it has none.
+`guidance_revision` is the project's newest guidance revision when it ended
+without going out (`stage` `revision_failed`, `revision_stale` or
+`revision_refused`), with `reason` saying why, such as a write token GitHub
+refused to mint; it is null when there is none, when the newest revision is
+still open or when it ended `revised`, and it is set whether or not the
+project has a standing PR.
 
 ## Attention Endpoints
 
@@ -2192,7 +2238,7 @@ originate from a shared-board pull carry `data.source: "sync"`.
 | `jira_import.progress` | `{import_id, key, status, project, card_id, reason}`                                                                                                                                | One selected issue of a Jira import finished; the event's own `project` is empty       |
 | `jira_import.done`    | `{import_id, status, playbook_id, results, error}`                                                                                                                                  | A Jira import finished or stopped; the event's own `project` is empty                  |
 | `llm_channel.changed` | `{mode}` (`project` empty)                                                                                                                                                          | The LLM channel mode was switched, or a worker reported subscription usage (a subscription `report_usage`, a chat usage frame, a usage-limit frame, `report_parked` naming a window and a reset time, or a recorded run-kind status carrying windows), whether or not it replaced the stored reading |
-| `sentinel.changed`    | none (`project` empty, or the card's `project` and `card_id`)                                                                                                                       | Sentinel's status changed (`project` empty), a heal on the card was opened or saved, or a run kind's result for the card was recorded |
+| `sentinel.changed`    | none (`project` empty; the card's `project` and `card_id`; or `project` alone)                                                                                                      | Sentinel's status changed (`project` empty), a Sentinel row of the card changed (a heal of any kind, a finding, a run kind's result), or with `card_id` empty a guidance revision or the standing PR changed |
 | `attention.changed`   | none (`project` empty)                                                                                                                                                              | The waiting list changed; refetch `GET /api/attention`. It names nothing, since the list can hold another user's blueprint |
 
 A shared-board pull publishes per-card `card.created` / `card.updated` /
@@ -2760,10 +2806,11 @@ record it, so the backend's retry delivers it again.
 
 | Field           | Rule                                                                                                         |
 | --------------- | ------------------------------------------------------------------------------------------------------------ |
-| `kind`          | `check` or `investigate`                                                                                     |
+| `kind`          | `check`, `investigate`, `analyse` or `guidance_pr`                                                           |
+| `card_id`       | Empty exactly for `guidance_pr`, which names no card; every other kind names its card                        |
 | `worker_status` | `completed` or `failed`; a run kind sends no `running` status                                                |
-| `result`        | Only on `completed` with `stop_cause` `done`; holds exactly the member `kind` names, `check` or `investigate` |
-| `usage`         | At most 16 rows, one per model: `model` plus the token counts, `cost_usd`, `cost_basis` and `subscription` of a usage frame |
+| `result`        | Only on `completed` with `stop_cause` `done`; holds exactly the member `kind` names |
+| `usage`         | At most 16 rows, one per model: `model` plus the token counts, `cost_usd`, `cost_basis` and `subscription` of a usage frame; none on `guidance_pr`, which runs no model |
 
 A status that breaks any rule or limit is 422 `VALIDATION_ERROR`, and nothing
 in it is recorded:
@@ -2775,9 +2822,12 @@ in it is recorded:
 | `investigate.cause`                               | `card`, `model`, `environment` or `ecosystem`                                                 |
 | `investigate.fix.section`                         | 16 KiB                                                                                        |
 | `investigate.fix.retire_subtasks`, `forward_to`   | 50 IDs each                                                                                   |
-| `investigate.findings`                            | 50                                                                                            |
+| `investigate.findings`, `analyse.findings`        | 50 each                                                                                       |
 | A finding's `kind`                                | `guidance`, `code`, `card_advice`, `project_verify`, `hard_card` or `ecosystem`               |
 | A finding's `title`, `text`, `evidence`           | 200 bytes, 16 KiB, 4 KiB                                                                      |
+| `guidance_pr.outcome`                             | `pushed`, `unchanged`, `stale` or `refused`                                                   |
+| `guidance_pr.pr_url`, `head_sha`, `file`          | On `pushed` and `unchanged`: an `https://` URL of at most 2 KiB, a 40 or 64 digit lower-case hex SHA, and a clean repo-relative path of at most 512 bytes (no leading `/`, no empty, `.` or `..` segment); none on `stale` |
+| `guidance_pr.absent_from_repo`                    | On `refused`: 1 to 64 entries of at most 512 bytes                                            |
 | `check.candidates`                                | 32 entries of at most 512 bytes                                                               |
 | `check.absent_from_repo`                          | 64 entries of at most 512 bytes                                                               |
 | `check.trial`, when set                           | `finished`, `timeout`, `toolchain`, `infrastructure` or `rejected`                            |

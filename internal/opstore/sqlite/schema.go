@@ -240,6 +240,19 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			playbook_id TEXT NOT NULL,
 			PRIMARY KEY (owner, playbook_id)
 		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_sentinel_analysis_run
+			ON sentinel_heals(project, card_id, run_id) WHERE kind = 'analysis'`,
+		`CREATE TABLE IF NOT EXISTS sentinel_standing_prs (
+			project   TEXT PRIMARY KEY,
+			pr_url    TEXT NOT NULL,
+			head_sha  TEXT NOT NULL,
+			file      TEXT NOT NULL,
+			pushed_at INTEGER NOT NULL,
+			pr_state  TEXT NOT NULL DEFAULT '',
+			read_at   INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_sentinel_revision_open
+			ON sentinel_heals(project) WHERE kind = 'revision' AND stage = 'revise'`,
 	}
 
 	for _, s := range stmts {
@@ -283,6 +296,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		{"human_stop", "INTEGER NOT NULL DEFAULT 0"},
 		{"usage_reruns", "INTEGER NOT NULL DEFAULT 0"},
 		{"decided", "INTEGER NOT NULL DEFAULT 0"},
+		{"analysis_queued", "INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if err := addColumnIfMissing(ctx, db, "card_run_modes", col.name, col.decl); err != nil {
 			return err
@@ -291,6 +305,37 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 
 	if err := addColumnIfMissing(ctx, db, "sentinel_heals", "dropped", "TEXT NOT NULL DEFAULT 'null'"); err != nil {
 		return err
+	}
+
+	for _, col := range []struct{ name, decl string }{
+		{"analyse_every_run", "INTEGER NOT NULL DEFAULT 0"},
+		{"analyse_ceiling_usd", "REAL NOT NULL DEFAULT 1"},
+	} {
+		if err := addColumnIfMissing(ctx, db, "sentinel_settings", col.name, col.decl); err != nil {
+			return err
+		}
+	}
+
+	if err := addColumnIfMissing(ctx, db, "sentinel_heals", "result", "TEXT NOT NULL DEFAULT 'null'"); err != nil {
+		return err
+	}
+
+	for _, col := range []struct{ name, decl string }{
+		{"state", "TEXT NOT NULL DEFAULT ''"},
+		{"reason", "TEXT NOT NULL DEFAULT ''"},
+		{"output", "TEXT NOT NULL DEFAULT ''"},
+		{"revision_id", "INTEGER NOT NULL DEFAULT 0"},
+		{"updated_at", "INTEGER NOT NULL DEFAULT 0"},
+	} {
+		if err := addColumnIfMissing(ctx, db, "sentinel_findings", col.name, col.decl); err != nil {
+			return err
+		}
+	}
+
+	for _, col := range []string{"sent_findings", "allowed"} {
+		if err := addColumnIfMissing(ctx, db, "sentinel_heals", col, "TEXT NOT NULL DEFAULT 'null'"); err != nil {
+			return err
+		}
 	}
 
 	// After the column loop: an upgraded database has the columns only now.

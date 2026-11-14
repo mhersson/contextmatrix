@@ -768,3 +768,49 @@ describe('useBoard - refreshCard (panel-open hydration)', () => {
     expect(result.current.config?.name).toBe('beta');
   });
 });
+
+describe('useBoard - sentinel events', () => {
+  beforeEach(() => {
+    instances = [];
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(api.getProject).mockResolvedValue(projectConfig);
+    vi.mocked(api.getCards).mockResolvedValue(cards);
+    vi.mocked(api.getCard).mockRejectedValue(new Error('not used in this test'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  const send = (project: string) =>
+    act(() => {
+      latestInstance().onmessage?.({
+        data: JSON.stringify({ type: 'sentinel.changed', card_id: 'ALPHA-1', project }),
+      } as MessageEvent);
+    });
+
+  it('refreshes the cards, debounced, on a sentinel event of its project only', async () => {
+    const { result } = renderHook(() => useBoard('alpha'), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+    expect(vi.mocked(api.getCards)).toHaveBeenCalledTimes(1);
+
+    send('beta');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(vi.mocked(api.getCards)).toHaveBeenCalledTimes(1);
+
+    send('alpha');
+    send('alpha');
+    expect(vi.mocked(api.getCards)).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(vi.mocked(api.getCards)).toHaveBeenCalledTimes(2);
+    expect(result.current.loading).toBe(false);
+  });
+});

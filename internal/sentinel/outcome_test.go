@@ -2,6 +2,7 @@ package sentinel
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -106,6 +107,31 @@ func TestCloseHealWritesNoEntry(t *testing.T) {
 	assert.Empty(t, e.cards.logged)
 }
 
+// projectEvents drains the project-level sentinel.changed events (empty card ID) delivered so far as "<project>".
+func projectEvents(ch <-chan events.Event) []string {
+	_, projects := changedEvents(ch)
+
+	return projects
+}
+
+// changedEvents drains the sentinel.changed events delivered so far: the card ones as "<project>/<card>", the project ones as "<project>".
+func changedEvents(ch <-chan events.Event) (cards, projects []string) {
+	for {
+		select {
+		case ev := <-ch:
+			switch {
+			case ev.Type != events.SentinelChanged || ev.Project == "":
+			case ev.CardID == "":
+				projects = append(projects, ev.Project)
+			default:
+				cards = append(cards, ev.Project+"/"+ev.CardID)
+			}
+		default:
+			return cards, projects
+		}
+	}
+}
+
 // cardEvents drains the per-card sentinel.changed events delivered so far as "<project>/<card>".
 func cardEvents(ch <-chan events.Event) []string {
 	var out []string
@@ -138,4 +164,16 @@ func TestHealWritesPublishTheCardEvent(t *testing.T) {
 	_, err := e.ctl.openHeal(context.Background(), state.Heal{Kind: state.HealKindForward, Project: "alpha", CardID: "ALPHA-002"})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"alpha/ALPHA-002"}, cardEvents(ch), "an opened heal")
+}
+
+func TestAFailedFindingWritePublishesNothing(t *testing.T) {
+	e := newDispatchEnv(t)
+	ch, unsubscribe := e.bus.Subscribe()
+	t.Cleanup(unsubscribe)
+
+	e.store.outcomeErr = errors.New("disk full")
+	f := state.Finding{ID: 1, Project: "alpha", CardID: "ALPHA-001"}
+
+	require.Error(t, e.ctl.setFindingOutcome(context.Background(), f, state.FindingDropped, "r", "", 0, epoch))
+	assert.Empty(t, cardEvents(ch))
 }

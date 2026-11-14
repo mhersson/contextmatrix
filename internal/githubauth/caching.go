@@ -27,6 +27,7 @@ type CachingProvider struct {
 	repoMu     sync.Mutex
 	repoTokens map[string]cachedToken
 	readTokens map[string]cachedToken
+	prTokens   map[string]cachedToken
 }
 
 type cachedToken struct {
@@ -44,6 +45,7 @@ func NewCachingProvider(inner TokenGenerator) *CachingProvider {
 		refreshSkew: defaultRefreshSkew,
 		repoTokens:  make(map[string]cachedToken),
 		readTokens:  make(map[string]cachedToken),
+		prTokens:    make(map[string]cachedToken),
 	}
 }
 
@@ -81,6 +83,12 @@ func (c *CachingProvider) GenerateRepoToken(ctx context.Context, repo string) (s
 // apart so a write mint never returns a read token or the reverse.
 func (c *CachingProvider) GenerateRepoReadToken(ctx context.Context, repo string) (string, time.Time, error) {
 	return c.scoped(ctx, c.readTokens, repo, c.inner.GenerateRepoReadToken)
+}
+
+// GenerateRepoPRToken is GenerateRepoToken for contents and pull requests
+// write tokens, cached apart from the read and full ones.
+func (c *CachingProvider) GenerateRepoPRToken(ctx context.Context, repo string) (string, time.Time, error) {
+	return c.scoped(ctx, c.prTokens, repo, c.inner.GenerateRepoPRToken)
 }
 
 func (c *CachingProvider) scoped(

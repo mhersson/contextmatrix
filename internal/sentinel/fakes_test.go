@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,6 +34,11 @@ type fakeStore struct {
 	runs      []state.Run
 	ledger    []ledgerRow
 	refreshes int // RefreshEditSnapshot calls
+
+	findings      []state.Finding
+	prs           map[string]state.StandingPR
+	outcomeWrites int   // SetFindingOutcome calls
+	outcomeErr    error // answered by SetFindingOutcome
 }
 
 type ledgerRow struct {
@@ -141,6 +148,18 @@ func (f *fakeStore) RecordRunKindStatus(_ context.Context, r state.RunKindReport
 		}
 	}
 
+	if r.Result != nil && r.Kind == protocol.RunKindAnalyse {
+		if err := json.Unmarshal(r.Result, &newest.Analysis); err != nil {
+			return 0, false, err
+		}
+	}
+
+	if r.Result != nil && r.Kind == protocol.RunKindGuidancePR {
+		if err := json.Unmarshal(r.Result, &newest.Revision); err != nil {
+			return 0, false, err
+		}
+	}
+
 	newest.Version++
 	f.heals[newest.ID] = *newest
 
@@ -245,7 +264,7 @@ func (f *fakeStore) OpenHeals(context.Context) ([]state.Heal, error) {
 	return heals, nil
 }
 
-func (f *fakeStore) InFlightHeals(context.Context) ([]state.Heal, error) {
+func (f *fakeStore) InFlightRows(context.Context) ([]state.Heal, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -254,7 +273,7 @@ func (f *fakeStore) InFlightHeals(context.Context) ([]state.Heal, error) {
 	var heals []state.Heal
 
 	for _, h := range f.heals {
-		if h.Kind == state.HealKindHeal && inFlight(h.Dispatch) {
+		if inFlight(h.Dispatch) {
 			heals = append(heals, h)
 		}
 	}
@@ -262,6 +281,113 @@ func (f *fakeStore) InFlightHeals(context.Context) ([]state.Heal, error) {
 	slices.SortFunc(heals, func(a, b state.Heal) int { return int(a.ID - b.ID) })
 
 	return heals, nil
+}
+
+// isHealKind reports whether the store's heal readers serve a row of kind.
+func isHealKind(kind string) bool {
+	return kind == state.HealKindHeal || kind == state.HealKindForward
+}
+
+// UnqueuedRuns follows the store: only runs that have an ID.
+func (f *fakeStore) UnqueuedRuns(context.Context) ([]state.Run, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	var runs []state.Run
+
+	for _, r := range f.runs {
+		if r.RunID != "" && !r.AnalysisQueued {
+			runs = append(runs, r)
+		}
+	}
+
+	return runs, nil
+}
+
+// QueueAnalysis keeps one analysis row per run ID.
+func (f *fakeStore) QueueAnalysis(_ context.Context, h state.Heal) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	if f.heals == nil {
+		f.heals = make(map[int64]state.Heal)
+	}
+
+	var maxID int64
+
+	dup := false
+
+	for _, cur := range f.heals {
+		maxID = max(maxID, cur.ID)
+		dup = dup || cur.Kind == state.HealKindAnalysis && cur.Project == h.Project && cur.CardID == h.CardID && cur.RunID == h.RunID
+	}
+
+	if !dup {
+		h.ID, h.Version = maxID+1, 0
+		f.heals[h.ID] = h
+	}
+
+	f.markQueued(h.Project, h.CardID, h.RunStarted)
+
+	return nil
+}
+
+func (f *fakeStore) MarkAnalysisQueued(_ context.Context, project, cardID string, started time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+	f.markQueued(project, cardID, started)
+
+	return nil
+}
+
+func (f *fakeStore) markQueued(project, cardID string, started time.Time) {
+	for i, r := range f.runs {
+		if r.Project == project && r.CardID == cardID && r.StartedAt.Equal(started) {
+			f.runs[i].AnalysisQueued = true
+		}
+	}
+}
+
+// OpenAnalyses returns the analysis rows at stage analyse, newest first.
+func (f *fakeStore) OpenAnalyses(context.Context) ([]state.Heal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	var rows []state.Heal
+
+	for _, h := range f.heals {
+		if h.Kind == state.HealKindAnalysis && h.Stage == state.StageAnalyse {
+			rows = append(rows, h)
+		}
+	}
+
+	slices.SortFunc(rows, func(a, b state.Heal) int { return int(b.ID - a.ID) })
+
+	return rows, nil
+}
+
+// RunHeal returns the heal of the run that started at started.
+func (f *fakeStore) RunHeal(_ context.Context, project, cardID string, started time.Time) (*state.Heal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	for _, h := range f.heals {
+		if h.Kind == state.HealKindHeal && h.Project == project && h.CardID == cardID && h.RunStarted.Equal(started) {
+			return &h, nil
+		}
+	}
+
+	return nil, nil //nolint:nilnil // nil, nil means no heal, as the store answers
 }
 
 // CardHeals returns the card's rows, newest first.
@@ -274,7 +400,7 @@ func (f *fakeStore) CardHeals(_ context.Context, project, cardID string) ([]stat
 	var heals []state.Heal
 
 	for _, h := range f.heals {
-		if h.Project == project && h.CardID == cardID {
+		if isHealKind(h.Kind) && h.Project == project && h.CardID == cardID {
 			heals = append(heals, h)
 		}
 	}
@@ -293,7 +419,7 @@ func (f *fakeStore) LatestHeals(_ context.Context, project string) (map[string]s
 	latest := map[string]state.Heal{}
 
 	for _, h := range f.heals {
-		if cur, ok := latest[h.CardID]; h.Project == project && (!ok || h.ID > cur.ID) {
+		if cur, ok := latest[h.CardID]; isHealKind(h.Kind) && h.Project == project && (!ok || h.ID > cur.ID) {
 			latest[h.CardID] = h
 		}
 	}
@@ -337,7 +463,7 @@ func (f *fakeStore) HealedSince(_ context.Context, since time.Time) (int, error)
 	cards := map[string]bool{}
 
 	for _, h := range f.heals {
-		if h.Stage == state.StageHealed && !h.UpdatedAt.Before(since) {
+		if h.Kind == state.HealKindHeal && h.Stage == state.StageHealed && !h.UpdatedAt.Before(since) {
 			cards[h.Project+"/"+h.CardID] = true
 		}
 	}
@@ -528,6 +654,7 @@ type fakeCards struct {
 	patches     []patchCall
 	refuse      map[string]error
 	transitions []string // "<ID> <state> <agent>"
+	created     []service.CreateCardInput
 }
 
 type patchCall struct {
@@ -660,6 +787,7 @@ func (f *fakeCards) ListCards(_ context.Context, project string, filter storage.
 
 	for _, c := range f.cards {
 		if c.Project == project && (filter.Parent == "" || c.Parent == filter.Parent) &&
+			(filter.Label == "" || slices.Contains(c.Labels, filter.Label)) &&
 			(filter.State == "" || c.State == filter.State) {
 			out = append(out, c)
 		}
@@ -676,6 +804,17 @@ func (f *fakeCards) GetProject(_ context.Context, project string) (*board.Projec
 	}
 
 	return nil, storage.ErrProjectNotFound
+}
+
+func (f *fakeCards) ListProjects(context.Context) ([]board.ProjectConfig, error) {
+	f.calls++
+
+	var out []board.ProjectConfig
+	for _, p := range f.projects {
+		out = append(out, *p)
+	}
+
+	return out, nil
 }
 
 // fakePlaybooks serves playbook details by ID.
@@ -720,4 +859,276 @@ func enabledSettings() state.Settings {
 	s.Enabled = true
 
 	return s
+}
+
+func (f *fakeStore) putFinding(fd state.Finding) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.findings = append(f.findings, fd)
+}
+
+func (f *fakeStore) finding(id int64) state.Finding {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	for _, fd := range f.findings {
+		if fd.ID == id {
+			return fd
+		}
+	}
+
+	return state.Finding{}
+}
+
+// findingsWhere returns the findings keep accepts, in ID order.
+func (f *fakeStore) findingsWhere(keep func(state.Finding) bool) []state.Finding {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	var out []state.Finding
+
+	for _, fd := range f.findings {
+		if keep(fd) {
+			out = append(out, fd)
+		}
+	}
+
+	slices.SortFunc(out, func(a, b state.Finding) int { return int(a.ID - b.ID) })
+
+	return out
+}
+
+func (f *fakeStore) QueuedFindings(context.Context) ([]state.Finding, error) {
+	return f.findingsWhere(func(fd state.Finding) bool { return fd.State == state.FindingQueued }), nil
+}
+
+func (f *fakeStore) ProjectGuidance(_ context.Context, project string) ([]state.Finding, error) {
+	return f.findingsWhere(func(fd state.Finding) bool {
+		return fd.Project == project && fd.Kind == protocol.FindingGuidance &&
+			slices.Contains([]string{state.FindingPending, state.FindingProposed, state.FindingMerged, state.FindingRejected}, fd.State)
+	}), nil
+}
+
+func (f *fakeStore) ProposedFindings(_ context.Context, project string) ([]state.Finding, error) {
+	return f.findingsWhere(func(fd state.Finding) bool {
+		return fd.Project == project && fd.Kind == protocol.FindingGuidance && fd.State == state.FindingProposed
+	}), nil
+}
+
+func (f *fakeStore) StandingPRs(context.Context) ([]state.StandingPR, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	var out []state.StandingPR
+	for _, p := range f.prs {
+		out = append(out, p)
+	}
+
+	slices.SortFunc(out, func(a, b state.StandingPR) int { return strings.Compare(a.Project, b.Project) })
+
+	return out, nil
+}
+
+func (f *fakeStore) StandingPR(_ context.Context, project string) (*state.StandingPR, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if p, ok := f.prs[project]; ok {
+		return &p, nil
+	}
+
+	return nil, nil
+}
+
+func (f *fakeStore) PutStandingPR(_ context.Context, p state.StandingPR) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.prs == nil {
+		f.prs = map[string]state.StandingPR{}
+	}
+
+	f.prs[p.Project] = p
+
+	return nil
+}
+
+func (f *fakeStore) CardedSince(_ context.Context, project string, since time.Time) (int, error) {
+	return len(f.findingsWhere(func(fd state.Finding) bool {
+		return fd.Project == project && fd.State == state.FindingCarded && !fd.UpdatedAt.Before(since)
+	})), nil
+}
+
+func (f *fakeStore) RerouteFinding(_ context.Context, id int64, kind, st, reason string, at time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.outcomeWrites++
+
+	if f.outcomeErr != nil {
+		return f.outcomeErr
+	}
+
+	for i, fd := range f.findings {
+		if fd.ID == id {
+			f.findings[i].Kind, f.findings[i].State, f.findings[i].Reason, f.findings[i].UpdatedAt = kind, st, reason, at
+
+			return nil
+		}
+	}
+
+	return nil
+}
+
+func (f *fakeStore) CardedFindings(_ context.Context, project string) (map[string]bool, error) {
+	out := map[string]bool{}
+
+	for _, fd := range f.findingsWhere(func(fd state.Finding) bool {
+		return fd.Project == project && fd.State == state.FindingCarded && fd.Output != ""
+	}) {
+		out[fd.Output] = true
+	}
+
+	return out, nil
+}
+
+func (f *fakeStore) SetFindingOutcome(_ context.Context, id int64, st, reason, output string, revisionID int64, at time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.outcomeWrites++
+
+	if f.outcomeErr != nil {
+		return f.outcomeErr
+	}
+
+	for i, fd := range f.findings {
+		if fd.ID == id {
+			f.findings[i].State, f.findings[i].Reason, f.findings[i].Output = st, reason, output
+			f.findings[i].RevisionID, f.findings[i].UpdatedAt = revisionID, at
+
+			return nil
+		}
+	}
+
+	return nil
+}
+
+func (f *fakeCards) CreateCard(_ context.Context, project string, in service.CreateCardInput) (*board.Card, error) {
+	f.calls++
+	f.created = append(f.created, in)
+
+	c := &board.Card{
+		ID: strings.ToUpper(project) + "-" + strconv.Itoa(99+len(f.created)), Project: project, Title: in.Title,
+		Type: in.Type, State: board.StateTodo, Labels: in.Labels, Body: in.Body,
+	}
+	f.cards = append(f.cards, c)
+
+	return c, nil
+}
+
+func (f *fakeStore) PendingFindings(_ context.Context, project string) ([]state.Finding, error) {
+	return f.findingsWhere(func(fd state.Finding) bool {
+		return fd.Project == project && fd.Kind == protocol.FindingGuidance && fd.State == state.FindingPending
+	}), nil
+}
+
+// OpenRevision keeps one revision row at stage revise per project.
+func (f *fakeStore) OpenRevision(_ context.Context, project string, at time.Time) (state.Heal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	if f.heals == nil {
+		f.heals = make(map[int64]state.Heal)
+	}
+
+	var maxID int64
+
+	for _, h := range f.heals {
+		if h.Kind == state.HealKindRevision && h.Stage == state.StageRevise && h.Project == project {
+			return h, nil
+		}
+
+		maxID = max(maxID, h.ID)
+	}
+
+	h := state.Heal{
+		ID: maxID + 1, Kind: state.HealKindRevision, Project: project, Stage: state.StageRevise, CreatedAt: at, UpdatedAt: at,
+	}
+	f.heals[h.ID] = h
+
+	return h, nil
+}
+
+func (f *fakeStore) OpenRevisions(context.Context) ([]state.Heal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	var rows []state.Heal
+
+	for _, h := range f.heals {
+		if h.Kind == state.HealKindRevision && h.Stage == state.StageRevise {
+			rows = append(rows, h)
+		}
+	}
+
+	slices.SortFunc(rows, func(a, b state.Heal) int { return int(a.ID - b.ID) })
+
+	return rows, nil
+}
+
+func (f *fakeStore) LastRefusedRevision(_ context.Context, project string, since time.Time) (*state.Heal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	var newest *state.Heal
+
+	for _, h := range f.heals {
+		if h.Kind == state.HealKindRevision && h.Stage == state.StageRevisionRefused && h.Project == project &&
+			h.CreatedAt.After(since) && (newest == nil || h.ID > newest.ID) {
+			newest = &h
+		}
+	}
+
+	return newest, nil
+}
+
+func (f *fakeStore) LastFailedRevision(_ context.Context, project string) (*state.Heal, error) {
+	return f.lastRevision(project, state.StageRevisionFailed, state.StageRevisionStale), nil
+}
+
+func (f *fakeStore) LastRevisedRevision(_ context.Context, project string) (*state.Heal, error) {
+	return f.lastRevision(project, state.StageRevised), nil
+}
+
+// lastRevision is the project's newest revision row at one of stages.
+func (f *fakeStore) lastRevision(project string, stages ...string) *state.Heal {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	var newest *state.Heal
+
+	for _, h := range f.heals {
+		if h.Kind == state.HealKindRevision && h.Project == project && slices.Contains(stages, h.Stage) &&
+			(newest == nil || h.ID > newest.ID) {
+			newest = &h
+		}
+	}
+
+	return newest
+}
+
+func (f *fakeStore) Findings(_ context.Context, ids []int64) ([]state.Finding, error) {
+	return f.findingsWhere(func(fd state.Finding) bool { return slices.Contains(ids, fd.ID) }), nil
 }

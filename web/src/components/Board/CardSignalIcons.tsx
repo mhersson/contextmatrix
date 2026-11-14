@@ -22,7 +22,7 @@ export function CardSignalIcons({ card }: { card: Card }) {
       {visible.map((s) => (
         <span
           key={s.key}
-          className={`flex items-center flex-shrink-0${s.pulse ? ' animate-pulse motion-reduce:animate-none' : ''}`}
+          className={`flex items-center flex-shrink-0${s.pulse ? ' animate-pulse motion-reduce:animate-none' : ''}${s.working ? ' sentinel-working' : ''}`}
           style={{ color: s.color }}
           role="img"
           aria-label={s.label}

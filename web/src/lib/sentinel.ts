@@ -1,12 +1,25 @@
-import type { SentinelStatus, SentinelVerify } from '../types';
+import type {
+  SentinelCardView,
+  SentinelFindingKind,
+  SentinelFindingView,
+  SentinelHealView,
+  SentinelRunView,
+  SentinelStatus,
+  SentinelVerify,
+} from '../types';
 
 export type SentinelTone = 'active' | 'paused' | 'stopped';
+
+function workingText(s: SentinelStatus): string {
+  if (s.analysing <= 0) return `healing ${s.healing}`;
+  return s.healing > 0 ? `healing ${s.healing} · analysing ${s.analysing}` : `analysing ${s.analysing}`;
+}
 
 /** Full state text: the tooltip and accessible name of the chip, and the popover's state. */
 export function stripText(s: SentinelStatus): string {
   switch (s.state) {
     case 'working':
-      return `healing ${s.healing}`;
+      return workingText(s);
     case 'paused':
       return s.reason ?? 'paused';
     case 'not_running':
@@ -90,4 +103,128 @@ export function verifyLines(v?: SentinelVerify): string {
   if (v.timeout_seconds) lines.push(`timeout_seconds: ${v.timeout_seconds}`);
   if (v.env?.length) lines.push(`env: ${v.env.join(', ')}`);
   return lines.join('\n');
+}
+
+export interface FindingOutcome {
+  text: string;
+  href?: string;
+  /** The href leaves the app and opens in a new tab. */
+  external?: boolean;
+}
+
+/** Where a finding stands on its way to an output; null when nothing is worth saying. */
+export function findingOutcome(f: SentinelFindingView, project: string, prURL?: string): FindingOutcome | null {
+  switch (f.state) {
+    case 'queued':
+      return { text: f.reason || 'Waiting to be routed' };
+    case 'pending':
+      return { text: 'Waiting for the next guidance PR' };
+    case 'proposed': {
+      const href = f.output || prURL;
+      return href ? { text: 'In the standing PR', href, external: true } : { text: 'In the standing PR' };
+    }
+    case 'merged':
+      return { text: 'Merged' };
+    case 'rejected':
+      return { text: 'Rejected in review' };
+    case 'duplicate':
+      return { text: f.reason };
+    case 'dropped':
+      return { text: `Dropped: ${f.reason}` };
+    case 'carded':
+      return { text: `Friction card ${f.output}`, href: `/projects/${project}?card=${f.output}` };
+    case 'note':
+      return f.reason ? { text: f.reason } : null;
+    default:
+      return null;
+  }
+}
+
+export type PillTone = 'green' | 'wait' | 'red' | 'aqua' | 'neutral';
+
+// Aqua marks work in flight (the agent-active tone) as well as a proposed finding and an open PR.
+const TONES: Record<string, PillTone> = {
+  healed: 'green',
+  merged: 'green',
+  analysed: 'green',
+  forward_passed: 'green',
+  parked: 'wait',
+  needs_a_human: 'wait',
+  changed_outside: 'wait',
+  rerun_failed: 'red',
+  forward_failed: 'red',
+  analyse_failed: 'red',
+  revision_failed: 'red',
+  revision_refused: 'red',
+  proposed: 'aqua',
+  open: 'aqua',
+  healing: 'aqua',
+  analysing: 'aqua',
+  investigate: 'aqua',
+  check: 'aqua',
+  apply: 'aqua',
+  usage_wait: 'aqua',
+  rerun: 'aqua',
+  forwarded: 'aqua',
+  analyse: 'aqua',
+};
+
+/** The pill colour of any Sentinel state: a heal, analysis or revision stage, a finding or PR state, or a card status. */
+export function pillTone(state: string): PillTone {
+  return TONES[state] ?? 'neutral';
+}
+
+export type CardStatus = 'healed' | 'needs_a_human' | 'healing' | 'analysing' | 'watching' | 'not_ours';
+
+const HEALING_STAGES = new Set(['investigate', 'check', 'apply', 'usage_wait', 'rerun']);
+
+/** A park holds until the card is launched again, as the board mark does. */
+function parkStands(heal: SentinelHealView, run: SentinelRunView | null): boolean {
+  return !run || Date.parse(run.started_at) <= Date.parse(heal.updated_at);
+}
+
+/** Where Sentinel stands on the card, from its latest heal and its open analysis. */
+export function cardStatus(view: SentinelCardView): CardStatus {
+  const heal = view.heals.find((h) => h.kind === 'heal');
+  if (heal && HEALING_STAGES.has(heal.stage)) return 'healing';
+  if (view.analyses.some((a) => a.stage === 'analyse')) return 'analysing';
+  if (heal && (heal.stage === 'parked' || heal.stage === 'rerun_failed') && parkStands(heal, view.run)) {
+    return 'needs_a_human';
+  }
+  if (heal?.stage === 'healed') return 'healed';
+  return view.run ? 'watching' : 'not_ours';
+}
+
+/** Everything Sentinel spent on the card: its heals and its run analyses. */
+export function sentinelSpend(view: SentinelCardView): number {
+  const sum = (rows: { spend_usd: number }[]) => rows.reduce((n, r) => n + r.spend_usd, 0);
+  return sum(view.heals) + sum(view.analyses);
+}
+
+const FRICTION_KINDS: SentinelFindingKind[] = ['guidance', 'code', 'ecosystem'];
+const NOTE_KINDS: SentinelFindingKind[] = ['card_advice', 'project_verify', 'hard_card'];
+
+/** Friction findings and notes, each grouped by kind in display order. */
+export function splitFindings(findings: SentinelFindingView[]): {
+  friction: SentinelFindingView[];
+  notes: SentinelFindingView[];
+} {
+  const byKind = (kinds: SentinelFindingKind[]) => kinds.flatMap((k) => findings.filter((f) => f.kind === k));
+  return { friction: byKind(FRICTION_KINDS), notes: byKind(NOTE_KINDS) };
+}
+
+/** A stage or state as a pill word. */
+export function stateWord(state: string): string {
+  return state.replaceAll('_', ' ');
+}
+
+/** A note kind as its Notes table label; project_verify is the admin-only project setup note. */
+export function noteLabel(kind: SentinelFindingKind): string {
+  return kind === 'project_verify' ? 'Project setup (admins)' : stateWord(kind);
+}
+
+/** A finding's name for its row: the title, else its text's first line, else its kind; never empty. */
+export function findingLabel(f: SentinelFindingView): string {
+  const line = f.text.split('\n').find((l) => l.trim() !== '');
+  return f.title.trim() || line?.trim() || stateWord(f.kind);
 }

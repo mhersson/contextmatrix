@@ -45,16 +45,22 @@ type Run struct {
 	RunID, StopCause      string // StopCause "" = unknown
 	HumanStop             bool
 	Decided               bool // Sentinel has looked at this run
+	AnalysisQueued        bool // the run is already past the analysis queue
 }
 
 // Heal row kinds: a heal follows one stopped run; a forward row records a fix
-// applied to a card from another card's heal.
+// applied to a card from another card's heal; an analysis row queues the
+// friction analysis of one settled run; a revision row records one push of
+// findings to a project's guidance.
 const (
-	HealKindHeal    = "heal"
-	HealKindForward = "forward"
+	HealKindHeal     = "heal"
+	HealKindForward  = "forward"
+	HealKindAnalysis = "analysis"
+	HealKindRevision = "revision"
 )
 
-// Heal stages; the last three are a forward row's.
+// Heal stages; the three after closed are a forward row's, then four an
+// analysis row's and five a revision row's.
 const (
 	StageInvestigate   = "investigate"
 	StageCheck         = "check"
@@ -68,12 +74,25 @@ const (
 	StageForwarded     = "forwarded"
 	StageForwardPassed = "forward_passed"
 	StageForwardFailed = "forward_failed"
+
+	StageAnalyse        = "analyse"
+	StageAnalysed       = "analysed"
+	StageAnalyseFailed  = "analyse_failed"
+	StageAnalyseSkipped = "analyse_skipped"
+
+	StageRevise          = "revise"
+	StageRevised         = "revised"
+	StageRevisionStale   = "revision_stale"
+	StageRevisionRefused = "revision_refused"
+	StageRevisionFailed  = "revision_failed"
 )
 
 // TerminalStages are the stages a row never moves on from; the store reads
 // open heals by this same list.
 var TerminalStages = []string{
 	StageHealed, StageRerunFailed, StageParked, StageClosed, StageForwardPassed, StageForwardFailed,
+	StageAnalysed, StageAnalyseFailed, StageAnalyseSkipped,
+	StageRevised, StageRevisionStale, StageRevisionRefused, StageRevisionFailed,
 }
 
 // Terminal reports whether a row in stage never moves again.
@@ -113,7 +132,11 @@ type Heal struct {
 	Dispatch                   Dispatch
 	Investigation              *protocol.InvestigateResult
 	Check                      *protocol.CheckResult
+	Analysis                   *protocol.AnalyseResult    // rows dispatched as analyse
+	Revision                   *protocol.GuidancePRResult // rows dispatched as guidance_pr
 	SentSubtasks, SentSiblings []string
+	SentFindings               []int64  // revision rows: the findings packed into its section, in order
+	Allowed                    []string // revision rows: the text-check entries it was sent as allowed
 	Change                     *Change
 	Dropped                    []string // why vetting dropped the fix's section; the fix then holds none
 	RelaunchedAt               *time.Time
@@ -124,21 +147,68 @@ type Heal struct {
 	CreatedAt, UpdatedAt       time.Time
 }
 
-// Finding is one friction finding a heal's investigation reported.
+// Finding states: where a stored finding sits on its way to an output. Rows
+// stored before findings were routed keep "" and are only shown.
+const (
+	FindingQueued    = "queued"
+	FindingPending   = "pending"
+	FindingProposed  = "proposed"
+	FindingMerged    = "merged"
+	FindingRejected  = "rejected"
+	FindingDuplicate = "duplicate"
+	FindingDropped   = "dropped"
+	FindingCarded    = "carded"
+	FindingNote      = "note"
+	FindingHeld      = "held"
+)
+
+// InitialFindingState is the state a finding of kind is stored in: guidance
+// and code wait to be routed, ecosystem is held, the rest are notes.
+func InitialFindingState(kind string) string {
+	switch kind {
+	case protocol.FindingGuidance, protocol.FindingCode:
+		return FindingQueued
+	case protocol.FindingEcosystem:
+		return FindingHeld
+	}
+
+	return FindingNote
+}
+
+// Finding is one friction finding a heal's investigation or analysis reported.
 type Finding struct {
+	ID                          int64
 	HealID                      int64
+	Project, CardID             string
 	Kind, Title, Text, Evidence string
-	CreatedAt                   time.Time
+	State, Reason, Output       string
+	RevisionID                  int64 // the revision row that held it
+	CreatedAt, UpdatedAt        time.Time
 }
 
 // RunKindReport is a run kind's terminal status as the store records it.
 type RunKindReport struct {
 	Project, CardID, Kind, RunID string
 	Failure                      string // terminal status without a result: message, else stop cause, else worker status
-	// Result is the kind's own result object as JSON, RunKindResult.Investigate
-	// or .Check, never the RunKindResult wrapper; nil when failed.
+	// Result is the kind's own result object as JSON, a RunKindResult member,
+	// never the RunKindResult wrapper; nil when failed.
 	Result        []byte
 	SpendUSD      float64
 	ChargeCeiling bool // model kind ended without usage
 	At            time.Time
+}
+
+// Standing PR states, as last read from GitHub. A new record has none.
+const (
+	PROpen           = "open"
+	PRChangedOutside = "changed_outside" // open, with a head Sentinel did not push
+	PRMerged         = "merged"
+	PRClosed         = "closed"
+)
+
+// StandingPR is a project's standing guidance PR: what GitHub cannot tell
+// (the PR, Sentinel's last push) and the last read of its state.
+type StandingPR struct {
+	Project, URL, HeadSHA, File, State string
+	PushedAt, ReadAt                   time.Time
 }

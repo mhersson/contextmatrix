@@ -64,6 +64,10 @@ func (f *fakeTokenProvider) GenerateToken(_ context.Context) (string, time.Time,
 	return f.token, f.expiresAt, f.err
 }
 
+func (f *fakeTokenProvider) GenerateRepoPRToken(ctx context.Context, repo string) (string, time.Time, error) {
+	return f.GenerateRepoToken(ctx, repo)
+}
+
 func (f *fakeTokenProvider) GenerateRepoReadToken(ctx context.Context, repo string) (string, time.Time, error) {
 	return f.GenerateRepoToken(ctx, repo)
 }
@@ -1854,6 +1858,40 @@ func TestStatusCallbackRoutesRunKindsAwayFromCard(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWorkerStatusAcceptsAGuidancePRStatusWithoutACard(t *testing.T) {
+	f := runKindCallbackServer(t, true)
+
+	before, err := f.svc.GetCard(context.Background(), "test-project", f.id)
+	require.NoError(t, err)
+
+	code, body := signedStatus(t, f.server.URL, f.apiKey, []byte(
+		`{"card_id":"","project":"test-project","worker_status":"completed","run_id":"g1","stop_cause":"done","kind":"guidance_pr","result":{"guidance_pr":{"outcome":"stale"}}}`))
+	assert.Equal(t, http.StatusOK, code)
+	assert.JSONEq(t, `{}`, body)
+
+	after, err := f.svc.GetCard(context.Background(), "test-project", f.id)
+	require.NoError(t, err)
+	assert.Equal(t, before.ActivityLog, after.ActivityLog)
+
+	f.runs.mu.Lock()
+	assert.Len(t, f.runs.calls, 1, "only the card's own running status reached the run row")
+	f.runs.mu.Unlock()
+}
+
+func TestWorkerStatusRefusesUsageOnAGuidancePRStatus(t *testing.T) {
+	f := runKindCallbackServer(t, true)
+
+	code, body := signedStatus(t, f.server.URL, f.apiKey, []byte(
+		`{"card_id":"","project":"test-project","worker_status":"completed","run_id":"g1","stop_cause":"done","kind":"guidance_pr",`+
+			`"usage":[{"model":"vendor/model-a","input_tokens":10,"output_tokens":0,"cache_read_tokens":0,"cache_creation_tokens":0}],`+
+			`"result":{"guidance_pr":{"outcome":"stale"}}}`))
+	assert.Equal(t, http.StatusUnprocessableEntity, code)
+
+	var apiErr APIError
+	require.NoError(t, json.Unmarshal([]byte(body), &apiErr))
+	assert.Equal(t, ErrCodeValidationError, apiErr.Code)
 }
 
 func TestStatusCallbackRejectsInvalidRunKindStatus(t *testing.T) {

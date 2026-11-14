@@ -165,3 +165,41 @@ func TestCheckPayload(t *testing.T) {
 		})
 	}
 }
+
+func TestAnalysePayloadFillsUnderTheCap(t *testing.T) {
+	const kib = 1 << 10
+
+	in := protocol.AnalyseInput{RunID: "run-1", StopCause: protocol.StopCauseDone, Card: strings.Repeat("c", 900*kib)}
+
+	p, ok := analysePayload(investigateBase(), in, files("SUB", 2, 100*kib))
+	require.True(t, ok)
+	assert.Equal(t, protocol.RunKindAnalyse, p.Kind)
+	assert.Nil(t, p.Investigate)
+	assert.Nil(t, p.Check)
+	require.NotNil(t, p.Analyse)
+	assert.Equal(t, "run-1", p.Analyse.RunID)
+	assert.Equal(t, []string{strings.Repeat("x", 100*kib)}, p.Analyse.Subtasks, "only the first subtask fits")
+	assert.LessOrEqual(t, encodedLen(t, p), maxRunKindBody)
+
+	in.Card = strings.Repeat("c", 1100*kib)
+	_, ok = analysePayload(investigateBase(), in, nil)
+	assert.False(t, ok, "a card alone over the cap is not sent")
+}
+
+func TestGuidancePayload(t *testing.T) {
+	base := protocol.RunKindPayload{
+		CardID: "ALPHA-001", Project: "alpha", RepoURL: "https://github.com/acme/alpha.git", GitToken: "pr-tok",
+		WorkerImage: "img", MaxCostUSD: 2,
+	}
+	in := protocol.GuidancePRInput{Section: "s", Title: "t", Body: "b", ExpectHead: "h1", Allowed: []string{"a"}}
+
+	p := guidancePayload(base, in)
+
+	assert.Equal(t, protocol.RunKindGuidancePR, p.Kind)
+	assert.Empty(t, p.CardID, "a project-level kind names no card")
+	assert.Zero(t, p.MaxCostUSD, "no model runs")
+	assert.Equal(t, &in, p.GuidancePR)
+	assert.Equal(t, "pr-tok", p.GitToken)
+	assert.Equal(t, "img", p.WorkerImage)
+	assert.Equal(t, "https://github.com/acme/alpha.git", p.RepoURL)
+}

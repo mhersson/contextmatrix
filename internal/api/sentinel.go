@@ -23,6 +23,9 @@ type SentinelStore interface {
 	CardRunRow(ctx context.Context, project, cardID string) (*state.Run, error)
 	CardHeals(ctx context.Context, project, cardID string) ([]state.Heal, error)
 	CardFindings(ctx context.Context, project, cardID string) ([]state.Finding, error)
+	CardAnalyses(ctx context.Context, project, cardID string) ([]state.Heal, error)
+	StandingPR(ctx context.Context, project string) (*state.StandingPR, error)
+	LastRevision(ctx context.Context, project string) (*state.Heal, error)
 }
 
 type sentinelHandlers struct {
@@ -145,7 +148,35 @@ type cardSentinelHeal struct {
 	UpdatedAt  string              `json:"updated_at"`
 }
 
+type cardSentinelAnalysis struct {
+	ID        int64   `json:"id"`
+	RunID     string  `json:"run_id"`
+	Stage     string  `json:"stage"`
+	Reason    string  `json:"reason"`
+	SpendUSD  float64 `json:"spend_usd"`
+	CreatedAt string  `json:"created_at"`
+}
+
+type cardSentinelPR struct {
+	URL      string `json:"url"`
+	State    string `json:"state"`
+	File     string `json:"file"`
+	PushedAt string `json:"pushed_at"`
+}
+
+// cardSentinelRevision is the project's newest guidance revision when it
+// ended without going out as a push, so the tab can say why.
+type cardSentinelRevision struct {
+	Stage     string `json:"stage"`
+	Reason    string `json:"reason"`
+	UpdatedAt string `json:"updated_at"`
+}
+
 type cardSentinelFinding struct {
+	ID        int64  `json:"id"`
+	State     string `json:"state"`
+	Reason    string `json:"reason"`
+	Output    string `json:"output"`
 	Kind      string `json:"kind"`
 	Title     string `json:"title"`
 	Text      string `json:"text"`
@@ -215,6 +246,30 @@ func (h *sentinelHandlers) cardRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	analyses, err := h.store.CardAnalyses(ctx, project, id)
+	if err != nil {
+		slog.Error("sentinel card analyses failed", "error", err)
+		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to read sentinel analyses", "")
+
+		return
+	}
+
+	pr, err := h.store.StandingPR(ctx, project)
+	if err != nil {
+		slog.Error("sentinel standing pr failed", "error", err)
+		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to read sentinel guidance pr", "")
+
+		return
+	}
+
+	revision, err := h.store.LastRevision(ctx, project)
+	if err != nil {
+		slog.Error("sentinel guidance revision failed", "error", err)
+		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to read sentinel guidance revision", "")
+
+		return
+	}
+
 	healViews := make([]cardSentinelHeal, 0, len(heals))
 	for _, hl := range heals {
 		healViews = append(healViews, healView(hl))
@@ -229,12 +284,35 @@ func (h *sentinelHandlers) cardRun(w http.ResponseWriter, r *http.Request) {
 		}
 
 		findings = append(findings, cardSentinelFinding{
+			ID: f.ID, State: f.State, Reason: f.Reason, Output: f.Output,
 			Kind: f.Kind, Title: f.Title, Text: f.Text, Evidence: f.Evidence,
 			CreatedAt: f.CreatedAt.UTC().Format(time.RFC3339),
 		})
 	}
 
-	out := map[string]any{"run": nil, "heals": healViews, "findings": findings}
+	analysisViews := make([]cardSentinelAnalysis, 0, len(analyses))
+	for _, a := range analyses {
+		analysisViews = append(analysisViews, cardSentinelAnalysis{
+			ID: a.ID, RunID: a.RunID, Stage: a.Stage, Reason: a.Reason, SpendUSD: a.SpendUSD,
+			CreatedAt: a.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+
+	out := map[string]any{
+		"run": nil, "heals": healViews, "analyses": analysisViews, "findings": findings,
+		"standing_pr": nil, "guidance_revision": nil,
+	}
+	if pr != nil {
+		out["standing_pr"] = cardSentinelPR{
+			URL: pr.URL, State: pr.State, File: pr.File, PushedAt: pr.PushedAt.UTC().Format(time.RFC3339),
+		}
+	}
+
+	if revision != nil && state.Terminal(revision.Stage) && revision.Stage != state.StageRevised {
+		out["guidance_revision"] = cardSentinelRevision{
+			Stage: revision.Stage, Reason: revision.Reason, UpdatedAt: revision.UpdatedAt.UTC().Format(time.RFC3339),
+		}
+	}
 
 	if run != nil {
 		view := cardSentinelRun{

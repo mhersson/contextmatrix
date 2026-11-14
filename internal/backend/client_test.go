@@ -1012,3 +1012,29 @@ func TestListContainersDecodesKind(t *testing.T) {
 	assert.Empty(t, got[0].Kind)
 	assert.Equal(t, "investigate", got[1].Kind)
 }
+
+func TestRunKindMapsAnInvalidKindToUnknown(t *testing.T) {
+	tests := []struct {
+		message string
+		want    error
+		not     error
+	}{
+		{"invalid kind", ErrRunKindUnknown, ErrRunKindRejected},
+		{"invalid card_id", ErrRunKindRejected, ErrRunKindUnknown},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.message, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(protocol.ErrorResponse{Code: protocol.CodeInvalidField, Message: tt.message})
+			}))
+			defer srv.Close()
+
+			err := NewClient(srv.URL, "key").RunKind(context.Background(), protocol.RunKindPayload{Kind: protocol.RunKindAnalyse})
+
+			require.ErrorIs(t, err, tt.want)
+			require.NotErrorIs(t, err, tt.not)
+		})
+	}
+}

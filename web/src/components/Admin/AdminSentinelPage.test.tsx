@@ -28,6 +28,8 @@ const settings: SentinelSettings = {
   daily_cap_usd: 20,
   investigate_ceiling_usd: 2,
   headroom: 0.85,
+  analyse_every_run: false,
+  analyse_ceiling_usd: 1,
 };
 
 function info(over: Partial<SentinelSettings> = {}, extra: Partial<SentinelInfo> = {}): SentinelInfo {
@@ -87,6 +89,31 @@ describe('AdminSentinelPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByRole('alert')).toBeInTheDocument();
     expect(mocks.putSentinelSettings).not.toHaveBeenCalled();
+  });
+
+  it('saves the analyse switch and ceiling', async () => {
+    render(<AdminSentinelPage />);
+    fireEvent.click(await screen.findByRole('switch', { name: 'Analyse every run' }));
+    fireEvent.change(screen.getByLabelText('Analysis ceiling (USD)'), { target: { value: '1.5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(mocks.putSentinelSettings).toHaveBeenCalled());
+    expect(mocks.putSentinelSettings.mock.calls[0][0]).toEqual({ ...settings, analyse_every_run: true, analyse_ceiling_usd: 1.5 });
+  });
+
+  it('disables Analyse every run while friction analysis is off', async () => {
+    render(<AdminSentinelPage />);
+    const analyse = await screen.findByRole('switch', { name: 'Analyse every run' });
+    expect(analyse).toBeEnabled();
+    fireEvent.click(screen.getByRole('switch', { name: 'Friction analysis' }));
+    expect(analyse).toBeDisabled();
+  });
+
+  it('shows the 422 for a zero analysis ceiling', async () => {
+    mocks.putSentinelSettings.mockRejectedValue({ error: 'validation failed', code: 'VALIDATION_ERROR', details: 'analyse ceiling must be above 0 and at most 100' });
+    render(<AdminSentinelPage />);
+    fireEvent.change(await screen.findByLabelText('Analysis ceiling (USD)'), { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('analyse ceiling must be above 0 and at most 100');
   });
 
   it('shows who last updated the settings', async () => {

@@ -35,6 +35,10 @@ func (m *mintRecorder) GenerateRepoToken(context.Context, string) (string, time.
 	return "write-tok", time.Time{}, nil
 }
 
+func (m *mintRecorder) GenerateRepoPRToken(context.Context, string) (string, time.Time, error) {
+	return "pr-tok", time.Time{}, nil
+}
+
 func (m *mintRecorder) GenerateRepoReadToken(_ context.Context, repo string) (string, time.Time, error) {
 	m.readCalls.Add(1)
 	m.readRepo.Store(repo)
@@ -153,4 +157,62 @@ func TestSentinelRelaunchRecordsSentinelOrigin(t *testing.T) {
 	require.NotNil(t, run)
 	assert.Equal(t, state.OriginSentinel, run.Launch.Origin)
 	assert.Equal(t, 1, run.Attempts, "a Sentinel rerun keeps the attempt it counted")
+}
+
+// prMintRecorder records which repo the pull request mint was asked for.
+type prMintRecorder struct {
+	mintRecorder
+	prErr  error
+	prRepo atomic.Value
+}
+
+func (m *prMintRecorder) GenerateRepoPRToken(_ context.Context, repo string) (string, time.Time, error) {
+	m.prRepo.Store(repo)
+
+	return "pr-tok", time.Time{}, m.prErr
+}
+
+func TestGuidanceBaseMintsThePRToken(t *testing.T) {
+	svc, _, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
+	t.Cleanup(cleanup)
+
+	h := newLaunchHandlers(t, svc, newCaptureBackend(t))
+	mints := &prMintRecorder{}
+	h.providerForProject = providerOf(mints, nil)
+
+	p, err := h.guidanceBase(context.Background(), "test-project")
+	require.NoError(t, err)
+
+	assert.Equal(t, "pr-tok", p.GitToken)
+	assert.Equal(t, "project", mints.prRepo.Load())
+	assert.Zero(t, mints.readCalls.Load()+mints.writeCalls.Load(), "only the pull request token is minted")
+	assert.Equal(t, "guidance_pr", p.Kind)
+	assert.Empty(t, p.CardID)
+	assert.Empty(t, p.BaseBranch)
+	assert.Equal(t, "test-project", p.Project)
+	assert.Equal(t, "https://github.com/example/project.git", p.RepoURL)
+	assert.Equal(t, "my-worker:latest", p.WorkerImage)
+}
+
+func TestGuidanceBaseFailsClosed(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider func(context.Context, string) (githubauth.TokenGenerator, string, error)
+	}{
+		{"binding unresolvable", providerOf(nil, auth.ErrCredentialUnavailable)},
+		{"mint refused", providerOf(&prMintRecorder{prErr: errors.New("github: 403")}, nil)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, _, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
+			t.Cleanup(cleanup)
+
+			h := newLaunchHandlers(t, svc, newCaptureBackend(t))
+			h.providerForProject = tc.provider
+
+			p, err := h.guidanceBase(context.Background(), "test-project")
+			require.Error(t, err)
+			assert.Empty(t, p.GitToken)
+		})
+	}
 }

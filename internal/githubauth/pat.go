@@ -41,6 +41,11 @@ func (p *PATProvider) GenerateRepoReadToken(_ context.Context, _ string) (string
 	return p.token, patExpiry, nil
 }
 
+// GenerateRepoPRToken returns the configured PAT with whatever scope it has.
+func (p *PATProvider) GenerateRepoPRToken(_ context.Context, _ string) (string, time.Time, error) {
+	return p.token, patExpiry, nil
+}
+
 // GenerateRepoToken returns the configured PAT; a PAT cannot be narrowed to
 // one repository.
 func (p *PATProvider) GenerateRepoToken(_ context.Context, _ string) (string, time.Time, error) {

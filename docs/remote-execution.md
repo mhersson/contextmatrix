@@ -115,7 +115,7 @@ All POSTs carry `Content-Type: application/json` and go to
 | Method + path       | Purpose                                                                                                                                |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /trigger`     | Start a card run.                                                                                                                      |
-| `POST /run-kind`    | Start a Sentinel run kind (`check` or `investigate`) for one card.                                                                     |
+| `POST /run-kind`    | Start a Sentinel run kind: `check`, `investigate` or `analyse` for one card, `guidance_pr` for one project.                            |
 | `POST /kill`        | Stop the container for one card, or with `kind` set, that card's run kind. Idempotent.                                                 |
 | `POST /stop-all`    | Stop every container for a project; the agent also ends run kinds.                                                                     |
 | `POST /message`     | Deliver a human message to a running HITL card.                                                                                        |
@@ -245,18 +245,20 @@ nothing to do, so CM's cleanup paths never distinguish "not found" from
 
 #### POST {agent_url}/run-kind
 
-Dispatches a run kind: a sandboxed run for one card that carries no MCP key
-and never writes the card. The body is `protocol.RunKindPayload`. `202` means
-the agent accepted it and launches asynchronously. CM's client maps `404` to
-`ErrRunKindsUnavailable` (the agent has no run kinds), `429` and `503` to
-`ErrRunKindBusy`, and any other `4xx` to `ErrRunKindRejected` wrapping the
-agent's detail. Unlike the other webhooks, a run kind is sent once and never
-retried: after a timeout or a lost answer the agent may have admitted it, and
-a second send would start a second run. Any other `5xx` or transport failure
-is returned as a plain error, never as a rejection. The agent keys a
-run kind on (project, card ID, kind), so it coexists with the card's own run.
-Run kinds share the agent's `max_concurrent` and count in `/health`
-`running_containers`.
+Dispatches a run kind: a sandboxed run for one card (`guidance_pr`: one
+project, no card ID) that carries no MCP key and never writes the card. The
+body is `protocol.RunKindPayload`. `202` means the agent accepted it and
+launches asynchronously. CM's client maps `404` to
+`ErrRunKindsUnavailable` (the agent has no run kinds), a `400` with code
+`invalid_field` and message `invalid kind` to `ErrRunKindUnknown` (the agent
+does not know that kind), `429` and `503` to `ErrRunKindBusy`, and any other
+`4xx` to `ErrRunKindRejected` wrapping the agent's detail. Unlike the other
+webhooks, a run kind is sent once and never retried: after a timeout or a lost
+answer the agent may have admitted it, and a second send would start a second
+run. Any other `5xx` or transport failure is returned as a plain error, never
+as a rejection. The agent keys a run kind on (project, card ID, kind), so it
+coexists with the card's own run. Run kinds share the agent's `max_concurrent`
+and count in `/health` `running_containers`.
 
 #### GET {agent_url}/containers
 
@@ -852,7 +854,9 @@ CM explicitly.
    `DefaultContainerMaxAge` (150 minutes). These kills reason only from the
    backend's list and the card store, never from `worker_status`. A run kind
    of a missing or terminal card dies the same way, by a kind-scoped
-   `/kill` with no `/end-session` first. The same
+   `/kill` with no `/end-session` first, except an `analyse` run, which reads
+   a settled run: in the sweep it survives its card finishing, and only a
+   missing card or the age cap ends it there. The same
    tick then marks a lost worker `failed`, with an activity entry: a card
    whose `worker_status` is `queued` or `running`, that two consecutive
    successful listings show no container for, and that has not changed for

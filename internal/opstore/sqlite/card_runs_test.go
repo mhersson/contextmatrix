@@ -270,3 +270,24 @@ func TestSentinelTablesKeepV6Statements(t *testing.T) {
 	require.NoError(t, st.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version))
 	assert.Equal(t, 6, version)
 }
+
+func TestAnAnalysisSurvivesTheNextLaunch(t *testing.T) {
+	st := openLadderStore(t)
+	ctx := context.Background()
+	facts := state.LaunchFacts{Autonomous: true, Origin: state.OriginREST}
+
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0, facts))
+	require.NoError(t, st.RecordRunStatus(ctx, "p", "P-001", "r1", "running", "", runT0))
+	require.NoError(t, st.QueueAnalysis(ctx, analysisRow("P-001", "r1", runT0)))
+
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0.Add(time.Hour), facts))
+
+	rows, err := st.OpenAnalyses(ctx)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "r1", rows[0].RunID)
+
+	run, err := st.CardRunRow(ctx, "p", "P-001")
+	require.NoError(t, err)
+	assert.False(t, run.AnalysisQueued, "the new run starts unqueued")
+}

@@ -34,15 +34,26 @@ type Store interface {
 	// OpenHeal also marks a heal's run decided.
 	OpenHeal(ctx context.Context, h state.Heal) (int64, error)
 	OpenHeals(ctx context.Context) ([]state.Heal, error)
-	// InFlightHeals returns every heal with a run kind in flight, whatever its
-	// stage, oldest first.
-	InFlightHeals(ctx context.Context) ([]state.Heal, error)
+	// InFlightRows returns every row of every kind with a run kind in flight,
+	// whatever its stage, oldest first.
+	InFlightRows(ctx context.Context) ([]state.Heal, error)
 	// CardHeals returns the card's heal and forward rows, newest first.
 	CardHeals(ctx context.Context, project, cardID string) ([]state.Heal, error)
 	// LatestHeals returns each card's newest heal or forward row in the project.
 	LatestHeals(ctx context.Context, project string) (map[string]state.Heal, error)
 	UndecidedRuns(ctx context.Context) ([]state.Run, error)
 	MarkRunDecided(ctx context.Context, project, cardID string, started time.Time) error
+	// UnqueuedRuns returns the runs with an ID that are not yet past the
+	// analysis queue.
+	UnqueuedRuns(ctx context.Context) ([]state.Run, error)
+	// QueueAnalysis stores an analysis row and marks its run queued; a run ID
+	// already queued is no error.
+	QueueAnalysis(ctx context.Context, h state.Heal) error
+	MarkAnalysisQueued(ctx context.Context, project, cardID string, started time.Time) error
+	// OpenAnalyses returns every analysis row at stage analyse, newest first.
+	OpenAnalyses(ctx context.Context) ([]state.Heal, error)
+	// RunHeal answers nil when the run that started at started has no heal.
+	RunHeal(ctx context.Context, project, cardID string, started time.Time) (*state.Heal, error)
 	// CardRunRow answers nil when this instance never launched the card.
 	CardRunRow(ctx context.Context, project, cardID string) (*state.Run, error)
 	RefreshEditSnapshot(ctx context.Context, project, cardID string, snap board.EditSnapshot) error
@@ -51,6 +62,45 @@ type Store interface {
 	Charge(ctx context.Context, healID int64, mode string, usd float64, at time.Time) error
 	SpentSince(ctx context.Context, mode string, since time.Time) (float64, error)
 	HealedSince(ctx context.Context, since time.Time) (int, error)
+	// QueuedFindings returns the findings waiting to be routed, oldest first.
+	QueuedFindings(ctx context.Context) ([]state.Finding, error)
+	// ProjectGuidance returns the project's guidance findings that are pending,
+	// proposed, merged or rejected.
+	ProjectGuidance(ctx context.Context, project string) ([]state.Finding, error)
+	// ProposedFindings returns the project's guidance findings in state proposed.
+	ProposedFindings(ctx context.Context, project string) ([]state.Finding, error)
+	// StandingPRs returns every project's standing PR record.
+	StandingPRs(ctx context.Context) ([]state.StandingPR, error)
+	// StandingPR answers nil when the project has no record.
+	StandingPR(ctx context.Context, project string) (*state.StandingPR, error)
+	// PutStandingPR replaces the project's record.
+	PutStandingPR(ctx context.Context, p state.StandingPR) error
+	// CardedSince counts the project's findings that became cards at or after since.
+	CardedSince(ctx context.Context, project string, since time.Time) (int, error)
+	// CardedFindings returns the IDs of the project's cards made from a finding.
+	CardedFindings(ctx context.Context, project string) (map[string]bool, error)
+	SetFindingOutcome(ctx context.Context, id int64, state, reason, output string, revisionID int64, at time.Time) error
+	// RerouteFinding changes a finding's kind, state and reason together.
+	RerouteFinding(ctx context.Context, id int64, kind, state, reason string, at time.Time) error
+	// PendingFindings returns the project's guidance findings in state pending,
+	// oldest first.
+	PendingFindings(ctx context.Context, project string) ([]state.Finding, error)
+	// OpenRevision returns the project's open revision row, opening one at at
+	// when there is none; a project has at most one.
+	OpenRevision(ctx context.Context, project string, at time.Time) (state.Heal, error)
+	// OpenRevisions returns every revision row at stage revise, oldest first.
+	OpenRevisions(ctx context.Context) ([]state.Heal, error)
+	// LastRefusedRevision answers nil when the project has no refused revision
+	// created after since.
+	LastRefusedRevision(ctx context.Context, project string, since time.Time) (*state.Heal, error)
+	// LastFailedRevision answers nil when the project has no revision that
+	// ended revision_failed or revision_stale.
+	LastFailedRevision(ctx context.Context, project string) (*state.Heal, error)
+	// LastRevisedRevision answers nil when the project has no revision that
+	// ended revised.
+	LastRevisedRevision(ctx context.Context, project string) (*state.Heal, error)
+	// Findings returns the findings with the given IDs, whatever their state.
+	Findings(ctx context.Context, ids []int64) ([]state.Finding, error)
 }
 
 // Channel gives the LLM channel mode a fresh run of a backend kind starts in,
@@ -76,6 +126,8 @@ type Cards interface {
 	TransitionToAs(ctx context.Context, project, id, state, agentID string, expectUpdated time.Time) (*board.Card, error)
 	AddSystemLogEntry(ctx context.Context, project, id string, e board.ActivityEntry) (*board.Card, error)
 	GetProject(ctx context.Context, project string) (*board.ProjectConfig, error)
+	ListProjects(ctx context.Context) ([]board.ProjectConfig, error)
+	CreateCard(ctx context.Context, project string, in service.CreateCardInput) (*board.Card, error)
 }
 
 // Playbooks reads a playbook with its run and resolved entries.
@@ -105,6 +157,8 @@ type Config struct {
 	Playbooks Playbooks
 	Runner    PlaybookRunner
 	Instance  string
+	// Secrets returns the secret values CM holds; may be nil.
+	Secrets func() []string
 }
 
 // Controller is Sentinel's level-triggered loop: each pass decides from
@@ -120,8 +174,11 @@ type Controller struct {
 	last            statusInput    // from the last pass that completed
 	published       Status
 	runKindBase     RunKindBase
+	github          GitHub
+	guidanceBase    GuidanceBase
 	relauncher      func(ctx context.Context, project, cardID string) error
-	noRunKindsUntil time.Time // the agent answered that it has no run kinds
+	noRunKindsUntil time.Time            // the agent answered that it has no run kinds
+	heldKinds       map[string]time.Time // run kinds the agent does not know, held until then
 }
 
 // New creates a controller; Start runs it. It panics on a Store without a
@@ -192,6 +249,39 @@ func (c *Controller) SetRunKindBase(b RunKindBase) {
 	defer c.mu.Unlock()
 
 	c.runKindBase = b
+}
+
+// PullState is what a standing guidance PR looks like on GitHub.
+type PullState struct {
+	Open, Merged bool
+	HeadSHA      string
+	MergeSHA     string
+}
+
+// GitHub reads a project's standing guidance PR and the file it carries.
+type GitHub interface {
+	PullState(ctx context.Context, project, prURL string) (PullState, error)
+	FileAt(ctx context.Context, project, prURL, path, ref string) (content string, found bool, err error)
+}
+
+// GuidanceBase fills a guidance_pr run's payload fields for a project: repo,
+// worker image and a token that can push and open pull requests.
+type GuidanceBase func(ctx context.Context, project string) (protocol.RunKindPayload, error)
+
+// SetGitHub wires the reader of standing guidance PRs.
+func (c *Controller) SetGitHub(g GitHub) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.github = g
+}
+
+// SetGuidanceBase wires what fills a guidance_pr run's payload fields.
+func (c *Controller) SetGuidanceBase(b GuidanceBase) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.guidanceBase = b
 }
 
 // SetRelauncher wires what reruns a card outside a playbook run.

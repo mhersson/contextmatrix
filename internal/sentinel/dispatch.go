@@ -22,7 +22,7 @@ import (
 type RunKindBase func(ctx context.Context, project, cardID string, model bool) (protocol.RunKindPayload, llmchannel.Mode, error)
 
 // noRunKindsHold is how long nothing is dispatched after the agent answered
-// that it has no run kinds.
+// that it has no run kinds, and how long a kind it does not know is held.
 const noRunKindsHold = 15 * time.Minute
 
 const reasonNoRunKinds = "the agent has no run kinds"
@@ -52,32 +52,17 @@ func (c *Controller) dispatchInvestigate(ctx context.Context, h *state.Heal, cei
 	return c.dispatch(ctx, h, p, mode)
 }
 
-// investigateInput reads what an investigation is given: the card file and
-// its resolved verify, and the files of its subtasks and unstarted siblings.
+// investigateInput reads what an investigation is given: the card input and
+// the files of the card's unstarted siblings.
 func (c *Controller) investigateInput(ctx context.Context, h *state.Heal) (protocol.InvestigateInput, []cardFile, []cardFile, error) {
 	var none protocol.InvestigateInput
 
-	card, project, err := c.cardAndProject(ctx, h)
+	ci, err := c.readCardInput(ctx, h)
 	if err != nil {
 		return none, nil, nil, err
 	}
 
-	subtasks, err := c.cfg.Cards.ListCards(ctx, h.Project, storage.CardFilter{Parent: card.ID})
-	if err != nil {
-		return none, nil, nil, fmt.Errorf("list subtasks of %s: %w", card.ID, err)
-	}
-
-	sibs, err := c.unstartedSiblings(ctx, card)
-	if err != nil {
-		return none, nil, nil, err
-	}
-
-	file, err := board.SerializeCard(card)
-	if err != nil {
-		return none, nil, nil, fmt.Errorf("render card %s: %w", card.ID, err)
-	}
-
-	subFiles, err := cardFiles(subtasks)
+	sibs, err := c.unstartedSiblings(ctx, ci.card)
 	if err != nil {
 		return none, nil, nil, err
 	}
@@ -87,15 +72,50 @@ func (c *Controller) investigateInput(ctx context.Context, h *state.Heal) (proto
 		return none, nil, nil, err
 	}
 
-	in := protocol.InvestigateInput{RunID: h.RunID, StopCause: investigateStopCause(h.Cause), Card: string(file)}
+	in := protocol.InvestigateInput{RunID: h.RunID, StopCause: runKindStopCause(h.Cause), Card: ci.file, Verify: ci.verify}
 
-	// Resolved as the fix checks resolve it, so the investigation sees the
-	// verify a fix is judged against.
-	if v := resolved(card.Verify, project.Verify); !v.IsZero() {
-		in.Verify = protocolVerify(&v)
+	return in, ci.subtasks, sibFiles, nil
+}
+
+// cardInput is what a model kind is given about its card.
+type cardInput struct {
+	card     *board.Card
+	file     string
+	verify   *protocol.VerifyConfig // resolved card over project; nil when there is none
+	subtasks []cardFile
+}
+
+// readCardInput reads h's card, its project's verify and its subtasks fresh.
+func (c *Controller) readCardInput(ctx context.Context, h *state.Heal) (cardInput, error) {
+	card, project, err := c.cardAndProject(ctx, h)
+	if err != nil {
+		return cardInput{}, err
 	}
 
-	return in, subFiles, sibFiles, nil
+	subtasks, err := c.cfg.Cards.ListCards(ctx, h.Project, storage.CardFilter{Parent: card.ID})
+	if err != nil {
+		return cardInput{}, fmt.Errorf("list subtasks of %s: %w", card.ID, err)
+	}
+
+	file, err := board.SerializeCard(card)
+	if err != nil {
+		return cardInput{}, fmt.Errorf("render card %s: %w", card.ID, err)
+	}
+
+	subFiles, err := cardFiles(subtasks)
+	if err != nil {
+		return cardInput{}, err
+	}
+
+	in := cardInput{card: card, file: string(file), subtasks: subFiles}
+
+	// Resolved as the fix checks resolve it, so an investigation sees the
+	// verify a fix is judged against.
+	if v := resolved(card.Verify, project.Verify); !v.IsZero() {
+		in.verify = protocolVerify(&v)
+	}
+
+	return in, nil
 }
 
 // unstartedSiblings reads the playbook run holding card and the project's todo
@@ -112,6 +132,35 @@ func (c *Controller) unstartedSiblings(ctx context.Context, card *board.Card) ([
 	}
 
 	return siblings(pb, c.cfg.Instance, cardRef{card.Project, card.ID}, todo), nil
+}
+
+// dispatchAnalyse sends the analyse run for h's settled run, capped at the
+// channel's analysis ceiling. A card whose file alone is over the body cap
+// ends the analysis skipped.
+func (c *Controller) dispatchAnalyse(ctx context.Context, h *state.Heal, set state.Settings) error {
+	ci, err := c.readCardInput(ctx, h)
+	if err != nil {
+		return err
+	}
+
+	base, mode, err := c.base(ctx, h, true)
+	if err != nil {
+		return err
+	}
+
+	base.MaxCostUSD = analyseCeiling(mode, set)
+	in := protocol.AnalyseInput{RunID: h.RunID, StopCause: runKindStopCause(h.Cause), Card: ci.file, Verify: ci.verify}
+
+	p, ok := analysePayload(base, in, ci.subtasks)
+	if !ok {
+		if err := c.saveStage(ctx, h, state.StageAnalyseSkipped, "the card file is too large to send for analysis (over 1 MiB)"); err != nil {
+			return fmt.Errorf("skip the analysis: %w", err)
+		}
+
+		return nil
+	}
+
+	return c.dispatch(ctx, h, p, mode)
 }
 
 // dispatchCheck sends the check run for the fix h's investigation proposed,
@@ -145,15 +194,16 @@ func (c *Controller) dispatchCheck(ctx context.Context, h *state.Heal) error {
 	return c.dispatch(ctx, h, checkPayload(base, &before, after, fix.Section), mode)
 }
 
-// dispatch records the dispatch on the heal, then sends it, so a run the agent
+// dispatch records the dispatch on the row, then sends it, so a run the agent
 // starts is always on record. Only a definite answer that started nothing
-// clears it: a refusal parks the heal, busy or no run kinds leaves it for a
-// later pass. A send of unknown outcome stays in flight until the run reports
-// or the settle grace parks it. Nothing is recorded or sent for a while after
-// the agent said it has no run kinds.
+// clears it: a refusal ends the row (endRefused); busy, no run kinds or a kind
+// the agent does not know leaves it for a later pass. A send of unknown
+// outcome stays in flight until the run reports or the settle grace ends it.
+// Nothing is recorded or sent for a while after the agent said it has no run
+// kinds, or does not know this kind.
 func (c *Controller) dispatch(ctx context.Context, h *state.Heal, p protocol.RunKindPayload, mode llmchannel.Mode) error {
 	now := c.cfg.Clock.Now()
-	if c.noRunKinds(now) {
+	if c.noRunKinds(now) || c.kindHeld(p.Kind, now) {
 		return nil
 	}
 
@@ -177,9 +227,11 @@ func (c *Controller) dispatch(ctx context.Context, h *state.Heal, p protocol.Run
 
 		h.Dispatch = state.Dispatch{}
 
-		return c.park(ctx, h, fmt.Sprintf("the agent refused the %s run", p.Kind))
+		return c.endRefused(ctx, h, fmt.Sprintf("the agent refused the %s run", p.Kind))
 	case errors.Is(sendErr, backend.ErrRunKindsUnavailable):
 		c.markNoRunKinds(now)
+	case errors.Is(sendErr, backend.ErrRunKindUnknown):
+		c.holdKind(p.Kind, now)
 	case !errors.Is(sendErr, backend.ErrRunKindBusy):
 		// The agent may have admitted the run, so clearing it could lose its
 		// spend and send a second one.
@@ -196,6 +248,28 @@ func (c *Controller) dispatch(ctx context.Context, h *state.Heal, p protocol.Run
 	}
 
 	return fmt.Errorf("send the %s run: %w", p.Kind, sendErr)
+}
+
+// endRefused ends a row whose run kind the agent refused: a heal parks, and
+// an analysis or a revision, which never writes a card, ends failed without an
+// activity entry.
+func (c *Controller) endRefused(ctx context.Context, h *state.Heal, reason string) error {
+	switch h.Kind {
+	case state.HealKindAnalysis:
+		if err := c.saveStage(ctx, h, state.StageAnalyseFailed, reason); err != nil {
+			return fmt.Errorf("end the refused analysis: %w", err)
+		}
+
+		return nil
+	case state.HealKindRevision:
+		if err := c.saveStage(ctx, h, state.StageRevisionFailed, reason); err != nil {
+			return fmt.Errorf("end the refused revision: %w", err)
+		}
+
+		return nil
+	}
+
+	return c.park(ctx, h, reason)
 }
 
 func (c *Controller) cardAndProject(ctx context.Context, h *state.Heal) (*board.Card, *board.ProjectConfig, error) {
@@ -241,4 +315,24 @@ func (c *Controller) noRunKinds(now time.Time) bool {
 	defer c.mu.Unlock()
 
 	return now.Before(c.noRunKindsUntil)
+}
+
+func (c *Controller) holdKind(kind string, now time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.heldKinds == nil {
+		c.heldKinds = make(map[string]time.Time)
+	}
+
+	c.heldKinds[kind] = now.Add(noRunKindsHold)
+}
+
+// kindHeld reports whether the agent answered within the hold that it does
+// not know kind.
+func (c *Controller) kindHeld(kind string, now time.Time) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return now.Before(c.heldKinds[kind])
 }

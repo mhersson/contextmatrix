@@ -15,6 +15,13 @@ and a healed one forwards its fix to the unstarted cards of its playbook run
 that share the cause (see [Fix forward](#fix-forward)). The status callback
 hands the controller run kinds' results, which it records and charges.
 
+While `friction` is on, Sentinel routes the friction findings its runs report
+to outputs - friction cards, card notes and one standing guidance PR per
+project, written by the agent's `guidance_pr` run kind (see
+[Routing findings](#routing-findings) and [Standing PR](#standing-pr)). With
+`analyse_every_run` on as well (it is off by default), it also analyses every
+finished run for findings (see [Analyses](#analyses)).
+
 ## Settings
 
 The switches, caps and threshold live in one row of the `sentinel_settings`
@@ -23,7 +30,9 @@ so a change needs no restart. `PutSentinelSettings` validates before it writes
 and records the time and the writer; invalid settings store nothing. A save
 that turns `enabled` or `healing` on marks every undecided run decided in the
 same transaction, so switching on starts fresh: a run launched before then,
-stuck or still going, is left for a human to Run.
+stuck or still going, is left for a human to Run. A save that turns analyses
+on (`enabled`, `friction` and `analyse_every_run` all on) likewise marks every
+run `analysis_queued`, so only runs launched afterwards are analysed.
 
 | Setting                   | Default | Valid range          | Read by                                                        |
 | ------------------------- | ------- | -------------------- | -------------------------------------------------------------- |
@@ -33,8 +42,14 @@ stuck or still going, is left for a human to Run.
 | `daily_cap_usd`           | 20.00   | 0 to 10000           | The budget gate on the endpoint channel                        |
 | `investigate_ceiling_usd` | 2.00    | above 0, at most 100 | The investigate run's `max_cost_usd`                           |
 | `headroom`                | 0.85    | above 0, at most 1   | The budget gate on Claude Code, as a utilization fraction      |
+| `analyse_every_run`       | off     |                      | The analysis queue; analyses run only while `enabled`, `friction` and this are all on |
+| `analyse_ceiling_usd`     | 1.00    | above 0, at most 100 | The endpoint channel's analysis `max_cost_usd`                 |
 
 Numbers must be finite.
+
+The analysis gate also reads `daily_cap_usd`, at half, and `headroom`, and on
+Claude Code an analysis's `max_cost_usd` is `investigate_ceiling_usd` (see
+[Analyses](#analyses)).
 
 ## The controller
 
@@ -78,6 +93,11 @@ The gate uses the agent's effective LLM channel mode: the current mode, or
   `waiting for subscription headroom`. A window whose reset time has passed
   counts as reset.
 
+Analyses have their own gate, `analysisGate` (`gate.go`): on the endpoint
+channel it is open while the counted spend is below half of `daily_cap_usd`,
+and on Claude Code it is this gate's headroom rule (see
+[Analyses](#analyses)).
+
 ## The run row
 
 `card_run_modes` in ops.db holds one row per card: the last run this instance
@@ -95,7 +115,7 @@ step, Sentinel's rerun) replaces the row and records:
 | `usage_reruns`  | Usage-limit reruns, at most `MaxUsageReruns` (3): Sentinel counts one before each rerun from `usage_wait`; reset and kept like `attempts` |
 
 A launch also clears `run_id`, `stop_cause`, `stopped_at`, `human_stop`,
-`decided` and `ended_at`, which fill in as the run goes:
+`decided`, `analysis_queued` and `ended_at`, which fill in as the run goes:
 
 - `run_id` comes from the first `running` status callback that carries one,
   while none is stored and the run has not stopped.
@@ -108,6 +128,8 @@ A launch also clears `run_id`, `stop_cause`, `stopped_at`, `human_stop`,
   for it, or decides to leave it, and for every undecided run when a settings
   save turns `enabled` or `healing` on. While `healing` is on, each pass considers
   the autonomous runs not yet decided.
+- `analysis_queued` is set once the run is past the analysis queue (see
+  [Analyses](#analyses)).
 
 `edit_snapshot` is refreshed after each write by the run's non-human claim
 holder and after Sentinel writes a fix, so only human, unclaimed and other
@@ -115,37 +137,154 @@ system writes read as edits against it.
 
 ## Heal records
 
-Three ops.db tables hold what Sentinel does. The pass opens heals, and the
+Four ops.db tables hold what Sentinel does. The pass opens heals, and the
 run-kind intake records results, findings and spend on them.
 
-- `sentinel_heals`: one row per heal, for one stopped run (at most one per run
-  start, so opening it twice returns the first), or per fix forwarded to
-  another card. Opening a heal marks its run decided in the same transaction.
-  The row holds the stage, the run kind in flight and its answer, the
-  investigation and check results, the subtasks and siblings sent, the
-  reasons vetting dropped the fix's section (see
-  [Dropping a section](#dropping-a-section)), and the change made to the card;
-  a forward row also holds the card the fix came from. `healed`,
+- `sentinel_heals`: Sentinel's work rows, of four kinds (below): one per heal,
+  for one stopped run (at most one per run start, so opening it twice returns
+  the first), one per fix forwarded to another card, one per analysis of a
+  settled run and one per guidance revision of a project. Opening a heal marks
+  its run decided in the same transaction. A heal row holds the stage, the run
+  kind in flight and its answer, the investigation and check results, the
+  subtasks and siblings sent, the reasons vetting dropped the fix's section
+  (see [Dropping a section](#dropping-a-section)), and the change made to the
+  card; a forward row also holds the card the fix came from. `healed`,
   `rerun_failed`, `parked` and `closed` end a heal; `forward_passed` and
   `forward_failed` end a forward row.
-- `sentinel_findings`: the friction findings an investigation reported.
+- `sentinel_findings`: the friction findings an investigation or analysis
+  reported, each with its routing state, reason and output (see
+  [Routing findings](#routing-findings)).
 - `sentinel_spend`: the spend ledger, one row per charge with the LLM channel
   mode it ran on and, for a run kind's status, its run ID.
+- `sentinel_standing_prs`: one row per project for its standing guidance PR (see
+  [Standing PR](#standing-pr)).
 
-A run kind's terminal status is recorded on the card's heal with that kind in
-flight and not yet answered or failed, whatever the heal's stage, and charges
+A run kind's terminal status is recorded on the card's row with that kind in
+flight and not yet answered or failed, whatever the row's stage, and a
+`guidance_pr` status on the project's revision row the same way. It charges
 one ledger row: its usage, or the dispatch's ceiling when a model kind reported
 none. Sentinel keeps at most one run of each kind in flight per card (see
-[The heal flow](#the-heal-flow)), so the status has one dispatch to answer. A
-status whose run ID is already on the ledger is a repeat, so it records and
-charges nothing; so does one with no such heal. Recording never moves the
-stage.
+[The heal flow](#the-heal-flow)) and one revision per project, so the status
+has one dispatch to answer. A status whose run ID is already on the ledger is
+a repeat, so it records and charges nothing; so does one with no such row.
+Recording never moves the stage.
 
 Every write to a heal row bumps its version, and a save carries the version it
 read: one made from a stale read is refused (`ErrHealChanged`), so a pass never
 overwrites an answer recorded since it read the heal. Each heal the controller
-opens or saves publishes `sentinel.changed` with the card's project and ID, so
-the attention list follows every stage move.
+opens or saves, and each analysis row and finding outcome it writes, publishes
+`sentinel.changed` with the card's project and ID; a revision row and the
+standing PR record publish it with the project and no card ID. The attention
+list follows every stage move.
+
+`sentinel_heals` holds Sentinel's work rows of every kind, so every heal reader
+filters by kind. A row is a `heal`, a `forward`, an `analysis` or a `revision`;
+the last two never read as a heal, which keeps them out of the board mark, the
+tab's heal list and `healed_today`. A binary from before analyses and
+revisions does not filter by kind, so after a rollback its tab lists analysis
+rows among the heals, and an analysis newer than a parked heal takes the
+card's mark and its waiting-list hold away.
+
+| Reader                | Kinds it returns  |
+| --------------------- | ----------------- |
+| `OpenHeals`           | `heal`            |
+| `CardHeals`           | `heal`, `forward` |
+| `LatestHeals`         | `heal`, `forward` |
+| `HealedSince`         | `heal`            |
+| `RunHeal`             | `heal`            |
+| `InFlightRows`        | every kind        |
+| `CardAnalyses`        | `analysis`        |
+| `OpenAnalyses`        | `analysis`        |
+| `OpenRevisions`       | `revision`        |
+| `LastRefusedRevision` | `revision`        |
+| `LastFailedRevision`  | `revision`        |
+| `LastRevisedRevision` | `revision`        |
+| `LastRevision`        | `revision`        |
+
+An analysis row ends at `analysed` once its result arrives, at
+`analyse_failed` when its run failed, never reported or was refused, and at
+`analyse_skipped` when it is never sent (see [Analyses](#analyses)).
+
+A revision row has no card: it is the project's, at most one at `revise` per
+project. It holds the findings it packed (`sent_findings`) and the `allowed`
+entries it was sent with, and ends at `revised`, `revision_stale`,
+`revision_refused` or `revision_failed` (see [Standing PR](#standing-pr)).
+
+## Analyses
+
+While `enabled`, `friction` and `analyse_every_run` are all on, each pass
+(`analyses.go`) queues one analysis row per run that has a run ID and is not yet
+`analysis_queued`. It reads the run's card and decides by `queueStep`
+(`analysis.go`):
+
+- The card is gone, or a human stopped the run: the run is marked queued and
+  no row is stored.
+- The run has not settled (`settledRun`): it waits for a later pass.
+- Otherwise an `analysis` row is stored at stage `analyse`, carrying the run's
+  start, its run ID and its stop cause, and the run is marked queued in the
+  same transaction.
+
+The row is keyed by run ID (one analysis row per project, card and run ID), so
+a human relaunch, which replaces the card's run row, cannot lose a pending
+analysis: the row stays, and the new run starts unqueued.
+
+The switch starts fresh: turning it on marks every waiting run queued, so only
+runs launched afterwards are analysed. A run that settles while it is off
+stays unqueued until it is replaced by the next launch or the switch turns on.
+
+Every pass while `enabled` is on, analyses switched on or off, then steps each
+analysis row still at `analyse`, newest first, after the heals have taken their
+worker slots and budget (`advanceAnalyses`, `analyses.go`). It reads the row's
+card, the heal of the analysed run (`RunHeal`, by the run's start) and the
+card's run row, and `nextAnalysis` (`analysis.go`) decides. The first matching
+rule wins:
+
+1. The `analyse` run is in flight: wait while its container is listed or for
+   the settle grace (10 minutes) after it was sent; then end `analyse_failed`,
+   marking the dispatch failed and charging its ceiling.
+2. It was answered: with a result, end `analysed`; without one, end
+   `analyse_failed` with the failure the intake recorded.
+3. The card is deleted: end `analyse_skipped`.
+4. The row was queued more than 7 days ago (`analysisMaxAge`): end
+   `analyse_skipped`.
+5. The analysed run's heal holds an investigation, which reported the run's
+   friction: end `analyse_skipped`. While `healing` is on and that heal is
+   still at `investigate`, wait.
+6. While `healing` is on, the run has no heal and is still the card's run row,
+   launched autonomous and undecided: wait, since a heal may still open for
+   it. The pass considers only autonomous runs, so a run launched without
+   `autonomous` never waits here.
+7. Analyses are off, the analysis gate is shut, no worker slot is free, another
+   analysis row of the card has an `analyse` in flight, or the agent holds the
+   kind (below): wait.
+8. Otherwise dispatch `analyse` (see [Run kinds](#run-kinds)). A card whose
+   file alone is over 1 MiB ends `analyse_skipped` before anything is sent.
+
+Only rule 7 waits on analyses being on, so while they are off a run in flight
+or answered still finishes and rules 3 to 5 still end rows.
+
+The analysis gate (`analysisGate`) and the analysis's `max_cost_usd`
+(`analyseCeiling`, both in `gate.go`) follow the agent's effective channel:
+
+- **Endpoint:** open while the budget gate's counted spend (today's ledger,
+  work in flight and what the pass has sent) is below half of
+  `daily_cap_usd`, so analyses leave the other half to heals. Each analysis is
+  capped at `analyse_ceiling_usd`.
+- **Claude Code:** the budget gate's headroom rule, unchanged; cost does not
+  count. Each analysis is capped at `investigate_ceiling_usd`, healing's own
+  per-run bound, since the agent needs a `max_cost_usd` for every model kind.
+
+A dispatched analysis takes a worker slot and, on the endpoint, counts its
+ceiling against the cap for the rest of the pass, as a heal's run kind does.
+At most one `analyse` is in flight per card, so its status has one row to
+answer.
+
+An agent that does not know the kind answers `analyse` with 400
+`invalid_field` `invalid kind` (`backend.ErrRunKindUnknown`). Then no `analyse`
+is built or sent for 15 minutes (`noRunKindsHold`); the row stays open with no
+dispatch, and nothing ends, parks or is charged, while other kinds dispatch as
+usual. A refused `analyse` (any other 4xx) ends the row `analyse_failed`. An
+analysis never writes its card, so none of its ends writes an activity entry.
 
 ## Run-kind results
 
@@ -162,6 +301,17 @@ before it touches the card, so the card and its run row never see the status.
   subscription windows (see Spend), stores the investigation's findings while
   `friction` is on, publishes `sentinel.changed` with the card's project and
   ID, and nudges the controller.
+- Four kinds report: `check`, `investigate`, `analyse` (a model kind with
+  findings) and `guidance_pr` (no model, no card). Every status but a
+  `guidance_pr` one names its card; a `guidance_pr` status names none, its row
+  being the project's. The result holds exactly the member the kind names.
+- An `analyse` or `guidance_pr` result is stored as JSON on the row
+  (`sentinel_heals.result`) and read back as `Heal.Analysis` or `Heal.Revision`
+  by the row's dispatch kind; other rows leave both nil.
+- Investigation and analysis findings share one limit check. Each is stored
+  with a routing state (`state.InitialFindingState`): `guidance` and `code` are
+  `queued`, `ecosystem` is `held`, every other kind is a `note`. Findings stored
+  before routing existed keep an empty state and are only shown.
 - A store failure is returned, so the callback answers 500 and the backend's
   retry delivers the status again. A failure after recording is logged
   instead: the retry would be a repeat.
@@ -177,9 +327,9 @@ channel mode its dispatch ran on, once per run ID (`spend.go`):
   reported one, else the estimate from CM's rate table and model catalog
   (`CardService.PriceTokens`), the same rule card runs and chats use. A row
   priced neither way charges nothing.
-- An `investigate` status with no usage is charged the dispatch's ceiling, so
-  the daily cap never under-counts a run that died before it reported. A
-  `check` runs no model.
+- An `investigate` or `analyse` status with no usage is charged the
+  dispatch's ceiling, so the daily cap never under-counts a run that died
+  before it reported. `check` and `guidance_pr` run no model.
 - A Claude Code row's `subscription` windows are recorded as `report_usage`
   records them, so the budget gate reads current windows.
 - Nothing reaches the card's own token usage or cost.
@@ -206,13 +356,14 @@ matching state wins:
 | `watching`    |                                                            | Sentinel was switched on after the last pass that landed, within those three ticks |
 | `paused`      | `the agent has no run kinds`                               | The agent answered a run kind with 404 in the last 15 minutes         |
 | `paused`      | `daily cap reached` or `waiting for subscription headroom` | The budget gate is closed                                             |
-| `working`     |                                                            | At least one heal is in progress                                      |
+| `working`     |                                                            | At least one heal is in progress, or an analysis is in flight         |
 | `watching`    |                                                            | Otherwise                                                             |
 
 The status also carries `enabled`, `mode` (the agent's effective mode, empty
 while Sentinel is off or has no controller), `daily_cap_usd`, `headroom`, and
 on Claude Code the `windows` that have not reset. `healing` counts the heals
-still open after the pass, `healed_today` the cards whose heal reached `healed`
+still open after the pass, `analysing` the analyses in flight after it,
+`healed_today` the cards whose heal reached `healed`
 since 00:00 UTC, and `spent_today_usd` the endpoint ledger since 00:00 UTC; a
 pass reads the spend before it acts, so a charge it makes shows on the next.
 The gate also counts work in flight, so the status can read
@@ -220,29 +371,38 @@ The gate also counts work in flight, so the status can read
 
 ## Run kinds
 
-A run kind is a sandboxed agent run Sentinel dispatches for one card through
+A run kind is a sandboxed agent run Sentinel dispatches for one card (for
+`guidance_pr`, one project) through
 the agent's `POST /run-kind` ([remote execution](remote-execution.md#post-agent_urlrun-kind)).
 It gets no MCP key, so it cannot write the board, and it reports only on its
 terminal status (see Run-kind results). The pass dispatches one when the heal
-flow says so.
+flow or the analysis flow (see [Analyses](#analyses)) says so, and
+`guidance_pr` when a project's revision does (see [Standing PR](#standing-pr)).
 
 Every run kind's payload starts from the same base, filled by
-`backendHandlers.runKindBase` (`internal/api/backend_runkind.go`), which the
-router hands the controller:
+`backendHandlers.runKindBase` (`internal/api/backend_runkind.go`; for
+`guidance_pr`, `guidanceBase`), which the router hands the controller:
 
 - the project's repository and worker image, and the card's base branch;
 - a git token for the repository with contents read only
   (`GenerateRepoReadToken`), minted from the project's credential binding and
   failing closed as a launch does. A PAT cannot be narrowed, so a PAT install
   sends the PAT. The token carries no expiry: the run clones once;
-- for `investigate`, the model, selection context and LLM endpoint a card
-  launched now would get (`chooseModel`, shared with `launch`), and the mode
-  that endpoint belongs to. `check` runs no model and gets none of them.
+- `guidance_pr` alone gets a write token instead (`GenerateRepoPRToken`):
+  contents and pull requests write on that one repository for an App install,
+  the PAT unchanged for a PAT install. No model runs in that kind. A mint the
+  installation refuses leaves the revision unsent;
+- for `investigate` and `analyse`, the model, selection context and LLM
+  endpoint a card launched now would get (`chooseModel`, shared with
+  `launch`), and the mode that endpoint belongs to. `check` runs no model and
+  gets none of them.
 
 | Kind          | Sends                                                                                                                                                                                                                       |
 | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `investigate` | `max_cost_usd` = `investigate_ceiling_usd`; the stopped run's ID and stop cause (none for `stalled` and `unknown`); the card file; its verify resolved card over project as the fix checks resolve it (`resolved`: a card verify with no content inherits the project's); its subtasks' card files; its unstarted siblings' card files |
 | `check`       | A trial of the verify the fix leaves, resolved as the card will store it (none when the fix keeps verify); the card's resolved verify command in force today; the fix's `## Sentinel` text                                    |
+| `analyse`     | `max_cost_usd` = `analyse_ceiling_usd` on the endpoint, `investigate_ceiling_usd` on Claude Code; the settled run's ID and stop cause (none for `stalled` and `unknown`); the card file; its verify resolved as for `investigate`; its subtasks' card files |
+| `guidance_pr` | No card ID, no base branch (the remote default), no model and `max_cost_usd` 0; the project's repository and worker image and the write token, filled by `guidanceBase` (`internal/api/backend_runkind.go`); the section, `expect_head`, `allowed`, title and body of the project's revision (see [Standing PR](#standing-pr)) |
 
 Siblings are the cards of the playbook run holding the card, when that run is
 active on this instance: card entries in the same project that are incomplete,
@@ -254,20 +414,24 @@ order: the card, then subtasks, then siblings, while the encoded payload stays
 at or under 1 MiB. The first file that does not fit ends both lists. The heal
 records the subtask and sibling IDs sent, since a fix may retire only a
 subtask the investigation saw. A card whose file alone does not fit is not
-dispatched and the heal parks.
+dispatched and the heal parks. The `analyse` payload is filled the same way
+with the card, then its subtasks; a card whose file alone does not fit ends the
+analysis `analyse_skipped`.
 
-`dispatch` (`dispatch.go`) records the dispatch on the heal (kind, mode,
+`dispatch` (`dispatch.go`) records the dispatch on the row (kind, mode,
 ceiling, time) before it sends, so a run the agent starts is always on
 record. The backend client sends a run kind once and never retries it, so the
-agent is never asked for the same dispatch twice. A save refused because the heal changed since it was read sends
-nothing. Only a definite answer that started nothing clears the dispatch:
+agent is never asked for the same dispatch twice. A save refused because the
+row changed since it was read sends nothing. Only a definite answer that
+started nothing clears the dispatch:
 
 | Agent answer                       | Effect                                                                                                    |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | 404, the agent has no run kinds    | The dispatch is cleared, and nothing is dispatched for 15 minutes; the status reads paused meanwhile      |
+| 400 `invalid_field` `invalid kind`, the agent does not know the kind | The dispatch is cleared, and that kind is not dispatched for 15 minutes; the row stays open, and nothing parks or is charged |
 | 429 or 503, busy                   | The dispatch is cleared; a later pass retries                                                             |
-| Another 4xx, refused               | The dispatch is cleared and the heal parks                                                                |
-| A transport error or other failure | The agent may have admitted the run, so the dispatch stays on record and the error is logged: it is answered when the run reports, or the settle grace parks it with its ceiling charged. Clearing it could lose the run's spend and send a second run |
+| Another 4xx, refused               | The dispatch is cleared and the heal parks; an analysis ends `analyse_failed`, a revision `revision_failed` |
+| A transport error or other failure | The agent may have admitted the run, so the dispatch stays on record and the error is logged: it is answered when the run reports, or the settle grace parks the heal (an analysis ends `analyse_failed`) with its ceiling charged; a revision ends `revision_failed`, with no ceiling to charge. Clearing it could lose the run's spend and send a second run |
 
 A run kind takes one of the agent's `max_concurrent` worker slots and must
 leave one free for card runs: `roomFor` (`gate.go`) allows a dispatch only
@@ -452,15 +616,18 @@ stage waits.
 1. It reads the settings. While `enabled` is off the status reads `off` and
    nothing else is read.
 2. It reads the agent's effective mode, the subscription windows and today's
-   spend, decides the budget gate, and reads the open heals and every heal
-   with a run kind in flight, whatever its stage. It lists the agent's
-   containers once, and only while a run kind is in flight, and reads the
-   agent's health once, and only while `healing` is on and a heal may
-   dispatch. A failed listing counts every run kind as listed, so none parks
-   on it; a failed health read leaves no worker slot free.
-3. It fails each parked or closed heal's run kind that can no longer report
-   (its container not listed and the settle grace passed since it was sent)
-   and charges its ceiling, so the card's open heal may send that kind again.
+   spend, decides the budget gate, and reads the open heals, the open analyses
+   and every row of any kind with a run kind in flight, whatever its stage. It
+   lists the agent's containers once, and only while a run kind is in flight,
+   and reads the agent's health once, and only while `healing` is on and a
+   heal may dispatch, or analyses are on, the analysis gate is open and an
+   analysis is not yet sent. A failed listing counts every run kind as listed,
+   so none parks on it; a failed health read leaves no worker slot free.
+   Step 7 may read the health later in the pass, for a revision.
+3. It fails the run kind of each finished row, of any kind, that can no longer
+   report (its container not listed and the settle grace passed since it was
+   sent) and charges its ceiling, so an open row of the card may send that
+   kind again.
 4. For every open heal it reads the card and the run row fresh, runs
    `checkEdits` against the launch snapshot and, at stage `apply`, `vetFix` on
    a `card` diagnosis's fix, so a retire-only fix that skipped the check run
@@ -481,7 +648,14 @@ stage waits.
    has used its 2 heal attempts, and for an investigation of a run with no run
    ID, which left no log. Then it judges the fixes forwarded to the run's card
    (see [The circuit breaker](#the-circuit-breaker)).
-6. It records the status.
+6. While analyses are on, it queues an analysis row for every settled run;
+   then, on or off, it steps every open analysis (see [Analyses](#analyses)).
+7. While `friction` is on, it routes the queued findings (see
+   [Routing findings](#routing-findings)), then reads each project's standing
+   PR (see [Standing PR](#standing-pr)). Then, `friction` on or off, it steps
+   each project's guidance revision: one in flight or answered finishes, and a
+   new one goes out only while `friction` is on.
+8. It records the status.
 
 A heal whose read or step fails is logged and decided again on the next pass.
 A pass that advanced a heal, opened one, or found one written since it read it
@@ -491,12 +665,13 @@ once. A pass acts only on the heals still open, so a run kind's result that
 arrives after its heal parked or closed is recorded and charged, never applied.
 
 A run kind that never reported parks its heal; the same save marks the
-dispatch failed, and the dispatch's ceiling is then charged. A parked or closed
-heal's run kind that never reported is marked failed and charged its ceiling
-the same way, keeping the heal's stage. A late report matches no dispatch, so
-the ceiling is the only charge, except when the card's open heal has sent the
-same kind again since the expiry. The agent's 202 carries no run ID, so such a
-late report can answer that new dispatch instead.
+dispatch failed, and the dispatch's ceiling is then charged. A finished row's
+run kind that never reported, such as a parked or closed heal's, is marked
+failed and charged its ceiling the same way, keeping the row's stage. A late
+report matches no dispatch, so the ceiling is the only charge, except when an
+open row of the card has sent the same kind again since the expiry. The
+agent's 202 carries no run ID, so such a late report can answer that new
+dispatch instead.
 
 ### Activity entries
 
@@ -527,10 +702,216 @@ only those lines; the full reason and the rest of the heal's detail stay on its
 
 What a heal leaves behind, and where:
 
-- The card: the guarded fix write (verify, the `## Sentinel` section, retired subtasks) and the activity entries above. The section is the note a human reads on the card.
-- `sentinel_heals`: every heal's stage, diagnosis, reasons (with why a fix's section was dropped) and spend.
-- `sentinel_findings`: the friction findings of an investigation, stored only while `friction` is on. `project_verify` findings are shown to admins only in `multi` mode.
-- The board mark (`marks.go`) and the card's Sentinel tab, both read from the latest heal, and the waiting list's Sentinel parks (`CardHolds`). A parked mark or hold lasts until the card's next launch.
+- The card: the guarded fix write (verify, the `## Sentinel` section, retired
+  subtasks) and the activity entries above. The section is the note a human
+  reads on the card.
+- `sentinel_heals`: every heal's stage, diagnosis, reasons (with why a fix's
+  section was dropped) and spend.
+- `sentinel_findings`: the friction findings of an investigation or analysis,
+  stored only while `friction` is on. `project_verify` findings, the project's
+  CM execution setup (verify command, worker image) and re-routed guidance, are
+  shown to admins only in `multi` mode.
+- Friction cards: new cards for `code` findings (see
+  [Routing findings](#routing-findings)).
+- The board mark (`marks.go`) and the card's Sentinel tab, both read from the
+  latest heal, and the waiting list's Sentinel parks (`CardHolds`). A parked
+  mark or hold lasts until the card's next launch. A card made from a finding
+  with no heal mark of its own reads `created`.
+- An analysis in flight (an open analysis row whose dispatch is sent and not
+  answered; one still waiting for budget or a slot is not) marks its card
+  `analysing`. The mark is `working`, as is a `healing` mark at `investigate`,
+  `check`, `apply` or `rerun`; a heal waiting for the usage limit is static.
+  Precedence per card: a working heal wins; a parked mark and a usage-wait
+  `healing` mark stay; otherwise `analysing` wins over `healed`, `edited` and
+  `created`. Holds and the waiting list ignore analyses.
+
+### Routing findings
+
+Each stored finding starts in a state by its kind: `guidance` and `code` are
+`queued`, `ecosystem` is `held`, every other kind is a `note`, and rows stored
+before findings had states keep an empty state. While `friction` is on, each
+pass routes the `queued` findings oldest first (`routeFindings`,
+`outputs.go`; the decisions are the pure `routeGuidance` and `routeCode` in
+`route.go`). A finding is written only when its state or reason changes, so a
+finding held by the daily limit is not rewritten every pass. A project that
+cannot be read leaves its findings queued.
+
+- A finding that holds one of CM's secret values (8 bytes or more) in its
+  title, text or evidence is `dropped` with the reason `holds a secret`.
+- A `guidance` finding with no text is `dropped` with the reason
+  `has no text`, since no section can carry it.
+- Guidance is project knowledge only. A `guidance` finding whose title or text
+  names CM (`Sentinel`, `ContextMatrix`, `worker image`, `agent run` or
+  `the worker`, matched as whole words or phrases, ignoring case, so
+  `sentinels` and `coworker` do not match) is re-routed instead of proposed:
+  its kind becomes `project_verify` and its state `note`, with the reason
+  `re-routed: mentions CM`, so it is shown to admins only in `multi` mode and
+  never reaches the PR. It is checked after the secret and no-text rules and
+  before the duplicate rule, and is never a duplicate of, or a duplicate
+  source for, another finding.
+- A `guidance` finding is a `duplicate` of an earlier guidance finding of the
+  project that is `pending`, `proposed`, `merged` or `rejected` when their texts
+  are similar, else it becomes `pending`, waiting for the guidance PR. Similar
+  means word 3-shingles with a Jaccard of 0.5 or more, or one text containing
+  the other. A finding routed earlier in the same pass counts as earlier.
+- A `code` finding is a `duplicate` of a friction card (label
+  `sentinel-friction`) of the project in any state but `done` when the titles
+  are equal after normalisation or title and text are similar to the card's.
+  A card moved to `not_planned` therefore counts as rejected. Otherwise, while
+  fewer than 5 findings of the project became cards since 00:00 UTC, it becomes
+  `carded` and a card is created, and its ID is the finding's output. At the
+  limit the finding stays `queued` with the reason `today's friction-card limit
+  reached` and is decided again the next day.
+- The friction card is created through the card service as `system:sentinel`,
+  labelled `sentinel-friction`, never autonomous, in `todo`. Its title is the
+  finding's title, else the first line of its text cut to 200 runes. Its type
+  is `task` when the project lists it, else the project's first type, and its
+  priority is `medium` likewise. Its body is the text, then a `## Evidence`
+  section. Its first activity entry is `Sentinel created this card from the
+  friction a run of <CARD> showed`. The text is not checked: the card is a
+  proposal for a human, not an edit to a running card.
+
+### Standing PR
+
+Sentinel keeps one standing guidance PR per project. CM stores only what
+GitHub cannot tell it, in `sentinel_standing_prs` (one row per project, a later
+revision replaces it): the PR URL, the head SHA of Sentinel's last push, the
+file and when it pushed. Everything else is read from GitHub, through the
+controller's `GitHub` (none wired reads nothing).
+
+`readStandingPRs` (`standing_prs.go`) runs after routing while `friction` is on,
+and reads a project's PR at most every 15 minutes, and whenever a caller forces
+it. A read error is logged and keeps the old state, but counts as a read, so
+an outage is retried at most every 15 minutes. The row also
+keeps the last state read and when, for display and gating. `prState` names it:
+
+- `open`: open, with the head Sentinel pushed.
+- `changed_outside`: open, with any other head; a human changed the PR, so
+  nothing is dispatched to it until it merges or closes.
+- `merged` and `closed` (closed without merging): final; later passes skip
+  the record.
+
+Two CM instances with Sentinel on one shared board push to the same branch but
+keep their own records, so neither overwrites the other's push: one whose
+record names the PR reads the other's push as `changed_outside` and waits
+until a human merges or closes it, and one with no record has each revision
+come back `stale`. A guidance run killed after its push but before its status
+arrived leaves its push unrecorded the same way, so the PR reads
+`changed_outside`, or, when that push opened it, each later revision comes
+back `stale`, until a human merges or closes it.
+
+When the PR merges, `settleFindings` reads the file at the merge commit and
+settles the project's `proposed` findings with the pure `mergedFates`, on each
+finding's text as published (card IDs redacted with every project's prefix).
+Each line is normalised (whitespace collapsed, trimmed). Lines with no letter or
+digit and code fences do not count. A finding is `merged` when at least one of
+its counted lines appears in the file's normalised text, so a fixed typo or a
+list marker does not turn it down as long as one of its lines is kept. A
+finding none of whose counted lines is left is `rejected`, and
+every finding is when the merge deleted the file. A closed PR rejects every
+proposed finding. A `rejected` finding still counts in dedup (see
+[Routing findings](#routing-findings)), so it is never raised again.
+
+Every pass while `enabled`, `friction` on or off, then steps every project's
+guidance (`advanceRevisions`, `revisions.go`; the decisions are the pure
+`nextRevision` and `attributeAbsent` in `revision.go`, and `packSection` and
+`prBody` in `guidance_pack.go`). A project has at most one open revision row,
+and a revision never writes a card. With no guidance base wired, or while
+`friction` is off, no revision is sent. The first matching rule wins:
+
+1. The project's revision is in flight: wait while its container is listed or
+   for the settle grace (10 minutes) after it was sent; then end
+   `revision_failed`, marking the dispatch failed so a late report matches
+   nothing.
+2. It was answered: end it by its outcome (below), or `revision_failed` with
+   the failure the intake recorded.
+3. `friction` is off, or the project has no `pending` guidance: nothing.
+4. The PR is `changed_outside`: wait until it merges or closes.
+5. Sentinel pushed to the project less than an hour ago (`pushEvery`, from the
+   record's push time), or the project's newest `revision_failed` or
+   `revision_stale` row ended less than an hour ago: wait. So a revision that
+   fails the same way is tried at most once an hour. A refused revision pushed
+   nothing and sets no push time, so its retry goes out at once (one whose
+   refusal changed nothing ends failed instead, below). There is no
+   daily cap: each push carries every pending finding that fits.
+6. No worker slot is free: wait.
+7. Otherwise send `guidance_pr` (see [Run kinds](#run-kinds)): `expect_head`
+   is the record's head SHA while the PR is `open`, else empty, so after a
+   merge or close the branch starts fresh from the base. `allowed` joins, in
+   this order, the list of the newest `revised` row while the PR is `open`
+   (the section carries the open PR's findings again) and that of the newest
+   `revision_refused` row created since the last push, up to the agent's 64
+   entries (`maxAllowed`).
+
+Before it sends, the pass drops the pending findings too long for any section
+(below) and packs the section from what it has already read. A pack that
+holds no pending finding sends nothing and reads nothing, so a full PR costs
+only the 15-minute reads. Otherwise the pass reads the PR from GitHub however
+recent the last read (a merged or closed record is final and not read again),
+settles the proposed findings of a PR that merged or closed, decides again on
+what it shows and packs again. A failed read ends the project's revision row
+`revision_failed` with `not sent: read the standing pr: <why>`, so rule 5
+holds the next try for an hour. While the agent holds the kind, nothing is
+read or sent.
+
+The section is the open PR's `proposed` findings, then the `pending` ones
+oldest first, each finding's text whole and trimmed, joined by a blank line, up
+to 16 KiB. A finding that does not fit is skipped and the next one tried; the
+rest wait for the next push. A pending finding whose text alone is over 16 KiB
+as published is `dropped` with `too long for the guidance section`. A section
+that holds no pending finding would propose nothing new, so nothing is sent:
+pending guidance that does not fit beside a full PR waits until it merges or
+closes. Card IDs are redacted to `a card` with every project's prefix in the
+section and the body, and card-run branches (`cm/<card ID in lower case>`,
+with any suffix) to `a card branch`, as settling compares them; project and
+repo names stay.
+The agent appends the section's lines as plain text at the end of the
+project's instruction file, with no heading or markers, so nothing in the
+file names CM.
+The title is `Sentinel guidance for <project>`. The body is one intro line,
+then per finding an item with its text's first line and, indented below it,
+`Evidence: ` with its evidence's first line, each cut to 300 runes. Items stop
+before the body would pass the agent's 60 KiB limit (`maxBodyBytes`), and a
+last line counts the findings of the section left out.
+
+The pass opens the project's revision row with the findings it packed, or
+reuses the open row that was never sent (the agent was busy, had no run kinds,
+or did not know the kind), re-packed. A payload that cannot be filled, such as
+a write token GitHub refuses to mint, ends the row `revision_failed` with
+`not sent: <why>` as its reason, so rule 5 holds the next try for an hour; the
+findings stay `pending`, and nothing falls back to another token. A dispatch
+record that cannot be saved sends nothing and leaves the row open, so the next
+pass tries again. The card view carries the project's newest revision row as
+`guidance_revision` while it is one that ended without going out (failed,
+stale or refused), so its reason can be shown (see the
+[API reference](api-reference.md#get-apiprojectsprojectcardsidsentinel)). The
+outcomes:
+
+- `pushed` ends `revised`: the record takes the result's URL, head SHA and
+  file, the state `open` and the push time now, and every sent finding becomes
+  `proposed` with the revision's ID and the PR URL as its output.
+- `unchanged` does the same but keeps the push time.
+- `stale` ends `revision_stale` and stores nothing but a cleared read time and
+  state, so the next pass reads GitHub, a PR recorded merged or closed and
+  since reopened included; the next revision then waits out rule 5's hour.
+- `refused` ends `revision_refused`. Each `absent_from_repo` entry is matched,
+  ignoring case, to the sent findings whose published text holds it, each
+  sent finding counting whatever its state now, so a retried end decides the
+  same. An entry in such a finding's source card's human-written text (the
+  title and body `checkText` reads) joins the row's `allowed` as reported
+  while it holds fewer than 64 entries; each holder whose source lacks it, and
+  every holder of an entry that no longer fits, is `dropped` with
+  `introduces <entry>`, and the rest of the section stays. An entry no finding
+  holds drops every sent finding with `refused: <entry> not traced to a
+  finding`. Only `pending` and `proposed` findings are written. The row's
+  `allowed` keeps the entries it was sent with, so a retry never loses one an
+  earlier refusal allowed. A refusal that neither allows an entry nor drops a
+  finding would be refused again the same way, so it ends `revision_failed`
+  instead, with the refusal as its reason, and rule 5 holds the next try for
+  an hour.
+
+The pass that ends a revision nudges, so a refused revision's retry with the
+remaining findings is decided at once.
 
 ## Applying a fix
 
@@ -698,44 +1079,58 @@ the next pass.
 
 ## Where things live
 
-| File                                        | Holds                                                                                                                                                        |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `internal/sentinel/state/settings.go`       | `Settings`, the defaults and validation                                                                                                                      |
-| `internal/sentinel/state/state.go`          | The durable-state types: the run row (`Run`, `LaunchFacts`), launch origins, the caps, and the heal records (`Heal`, the stages, `Finding`, `RunKindReport`) |
-| `internal/sentinel/controller.go`           | The loop: `Start`, `Shutdown`, `Nudge`, `Status`, the panic-safe pass and the wake-up filter; the `Store`, `Backend`, `Cards`, `Playbooks` and `PlaybookRunner` it uses |
-| `internal/sentinel/payload.go`              | The pure run-kind payloads: `investigatePayload` under the 1 MiB cap and `checkPayload`                                                                      |
-| `internal/sentinel/playbook.go`             | The playbook run holding a card: `activePlaybook`, the project's `todoCards`, and the pure `siblings`                                                        |
-| `internal/sentinel/dispatch.go`             | Reading a run kind's inputs, `dispatch` (record, then send, then act on the agent's answer) and the no-run-kinds hold                                         |
-| `internal/sentinel/outcome.go`              | The ends of a heal: `park` (with its activity entry, `activityText`), `parkUnreported` and, for a finished heal, `failUnreported` (each with the ceiling charge), and `closeHeal`                              |
+| File                                        | Holds |
+| ------------------------------------------- | ----- |
+| `internal/sentinel/state/settings.go`       | `Settings`, the defaults, validation and `Analyses`, whether analyses run |
+| `internal/sentinel/state/state.go`          | The durable-state types: the run row (`Run`, `LaunchFacts`), launch origins, the caps, the work rows (`Heal` with its kinds and stages, `TerminalStages`, `Dispatch`, `Change`), the findings (`Finding`, the finding states, `InitialFindingState`), `RunKindReport`, and the standing PR record (`StandingPR` and its states) |
+| `internal/sentinel/controller.go`           | The loop: `Start`, `Shutdown`, `Nudge`, `Status`, the panic-safe pass and the wake-up filter; the `Store`, `Channel`, `Backend`, `Cards`, `Playbooks`, `PlaybookRunner` and `GitHub` it uses, `GuidanceBase`, and the setters the router wires them with (`SetRunKindBase`, `SetGitHub`, `SetGuidanceBase`, `SetRelauncher`) |
+| `internal/sentinel/pass.go`                 | One pass: read the gate's inputs, the open heals and analyses and every row with a run kind in flight; `readHealth`, the one health read a pass makes (also for a revision), and `mayDispatchAny`; `sent`, the slot and spend accounting every flow shares; expire the silent run kinds of finished rows of every kind; build each heal's view and act on its step; consider undecided runs; then the analyses, routing, the standing PRs and the revisions; record the status |
+| `internal/sentinel/trigger.go`              | The pure triggers: `causeKey` (settled and cause), `settledRun`, `eligible`, and `openStage` (the stage a new heal opens at) |
+| `internal/sentinel/causes.go`               | The cause table: one row per cause, `responseFor` |
+| `internal/sentinel/consider.go`             | Considering undecided runs: open a heal for a settled, eligible run, parked at once or at its stage, or mark the run decided; then judge its card's forwarded fixes |
+| `internal/sentinel/heal.go`                 | The pure heal flow: `nextStep` over a `healView`, one rule per stage and exit; `healFix` |
+| `internal/sentinel/checks.go`               | `fixContext`, the check lists (`healChecks`, `forwardChecks`, `sectionChecks`), `vetFix` with its tagged violations, and `vetForward` |
+| `internal/sentinel/check_shape.go`          | `checkShape` |
+| `internal/sentinel/check_section.go`        | `checkSection`, which judges the section's write through the card's parser, and its `probeHeading` |
+| `internal/sentinel/check_retire.go`         | `checkRetire` |
+| `internal/sentinel/check_edits.go`          | `checkEdits` |
+| `internal/sentinel/check_verify.go`         | `checkVerify`, `verifyChanges` and their resolved-verify helpers |
+| `internal/sentinel/check_text.go`           | `checkText`, `humanText` (the human-written text it reads) and `agentHeadings` |
+| `internal/sentinel/trim.go`                 | The pure `trimFix`, which drops a section only the section checks refuse, and `withFix`, which puts the trimmed fix on the heal |
 | `internal/sentinel/apply.go`                | Applying a fix: the route first, then `applyFix` (the guarded write `writeFix`, retiring subtasks, the snapshot refresh), `freshRerun`, and `writtenBody`, the one builder of the body a section write sends |
 | `internal/sentinel/relaunch.go`             | Rerunning a card: `planRelaunch` (through `activePlaybook`) and the pure `relaunchRoute`, `usageRerun`, `relaunch` (counting the rerun, rerun stage, then the move to `todo` and launch or Stop then Play, then the activity entry) and the activity texts |
-| `internal/sentinel/settle.go`               | Settling a rerun: `settle` (the stage, then the charge, then a healed heal's fix forward) and the pure `rerunCharge`                                        |
+| `internal/sentinel/settle.go`               | Settling a rerun: `settle` (the stage, then the charge, then a healed heal's fix forward) and the pure `rerunCharge` |
 | `internal/sentinel/forward.go`              | Fix forward: `forward`, the pure `forwardTargets`, `forwardFix` and `forwardOutcome`, `forwardTo` (vet, guarded write, forward row, activity entry), and the circuit breaker's `onTrial` and `judge` |
-| `internal/sentinel/refused.go`              | Refused writes: `refusal`, the class a park reason names, and `refused`, which logs the raw error                                                            |
-| `internal/sentinel/intake.go`               | `RunKindStatus`: record a run kind's terminal status, its windows and findings                                                                               |
-| `internal/sentinel/limits.go`               | `ValidateRunKindStatus`: the run-kind status values and size limits                                                                                          |
-| `internal/sentinel/spend.go`                | `Pricer` and `priceUsage`: what a run kind's usage costs                                                                                                     |
-| `internal/sentinel/pass.go`                 | One pass: read the gate's inputs, the open heals and the run kinds in flight, expire finished heals' silent run kinds, build each heal's view and act on its step, consider undecided runs, record the status |
-| `internal/sentinel/consider.go`             | Considering undecided runs: open a heal for a settled, eligible run, parked at once or at its stage, or mark the run decided; then judge its card's forwarded fixes |
-| `internal/sentinel/causes.go`               | The cause table: one row per cause, `responseFor`                                                                                                            |
-| `internal/sentinel/checks.go`               | `fixContext`, the check lists (`healChecks`, `forwardChecks`, `sectionChecks`), `vetFix` with its tagged violations, and `vetForward`                      |
-| `internal/sentinel/trim.go`                 | The pure `trimFix`, which drops a section only the section checks refuse, and `withFix`, which puts the trimmed fix on the heal                             |
-| `internal/sentinel/check_shape.go` | `checkShape` |
-| `internal/sentinel/check_section.go` | `checkSection`, which judges the section's write through the card's parser, and its `probeHeading` |
-| `internal/sentinel/check_retire.go` | `checkRetire` |
-| `internal/sentinel/check_edits.go` | `checkEdits` |
-| `internal/sentinel/check_verify.go` | `checkVerify`, `verifyChanges` and their resolved-verify helpers |
-| `internal/sentinel/check_text.go` | `checkText` and `agentHeadings` |
-| `internal/sentinel/trigger.go`              | The pure triggers: `causeKey` (settled and cause), `eligible`, and `openStage` (the stage a new heal opens at)                                               |
-| `internal/sentinel/heal.go`                 | The pure heal flow: `nextStep` over a `healView`, one rule per stage and exit; `healFix`                                                                     |
-| `internal/sentinel/gate.go`                 | The pure budget gate, what work in flight counts against the cap (`inFlightReserve`, `rerunAccrued`), the daily cap's day (`dayStart`) and the worker-slot check (`roomFor`) |
-| `internal/sentinel/status.go`               | `Status`, the states and the pure summary                                                                                                                    |
-| `internal/sentinel/marks.go`                | `SentinelMarks`: each card's board mark from its latest heal, `markFor`, and `CardHolds`: whether a card is being healed or parked for a human               |
-| `internal/opstore/sqlite/sentinel.go`       | The settings row and the subscription windows the controller reads                                                                                           |
-| `internal/opstore/sqlite/card_runs.go`      | The run row                                                                                                                                                  |
-| `internal/opstore/sqlite/sentinel_heals.go` | Heals, findings and the spend ledger                                                                                                                         |
-| `internal/api/backend_runkind.go`           | `runKindBase`: a run kind's common payload fields and its contents-read token; `sentinelRelaunch`: Sentinel's launch of a rerun                            |
-| `internal/api/sentinel.go` | The `/api/sentinel` settings and status endpoints and the per-card heal view |
+| `internal/sentinel/playbook.go`             | The playbook run holding a card: `activePlaybook`, the project's `todoCards`, and the pure `siblings` |
+| `internal/sentinel/refused.go`              | Refused writes: `refusal`, the class a park reason names, and `refused`, which logs the raw error |
+| `internal/sentinel/dispatch.go`             | Reading a run kind's inputs; `dispatchInvestigate`, `dispatchCheck` and `dispatchAnalyse`; `dispatch` (record, then send, then act on the agent's answer); `endRefused`, which ends a refused row by its kind; the no-run-kinds hold and the unknown-kind hold (`holdKind`, `kindHeld`) |
+| `internal/sentinel/payload.go`              | The pure run-kind payloads: `investigatePayload` and `analysePayload` under the 1 MiB cap, `checkPayload` and `guidancePayload`; `runKindStopCause` |
+| `internal/sentinel/intake.go`               | `RunKindStatus`: record a run kind's terminal status, its windows and findings |
+| `internal/sentinel/limits.go`               | `ValidateRunKindStatus`: the run-kind status values and size limits |
+| `internal/sentinel/spend.go`                | `Pricer`, `priceUsage` (what a run kind's usage costs) and `usageWindows` |
+| `internal/sentinel/gate.go`                 | The pure budget gate and analysis gate (`analysisGate`) with an analysis's ceiling (`analyseCeiling`), what work in flight counts against the cap (`inFlightReserve`, `rerunAccrued`), the daily cap's day (`dayStart`) and the worker-slot check (`roomFor`) |
+| `internal/sentinel/status.go`               | `Status`, the states and the pure summary |
+| `internal/sentinel/marks.go`                | `SentinelMarks`: each card's board mark from its latest heal, or `created` for a card made from a finding; `markFor`, and `CardHolds`: whether a card is being healed or parked for a human |
+| `internal/sentinel/outcome.go`              | The ends of a heal: `park` (with its activity entry, `activityText`), `parkUnreported` and, for a finished row, `failUnreported` (each with the ceiling charge), and `closeHeal`; and the writes that announce each change a Sentinel view reads: `saveStage`, `saveHeal`, `openHeal`, `queueAnalysis`, `openRevision`, `setFindingOutcome` and `putStandingPR` |
+| `internal/sentinel/analysis.go`             | The pure `queueStep`, what the analysis queue does with one unqueued run, and the pure `nextAnalysis` over an `analysisView`, one rule per exit |
+| `internal/sentinel/analyses.go`             | `queueAnalyses`: read each unqueued run's card, then mark it queued or store its analysis row; `advanceAnalyses`: read each open analysis's view and act on its step |
+| `internal/sentinel/route.go`                | The pure routing: `routeGuidance`, `routeCode` and `frictionCardInput` |
+| `internal/sentinel/outputs.go`              | `routeFindings`: read the queued findings and each project's friction cards, guidance and today's count, apply the decisions and write the outcomes |
+| `internal/sentinel/dedup.go`                | The pure `similar`: word 3-shingle Jaccard or containment between two texts |
+| `internal/sentinel/safety.go`               | `holdsSecret` and `redactCardIDs`: what keeps a secret, a card ID or a card-run branch out of published text; `published` and `publishedText`, a finding as Sentinel publishes it, which packing and settling share |
+| `internal/sentinel/standing_pr.go`          | The pure `prState` and `mergedFates` |
+| `internal/sentinel/standing_prs.go`         | `readStandingPRs` and `readStandingPR`: read a due PR from GitHub, settle a merged or closed PR's proposed findings (`settleFindings`), save the state; `projectPrefixes` |
+| `internal/sentinel/guidance_pack.go`        | The pure builders of the guidance PR: `packSection`, `tooLong`, `prTitle`, `prBody` (with its count line, `unlisted`) and `withIDs` |
+| `internal/sentinel/revision.go`             | The pure revision decisions: `nextRevision` over a `revisionView`, and tracing a refusal (`attributeAbsent`, `withAllowed`) |
+| `internal/sentinel/revisions.go`            | `advanceRevisions`: read each project's view and act on its step; `dispatchRevision` (dropping findings too long for a section, packing from the pass's view, the forced PR read, packing again, the row, the send, or ending the row failed when the read fails (`failUnread`) or its payload cannot be filled (`failUnsent`)) and `endRevision`, which does what each outcome asks and ends a refusal that changed nothing failed |
+| `internal/opstore/sqlite/sentinel.go`       | The settings row and the subscription windows the controller reads |
+| `internal/opstore/sqlite/card_runs.go`      | The run row, with the decided and analysis-queued marks |
+| `internal/opstore/sqlite/sentinel_heals.go` | The work rows of every kind and their kind-filtered readers (heals, forwards, analyses, and revisions: `OpenRevision`, `OpenRevisions`, `LastRefusedRevision`, `LastFailedRevision`, `LastRevisedRevision`, `LastRevision`), findings (`PendingFindings`, `Findings` by ID whatever the state) and the spend ledger |
+| `internal/opstore/sqlite/sentinel_prs.go`   | The `sentinel_standing_prs` store methods |
+| `internal/api/backend_runkind.go`           | `runKindBase`: a run kind's common payload fields and its contents-read token; `guidanceBase`: a `guidance_pr` run's payload fields and its write token; `sentinelRelaunch`: Sentinel's launch of a rerun |
+| `internal/api/sentinel.go`                  | The `/api/sentinel` settings and status endpoints and the per-card view: the run, heals, analyses, findings, the project's standing PR and its newest revision when that ended without going out |
+| `internal/api/sentinel_github.go`           | `sentinelGitHub`: reads a project's standing PR state and merged file from GitHub with the project's own credentials |
+| `internal/config/secrets.go`                | `Config.SecretValues`: every secret the config holds, for the secret check |
 
 `internal/sentinel/state` holds only types, constants and their trivial
 methods. It is a leaf, so the ops.db store imports it and nothing of the

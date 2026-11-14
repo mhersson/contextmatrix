@@ -84,6 +84,7 @@ type WorkerCards interface {
 //  1. CM has no card matching (project, card_id) - deleted or renamed out
 //     from under the container.
 //  2. The card's state is terminal (done / not_planned) - the work is over.
+//     An analyse run is exempt: it reads a settled run.
 //  3. The container is older than the max age (DefaultContainerMaxAge
 //     unless WithContainerMaxAge) - runaway cap.
 //
@@ -308,7 +309,8 @@ func decideKill(ctx context.Context, svc CardLookup, c ContainerInfo, maxAge tim
 		return "no_such_card", true
 	}
 
-	if endsSession(card.State) {
+	// An analysis reads a settled run, so its card is usually done already.
+	if endsSession(card.State) && c.Kind != protocol.RunKindAnalyse {
 		return "terminal_state", true
 	}
 
