@@ -26,7 +26,8 @@ interface UseDeepLinkCardArgs {
  * board (not the same as still-loading - we wait for `loading=false`), strip
  * the URL once so the dead link does not interfere with future interactions.
  *
- * `&tab=sentinel` asks for the panel's Sentinel tab (any other value is ignored).
+ * `&tab=sentinel` asks for the panel's Sentinel tab (any other value is ignored),
+ * for the deep-linked card only: a card opened from its panel keeps its own default.
  *
  * Outbound: when a consumed deep-link panel closes, strip `?card=` and `?tab=`
  * from the URL (the user closed the deep-linked panel).
@@ -117,5 +118,6 @@ export function useDeepLinkCard({
     );
   }, [pendingUrlStrip, setSearchParams]);
 
-  return { initialTab: searchParams.get('tab') === 'sentinel' ? 'sentinel' : undefined };
+  const linked = urlCardId !== null && selectedCard?.id === urlCardId;
+  return { initialTab: linked && searchParams.get('tab') === 'sentinel' ? 'sentinel' : undefined };
 }

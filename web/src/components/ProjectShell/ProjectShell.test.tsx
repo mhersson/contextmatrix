@@ -161,11 +161,14 @@ vi.mock('../ProjectSettings/ProjectSettings', () => ({
 }));
 
 vi.mock('../CardPanel', () => ({
-  CardPanel: ({ card, cardLogs, onClose, initialTab }: { card: Card; cardLogs?: readonly unknown[]; onClose: () => void; initialTab?: string }) => (
+  CardPanel: ({ card, cardLogs, onClose, onSubtaskClick, initialTab }: { card: Card; cardLogs?: readonly unknown[]; onClose: () => void; onSubtaskClick: (id: string) => void; initialTab?: string }) => (
     <div data-testid={`card-panel-${card.id}`} data-initial-tab={initialTab ?? ''}>
       <span data-testid="card-panel-title">{card.title}</span>
       <span data-testid="card-panel-log-count">{cardLogs?.length ?? 0}</span>
       <button onClick={onClose}>Close</button>
+      {card.subtasks?.map((id) => (
+        <button key={id} onClick={() => onSubtaskClick(id)}>{`Open ${id}`}</button>
+      ))}
     </div>
   ),
 }));
@@ -485,6 +488,17 @@ describe('ProjectShell - ?card= deep-link', () => {
     it('opens the panel on the Sentinel tab for tab=sentinel', async () => {
       renderAt('/projects/test?card=TEST-1&tab=sentinel');
       expect(await screen.findByTestId('card-panel-TEST-1')).toHaveAttribute('data-initial-tab', 'sentinel');
+    });
+
+    it('opens a card reached from the deep-linked panel on its default tab', async () => {
+      const { useBoard } = await import('../../hooks/useBoard');
+      const parent = { ...deepLinkCard, subtasks: ['TEST-2'] };
+      const subtask = { ...deepLinkCard, id: 'TEST-2', title: 'Subtask', parent: 'TEST-1' };
+      vi.mocked(useBoard).mockReturnValue({ ...useBoardReturn, cards: [parent, subtask] } as unknown as ReturnType<typeof useBoard>);
+
+      renderAt('/projects/test?card=TEST-1&tab=sentinel');
+      fireEvent.click(await screen.findByText('Open TEST-2'));
+      expect(await screen.findByTestId('card-panel-TEST-2')).toHaveAttribute('data-initial-tab', '');
     });
 
     it('ignores any other tab value', async () => {

@@ -31,7 +31,7 @@ interface CardPanelProps {
   onRunCard: (interactive: boolean) => Promise<void>;
   onStopCard: () => Promise<void>;
   onForceRelease: () => Promise<void>;
-  /** Tab to open on instead of the default; ignored when the card renders no such tab. */
+  /** Tab to open on instead of the default; the rail's later resets still go to the default. Ignored when the card renders no such tab. */
   initialTab?: RailTabKey;
 }
 
@@ -90,8 +90,7 @@ export function CardPanel(props: CardPanelProps) {
   // runs (plain or mob session) keep the tab available but read-only and unfocused.
   const isChatLive = card.worker_status === 'running';
   const isChatInteractive = isChatLive && !(card.autonomous ?? false);
-  const defaultTab: RailTabKey =
-    props.initialTab ?? (isChatInteractive ? 'chat' : isMobile ? 'card' : 'automation');
+  const defaultTab: RailTabKey = isChatInteractive ? 'chat' : isMobile ? 'card' : 'automation';
 
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
 
@@ -100,6 +99,7 @@ export function CardPanel(props: CardPanelProps) {
     isChatInteractive,
     defaultTab,
     setEditedCard,
+    props.initialTab,
   );
 
   const { branches, loading: branchesLoading, error: branchesError } =
