@@ -117,6 +117,12 @@ describe('SentinelTab', () => {
     expect(screen.queryByText('Last stop')).not.toBeInTheDocument();
   });
 
+  it('shows a stop that came with no cause', async () => {
+    renderTab({ run: { ...run, stopped_at: '2026-11-13T10:30:00Z' } });
+    expect(await screen.findByText('Last stop')).toBeInTheDocument();
+    expect(screen.getByText(/cause unknown, /)).toBeInTheDocument();
+  });
+
   it('says when a human stopped the run', async () => {
     renderTab({ run: { ...run, human_stop: true, stop_cause: 'killed', stopped_at: '2026-11-13T10:30:00Z' } });
     expect(await screen.findByText(/stopped by a human/)).toBeInTheDocument();

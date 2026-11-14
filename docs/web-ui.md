@@ -231,8 +231,9 @@ the state as its label.
   and Danger, and the collapsed rail widens from 340 to 420 px to fit the five
   tabs and the width controls. It shows where the card's last run was launched from (UI or
   REST, MCP, playbook or Sentinel), whether the card was autonomous at launch,
-  the heal attempts used against the cap, and the last stop (its cause and
-  time, or that a human stopped it). A card this instance never launched shows
+  the heal attempts used against the cap, and the last stop (its cause, or
+  "cause unknown" when it came with none, and its time, or that a human
+  stopped it). A card this instance never launched shows
   a note that Sentinel acts only on runs this instance launched. Below the
   facts, each heal shows a header (cause and stage, age, spend), its
   diagnosis, a line diff of the card's `## Sentinel` section and of the verify

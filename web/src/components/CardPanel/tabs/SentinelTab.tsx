@@ -30,8 +30,9 @@ const NOTES: { kind: SentinelFindingKind; label: string }[] = [
 
 function lastStop(run: SentinelRunView): string | null {
   if (run.human_stop) return 'stopped by a human';
-  if (!run.stop_cause) return null;
-  return run.stopped_at ? `${run.stop_cause}, ${formatRelativeTime(run.stopped_at)}` : run.stop_cause;
+  if (!run.stop_cause && !run.stopped_at) return null;
+  const cause = run.stop_cause || 'cause unknown';
+  return run.stopped_at ? `${cause}, ${formatRelativeTime(run.stopped_at)}` : cause;
 }
 
 function Fact({ label, value }: { label: string; value: string }) {
