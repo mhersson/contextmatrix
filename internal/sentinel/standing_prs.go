@@ -107,13 +107,7 @@ func (c *Controller) settleFindings(ctx context.Context, gh GitHub, rec state.St
 			return err
 		}
 
-		published := make([]state.Finding, len(proposed))
-		for i, f := range proposed {
-			published[i] = f
-			published[i].Text = publishedText(f, prefixes)
-		}
-
-		merged, _ = mergedFates(file, found, published)
+		merged, _ = mergedFates(file, found, published(proposed, prefixes))
 		reason = notInFileReason
 	}
 

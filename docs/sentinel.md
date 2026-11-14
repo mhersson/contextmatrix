@@ -797,10 +797,10 @@ proposed finding. A `rejected` finding still counts in dedup (see
 
 Every pass while `enabled`, `friction` on or off, then steps every project's
 guidance (`advanceRevisions`, `revisions.go`; the decisions are the pure
-`nextRevision`, `packSection`, `prBody` and `attributeAbsent` in
-`revision.go`). A project has at most one open revision row, and a revision
-never writes a card. With no guidance base wired, or while `friction` is off,
-no revision is sent. The first matching rule wins:
+`nextRevision` and `attributeAbsent` in `revision.go`, and `packSection` and
+`prBody` in `guidance_pack.go`). A project has at most one open revision row,
+and a revision never writes a card. With no guidance base wired, or while
+`friction` is off, no revision is sent. The first matching rule wins:
 
 1. The project's revision is in flight: wait while its container is listed or
    for the settle grace (10 minutes) after it was sent; then end
@@ -1082,10 +1082,11 @@ the next pass.
 | `internal/sentinel/route.go`                | The pure routing: `routeGuidance`, `routeCode` and `frictionCardInput` |
 | `internal/sentinel/outputs.go`              | `routeFindings`: read the queued findings and each project's friction cards, guidance and today's count, apply the decisions and write the outcomes |
 | `internal/sentinel/dedup.go`                | The pure `similar`: word 3-shingle Jaccard or containment between two texts |
-| `internal/sentinel/safety.go`               | `holdsSecret` and `redactCardIDs`: what keeps a secret or a card ID out of published text |
-| `internal/sentinel/standing_pr.go`          | The pure `prState`, `publishedText` and `mergedFates` |
+| `internal/sentinel/safety.go`               | `holdsSecret` and `redactCardIDs`: what keeps a secret or a card ID out of published text; `published` and `publishedText`, a finding as Sentinel publishes it, which packing and settling share |
+| `internal/sentinel/standing_pr.go`          | The pure `prState` and `mergedFates` |
 | `internal/sentinel/standing_prs.go`         | `readStandingPRs` and `readStandingPR`: read a due PR from GitHub, settle a merged or closed PR's proposed findings (`settleFindings`), save the state; `projectPrefixes` |
-| `internal/sentinel/revision.go`             | The pure revision decisions: `nextRevision` over a `revisionView`, `packSection`, `tooLong`, `prTitle`, `prBody` (with its count line, `unlisted`), `attributeAbsent`, `withAllowed` and `published` |
+| `internal/sentinel/guidance_pack.go`        | The pure builders of the guidance PR: `packSection`, `tooLong`, `prTitle`, `prBody` (with its count line, `unlisted`) and `withIDs` |
+| `internal/sentinel/revision.go`             | The pure revision decisions: `nextRevision` over a `revisionView`, and tracing a refusal (`attributeAbsent`, `withAllowed`) |
 | `internal/sentinel/revisions.go`            | `advanceRevisions`: read each project's view and act on its step; `dispatchRevision` (the forced PR read, dropping findings too long for a section, packing, the row, the send, or ending the row failed when its payload cannot be filled) and `endRevision`, which does what each outcome asks |
 | `internal/opstore/sqlite/sentinel.go`       | The settings row and the subscription windows the controller reads |
 | `internal/opstore/sqlite/card_runs.go`      | The run row, with the decided and analysis-queued marks |

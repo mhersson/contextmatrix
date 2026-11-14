@@ -123,7 +123,8 @@ func (c *Controller) openHeal(ctx context.Context, h state.Heal) (int64, error) 
 
 // queueAnalysis, openRevision, setFindingOutcome and putStandingPR write the
 // other rows a Sentinel view reads and announce them as saveHeal does: an
-// analysis its card, a revision or the standing PR the project, a finding its card.
+// analysis its card, a revision or the standing PR the project, a finding its
+// card.
 func (c *Controller) queueAnalysis(ctx context.Context, h state.Heal) error {
 	if err := c.cfg.Store.QueueAnalysis(ctx, h); err != nil {
 		return err

@@ -3,6 +3,8 @@ package sentinel
 import (
 	"regexp"
 	"strings"
+
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
 
 // minSecretBytes is the shortest secret holdsSecret looks for; shorter ones
@@ -24,6 +26,25 @@ func redactCardIDs(text string, prefixes []string) string {
 	re := regexp.MustCompile(`\b(?:` + strings.Join(quoted, "|") + `)-\d+\b`)
 
 	return re.ReplaceAllString(text, "a card")
+}
+
+// published is each finding with its text and evidence as Sentinel publishes
+// them: card IDs redacted with every project's prefix.
+func published(fs []state.Finding, prefixes []string) []state.Finding {
+	out := make([]state.Finding, len(fs))
+
+	for i, f := range fs {
+		f.Text, f.Evidence = publishedText(f, prefixes), redactCardIDs(f.Evidence, prefixes)
+		out[i] = f
+	}
+
+	return out
+}
+
+// publishedText is a finding's text as the guidance file carries it: card IDs
+// redacted with every project's prefix.
+func publishedText(f state.Finding, prefixes []string) string {
+	return redactCardIDs(f.Text, prefixes)
 }
 
 // holdsSecret reports whether text contains any secret of at least

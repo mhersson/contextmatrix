@@ -22,12 +22,6 @@ func prState(rec state.StandingPR, p PullState) string {
 	return state.PRChangedOutside
 }
 
-// publishedText is a finding's text as the guidance file carries it: card IDs
-// redacted with every project's prefix.
-func publishedText(f state.Finding, prefixes []string) string {
-	return redactCardIDs(f.Text, prefixes)
-}
-
 // mergedFates splits the proposed findings (texts as published) by the file at
 // the merge commit. A finding is merged when at least one of its countable
 // lines survives as a substring of the file's whitespace-normalised text (so a
