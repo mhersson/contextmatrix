@@ -1856,6 +1856,26 @@ func TestStatusCallbackRoutesRunKindsAwayFromCard(t *testing.T) {
 	}
 }
 
+func TestWorkerStatusAcceptsAGuidancePRStatusWithoutACard(t *testing.T) {
+	f := runKindCallbackServer(t, true)
+
+	before, err := f.svc.GetCard(context.Background(), "test-project", f.id)
+	require.NoError(t, err)
+
+	code, body := signedStatus(t, f.server.URL, f.apiKey, []byte(
+		`{"card_id":"","project":"test-project","worker_status":"completed","run_id":"g1","stop_cause":"done","kind":"guidance_pr","result":{"guidance_pr":{"outcome":"stale"}}}`))
+	assert.Equal(t, http.StatusOK, code)
+	assert.JSONEq(t, `{}`, body)
+
+	after, err := f.svc.GetCard(context.Background(), "test-project", f.id)
+	require.NoError(t, err)
+	assert.Equal(t, before.ActivityLog, after.ActivityLog)
+
+	f.runs.mu.Lock()
+	assert.Len(t, f.runs.calls, 1, "only the card's own running status reached the run row")
+	f.runs.mu.Unlock()
+}
+
 func TestStatusCallbackRejectsInvalidRunKindStatus(t *testing.T) {
 	f := runKindCallbackServer(t, true)
 

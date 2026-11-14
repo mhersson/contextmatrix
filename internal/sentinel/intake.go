@@ -54,7 +54,7 @@ func runKindReport(p protocol.StatusCallbackPayload, pricer Pricer, at time.Time
 	r := state.RunKindReport{
 		Project: p.Project, CardID: p.CardID, Kind: p.Kind, RunID: p.RunID,
 		SpendUSD:      priceUsage(p.Usage, pricer),
-		ChargeCeiling: p.Kind == protocol.RunKindInvestigate && len(p.Usage) == 0,
+		ChargeCeiling: usesModel(p.Kind) && len(p.Usage) == 0,
 		At:            at,
 	}
 
@@ -82,15 +82,34 @@ func kindResult(p protocol.StatusCallbackPayload) any {
 		return p.Result.Check
 	case p.Kind == protocol.RunKindInvestigate && p.Result.Investigate != nil:
 		return p.Result.Investigate
+	case p.Kind == protocol.RunKindAnalyse && p.Result.Analyse != nil:
+		return p.Result.Analyse
+	case p.Kind == protocol.RunKindGuidancePR && p.Result.GuidancePR != nil:
+		return p.Result.GuidancePR
 	}
 
 	return nil
 }
 
-// storeFindings keeps an investigation's friction findings while the friction
-// switch is on.
+// resultFindings are the friction findings a model kind's result carries.
+func resultFindings(p protocol.StatusCallbackPayload) []protocol.FrictionFinding {
+	switch {
+	case p.Result == nil:
+		return nil
+	case p.Result.Investigate != nil:
+		return p.Result.Investigate.Findings
+	case p.Result.Analyse != nil:
+		return p.Result.Analyse.Findings
+	}
+
+	return nil
+}
+
+// storeFindings keeps an investigation's or an analysis's friction findings
+// while the friction switch is on.
 func (c *Controller) storeFindings(ctx context.Context, healID int64, p protocol.StatusCallbackPayload, at time.Time) {
-	if p.Result == nil || p.Result.Investigate == nil || len(p.Result.Investigate.Findings) == 0 {
+	findings := resultFindings(p)
+	if len(findings) == 0 {
 		return
 	}
 
@@ -107,7 +126,7 @@ func (c *Controller) storeFindings(ctx context.Context, healID int64, p protocol
 		return
 	}
 
-	if err := c.cfg.Store.AddFindings(ctx, healID, p.Project, p.CardID, p.Result.Investigate.Findings, at); err != nil {
+	if err := c.cfg.Store.AddFindings(ctx, healID, p.Project, p.CardID, findings, at); err != nil {
 		log.Warn("sentinel: findings not stored", "error", err)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
 )
@@ -24,6 +25,8 @@ const (
 	maxAbsentFromRepo = 64
 	maxRepoEntryBytes = 512
 	maxUsageRows      = 16
+	maxPRURLBytes     = 2 << 10
+	maxFilePathBytes  = 512
 )
 
 // A run kind reports only its terminal status.
@@ -35,6 +38,7 @@ const (
 var (
 	trials       = []string{protocol.TrialFinished, protocol.TrialTimeout, protocol.TrialToolchain, protocol.TrialInfrastructure, protocol.TrialRejected}
 	diagnoses    = []string{protocol.DiagnosisCard, protocol.DiagnosisModel, protocol.DiagnosisEnvironment, protocol.DiagnosisEcosystem}
+	runKinds     = []string{protocol.RunKindCheck, protocol.RunKindInvestigate, protocol.RunKindAnalyse, protocol.RunKindGuidancePR}
 	findingKinds = []string{
 		protocol.FindingGuidance, protocol.FindingCode, protocol.FindingCardAdvice,
 		protocol.FindingProjectVerify, protocol.FindingHardCard, protocol.FindingEcosystem,
@@ -47,8 +51,12 @@ func ValidateRunKindStatus(p protocol.StatusCallbackPayload, bodyLen int) error 
 	switch {
 	case bodyLen > maxStatusBytes:
 		return overLimit("the status body", bodyLen, "bytes", maxStatusBytes)
-	case p.Kind != protocol.RunKindCheck && p.Kind != protocol.RunKindInvestigate:
+	case !slices.Contains(runKinds, p.Kind):
 		return fmt.Errorf("unknown run kind %q", p.Kind)
+	case p.Kind == protocol.RunKindGuidancePR && p.CardID != "":
+		return errors.New("a guidance_pr status names no card")
+	case p.Kind != protocol.RunKindGuidancePR && p.CardID == "":
+		return errors.New("a run-kind status names its card")
 	case p.WorkerStatus != statusCompleted && p.WorkerStatus != statusFailed:
 		return fmt.Errorf("a run kind reports only completed or failed, not %q", p.WorkerStatus)
 	}
@@ -62,13 +70,42 @@ func ValidateRunKindStatus(p protocol.StatusCallbackPayload, bodyLen int) error 
 		return nil
 	case p.WorkerStatus != statusCompleted || p.StopCause != protocol.StopCauseDone:
 		return errors.New("a result comes only on a completed status with stop cause done")
-	case p.Kind == protocol.RunKindCheck && p.Result.Check != nil && p.Result.Investigate == nil:
-		return validateCheck(p.Result.Check)
-	case p.Kind == protocol.RunKindInvestigate && p.Result.Investigate != nil && p.Result.Check == nil:
-		return validateInvestigate(p.Result.Investigate)
+	case resultMembers(p.Result) != 1:
+		return fmt.Errorf("the result must hold exactly the %s result", p.Kind)
+	}
+
+	r := p.Result
+
+	switch {
+	case p.Kind == protocol.RunKindCheck && r.Check != nil:
+		return validateCheck(r.Check)
+	case p.Kind == protocol.RunKindInvestigate && r.Investigate != nil:
+		return validateInvestigate(r.Investigate)
+	case p.Kind == protocol.RunKindAnalyse && r.Analyse != nil:
+		return validateFindings(r.Analyse.Findings)
+	case p.Kind == protocol.RunKindGuidancePR && r.GuidancePR != nil:
+		return validateGuidance(r.GuidancePR)
 	}
 
 	return fmt.Errorf("the result must hold exactly the %s result", p.Kind)
+}
+
+func resultMembers(r *protocol.RunKindResult) int {
+	n := 0
+
+	for _, set := range []bool{r.Check != nil, r.Investigate != nil, r.Analyse != nil, r.GuidancePR != nil} {
+		if set {
+			n++
+		}
+	}
+
+	return n
+}
+
+// usesModel reports whether the kind runs a model, so an unreported cost is
+// charged its ceiling.
+func usesModel(kind string) bool {
+	return kind == protocol.RunKindInvestigate || kind == protocol.RunKindAnalyse
 }
 
 // validateUsage holds usage to report_usage's rules: no negative token count
@@ -150,11 +187,17 @@ func validateInvestigate(r *protocol.InvestigateResult) error {
 		return overLimit("fix.section", len(r.Fix.Section), "bytes", maxSectionBytes)
 	case r.Fix != nil && len(r.Fix.RetireSubtasks) > maxFixIDs:
 		return overLimit("fix.retire_subtasks", len(r.Fix.RetireSubtasks), "IDs", maxFixIDs)
-	case len(r.Findings) > maxFindings:
-		return overLimit("findings", len(r.Findings), "entries", maxFindings)
 	}
 
-	for _, f := range r.Findings {
+	return validateFindings(r.Findings)
+}
+
+func validateFindings(fs []protocol.FrictionFinding) error {
+	if len(fs) > maxFindings {
+		return overLimit("findings", len(fs), "entries", maxFindings)
+	}
+
+	for _, f := range fs {
 		if err := validateFinding(f); err != nil {
 			return err
 		}
@@ -176,6 +219,70 @@ func validateFinding(f protocol.FrictionFinding) error {
 	}
 
 	return nil
+}
+
+func validateGuidance(r *protocol.GuidancePRResult) error {
+	switch r.Outcome {
+	case protocol.GuidancePushed, protocol.GuidanceUnchanged:
+		return validatePushedGuidance(r)
+	case protocol.GuidanceRefused:
+		if len(r.AbsentFromRepo) == 0 {
+			return errors.New("a refused guidance result names the entries absent from the repo")
+		}
+
+		return validateEntries("absent_from_repo", r.AbsentFromRepo, maxAbsentFromRepo)
+	case protocol.GuidanceStale:
+		if r.PRURL != "" || r.HeadSHA != "" || r.File != "" || len(r.AbsentFromRepo) > 0 {
+			return errors.New("a stale guidance result carries nothing")
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("unknown guidance outcome %q", r.Outcome)
+}
+
+func validatePushedGuidance(r *protocol.GuidancePRResult) error {
+	switch {
+	case !strings.HasPrefix(r.PRURL, "https://") || len(r.PRURL) > maxPRURLBytes:
+		return fmt.Errorf("a %s guidance result needs an https pr_url of at most %d bytes", r.Outcome, maxPRURLBytes)
+	case !lowerHex(r.HeadSHA, 40, 64):
+		return fmt.Errorf("a %s guidance result needs a 40 or 64 digit lower-case hex head_sha", r.Outcome)
+	case !repoRelativePath(r.File):
+		return fmt.Errorf("a %s guidance result needs a clean repo-relative file", r.Outcome)
+	}
+
+	return nil
+}
+
+func lowerHex(s string, lengths ...int) bool {
+	if !slices.Contains(lengths, len(s)) {
+		return false
+	}
+
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+
+	return true
+}
+
+// repoRelativePath accepts a non-empty path inside the repo: no leading slash,
+// no empty, "." or ".." segment, no NUL.
+func repoRelativePath(p string) bool {
+	if p == "" || len(p) > maxFilePathBytes || strings.ContainsRune(p, 0) {
+		return false
+	}
+
+	for seg := range strings.SplitSeq(p, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return false
+		}
+	}
+
+	return true
 }
 
 func overLimit(what string, n int, unit string, limit int) error {

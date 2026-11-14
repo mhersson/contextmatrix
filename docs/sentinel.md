@@ -166,6 +166,17 @@ before it touches the card, so the card and its run row never see the status.
   subscription windows (see Spend), stores the investigation's findings while
   `friction` is on, publishes `sentinel.changed` with the card's project and
   ID, and nudges the controller.
+- Four kinds report: `check`, `investigate`, `analyse` (a model kind with
+  findings) and `guidance_pr` (no model, no card). Every status but a
+  `guidance_pr` one names its card; a `guidance_pr` status names none, its row
+  being the project's. The result holds exactly the member the kind names.
+- An `analyse` or `guidance_pr` result is stored as JSON on the row
+  (`sentinel_heals.result`) and read back as `Heal.Analysis` or `Heal.Revision`
+  by the row's dispatch kind; other rows leave both nil.
+- Investigation and analysis findings share one limit check. Each is stored
+  with a routing state (`state.InitialFindingState`): `guidance` and `code` are
+  `queued`, `ecosystem` is `held`, every other kind is a `note`. Findings stored
+  before routing existed keep an empty state and are only shown.
 - A store failure is returned, so the callback answers 500 and the backend's
   retry delivers the status again. A failure after recording is logged
   instead: the retry would be a repeat.
@@ -181,9 +192,9 @@ channel mode its dispatch ran on, once per run ID (`spend.go`):
   reported one, else the estimate from CM's rate table and model catalog
   (`CardService.PriceTokens`), the same rule card runs and chats use. A row
   priced neither way charges nothing.
-- An `investigate` status with no usage is charged the dispatch's ceiling, so
-  the daily cap never under-counts a run that died before it reported. A
-  `check` runs no model.
+- An `investigate` or `analyse` status with no usage is charged the
+  dispatch's ceiling, so the daily cap never under-counts a run that died
+  before it reported. `check` and `guidance_pr` run no model.
 - A Claude Code row's `subscription` windows are recorded as `report_usage`
   records them, so the budget gate reads current windows.
 - Nothing reaches the card's own token usage or cost.

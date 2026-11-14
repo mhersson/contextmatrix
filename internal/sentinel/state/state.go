@@ -114,6 +114,8 @@ type Heal struct {
 	Dispatch                   Dispatch
 	Investigation              *protocol.InvestigateResult
 	Check                      *protocol.CheckResult
+	Analysis                   *protocol.AnalyseResult    // rows dispatched as analyse
+	Revision                   *protocol.GuidancePRResult // rows dispatched as guidance_pr
 	SentSubtasks, SentSiblings []string
 	Change                     *Change
 	Dropped                    []string // why vetting dropped the fix's section; the fix then holds none
@@ -125,19 +127,51 @@ type Heal struct {
 	CreatedAt, UpdatedAt       time.Time
 }
 
-// Finding is one friction finding a heal's investigation reported.
+// Finding states: where a stored finding sits on its way to an output. Rows
+// stored before findings were routed keep "" and are only shown.
+const (
+	FindingQueued    = "queued"
+	FindingPending   = "pending"
+	FindingProposed  = "proposed"
+	FindingMerged    = "merged"
+	FindingRejected  = "rejected"
+	FindingDuplicate = "duplicate"
+	FindingDropped   = "dropped"
+	FindingCarded    = "carded"
+	FindingNote      = "note"
+	FindingHeld      = "held"
+)
+
+// InitialFindingState is the state a finding of kind is stored in: guidance
+// and code wait to be routed, ecosystem is held, the rest are notes.
+func InitialFindingState(kind string) string {
+	switch kind {
+	case protocol.FindingGuidance, protocol.FindingCode:
+		return FindingQueued
+	case protocol.FindingEcosystem:
+		return FindingHeld
+	}
+
+	return FindingNote
+}
+
+// Finding is one friction finding a heal's investigation or analysis reported.
 type Finding struct {
+	ID                          int64
 	HealID                      int64
+	Project, CardID             string
 	Kind, Title, Text, Evidence string
-	CreatedAt                   time.Time
+	State, Reason, Output       string
+	RevisionID                  int64 // the revision row that held it
+	CreatedAt, UpdatedAt        time.Time
 }
 
 // RunKindReport is a run kind's terminal status as the store records it.
 type RunKindReport struct {
 	Project, CardID, Kind, RunID string
 	Failure                      string // terminal status without a result: message, else stop cause, else worker status
-	// Result is the kind's own result object as JSON, RunKindResult.Investigate
-	// or .Check, never the RunKindResult wrapper; nil when failed.
+	// Result is the kind's own result object as JSON, a RunKindResult member,
+	// never the RunKindResult wrapper; nil when failed.
 	Result        []byte
 	SpendUSD      float64
 	ChargeCeiling bool // model kind ended without usage

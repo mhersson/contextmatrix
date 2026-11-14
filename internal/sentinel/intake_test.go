@@ -254,3 +254,67 @@ func TestRunKindStatusFailedWithoutUsageChargesCeiling(t *testing.T) {
 		})
 	}
 }
+
+func analysed() protocol.StatusCallbackPayload {
+	return protocol.StatusCallbackPayload{
+		CardID: "ALPHA-001", Project: "alpha", WorkerStatus: "completed", RunID: "a1",
+		StopCause: protocol.StopCauseDone, Kind: protocol.RunKindAnalyse,
+		Result: &protocol.RunKindResult{Analyse: &protocol.AnalyseResult{Findings: []protocol.FrictionFinding{
+			{Kind: protocol.FindingGuidance, Text: "run make fmt first", Evidence: "e"},
+			{Kind: protocol.FindingCode, Title: "Split the loader", Text: "body", Evidence: "e"},
+			{Kind: protocol.FindingCardAdvice, Text: "name the slow suite", Evidence: "e"},
+			{Kind: protocol.FindingEcosystem, Text: "the gateway drops tool calls", Evidence: "e"},
+		}}},
+	}
+}
+
+func TestRunKindStatusChargesAnAnalyseCeilingWithoutUsage(t *testing.T) {
+	in := newIntake(t)
+	in.dispatch(t, state.StageInvestigate, protocol.RunKindAnalyse)
+
+	require.NoError(t, in.ctl.RunKindStatus(context.Background(), analysed()))
+
+	assert.InDelta(t, 2.0, in.heal(t).SpendUSD, 1e-9)
+}
+
+func TestRunKindStatusStoresAnalyseFindingsWithTheirStates(t *testing.T) {
+	tests := []struct {
+		name     string
+		friction bool
+		want     map[string]string // finding kind -> state
+	}{
+		{"friction on", true, map[string]string{
+			protocol.FindingGuidance:   state.FindingQueued,
+			protocol.FindingCode:       state.FindingQueued,
+			protocol.FindingCardAdvice: state.FindingNote,
+			protocol.FindingEcosystem:  state.FindingHeld,
+		}},
+		{"friction off", false, map[string]string{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			in := newIntake(t)
+			in.dispatch(t, state.StageInvestigate, protocol.RunKindAnalyse)
+
+			set := state.DefaultSettings()
+			set.Friction = tt.friction
+			require.NoError(t, in.ops.PutSentinelSettings(ctx, set, "human:admin"))
+
+			require.NoError(t, in.ctl.RunKindStatus(ctx, analysed()))
+
+			got := map[string]string{}
+
+			for _, f := range in.findings(t) {
+				got[f.Kind] = f.State
+				assert.Equal(t, "alpha", f.Project)
+				assert.Equal(t, "ALPHA-001", f.CardID)
+				assert.Equal(t, now, f.UpdatedAt)
+			}
+
+			assert.Equal(t, tt.want, got)
+			assert.Equal(t, analysed().Result.Analyse, in.heal(t).Analysis)
+		})
+	}
+}

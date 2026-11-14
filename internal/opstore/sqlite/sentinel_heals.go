@@ -25,7 +25,7 @@ const healMutable = `run_id, cause, response, stage, reason,
 const healMutableParams = `?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?`
 
 const healSelect = `SELECT id, kind, project, card_id, run_started, created_at, ` + healMutable + `,
-	(SELECT COALESCE(SUM(usd), 0) FROM sentinel_spend WHERE heal_id = h.id), version
+	(SELECT COALESCE(SUM(usd), 0) FROM sentinel_spend WHERE heal_id = h.id), version, result
 	FROM sentinel_heals h`
 
 const insertSpend = `INSERT INTO sentinel_spend (heal_id, mode, usd, at, run_id) VALUES (?, ?, ?, ?, ?)`
@@ -178,7 +178,7 @@ func (s *Store) RecordRunKindStatus(ctx context.Context, r state.RunKindReport) 
 		return 0, false, nil
 	}
 
-	var investigation, check any // NULL keeps the stored result
+	var investigation, check, result any // NULL keeps the stored result
 
 	if r.Result != nil {
 		switch r.Kind {
@@ -186,6 +186,8 @@ func (s *Store) RecordRunKindStatus(ctx context.Context, r state.RunKindReport) 
 			investigation = string(r.Result)
 		case protocol.RunKindCheck:
 			check = string(r.Result)
+		case protocol.RunKindAnalyse, protocol.RunKindGuidancePR:
+			result = string(r.Result)
 		}
 	}
 
@@ -206,6 +208,7 @@ func (s *Store) RecordRunKindStatus(ctx context.Context, r state.RunKindReport) 
 	err = tx.QueryRowContext(ctx,
 		`UPDATE sentinel_heals SET dispatch_answered_run_id = ?, dispatch_failure = ?,
 		   investigation = COALESCE(?, investigation), check_result = COALESCE(?, check_result),
+		   result = COALESCE(?, result),
 		   version = version + 1
 		 WHERE id = (SELECT id FROM sentinel_heals
 		             WHERE project = ? AND card_id = ? AND dispatch_kind = ?
@@ -213,7 +216,7 @@ func (s *Store) RecordRunKindStatus(ctx context.Context, r state.RunKindReport) 
 		             ORDER BY id DESC LIMIT 1)
 		   AND NOT EXISTS (SELECT 1 FROM sentinel_spend WHERE run_id = ? AND run_id != '')
 		 RETURNING id, dispatch_mode, dispatch_ceiling_usd`,
-		r.RunID, r.Failure, investigation, check, r.Project, r.CardID, r.Kind, r.RunID).
+		r.RunID, r.Failure, investigation, check, result, r.Project, r.CardID, r.Kind, r.RunID).
 		Scan(&healID, &mode, &ceiling)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false, nil
@@ -250,9 +253,10 @@ func (s *Store) AddFindings(ctx context.Context, healID int64, project, cardID s
 
 	for _, f := range fs {
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO sentinel_findings (heal_id, project, card_id, kind, title, text, evidence, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			healID, project, cardID, f.Kind, f.Title, f.Text, f.Evidence, unixNano(at)); err != nil {
+			`INSERT INTO sentinel_findings (heal_id, project, card_id, kind, title, text, evidence, state, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			healID, project, cardID, f.Kind, f.Title, f.Text, f.Evidence, state.InitialFindingState(f.Kind),
+			unixNano(at), unixNano(at)); err != nil {
 			return fmt.Errorf("add findings: %w", err)
 		}
 	}
@@ -268,7 +272,8 @@ func (s *Store) AddFindings(ctx context.Context, healID int64, project, cardID s
 // their reported order.
 func (s *Store) CardFindings(ctx context.Context, project, cardID string) ([]state.Finding, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT heal_id, kind, title, text, evidence, created_at FROM sentinel_findings
+		`SELECT id, heal_id, project, card_id, kind, title, text, evidence, state, reason, output, revision_id,
+		        created_at, updated_at FROM sentinel_findings
 		 WHERE project = ? AND card_id = ? ORDER BY heal_id DESC, id`, project, cardID)
 	if err != nil {
 		return nil, fmt.Errorf("list card findings: %w", err)
@@ -279,15 +284,16 @@ func (s *Store) CardFindings(ctx context.Context, project, cardID string) ([]sta
 
 	for rows.Next() {
 		var (
-			f  state.Finding
-			at int64
+			f                state.Finding
+			created, updated int64
 		)
 
-		if err := rows.Scan(&f.HealID, &f.Kind, &f.Title, &f.Text, &f.Evidence, &at); err != nil {
+		if err := rows.Scan(&f.ID, &f.HealID, &f.Project, &f.CardID, &f.Kind, &f.Title, &f.Text, &f.Evidence,
+			&f.State, &f.Reason, &f.Output, &f.RevisionID, &created, &updated); err != nil {
 			return nil, fmt.Errorf("list card findings: %w", err)
 		}
 
-		f.CreatedAt = fromUnixNano(at)
+		f.CreatedAt, f.UpdatedAt = fromUnixNano(created), fromUnixNano(updated)
 		findings = append(findings, f)
 	}
 
@@ -381,14 +387,17 @@ func scanHeal(sc scanner) (state.Heal, error) {
 		started, created, updated                     int64
 		dispatchAt, relaunched                        sql.NullInt64
 		inv, check, subtasks, siblings, chng, dropped string
+		result                                        string
 	)
 
 	d := &h.Dispatch
-	if err := sc.Scan(&h.ID, &h.Kind, &h.Project, &h.CardID, &started, &created,
+
+	err := sc.Scan(&h.ID, &h.Kind, &h.Project, &h.CardID, &started, &created,
 		&h.RunID, &h.Cause, &h.Response, &h.Stage, &h.Reason,
 		&d.Kind, &d.Mode, &d.CeilingUSD, &dispatchAt, &d.AnsweredRunID, &d.Failure,
 		&inv, &check, &subtasks, &siblings, &chng, &dropped,
-		&relaunched, &h.CostBaseUSD, &h.SourceCard, &updated, &h.SpendUSD, &h.Version); err != nil {
+		&relaunched, &h.CostBaseUSD, &h.SourceCard, &updated, &h.SpendUSD, &h.Version, &result)
+	if err != nil {
 		return state.Heal{}, fmt.Errorf("scan heal: %w", err)
 	}
 
@@ -406,6 +415,17 @@ func scanHeal(sc scanner) (state.Heal, error) {
 		if err := json.Unmarshal([]byte(doc.text), doc.into); err != nil {
 			return state.Heal{}, fmt.Errorf("decode heal %d: %w", h.ID, err)
 		}
+	}
+
+	switch h.Dispatch.Kind {
+	case protocol.RunKindAnalyse:
+		err = json.Unmarshal([]byte(result), &h.Analysis)
+	case protocol.RunKindGuidancePR:
+		err = json.Unmarshal([]byte(result), &h.Revision)
+	}
+
+	if err != nil {
+		return state.Heal{}, fmt.Errorf("decode heal %d result: %w", h.ID, err)
 	}
 
 	h.RunStarted, h.CreatedAt, h.UpdatedAt = fromUnixNano(started), fromUnixNano(created), fromUnixNano(updated)

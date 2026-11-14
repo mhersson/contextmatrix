@@ -303,6 +303,22 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		}
 	}
 
+	if err := addColumnIfMissing(ctx, db, "sentinel_heals", "result", "TEXT NOT NULL DEFAULT 'null'"); err != nil {
+		return err
+	}
+
+	for _, col := range []struct{ name, decl string }{
+		{"state", "TEXT NOT NULL DEFAULT ''"},
+		{"reason", "TEXT NOT NULL DEFAULT ''"},
+		{"output", "TEXT NOT NULL DEFAULT ''"},
+		{"revision_id", "INTEGER NOT NULL DEFAULT 0"},
+		{"updated_at", "INTEGER NOT NULL DEFAULT 0"},
+	} {
+		if err := addColumnIfMissing(ctx, db, "sentinel_findings", col.name, col.decl); err != nil {
+			return err
+		}
+	}
+
 	// After the column loop: an upgraded database has the columns only now.
 	if _, err := db.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_sessions_origin
 		ON chat_sessions(origin_chat, origin_seq) WHERE origin_chat != ''`); err != nil {

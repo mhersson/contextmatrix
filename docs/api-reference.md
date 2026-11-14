@@ -2760,9 +2760,10 @@ record it, so the backend's retry delivers it again.
 
 | Field           | Rule                                                                                                         |
 | --------------- | ------------------------------------------------------------------------------------------------------------ |
-| `kind`          | `check` or `investigate`                                                                                     |
+| `kind`          | `check`, `investigate`, `analyse` or `guidance_pr`                                                           |
+| `card_id`       | Empty exactly for `guidance_pr`, which names no card; every other kind names its card                        |
 | `worker_status` | `completed` or `failed`; a run kind sends no `running` status                                                |
-| `result`        | Only on `completed` with `stop_cause` `done`; holds exactly the member `kind` names, `check` or `investigate` |
+| `result`        | Only on `completed` with `stop_cause` `done`; holds exactly the member `kind` names |
 | `usage`         | At most 16 rows, one per model: `model` plus the token counts, `cost_usd`, `cost_basis` and `subscription` of a usage frame |
 
 A status that breaks any rule or limit is 422 `VALIDATION_ERROR`, and nothing
@@ -2775,9 +2776,12 @@ in it is recorded:
 | `investigate.cause`                               | `card`, `model`, `environment` or `ecosystem`                                                 |
 | `investigate.fix.section`                         | 16 KiB                                                                                        |
 | `investigate.fix.retire_subtasks`, `forward_to`   | 50 IDs each                                                                                   |
-| `investigate.findings`                            | 50                                                                                            |
+| `investigate.findings`, `analyse.findings`        | 50 each                                                                                       |
 | A finding's `kind`                                | `guidance`, `code`, `card_advice`, `project_verify`, `hard_card` or `ecosystem`               |
 | A finding's `title`, `text`, `evidence`           | 200 bytes, 16 KiB, 4 KiB                                                                      |
+| `guidance_pr.outcome`                             | `pushed`, `unchanged`, `stale` or `refused`                                                   |
+| `guidance_pr.pr_url`, `head_sha`, `file`          | On `pushed` and `unchanged`: an `https://` URL of at most 2 KiB, a 40 or 64 digit lower-case hex SHA, and a clean repo-relative path of at most 512 bytes (no leading `/`, no empty, `.` or `..` segment); none on `stale` |
+| `guidance_pr.absent_from_repo`                    | On `refused`: 1 to 64 entries of at most 512 bytes                                            |
 | `check.candidates`                                | 32 entries of at most 512 bytes                                                               |
 | `check.absent_from_repo`                          | 64 entries of at most 512 bytes                                                               |
 | `check.trial`, when set                           | `finished`, `timeout`, `toolchain`, `infrastructure` or `rejected`                            |

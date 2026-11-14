@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -666,8 +667,144 @@ func TestCardFindingsNewestHealFirst(t *testing.T) {
 	got, err := st.CardFindings(ctx, "p", "P-001")
 	require.NoError(t, err)
 	assert.Equal(t, []state.Finding{
-		{HealID: ids[1], Kind: hard.Kind, Text: hard.Text, Evidence: hard.Evidence, CreatedAt: t2},
-		{HealID: ids[0], Kind: guidance.Kind, Text: guidance.Text, Evidence: guidance.Evidence, CreatedAt: t1},
-		{HealID: ids[0], Kind: code.Kind, Title: code.Title, Text: code.Text, Evidence: code.Evidence, CreatedAt: t1},
+		{
+			ID: got[0].ID, HealID: ids[1], Project: "p", CardID: "P-001", Kind: hard.Kind, Text: hard.Text, Evidence: hard.Evidence,
+			State: state.FindingNote, CreatedAt: t2, UpdatedAt: t2,
+		},
+		{
+			ID: got[1].ID, HealID: ids[0], Project: "p", CardID: "P-001", Kind: guidance.Kind, Text: guidance.Text, Evidence: guidance.Evidence,
+			State: state.FindingQueued, CreatedAt: t1, UpdatedAt: t1,
+		},
+		{
+			ID: got[2].ID, HealID: ids[0], Project: "p", CardID: "P-001", Kind: code.Kind, Title: code.Title, Text: code.Text,
+			Evidence: code.Evidence, State: state.FindingQueued, CreatedAt: t1, UpdatedAt: t1,
+		},
 	}, got)
+	assert.NotZero(t, got[0].ID)
+}
+
+func TestRecordRunKindStatusStoresAnalyseAndGuidanceResults(t *testing.T) {
+	ctx := context.Background()
+	st := openLadderStore(t)
+
+	at := runT0.Add(time.Minute)
+	open := func(cardID, kind string) {
+		_, err := st.OpenHeal(ctx, state.Heal{
+			Kind: state.HealKindHeal, Project: "p", CardID: cardID, RunStarted: runT0, Stage: state.StageInvestigate,
+			Dispatch:  state.Dispatch{Kind: kind, Mode: "endpoint", CeilingUSD: 1, At: &at},
+			CreatedAt: at, UpdatedAt: at,
+		})
+		require.NoError(t, err)
+	}
+
+	open("P-001", protocol.RunKindAnalyse)
+	open("", protocol.RunKindGuidancePR)
+
+	analysis := protocol.AnalyseResult{Findings: []protocol.FrictionFinding{{Kind: protocol.FindingCode, Text: "t", Evidence: "e"}}}
+	revision := protocol.GuidancePRResult{Outcome: protocol.GuidancePushed, PRURL: "https://x/pull/1", HeadSHA: "abc", File: "AGENTS.md"}
+
+	for _, r := range []struct {
+		report state.RunKindReport
+		result any
+	}{
+		{state.RunKindReport{Project: "p", CardID: "P-001", Kind: protocol.RunKindAnalyse, RunID: "a1"}, analysis},
+		{state.RunKindReport{Project: "p", CardID: "", Kind: protocol.RunKindGuidancePR, RunID: "g1"}, revision},
+	} {
+		var err error
+
+		r.report.Result, err = json.Marshal(r.result)
+		require.NoError(t, err)
+
+		r.report.At = at
+
+		_, recorded, err := st.RecordRunKindStatus(ctx, r.report)
+		require.NoError(t, err)
+		require.True(t, recorded)
+	}
+
+	a := onlyHeal(t, st, "P-001")
+	assert.Equal(t, &analysis, a.Analysis)
+	assert.Nil(t, a.Revision)
+	assert.Equal(t, "a1", a.Dispatch.AnsweredRunID)
+
+	g := onlyHeal(t, st, "")
+	assert.Equal(t, &revision, g.Revision)
+	assert.Nil(t, g.Analysis)
+}
+
+// The result column needs no schema bump: a database without it grows it and
+// keeps its version, and a row an older image wrote reads back with no result.
+func TestSentinelHealsGrowResultWithoutABump(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ops.db")
+
+	s, err := Open(path)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	db, err := sql.Open("sqlite", sqliteutil.DSN(path, sqliteutil.WithForeignKeys()))
+	require.NoError(t, err)
+	_, err = db.Exec("ALTER TABLE sentinel_heals DROP COLUMN result")
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	st, err := Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = st.Close() })
+
+	assert.True(t, columnExists(t, st.db, "sentinel_heals", "result"))
+
+	var v int
+
+	require.NoError(t, st.db.QueryRow("PRAGMA user_version").Scan(&v))
+	assert.Equal(t, 6, v)
+
+	openDispatchedHeal(t, st, "P-001", state.StageInvestigate, "endpoint")
+
+	h := onlyHeal(t, st, "P-001")
+	assert.Nil(t, h.Analysis)
+	assert.Nil(t, h.Revision)
+}
+
+func TestSentinelFindingsGrowStateColumnsWithoutABump(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ops.db")
+
+	s, err := Open(path)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	db, err := sql.Open("sqlite", sqliteutil.DSN(path, sqliteutil.WithForeignKeys()))
+	require.NoError(t, err)
+
+	for _, col := range []string{"state", "reason", "output", "revision_id", "updated_at"} {
+		_, err = db.Exec("ALTER TABLE sentinel_findings DROP COLUMN " + col)
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, db.Close())
+
+	st, err := Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = st.Close() })
+
+	for _, col := range []string{"state", "reason", "output", "revision_id", "updated_at"} {
+		assert.True(t, columnExists(t, st.db, "sentinel_findings", col), col)
+	}
+
+	var v int
+
+	require.NoError(t, st.db.QueryRow("PRAGMA user_version").Scan(&v))
+	assert.Equal(t, 6, v)
+
+	// A finding row as the older image inserts it.
+	id := openDispatchedHeal(t, st, "P-001", state.StageInvestigate, "endpoint")
+	_, err = st.db.Exec(`INSERT INTO sentinel_findings (heal_id, project, card_id, kind, title, text, evidence, created_at)
+		VALUES (?, 'p', 'P-001', 'code', 't', 'x', 'e', ?)`, id, runT0.UnixNano())
+	require.NoError(t, err)
+
+	got, err := st.CardFindings(context.Background(), "p", "P-001")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Empty(t, got[0].State)
+	assert.Zero(t, got[0].RevisionID)
+	assert.True(t, got[0].UpdatedAt.IsZero())
 }
