@@ -188,3 +188,18 @@ type RunKindReport struct {
 	ChargeCeiling bool // model kind ended without usage
 	At            time.Time
 }
+
+// Standing PR states, as last read from GitHub. A new record has none.
+const (
+	PROpen           = "open"
+	PRChangedOutside = "changed_outside" // open, with a head Sentinel did not push
+	PRMerged         = "merged"
+	PRClosed         = "closed"
+)
+
+// StandingPR is a project's standing guidance PR: what GitHub cannot tell
+// (the PR, Sentinel's last push) and the last read of its state.
+type StandingPR struct {
+	Project, URL, HeadSHA, File, State string
+	PushedAt, ReadAt                   time.Time
+}

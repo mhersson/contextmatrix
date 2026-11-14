@@ -516,6 +516,12 @@ func (s *Store) ProjectGuidance(ctx context.Context, project string) ([]state.Fi
 		`project = ? AND kind = 'guidance' AND state IN ('pending', 'proposed', 'merged', 'rejected') ORDER BY id`, project)
 }
 
+// ProposedFindings returns the project's guidance findings proposed in the
+// standing PR.
+func (s *Store) ProposedFindings(ctx context.Context, project string) ([]state.Finding, error) {
+	return s.queryFindings(ctx, `project = ? AND kind = 'guidance' AND state = 'proposed' ORDER BY id`, project)
+}
+
 // CardedSince counts the project's findings that became friction cards at or
 // after since.
 func (s *Store) CardedSince(ctx context.Context, project string, since time.Time) (int, error) {

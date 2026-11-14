@@ -94,6 +94,10 @@ func (c *Controller) pass(ctx context.Context) error {
 		if err := c.routeFindings(ctx, now); err != nil {
 			return err
 		}
+
+		if err := c.readStandingPRs(ctx, now); err != nil {
+			return err
+		}
 	}
 
 	healed, err := c.cfg.Store.HealedSince(ctx, dayStart(now))

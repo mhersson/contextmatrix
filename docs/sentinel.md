@@ -616,7 +616,8 @@ stage waits.
 6. While analyses are on, it queues an analysis row for every settled run;
    then, on or off, it steps every open analysis (see [Analyses](#analyses)).
 7. While `friction` is on, it routes the queued findings (see
-   [Routing findings](#routing-findings)).
+   [Routing findings](#routing-findings)), then reads each project's standing
+   PR (see [Standing PR](#standing-pr)).
 8. It records the status.
 
 A heal whose read or step fails is logged and decided again on the next pass.
@@ -704,6 +705,38 @@ cannot be read leaves its findings queued.
   section. Its first activity entry is `Sentinel created this card from the
   friction a run of <CARD> showed`. The text is not checked: the card is a
   proposal for a human, not an edit to a running card.
+
+### Standing PR
+
+Sentinel keeps one standing guidance PR per project. CM stores only what
+GitHub cannot tell it, in `sentinel_standing_prs` (one row per project, a later
+revision replaces it): the PR URL, the head SHA of Sentinel's last push, the
+file and when it pushed. Everything else is read from GitHub, through the
+controller's `GitHub` (none wired reads nothing).
+
+`readStandingPRs` (`standing_prs.go`) runs after routing while `friction` is on,
+and reads a project's PR at most every 15 minutes, and whenever a caller forces
+it. A read error is logged and keeps the old state, but counts as a read, so
+an outage is retried at most every 15 minutes. The row also
+keeps the last state read and when, for display and gating. `prState` names it:
+
+- `open`: open, with the head Sentinel pushed.
+- `changed_outside`: open, with any other head; a human changed the PR, so
+  nothing is dispatched to it until it merges or closes.
+- `merged` and `closed` (closed without merging): final; later passes skip
+  the record.
+
+When the PR merges, `settleFindings` reads the file at the merge commit and
+settles the project's `proposed` findings with the pure `mergedFates`, on each
+finding's text as published (card IDs redacted with every project's prefix).
+Each line is normalised (whitespace collapsed, trimmed). Lines with no letter or
+digit and code fences do not count. A finding is `merged` when at least one of
+its counted lines appears in the file's normalised text, so a fixed typo or a
+list marker does not turn it down as long as one of its lines is kept. A
+finding none of whose counted lines is left is `rejected`, and
+every finding is when the merge deleted the file. A closed PR rejects every
+proposed finding. A `rejected` finding still counts in dedup (see
+[Routing findings](#routing-findings)), so it is never raised again.
 
 ## Applying a fix
 
@@ -916,6 +949,9 @@ the next pass.
 | `internal/sentinel/dispatch.go` (analyses) | `dispatchAnalyse`; `endRefused`, which ends a refused row by its kind; the unknown-kind hold (`holdKind`, `kindHeld`) |
 | `internal/sentinel/route.go` | The pure routing: `routeGuidance`, `routeCode` and `frictionCardInput` |
 | `internal/sentinel/outputs.go` | `routeFindings`: read the queued findings and each project's friction cards, guidance and today's count, apply the decisions and write the outcomes |
+| `internal/sentinel/standing_pr.go` | The pure `prState` and `mergedFates` |
+| `internal/sentinel/standing_prs.go` | `readStandingPRs` and `readStandingPR`: read a due PR from GitHub, settle a merged or closed PR's proposed findings, save the state |
+| `internal/opstore/sqlite/sentinel_prs.go` | The `sentinel_standing_prs` store methods |
 | `internal/sentinel/pass.go` (analyses) | Reading the open analyses, `mayDispatchAny` (the one health read for heals and analyses), `sent` (the slot and spend accounting both flows share), and stepping the analyses after the heals; the expiry covers finished rows of every kind |
 
 `internal/sentinel/state` holds only types, constants and their trivial

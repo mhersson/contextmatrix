@@ -36,6 +36,7 @@ type fakeStore struct {
 	refreshes int // RefreshEditSnapshot calls
 
 	findings      []state.Finding
+	prs           map[string]state.StandingPR
 	outcomeWrites int // SetFindingOutcome calls
 }
 
@@ -798,6 +799,17 @@ func (f *fakeCards) GetProject(_ context.Context, project string) (*board.Projec
 	return nil, storage.ErrProjectNotFound
 }
 
+func (f *fakeCards) ListProjects(context.Context) ([]board.ProjectConfig, error) {
+	f.calls++
+
+	var out []board.ProjectConfig
+	for _, p := range f.projects {
+		out = append(out, *p)
+	}
+
+	return out, nil
+}
+
 // fakePlaybooks serves playbook details by ID.
 type fakePlaybooks map[string]*service.PlaybookDetail
 
@@ -891,6 +903,50 @@ func (f *fakeStore) ProjectGuidance(_ context.Context, project string) ([]state.
 		return fd.Project == project && fd.Kind == protocol.FindingGuidance &&
 			slices.Contains([]string{state.FindingPending, state.FindingProposed, state.FindingMerged, state.FindingRejected}, fd.State)
 	}), nil
+}
+
+func (f *fakeStore) ProposedFindings(_ context.Context, project string) ([]state.Finding, error) {
+	return f.findingsWhere(func(fd state.Finding) bool {
+		return fd.Project == project && fd.Kind == protocol.FindingGuidance && fd.State == state.FindingProposed
+	}), nil
+}
+
+func (f *fakeStore) StandingPRs(context.Context) ([]state.StandingPR, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	var out []state.StandingPR
+	for _, p := range f.prs {
+		out = append(out, p)
+	}
+
+	slices.SortFunc(out, func(a, b state.StandingPR) int { return strings.Compare(a.Project, b.Project) })
+
+	return out, nil
+}
+
+func (f *fakeStore) StandingPR(_ context.Context, project string) (*state.StandingPR, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if p, ok := f.prs[project]; ok {
+		return &p, nil
+	}
+
+	return nil, nil
+}
+
+func (f *fakeStore) PutStandingPR(_ context.Context, p state.StandingPR) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.prs == nil {
+		f.prs = map[string]state.StandingPR{}
+	}
+
+	f.prs[p.Project] = p
+
+	return nil
 }
 
 func (f *fakeStore) CardedSince(_ context.Context, project string, since time.Time) (int, error) {

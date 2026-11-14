@@ -67,6 +67,14 @@ type Store interface {
 	// ProjectGuidance returns the project's guidance findings that are pending,
 	// proposed, merged or rejected.
 	ProjectGuidance(ctx context.Context, project string) ([]state.Finding, error)
+	// ProposedFindings returns the project's guidance findings in state proposed.
+	ProposedFindings(ctx context.Context, project string) ([]state.Finding, error)
+	// StandingPRs returns every project's standing PR record.
+	StandingPRs(ctx context.Context) ([]state.StandingPR, error)
+	// StandingPR answers nil when the project has no record.
+	StandingPR(ctx context.Context, project string) (*state.StandingPR, error)
+	// PutStandingPR replaces the project's record.
+	PutStandingPR(ctx context.Context, p state.StandingPR) error
 	// CardedSince counts the project's findings that became cards at or after since.
 	CardedSince(ctx context.Context, project string, since time.Time) (int, error)
 	// CardedFindings returns the IDs of the project's cards made from a finding.
@@ -97,6 +105,7 @@ type Cards interface {
 	TransitionToAs(ctx context.Context, project, id, state, agentID string, expectUpdated time.Time) (*board.Card, error)
 	AddSystemLogEntry(ctx context.Context, project, id string, e board.ActivityEntry) (*board.Card, error)
 	GetProject(ctx context.Context, project string) (*board.ProjectConfig, error)
+	ListProjects(ctx context.Context) ([]board.ProjectConfig, error)
 	CreateCard(ctx context.Context, project string, in service.CreateCardInput) (*board.Card, error)
 }
 
