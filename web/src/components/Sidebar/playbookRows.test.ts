@@ -52,6 +52,11 @@ describe('playbookRows', () => {
     expect(ids(playbookRows(list, 1))).toEqual(['done']);
   });
 
+  it('does not count a fully complete playbook as active while its run still reads running', () => {
+    const list = [pb('stale', { run: 'running', complete: 3, day: 1 }), pb('new', { day: 2 })];
+    expect(ids(playbookRows(list, 1))).toEqual(['new']);
+  });
+
   it('is not tied to the order the server listed', () => {
     const a = [pb('a', { day: 2 }), pb('b', { day: 2 })];
     expect(ids(playbookRows(a))).toEqual(ids(playbookRows([...a].reverse())));

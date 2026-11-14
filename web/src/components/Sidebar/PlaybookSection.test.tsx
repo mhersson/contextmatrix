@@ -92,17 +92,21 @@ describe('PlaybookSection', () => {
     expect(all).toHaveTextContent('5');
   });
 
-  it('reads n of m while running and the status word otherwise', async () => {
+  it('reads n of m while running or progressed without a run, and the status word otherwise', async () => {
     vi.spyOn(api, 'listPlaybooks').mockResolvedValue([
-      pb('run', { run: 'running', complete: 1, day: 3 }),
-      pb('wait', { run: 'waiting', day: 2 }),
-      pb('idle', { day: 1 }),
+      pb('run', { run: 'running', complete: 1, day: 5 }),
+      pb('hand', { complete: 2, day: 4, pinned: true }),
+      pb('wait', { run: 'waiting', day: 3 }),
+      pb('stop', { run: 'stopped', complete: 2, day: 2, pinned: true }),
+      pb('idle', { day: 1, pinned: true }),
     ]);
     renderSection();
     const section = await screen.findByRole('region', { name: 'Playbooks' });
     const rowFor = async (title: string) => (await within(section).findByText(title)).closest('li')!;
     expect(await rowFor('Title run')).toHaveTextContent('1 of 4');
+    expect(await rowFor('Title hand')).toHaveTextContent('2 of 4');
     expect(await rowFor('Title wait')).toHaveTextContent('waiting');
+    expect(await rowFor('Title stop')).toHaveTextContent('stopped');
     expect(await rowFor('Title idle')).toHaveTextContent('not started');
   });
 

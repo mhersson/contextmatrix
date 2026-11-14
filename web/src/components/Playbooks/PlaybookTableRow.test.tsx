@@ -32,16 +32,19 @@ function renderRow(playbook: PlaybookSummary) {
 }
 
 describe('PlaybookTableRow', () => {
-  it.each<[PlaybookRunStatus | undefined, boolean]>([
-    ['running', true],
-    ['waiting', true],
-    ['stopped', false],
-    ['completed', false],
-    [undefined, false],
-  ])('with the run %s, shows the next-up entry: %s', (run_status, shown) => {
-    const { row } = renderRow(pb({ run_status, runnable: true }));
-    expect(within(row).queryByText('Wire the flag') !== null).toBe(shown);
-    expect(within(row).queryByText('ALPHA-7') !== null).toBe(shown);
+  it.each<PlaybookRunStatus | undefined>(['running', 'waiting', 'stopped', 'completed', undefined])(
+    'with the run %s, names the next entry',
+    (run_status) => {
+      const { row } = renderRow(pb({ run_status, runnable: true }));
+      expect(within(row).getByText('Wire the flag')).toBeInTheDocument();
+      expect(within(row).getByText('ALPHA-7')).toBeInTheDocument();
+    },
+  );
+
+  it('names no next entry once nothing is next', () => {
+    const { row } = renderRow(pb({ run_status: 'running', next: undefined }));
+    expect(within(row).queryByText('Wire the flag')).toBeNull();
+    expect(within(row).queryByText('ALPHA-7')).toBeNull();
   });
 
   it('names a manual next-up step by its text', () => {

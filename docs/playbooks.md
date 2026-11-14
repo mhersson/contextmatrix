@@ -58,8 +58,8 @@ The Playbooks tab of the Sessions page (`/sessions?tab=playbooks`, where
 of the detail rail: one node per entry (manual steps as gates), solid green
 where a step is complete, an aqua pulse on an `in_progress` card, a purple
 ring on the first pending entry, a dashed red node for a broken reference.
-Longer playbooks (over 20 entries) fall back to the segmented meter. While a
-run is running or waiting, the row also names its next entry. Completed
+Longer playbooks (over 20 entries) fall back to the segmented meter. Until
+the playbook is complete, the row also names its next entry. Completed
 playbooks are rows like the rest, found through the Status filter. "New
 playbook" opens a create row at the top of the table: name it, optionally
 describe it, pick the boards repo on a multi-repo instance, and Enter creates.

@@ -1,7 +1,6 @@
 import type { MouseEvent } from 'react';
 import type { AttentionItem, PlaybookNext, PlaybookSummary } from '../../types';
 import { formatExactTime, formatRelativeTime } from '../../lib/format';
-import { playbookStatus } from '../../lib/playbookStatus';
 import { sourceIcon } from '../icons';
 import { PinIcon, PlaybookIcon } from '../SessionIcons';
 import { WaitBadge } from '../WaitBadge';
@@ -32,7 +31,6 @@ function NextUp({ next }: { next: PlaybookNext }) {
 
 export function PlaybookTableRow({ playbook: p, ticked, onToggle, onPin, onOpen, waiting }: PlaybookTableRowProps) {
   const pinned = p.pinned === true;
-  const status = playbookStatus(p);
   const agentActive = p.segments.includes('active');
 
   return (
@@ -77,7 +75,7 @@ export function PlaybookTableRow({ playbook: p, ticked, onToggle, onPin, onOpen,
           )}
           {p.segments.includes('missing') && <span className="pbl-pill pbl-pill-missing">missing card</span>}
         </div>
-        {(status === 'running' || status === 'waiting') && p.next && <NextUp next={p.next} />}
+        {p.next && <NextUp next={p.next} />}
       </td>
       <td>{p.project_names.length > 0 ? p.project_names.join(', ') : '-'}</td>
       <td>

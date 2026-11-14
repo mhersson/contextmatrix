@@ -321,9 +321,10 @@ when, once someone has.
   section shows only while blueprint sessions exist, and then without
   **+ new**. The Playbooks section lists the viewer's pinned playbooks, then
   running and waiting ones, then the newest, each with a status on the right:
-  `n of m` while running, else completed, waiting, stopped or not started; a
-  pinned row shows a filled pin (see [Playbooks](playbooks.md) for pins). Each
-  section collapses on its own, remembered per browser under
+  `n of m` while running or progressed by hand with no run, else completed,
+  waiting, stopped or not started; a pinned row shows a filled pin (see
+  [Playbooks](playbooks.md) for pins). Each section collapses on its own,
+  remembered per browser under
   `sidebar.chat_section_collapsed`, `sidebar.blueprint_section_collapsed` and
   `sidebar.playbook_section_collapsed`.
   Clicking a row opens the session (`/chat/:id`) and closes the mobile drawer.
@@ -766,8 +767,8 @@ dashboard.
 - The columns are a tick box, the pin, the title, the projects, the run, the
   progress and the last update. The title carries the playbook icon, a Jira
   chip with the epic key on an imported playbook and a `missing card` pill
-  while an entry points at a card that is gone; while the run is running or
-  waiting, a muted second line names the next entry. The run is the run's
+  while an entry points at a card that is gone; until the playbook is
+  complete, a muted second line names the next entry. The run is the run's
   status pill, plus `agent active` while a card entry is `in_progress`, and
   "-" when neither applies. The progress is the route track (manual steps
   drawn as gates) and done / total.

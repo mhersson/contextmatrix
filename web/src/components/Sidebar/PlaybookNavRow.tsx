@@ -16,7 +16,8 @@ const STATUS_TONE = {
 export function PlaybookNavRow({ playbook: p, waiting }: { playbook: PlaybookSummary; waiting?: boolean }) {
   const mobileSidebar = useMobileSidebar();
   const status = playbookStatus(p);
-  const pill = status === 'running' ? `${p.complete} of ${p.total}` : status;
+  const progressed = status === 'running' || (status === 'not started' && p.complete > 0);
+  const pill = progressed ? `${p.complete} of ${p.total}` : status;
 
   return (
     <li>
