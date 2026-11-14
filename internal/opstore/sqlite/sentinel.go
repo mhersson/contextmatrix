@@ -39,13 +39,35 @@ func (s *Store) SentinelSettings(ctx context.Context) (state.Settings, time.Time
 }
 
 // PutSentinelSettings validates and replaces the single row; nothing is stored
-// when the settings are invalid. The ecosystem column is left untouched.
+// when the settings are invalid. The ecosystem column is left untouched. A save
+// that turns Sentinel or healing on marks every undecided run decided in the
+// same transaction, so switching on starts fresh: a run that stopped while it
+// was off is left for a human.
 func (s *Store) PutSentinelSettings(ctx context.Context, set state.Settings, by string) error {
 	if err := set.Validate(); err != nil {
 		return err
 	}
 
-	if _, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("put sentinel settings: %w", err)
+	}
+
+	defer func() { _ = tx.Rollback() }()
+
+	old := state.DefaultSettings()
+
+	var enabled, healing int64
+
+	switch err := tx.QueryRowContext(ctx, `SELECT enabled, healing FROM sentinel_settings WHERE id = 1`).
+		Scan(&enabled, &healing); {
+	case err == nil:
+		old.Enabled, old.Healing = enabled != 0, healing != 0
+	case !errors.Is(err, sql.ErrNoRows):
+		return fmt.Errorf("put sentinel settings: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO sentinel_settings
 		   (id, enabled, healing, friction, daily_cap_usd, investigate_ceiling_usd, headroom, updated_at, updated_by)
 		 VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -58,7 +80,22 @@ func (s *Store) PutSentinelSettings(ctx context.Context, set state.Settings, by 
 		return fmt.Errorf("put sentinel settings: %w", err)
 	}
 
+	if switchedOn(old, set) {
+		if _, err := tx.ExecContext(ctx, `UPDATE card_run_modes SET decided = 1 WHERE decided = 0`); err != nil {
+			return fmt.Errorf("put sentinel settings: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("put sentinel settings: %w", err)
+	}
+
 	return nil
+}
+
+// switchedOn reports whether set turns Sentinel or healing on.
+func switchedOn(old, set state.Settings) bool {
+	return (!old.Enabled && set.Enabled) || (!old.Healing && set.Healing)
 }
 
 // SubscriptionWindows returns every window's newest reading without its seen time.

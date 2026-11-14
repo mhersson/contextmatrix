@@ -45,6 +45,65 @@ func TestPutSentinelSettingsRoundTrip(t *testing.T) {
 	assert.Equal(t, "human:bob", by)
 }
 
+func TestSwitchingSentinelOnDecidesEveryWaitingRun(t *testing.T) {
+	off := state.DefaultSettings()
+	on := off
+	on.Enabled = true
+	healingOff := on
+	healingOff.Healing = false
+	offNoHealing := off
+	offNoHealing.Healing = false
+	recapped := on
+	recapped.DailyCapUSD = 5
+
+	tests := []struct {
+		name    string
+		before  *state.Settings // nil: no row stored yet
+		after   state.Settings
+		decides bool
+	}{
+		{"enabling with no row stored", nil, on, true},
+		{"enabling", &off, on, true},
+		{"turning healing on", &healingOff, on, true},
+		{"turning healing on while off", &offNoHealing, off, true},
+		{"enabling and turning healing on together", &offNoHealing, on, true},
+		{"changing a cap", &on, recapped, false},
+		{"turning healing off", &on, healingOff, false},
+		{"disabling", &on, off, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			st := openLadderStore(t)
+			ctx := context.Background()
+
+			if tc.before != nil {
+				require.NoError(t, st.PutSentinelSettings(ctx, *tc.before, "human:alice"))
+			}
+
+			require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0, state.LaunchFacts{Autonomous: true}))
+
+			require.NoError(t, st.PutSentinelSettings(ctx, tc.after, "human:alice"))
+
+			undecided, err := st.UndecidedRuns(ctx)
+			require.NoError(t, err)
+
+			if !tc.decides {
+				assert.Len(t, undecided, 1, "a run waiting before the save is still considered")
+
+				return
+			}
+
+			assert.Empty(t, undecided, "switching on starts fresh")
+
+			require.NoError(t, st.OpenCardRun(ctx, "p", "P-002", "endpoint", runT0.Add(time.Hour), state.LaunchFacts{Autonomous: true}))
+
+			undecided, err = st.UndecidedRuns(ctx)
+			require.NoError(t, err)
+			assert.Len(t, undecided, 1, "a run launched after the switch is considered")
+		})
+	}
+}
+
 func TestPutSentinelSettingsRejectsInvalid(t *testing.T) {
 	st := openLadderStore(t)
 	ctx := context.Background()

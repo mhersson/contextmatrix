@@ -140,13 +140,13 @@ export function AdminSentinelPage() {
         <>
           <Switch
             label="Sentinel"
-            hint="Watch autonomous runs and act on what stops them."
+            hint="Watch autonomous runs and act on what stops them. Turning it on starts fresh: runs launched before then are left to you."
             checked={draft.enabled}
             onChange={(enabled) => set({ enabled })}
           />
           <Switch
             label="Healing"
-            hint="Diagnose stuck autonomous runs, fix the card and rerun it"
+            hint="Diagnose stuck autonomous runs, fix the card and rerun it. Turning it on starts fresh: runs launched before then are left to you."
             checked={draft.healing}
             disabled={!draft.enabled}
             onChange={(healing) => set({ healing })}

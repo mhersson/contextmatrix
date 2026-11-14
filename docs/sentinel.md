@@ -20,7 +20,10 @@ hands the controller run kinds' results, which it records and charges.
 The switches, caps and threshold live in one row of the `sentinel_settings`
 table in ops.db. With no row, the defaults apply. Every pass rereads the row,
 so a change needs no restart. `PutSentinelSettings` validates before it writes
-and records the time and the writer; invalid settings store nothing.
+and records the time and the writer; invalid settings store nothing. A save
+that turns `enabled` or `healing` on marks every undecided run decided in the
+same transaction, so switching on starts fresh: a run launched before then,
+stuck or still going, is left for a human to Run.
 
 | Setting                   | Default | Valid range          | Read by                                                        |
 | ------------------------- | ------- | -------------------- | -------------------------------------------------------------- |
@@ -100,7 +103,8 @@ A launch also clears `run_id`, `stop_cause`, `stopped_at`, `human_stop`,
 - `human_stop` is set by Stop and Stop All before the card reads `killed`.
 - `ended_at` is set once CM sees the card's worker end.
 - `decided` is set once Sentinel has looked at the run: when it opens a heal
-  for it, or decides to leave it. While `healing` is on, each pass considers
+  for it, or decides to leave it, and for every undecided run when a settings
+  save turns `enabled` or `healing` on. While `healing` is on, each pass considers
   the autonomous runs not yet decided.
 
 `edit_snapshot` is refreshed after each write by the run's non-human claim

@@ -254,7 +254,8 @@ switches (Sentinel, Healing, Friction analysis), the daily spend cap in USD
 (endpoint channel), the investigation ceiling in USD per investigation and the
 subscription headroom threshold. The threshold is shown as a percent (85) and
 saved as a fraction (0.85). Healing and Friction analysis are disabled while
-Sentinel is off. Save shows the server's validation message inline and refreshes
+Sentinel is off. Turning Sentinel or Healing on starts fresh: runs launched
+before then are left for a human. Save shows the server's validation message inline and refreshes
 the strip; the footer names who last saved and when, once someone has.
 
 ## Global chat

@@ -1151,7 +1151,9 @@ there is no controller: the status is `off` while Sentinel is off and
 Replaces all settings with the request body (the `settings` object above).
 Admin-only in `multi` mode, open in `none` mode. Saves them in ops.db, wakes
 the controller, publishes `sentinel.changed` and returns **200 OK** with the
-`GET` body. `updated_by` is the caller's identity, or `human:web` without one.
+`GET` body. A save that turns `enabled` or `healing` on also marks every run
+Sentinel has not looked at yet as decided, so only runs launched after it are
+considered. `updated_by` is the caller's identity, or `human:web` without one.
 
 **Errors:** `400 BAD_REQUEST` (malformed JSON), `403 FORBIDDEN` (non-admin in
 `multi` mode), `422 VALIDATION_ERROR` (a non-finite number, `daily_cap_usd`
