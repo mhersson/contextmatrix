@@ -7,6 +7,7 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/sentinel"
 )
 
 // runKindBase fills a run kind's common payload fields for a card: the
@@ -56,4 +57,16 @@ func (h *backendHandlers) runKindBase(ctx context.Context, project, cardID strin
 	p.Model, p.Selection, p.LLMEndpoint = choice.model, choice.selection, choice.endpoint
 
 	return p, choice.mode, nil
+}
+
+// sentinelRelaunch is Sentinel's rerun of a card outside a playbook run: a
+// hand run's checks and launch, recorded with origin sentinel, which keeps the
+// card's heal attempts.
+func (h *backendHandlers) sentinelRelaunch(ctx context.Context, project, id string) error {
+	err := h.handRunPreflight(ctx, project, id)
+	if err == nil {
+		_, err = h.launch(ctx, project, id, launchOptions{handRun: true, origin: sentinel.OriginSentinel})
+	}
+
+	return committableLaunchError(ctx, project, id, err)
 }

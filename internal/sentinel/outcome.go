@@ -19,10 +19,12 @@ const activityAction = "sentinel"
 // diagnosis in a park reason can be far longer, and the tab shows it whole.
 const maxActivityText = 2000
 
-// activityText is the one activity entry a heal writes; a parked heal's names
-// why it needs a human.
+// activityText is a parked heal's activity entry: why it needs a human.
 func activityText(h Heal) string {
-	text := "Sentinel left this for a human: " + h.Reason
+	return clipActivity("Sentinel left this for a human: " + h.Reason)
+}
+
+func clipActivity(text string) string {
 	if len(text) <= maxActivityText {
 		return text
 	}
@@ -39,7 +41,7 @@ func (c *Controller) park(ctx context.Context, h *Heal, reason string) error {
 		return fmt.Errorf("park the heal: %w", err)
 	}
 
-	return c.logActivity(ctx, h)
+	return c.logActivity(ctx, h, activityText(*h))
 }
 
 // parkUnreported parks a heal whose run kind never reported and charges the
@@ -57,7 +59,7 @@ func (c *Controller) parkUnreported(ctx context.Context, h *Heal, reason string)
 		chargeErr = fmt.Errorf("charge the %s ceiling: %w", h.Dispatch.Kind, err)
 	}
 
-	return errors.Join(chargeErr, c.logActivity(ctx, h))
+	return errors.Join(chargeErr, c.logActivity(ctx, h, activityText(*h)))
 }
 
 // closeHeal ends the heal without an activity entry: the card was closed or
@@ -77,8 +79,8 @@ func (c *Controller) saveStage(ctx context.Context, h *Heal, stage, reason strin
 	return c.cfg.Store.SaveHeal(ctx, h)
 }
 
-func (c *Controller) logActivity(ctx context.Context, h *Heal) error {
-	entry := board.ActivityEntry{Agent: Agent, Timestamp: c.cfg.Clock.Now(), Action: activityAction, Message: activityText(*h)}
+func (c *Controller) logActivity(ctx context.Context, h *Heal, text string) error {
+	entry := board.ActivityEntry{Agent: Agent, Timestamp: c.cfg.Clock.Now(), Action: activityAction, Message: text}
 	if _, err := c.cfg.Cards.AddSystemLogEntry(ctx, h.Project, h.CardID, entry); err != nil {
 		return fmt.Errorf("write the activity entry: %w", err)
 	}

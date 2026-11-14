@@ -26,9 +26,14 @@ type dispatchEnv struct {
 	backend *fakeBackend
 	cards   *fakeCards
 	pbs     fakePlaybooks
+	runner  *fakeRunner
 	clk     *clock.FakeClock
 	ctl     *Controller
 	models  []bool // the model flag of each RunKindBase call
+
+	relaunched  []string // "<project>/<card>" per relauncher call
+	relaunchErr error
+	onRelaunch  func() // runs before the relauncher answers
 }
 
 func newDispatchEnv(t *testing.T) *dispatchEnv {
@@ -39,11 +44,22 @@ func newDispatchEnv(t *testing.T) *dispatchEnv {
 		backend: &fakeBackend{},
 		cards:   &fakeCards{projects: map[string]*board.ProjectConfig{}},
 		pbs:     fakePlaybooks{},
+		runner:  &fakeRunner{},
 		clk:     clock.Fake(epoch),
 	}
 	e.ctl = New(Config{
 		Store: e.store, Channel: fakeChannel{config.BackendNameAgent: llmchannel.ModeEndpoint}, Bus: events.NewBus(),
-		Clock: e.clk, Pricer: ratePricer{}, Backend: e.backend, Cards: e.cards, Playbooks: e.pbs, Instance: "lap-a",
+		Clock: e.clk, Pricer: ratePricer{}, Backend: e.backend, Cards: e.cards, Playbooks: e.pbs, Runner: e.runner,
+		Instance: "lap-a",
+	})
+	e.ctl.SetRelauncher(func(_ context.Context, project, cardID string) error {
+		if e.onRelaunch != nil {
+			e.onRelaunch()
+		}
+
+		e.relaunched = append(e.relaunched, project+"/"+cardID)
+
+		return e.relaunchErr
 	})
 	e.ctl.SetRunKindBase(func(_ context.Context, project, cardID string, model bool) (protocol.RunKindPayload, llmchannel.Mode, error) {
 		e.models = append(e.models, model)

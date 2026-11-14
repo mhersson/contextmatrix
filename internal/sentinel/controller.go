@@ -37,6 +37,8 @@ type Store interface {
 	MarkRunDecided(ctx context.Context, project, cardID string, started time.Time) error
 	// CardRunRow answers nil when this instance never launched the card.
 	CardRunRow(ctx context.Context, project, cardID string) (*Run, error)
+	RefreshEditSnapshot(ctx context.Context, project, cardID string, snap board.EditSnapshot) error
+	IncrementAttempts(ctx context.Context, project, cardID string) error
 	Charge(ctx context.Context, healID int64, mode string, usd float64, at time.Time) error
 	SpentSince(ctx context.Context, mode string, since time.Time) (float64, error)
 	HealedSince(ctx context.Context, since time.Time) (int, error)
@@ -61,6 +63,8 @@ type Cards interface {
 	GetCard(ctx context.Context, project, id string) (*board.Card, error)
 	ListCards(ctx context.Context, project string, f storage.CardFilter) ([]*board.Card, error)
 	ClaimedElsewhere(card *board.Card) bool
+	PatchCard(ctx context.Context, project, id string, in service.PatchCardInput) (*board.Card, error)
+	TransitionTo(ctx context.Context, project, id, state string) (*board.Card, error)
 	AddSystemLogEntry(ctx context.Context, project, id string, e board.ActivityEntry) (*board.Card, error)
 	GetProject(ctx context.Context, project string) (*board.ProjectConfig, error)
 }
@@ -70,10 +74,16 @@ type Playbooks interface {
 	Get(ctx context.Context, id string) (*service.PlaybookDetail, error)
 }
 
+// PlaybookRunner stops and plays a playbook's run, as a human's Stop and Run do.
+type PlaybookRunner interface {
+	Stop(ctx context.Context, id, agentID string) (*service.PlaybookDetail, error)
+	Play(ctx context.Context, id, agentID string) (*service.PlaybookDetail, error)
+}
+
 // Config wires the controller. Clock nil means the real clock; Tick zero
 // means 30 seconds. Pricer prices run-kind usage without a gateway cost and
-// is required with a Store. Playbooks is nil when playbooks are off.
-// Instance is this instance's ID as playbook runs record it.
+// is required with a Store. Playbooks and Runner are nil when playbooks are
+// off. Instance is this instance's ID as playbook runs record it.
 type Config struct {
 	Store     Store
 	Channel   Channel
@@ -84,6 +94,7 @@ type Config struct {
 	Backend   Backend
 	Cards     Cards
 	Playbooks Playbooks
+	Runner    PlaybookRunner
 	Instance  string
 }
 
@@ -98,6 +109,7 @@ type Controller struct {
 	last            statusInput // from the last pass that completed
 	published       Status
 	runKindBase     RunKindBase
+	relauncher      func(ctx context.Context, project, cardID string) error
 	noRunKindsUntil time.Time // the agent answered that it has no run kinds
 }
 
@@ -165,6 +177,14 @@ func (c *Controller) SetRunKindBase(b RunKindBase) {
 	defer c.mu.Unlock()
 
 	c.runKindBase = b
+}
+
+// SetRelauncher wires what reruns a card outside a playbook run.
+func (c *Controller) SetRelauncher(r func(ctx context.Context, project, cardID string) error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.relauncher = r
 }
 
 // Nudge asks for a pass; nudges that arrive during a pass coalesce into one.

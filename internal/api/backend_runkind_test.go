@@ -14,6 +14,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/githubauth"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/sentinel"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -134,4 +135,22 @@ func TestRunKindBaseModelKindChoosesAsLaunchDoes(t *testing.T) {
 	assert.Equal(t, trigger.Selection, p.Selection)
 	assert.Equal(t, trigger.LLMEndpoint, p.LLMEndpoint)
 	require.NotNil(t, p.LLMEndpoint)
+}
+
+func TestSentinelRelaunchRecordsSentinelOrigin(t *testing.T) {
+	h, svc, _, ops := channelLaunchHandlers(t, llmchannel.ModeEndpoint, []string{config.BackendNameAgent})
+	ctx := context.Background()
+	card := createRunnable(t, svc, service.CreateCardInput{Autonomous: new(true)})
+
+	require.NoError(t, ops.OpenCardRun(ctx, "test-project", card.ID, "endpoint", time.Now(),
+		sentinel.LaunchFacts{Autonomous: true, Origin: sentinel.OriginREST}))
+	require.NoError(t, ops.IncrementAttempts(ctx, "test-project", card.ID))
+
+	require.NoError(t, h.sentinelRelaunch(ctx, "test-project", card.ID))
+
+	run, err := ops.CardRunRow(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	require.NotNil(t, run)
+	assert.Equal(t, sentinel.OriginSentinel, run.Launch.Origin)
+	assert.Equal(t, 1, run.Attempts, "a Sentinel rerun keeps the attempt it counted")
 }

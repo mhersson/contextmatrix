@@ -6,8 +6,10 @@ stuck: find out why, fix the card and rerun it, and only for card runs this
 instance launched. It lives in `internal/sentinel` as a level-triggered
 controller, built like the playbook runner. A pass advances the heals in
 progress, opens heals for stopped runs and derives Sentinel's status (see
-[One pass](#one-pass)). It applies no fix and reruns no card at present, so a
-heal that reaches `apply` or `usage_wait` holds there. The status callback
+[One pass](#one-pass)). A heal that reaches `apply` writes its fix and reruns
+the card (see [Applying a fix](#applying-a-fix)). Sentinel does not rerun after
+a usage limit or settle a rerun at present, so a heal at `usage_wait` holds
+there, and one at `rerun` stays there once its rerun ends. The status callback
 hands the controller run kinds' results, which it records and charges.
 
 ## Settings
@@ -20,7 +22,7 @@ and records the time and the writer; invalid settings store nothing.
 | Setting                   | Default | Valid range          | Read by                                                        |
 | ------------------------- | ------- | -------------------- | -------------------------------------------------------------- |
 | `enabled`                 | off     |                      | The controller: off reports `off` and reads nothing else       |
-| `healing`                 | on      |                      | The pass: off opens no heal and dispatches nothing; open heals still close and park |
+| `healing`                 | on      |                      | The pass: off opens no heal, dispatches nothing and reruns nothing; open heals still close and park |
 | `friction`                | on      |                      | The run-kind intake: off stores no findings                    |
 | `daily_cap_usd`           | 20.00   | 0 to 10000           | The budget gate on the endpoint channel                        |
 | `investigate_ceiling_usd` | 2.00    | above 0, at most 100 | The investigate run's `max_cost_usd`                           |
@@ -64,7 +66,7 @@ The gate uses the agent's effective LLM channel mode: the current mode, or
 
 `card_run_modes` in ops.db holds one row per card: the last run this instance
 launched for it. Every launch (a UI or REST Run, MCP `run_card`, a playbook
-step) replaces the row and records:
+step, Sentinel's rerun) replaces the row and records:
 
 | Column          | Value                                                                                                     |
 | --------------- | --------------------------------------------------------------------------------------------------------- |
@@ -72,11 +74,11 @@ step) replaces the row and records:
 | `started_at`    | The launch time, in nanoseconds                                                                           |
 | `edit_snapshot` | sha256 hashes of the title, verify, autonomous flag, body intro and each H2 section (`board.TakeEditSnapshot`) |
 | `autonomous`    | The card's `autonomous` flag at launch                                                                    |
-| `origin`        | `rest`, `mcp` or `playbook`; `sentinel` is defined for Sentinel's own reruns, and no launch uses it at present |
-| `attempts`      | Heal reruns, at most `MaxHealAttempts` (2): a `rest` launch resets it to 0, every other launch keeps it   |
+| `origin`        | `rest`, `mcp`, `playbook`, or `sentinel` for Sentinel's rerun of a card outside a playbook run (inside one, the playbook step's `playbook`) |
+| `attempts`      | Heal reruns, at most `MaxHealAttempts` (2): Sentinel counts one before each rerun; a `rest` launch resets it to 0, every other launch keeps it |
 | `usage_reruns`  | Usage-limit reruns, at most `MaxUsageReruns` (3): reset and kept like `attempts`                          |
 
-Nothing increments `attempts` or `usage_reruns` at present. A launch also
+Nothing increments `usage_reruns` at present. A launch also
 clears `run_id`, `stop_cause`, `stopped_at`, `human_stop`, `decided` and
 `ended_at`, which fill in as the run goes:
 
@@ -92,7 +94,8 @@ clears `run_id`, `stop_cause`, `stopped_at`, `human_stop`, `decided` and
   the autonomous runs not yet decided.
 
 `edit_snapshot` is refreshed after each write by the run's non-human claim
-holder, so only human, unclaimed and system writes read as edits against it.
+holder and after Sentinel writes a fix, so only human, unclaimed and other
+system writes read as edits against it.
 
 ## Heal records
 
@@ -370,8 +373,9 @@ stage waits.
    a `card` diagnosis's fix, so a retire-only fix that skipped the check run
    kind is still vetted. `nextStep` decides, and the pass dispatches, advances
    the stage, parks or closes. A run kind it sends takes a worker slot for the
-   rest of the pass. It does not apply a fix, rerun after a usage limit or
-   settle a rerun at present; such a heal keeps its stage.
+   rest of the pass. At `apply` it writes the fix and reruns the card. It
+   does not rerun after a usage limit or settle a rerun at present; such a
+   heal keeps its stage.
 4. While `healing` is on, it considers every undecided run whose card has no
    open heal (`consider.go`). A run that has not settled waits. One that is not eligible, or
    whose cause is ignored, is marked decided. Otherwise a heal opens at
@@ -383,7 +387,8 @@ stage waits.
 
 A heal whose read or step fails is logged and decided again on the next pass.
 A pass that advanced a heal, opened one, or found one written since it read it
-(a run kind's status arrived) nudges once, so the next step is decided at
+(a run kind's status arrived) or its card written since it read the card (the
+guarded fix write was refused) nudges once, so the next step is decided at
 once. A pass reads only the heals still open, so a run kind's result that
 arrives after its heal parked or closed is recorded and charged, never applied.
 
@@ -393,11 +398,60 @@ matches no dispatch, so the ceiling is the only charge.
 
 ### Activity entries
 
-Each heal writes one activity entry on its card, as `system:sentinel` with
-action `sentinel`, when it parks: `Sentinel left this for a human: <reason>`,
-cut to the card service's 2000-byte limit. A closed heal writes none. The
-activity log carries only that line; the full reason and the rest of the
-heal's detail stay on its `sentinel_heals` row.
+A heal writes its activity entries on its card, as `system:sentinel` with
+action `sentinel`, cut to the card service's 2000-byte limit:
+
+- when it reruns the card, `Sentinel <what it changed>; rerunning fresh,
+  attempt N of 2` (`rerunning to resume` for a resumed rerun), naming an
+  updated `## Sentinel` section, a changed verify and the retired subtasks, or
+  that it changed nothing on the card;
+- when it parks, `Sentinel left this for a human: <reason>`. A rerun that is
+  refused or never starts parks, so its heal writes both.
+
+A closed heal writes none. The activity log carries only those lines; the full
+reason and the rest of the heal's detail stay on its `sentinel_heals` row.
+
+## Applying a fix
+
+At stage `apply` the pass writes the heal's fix (`apply.go`), then reruns the
+card (`relaunch.go`).
+
+`applyFix` writes the fix as `system:sentinel` in one `PatchCard` guarded on
+the card's `updated` as the pass read it: the `## Sentinel` section (section
+upsert) when the fix has one, the verify fields when it has them, and a cleared
+`phase` for a fresh rerun. A human edit in between refuses the write
+(`ErrCardChanged`); the heal stays at `apply` and the next pass decides again,
+parking it when the edit check finds the edit. Each subtask the fix retires
+then moves to `not_planned`, one guarded write per subtask on a fresh read, so
+a claim that lands first wins; a refused retire, such as a project whose
+transitions do not allow `todo` to `not_planned`, parks the heal with
+`cannot retire <ID>: <error>`. Last, the run row's `edit_snapshot` is replaced
+with the written card's, so the edit check reads Sentinel's write as no edit.
+A heal holding no fix (a `model` diagnosis) writes nothing. The heal records
+the change: the section and verify before and after, the retired subtasks, and
+fresh or resume.
+
+A rerun is fresh, its saved phase cleared so the agent plans again, when the
+fix wrote the section or retired subtasks; otherwise it resumes, keeping the
+agent's recorded escalation and sizing.
+
+`relaunchRoute` picks how the card reruns, from the run row's origin and the
+playbook the card's active `playbook_lock` names:
+
+| Origin           | Route                                                                                                                                         |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `playbook`       | Through the playbook run's Stop then Play, as `system:sentinel`, while that run is active on this instance and holds the card; else it parks |
+| any other origin | Alone: the card moves to `todo` when it is elsewhere, then launches as a hand run with origin `sentinel`; while an active playbook run holds the card it parks |
+
+Before anything launches, `relaunch` counts the attempt on the run row, saves
+the heal at `rerun` with `relaunched_at` and the card's cost with its
+subtasks' as the cost base, and writes the rerun's activity entry, so the
+rerun's run row starts at or after `relaunched_at`. A move to `todo`, launch,
+Stop or Play that fails parks the heal with `rerun refused: <error>`. The launch is
+`backendHandlers.sentinelRelaunch` (`internal/api/backend_runkind.go`), which
+the router hands the controller: a hand run's checks and `launch`, with a raw
+service error reduced to its sanitized class, since the park reason is
+committed with the card.
 
 ## Where things live
 
@@ -405,10 +459,12 @@ heal's detail stay on its `sentinel_heals` row.
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `internal/sentinel/settings.go`             | `Settings`, the defaults and validation                                                                                                                      |
 | `internal/sentinel/state.go`                | The durable-state types: the run row (`Run`, `LaunchFacts`), launch origins, the caps, and the heal records (`Heal`, the stages, `Finding`, `RunKindReport`) |
-| `internal/sentinel/controller.go`           | The loop: `Start`, `Shutdown`, `Nudge`, `Status`, the panic-safe pass and the wake-up filter; the `Store`, `Backend`, `Cards` and `Playbooks` it uses      |
+| `internal/sentinel/controller.go`           | The loop: `Start`, `Shutdown`, `Nudge`, `Status`, the panic-safe pass and the wake-up filter; the `Store`, `Backend`, `Cards`, `Playbooks` and `PlaybookRunner` it uses |
 | `internal/sentinel/payload.go`              | The pure run-kind payloads: `investigatePayload` under the 1 MiB cap, `checkPayload`, and `siblings`                                                         |
 | `internal/sentinel/dispatch.go`             | Reading a run kind's inputs, `dispatch` (record, then send, then act on the agent's answer) and the no-run-kinds hold                                         |
-| `internal/sentinel/outcome.go`              | The ends of a heal: `park` (with its one activity entry, `activityText`), `parkUnreported` (and the ceiling charge) and `closeHeal`                          |
+| `internal/sentinel/outcome.go`              | The ends of a heal: `park` (with its activity entry, `activityText`), `parkUnreported` (and the ceiling charge) and `closeHeal`                              |
+| `internal/sentinel/apply.go`                | Writing a fix: `applyFix` (the guarded write, retiring subtasks, the snapshot refresh) and `freshRerun`                                                     |
+| `internal/sentinel/relaunch.go`             | Rerunning a card: `relaunchRoute`, `relaunch` (attempt, rerun stage, activity entry, then launch or Stop then Play) and its activity text                  |
 | `internal/sentinel/intake.go`               | `RunKindStatus`: record a run kind's terminal status, its windows and findings                                                                               |
 | `internal/sentinel/limits.go`               | `ValidateRunKindStatus`: the run-kind status values and size limits                                                                                          |
 | `internal/sentinel/spend.go`                | `Pricer` and `priceUsage`: what a run kind's usage costs                                                                                                     |
@@ -424,6 +480,6 @@ heal's detail stay on its `sentinel_heals` row.
 | `internal/opstore/sqlite/sentinel.go`       | The settings row and the subscription windows the controller reads                                                                                           |
 | `internal/opstore/sqlite/card_runs.go`      | The run row                                                                                                                                                  |
 | `internal/opstore/sqlite/sentinel_heals.go` | Heals, findings and the spend ledger                                                                                                                         |
-| `internal/api/backend_runkind.go`           | `runKindBase`: a run kind's common payload fields and its contents-read token                                                                                |
+| `internal/api/backend_runkind.go`           | `runKindBase`: a run kind's common payload fields and its contents-read token; `sentinelRelaunch`: Sentinel's launch of a rerun                            |
 
 Tests sit next to each file.

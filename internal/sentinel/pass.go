@@ -16,6 +16,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/llmchannel"
+	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
@@ -156,7 +157,8 @@ func (c *Controller) advanceHeals(ctx context.Context, r *passReads) (open map[c
 }
 
 // advance acts on one heal's next step. A heal whose read or step failed, or
-// that changed since it was read, stays open for the next pass to decide.
+// that changed since it was read, or whose card did, stays open for the next
+// pass to decide.
 func (c *Controller) advance(ctx context.Context, r *passReads, h Heal) (open, again bool) {
 	log := ctxlog.Logger(ctx).With("project", h.Project, "card_id", h.CardID, "heal_id", h.ID)
 
@@ -169,18 +171,18 @@ func (c *Controller) advance(ctx context.Context, r *passReads, h Heal) (open, a
 
 	s := nextStep(v)
 
-	err = c.act(ctx, r, &h, s)
+	err = c.act(ctx, r, &v, s)
 
 	switch {
-	case errors.Is(err, ErrHealChanged):
+	case errors.Is(err, ErrHealChanged), errors.Is(err, service.ErrCardChanged):
 		return true, true
 	case err != nil:
-		log.Warn("sentinel: heal step failed", "stage", h.Stage, "error", err)
+		log.Warn("sentinel: heal step failed", "stage", v.Heal.Stage, "error", err)
 
 		return true, false
 	}
 
-	return !Terminal(h.Stage), s.Kind == stepAdvance
+	return !Terminal(v.Heal.Stage), s.Kind == stepAdvance
 }
 
 // view reads what nextStep needs for h: the card fresh, its run row, the edit
@@ -236,8 +238,10 @@ func (c *Controller) vet(ctx context.Context, h Heal, card *board.Card, run Run,
 	}), nil
 }
 
-// act carries out s for h.
-func (c *Controller) act(ctx context.Context, r *passReads, h *Heal, s step) error {
+// act carries out s for the heal v holds.
+func (c *Controller) act(ctx context.Context, r *passReads, v *healView, s step) error {
+	h := &v.Heal
+
 	switch s.Kind {
 	case stepDispatch:
 		var err error
@@ -270,9 +274,11 @@ func (c *Controller) act(ctx context.Context, r *passReads, h *Heal, s step) err
 		return c.park(ctx, h, s.Reason)
 	case stepClose:
 		return c.closeHeal(ctx, h, s.Reason)
-	case stepApply, stepUsageRerun, stepSettle:
-		// Applying a fix, a usage-limit rerun and settling a rerun have no
-		// effect here; the heal keeps its stage.
+	case stepApply:
+		return c.apply(ctx, h, v.Card, v.Run)
+	case stepUsageRerun, stepSettle:
+		// A usage-limit rerun and settling a rerun have no effect here; the
+		// heal keeps its stage.
 		ctxlog.Logger(ctx).Debug("sentinel: no effect for this step", "project", h.Project, "card_id", h.CardID, "stage", h.Stage)
 	}
 

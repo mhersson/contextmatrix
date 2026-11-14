@@ -76,7 +76,7 @@ func (c *Controller) consider(ctx context.Context, now time.Time, run Run) (bool
 	}
 
 	if h.Stage == StageParked {
-		return false, c.logActivity(ctx, &h)
+		return false, c.logActivity(ctx, &h, activityText(h))
 	}
 
 	return true, nil

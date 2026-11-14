@@ -29,6 +29,7 @@ type fakeStore struct {
 	heals     map[int64]Heal
 	runs      []Run
 	ledger    []ledgerRow
+	refreshes int // RefreshEditSnapshot calls
 }
 
 type ledgerRow struct {
@@ -294,6 +295,37 @@ func (f *fakeStore) CardRunRow(_ context.Context, project, cardID string) (*Run,
 	return nil, nil //nolint:nilnil // nil, nil means no row, as the store answers
 }
 
+func (f *fakeStore) RefreshEditSnapshot(_ context.Context, project, cardID string, snap board.EditSnapshot) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+	f.refreshes++
+
+	for i, r := range f.runs {
+		if r.Project == project && r.CardID == cardID {
+			f.runs[i].Launch.Snapshot = snap
+		}
+	}
+
+	return nil
+}
+
+func (f *fakeStore) IncrementAttempts(_ context.Context, project, cardID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	for i, r := range f.runs {
+		if r.Project == project && r.CardID == cardID {
+			f.runs[i].Attempts++
+		}
+	}
+
+	return nil
+}
+
 // putRun replaces the card's run row, as a launch does.
 func (f *fakeStore) putRun(r Run) {
 	f.mu.Lock()
@@ -403,13 +435,90 @@ func (f *fakeBackend) Health(context.Context) (protocol.HealthResponse, error) {
 
 // fakeCards serves cards and projects from memory; ListCards filters by
 // parent and state only. It keeps every system log entry by card ID, served
-// or not, and counts every call; onGet runs before GetCard answers.
+// or not, and counts every call; onGet runs before GetCard answers. PatchCard
+// and TransitionTo replace the stored card with an updated copy, as the
+// service writes a new file; PatchCard keeps every input and answers a card
+// ID in refuse with its error.
 type fakeCards struct {
-	cards    []*board.Card
-	projects map[string]*board.ProjectConfig
-	logged   map[string][]board.ActivityEntry
-	calls    int
-	onGet    func()
+	cards       []*board.Card
+	projects    map[string]*board.ProjectConfig
+	logged      map[string][]board.ActivityEntry
+	calls       int
+	onGet       func()
+	patches     []patchCall
+	refuse      map[string]error
+	transitions []string // "<ID> <state>"
+}
+
+type patchCall struct {
+	ID string
+	In service.PatchCardInput
+}
+
+func (f *fakeCards) PatchCard(_ context.Context, project, id string, in service.PatchCardInput) (*board.Card, error) {
+	f.calls++
+	f.patches = append(f.patches, patchCall{ID: id, In: in})
+
+	if err := f.refuse[id]; err != nil {
+		return nil, err
+	}
+
+	return f.write(project, id, func(c *board.Card) error {
+		if in.ExpectUpdated != nil && !c.Updated.Equal(*in.ExpectUpdated) {
+			return service.ErrCardChanged
+		}
+
+		if in.UpsertSection != nil {
+			c.Body = board.UpsertSection(c.Body, in.UpsertSection.Heading, in.UpsertSection.Content)
+		}
+
+		if in.Verify != nil {
+			c.Verify = in.Verify
+		}
+
+		if in.Phase != nil {
+			c.Phase = *in.Phase
+		}
+
+		if in.State != nil {
+			c.State = *in.State
+		}
+
+		return nil
+	})
+}
+
+func (f *fakeCards) TransitionTo(_ context.Context, project, id, state string) (*board.Card, error) {
+	f.calls++
+	f.transitions = append(f.transitions, id+" "+state)
+
+	return f.write(project, id, func(c *board.Card) error {
+		c.State = state
+
+		return nil
+	})
+}
+
+// write applies edit to a copy of the stored card and stores the copy one
+// second newer.
+func (f *fakeCards) write(project, id string, edit func(*board.Card) error) (*board.Card, error) {
+	for i, c := range f.cards {
+		if c.Project != project || c.ID != id {
+			continue
+		}
+
+		cp := *c
+		if err := edit(&cp); err != nil {
+			return nil, err
+		}
+
+		cp.Updated = c.Updated.Add(time.Second)
+		f.cards[i] = &cp
+
+		return &cp, nil
+	}
+
+	return nil, storage.ErrCardNotFound
 }
 
 func (f *fakeCards) ClaimedElsewhere(*board.Card) bool {
@@ -480,6 +589,25 @@ func (f fakePlaybooks) Get(_ context.Context, id string) (*service.PlaybookDetai
 	}
 
 	return nil, storage.ErrPlaybookNotFound
+}
+
+// fakeRunner keeps every Stop and Play as "<call> <playbook> <agent>" and
+// answers each with err.
+type fakeRunner struct {
+	calls []string
+	err   error
+}
+
+func (f *fakeRunner) Stop(_ context.Context, id, agentID string) (*service.PlaybookDetail, error) {
+	f.calls = append(f.calls, "stop "+id+" "+agentID)
+
+	return nil, f.err
+}
+
+func (f *fakeRunner) Play(_ context.Context, id, agentID string) (*service.PlaybookDetail, error) {
+	f.calls = append(f.calls, "play "+id+" "+agentID)
+
+	return nil, f.err
 }
 
 func enabledSettings() Settings {

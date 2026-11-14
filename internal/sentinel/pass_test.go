@@ -11,6 +11,7 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/service"
 )
 
 var runStarted = epoch.Add(-time.Hour)
@@ -396,7 +397,7 @@ func TestPassVetsOnlyACardFixAtApply(t *testing.T) {
 		stage string
 	}{
 		{"a card fix that skipped the check is still vetted", protocol.DiagnosisCard, StageParked},
-		{"a model diagnosis holds no fix to vet", protocol.DiagnosisModel, StageApply},
+		{"a model diagnosis holds no fix to vet", protocol.DiagnosisModel, StageRerun},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -414,6 +415,50 @@ func TestPassVetsOnlyACardFixAtApply(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPassAppliesAFixAndReruns(t *testing.T) {
+	e := newPassEnv(t)
+	ctx := context.Background()
+
+	e.stopped("ALPHA-001", protocol.StopCauseVerifyParked)
+	e.openHeal(t, "ALPHA-001", StageApply,
+		investigated(protocol.DiagnosisCard, &protocol.CardFix{Section: "Run make generate first."}),
+		func(h *Heal) { h.Check = &protocol.CheckResult{Trial: protocol.TrialFinished} })
+
+	require.NoError(t, e.ctl.pass(ctx))
+
+	h := e.store.heal(1)
+	assert.Equal(t, StageRerun, h.Stage)
+	require.NotNil(t, h.Change)
+	assert.True(t, h.Change.Fresh)
+	assert.Contains(t, storedCard(t, e, "ALPHA-001").Body, "Run make generate first.")
+	assert.Equal(t, []string{"alpha/ALPHA-001"}, e.relaunched)
+	assert.Equal(t, 1, e.store.run("alpha", "ALPHA-001").Attempts)
+	assert.Len(t, e.cards.logged["ALPHA-001"], 1)
+
+	// The rerun has not started yet: the next pass waits on it.
+	require.NoError(t, e.ctl.pass(ctx))
+	assert.Equal(t, StageRerun, e.store.heal(1).Stage)
+	assert.Len(t, e.relaunched, 1)
+}
+
+func TestPassLeavesAFixAnEditRefusedAtApply(t *testing.T) {
+	e := newPassEnv(t)
+
+	e.stopped("ALPHA-001", protocol.StopCauseVerifyParked)
+	e.openHeal(t, "ALPHA-001", StageApply,
+		investigated(protocol.DiagnosisCard, &protocol.CardFix{Section: "Run make generate first."}),
+		func(h *Heal) { h.Check = &protocol.CheckResult{Trial: protocol.TrialFinished} })
+	e.cards.refuse = map[string]error{"ALPHA-001": service.ErrCardChanged}
+
+	require.NoError(t, e.ctl.pass(context.Background()))
+
+	assert.Equal(t, StageApply, e.store.heal(1).Stage)
+	assert.Empty(t, e.relaunched)
+	assert.Empty(t, e.cards.logged)
+	assert.Zero(t, e.store.run("alpha", "ALPHA-001").Attempts)
+	assert.True(t, e.ctl.TakeNudgeForTest(), "the next pass decides again")
 }
 
 func TestPassLeavesAHealChangedUnderItToTheNextPass(t *testing.T) {

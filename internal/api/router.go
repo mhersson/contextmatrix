@@ -715,6 +715,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	if cfg.Sentinel != nil {
 		cfg.Sentinel.SetRunKindBase(rh.runKindBase)
+		cfg.Sentinel.SetRelauncher(rh.sentinelRelaunch)
 	}
 
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/run", rh.runCard)

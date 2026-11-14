@@ -228,6 +228,11 @@ See [Playbook runs](running-cards.md#playbook-runs) for the runner's
 behavior. Both controls are human-only; `run_playbook` is the MCP path to Run
 and is gated on a `human:` caller. Stop is a web UI control only.
 
+Inside a run active on this instance, [Sentinel](sentinel.md) reruns a card it
+fixed through Stop then Run, in process as `system:sentinel`: the stop is
+recorded as `stopped by system:sentinel`, the resumed run's `started_by` reads
+`system:sentinel`, and the runner relaunches the card as on any resume.
+
 - **Run** requires the playbook to be runnable and no run already active
   (`409 PLAYBOOK_RUN_ACTIVE`), and a configured task backend
   (`503 BACKEND_DISABLED`). A Run that arrives while a Stop of the same

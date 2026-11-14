@@ -613,9 +613,13 @@ func main() {
 			Backend: backendSys.Client, Cards: svc, Instance: cfg.Instance.ID,
 		}
 
-		// A nil *PlaybookService must stay a nil interface.
+		// A nil *PlaybookService or *Runner must stay a nil interface.
 		if pbSvc != nil {
 			sentinelCfg.Playbooks = pbSvc
+		}
+
+		if pbRunner != nil {
+			sentinelCfg.Runner = pbRunner
 		}
 
 		sentinelCtl = sentinel.New(sentinelCfg)
