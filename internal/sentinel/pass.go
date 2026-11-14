@@ -308,7 +308,7 @@ func (c *Controller) vet(ctx context.Context, h state.Heal, card *board.Card, ru
 
 	return vetFix(fixContext{
 		Card: card, Snapshot: run.Launch.Snapshot, Subtasks: subtasks, SentSubtasks: h.SentSubtasks,
-		Project: project.Verify, Fix: fix, Check: h.Check,
+		Project: project.Verify, Cause: h.Cause, Fix: fix, Check: h.Check,
 	}), nil
 }
 

@@ -16,6 +16,7 @@ type fixContext struct {
 	Subtasks     []*board.Card       // the card's subtasks, read fresh
 	SentSubtasks []string            // IDs the investigation saw
 	Project      *board.VerifyConfig // the project's verify
+	Cause        string              // the heal's cause; a forward's is its source heal's
 	Fix          protocol.CardFix
 	Check        *protocol.CheckResult
 }

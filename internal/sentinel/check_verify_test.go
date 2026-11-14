@@ -108,6 +108,7 @@ func TestCheckVerify(t *testing.T) {
 			got := checkVerify(fixContext{
 				Card:    &board.Card{Verify: tt.card},
 				Project: project,
+				Cause:   protocol.StopCauseVerifyParked, // a cause that lets the command change
 				Fix:     protocol.CardFix{Verify: tt.fix},
 				Check:   tt.check,
 			})
@@ -154,5 +155,47 @@ func TestCheckVerify(t *testing.T) {
 			Check: finished,
 		})
 		assert.Equal(t, []string{"removes the verify command"}, got)
+	})
+}
+
+func TestCheckVerifyCommandChangeByCause(t *testing.T) {
+	project := &board.VerifyConfig{Command: "make test", TimeoutSeconds: 600}
+	candidate := &protocol.CheckResult{Trial: protocol.TrialFinished, Candidates: []string{"go test ./..."}}
+	changed := &protocol.VerifyConfig{Command: "go test ./..."}
+	notStopped := []string{"changes the verify command, which did not stop the run"}
+
+	tests := []struct {
+		name  string
+		cause string
+		fix   *protocol.VerifyConfig
+		want  []string
+	}{
+		{"toolchain missing may change the command", protocol.StopCauseToolchainMissing, changed, nil},
+		{"a parked verify may change the command", protocol.StopCauseVerifyParked, changed, nil},
+		{"max turns may not", protocol.StopCauseMaxTurns, changed, notStopped},
+		{"a context limit may not", protocol.StopCauseContextLimit, changed, notStopped},
+		{"a parked review may not", protocol.StopCauseReviewParked, changed, notStopped},
+		{"an empty subtask may not", protocol.StopCauseEmptySubtask, changed, notStopped},
+		{"any cause may change the timeout", protocol.StopCauseMaxTurns, &protocol.VerifyConfig{Command: "make test", TimeoutSeconds: 900}, nil},
+		{"any cause may keep the command", protocol.StopCauseReviewParked, &protocol.VerifyConfig{Command: "make  test"}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := checkVerify(fixContext{
+				Card: &board.Card{}, Project: project, Cause: tt.cause,
+				Fix: protocol.CardFix{Verify: tt.fix}, Check: candidate,
+			})
+			assert.Equal(t, tt.want, got)
+		})
+	}
+
+	t.Run("any cause may remove an env name", func(t *testing.T) {
+		got := checkVerify(fixContext{
+			Card:    &board.Card{Verify: &board.VerifyConfig{Env: []string{"A", "B"}}},
+			Project: project, Cause: protocol.StopCauseEmptySubtask,
+			Fix:   protocol.CardFix{Verify: &protocol.VerifyConfig{Env: []string{"A"}}},
+			Check: candidate,
+		})
+		assert.Empty(t, got)
 	})
 }

@@ -11,8 +11,9 @@ import (
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
-// checkVerify applies the verify rule: env names only removed, a changed
-// command must be a declared candidate, and the trial run must have finished.
+// checkVerify applies the verify rule: env names only removed, the command
+// changed only when verify stopped the run and then only to a declared
+// candidate, and the trial run must have finished.
 // The card service's own verify rules apply too, so a fix it would refuse is
 // rejected before anything is written.
 func checkVerify(c fixContext) []string {
@@ -34,7 +35,10 @@ func checkVerify(c fixContext) []string {
 	switch {
 	case before.Command != "" && after.Command == "":
 		violations = append(violations, "removes the verify command")
-	case !sameCommand(before.Command, after.Command) && !declared(c.Check, after.Command):
+	case sameCommand(before.Command, after.Command):
+	case !responseFor(c.Cause).VerifyStopped:
+		violations = append(violations, "changes the verify command, which did not stop the run")
+	case !declared(c.Check, after.Command):
 		violations = append(violations, "command not declared by the repo")
 	}
 

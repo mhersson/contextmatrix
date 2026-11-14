@@ -227,6 +227,32 @@ func TestForwardRespectsTargetVerify(t *testing.T) {
 	assert.Empty(t, e.cards.logged["ALPHA-001"], "settling writes no activity entry")
 }
 
+func TestForwardJudgesACommandChangeByTheSourceCause(t *testing.T) {
+	tests := []struct {
+		name, cause string
+		want        []string
+	}{
+		{"verify stopped the healed run", protocol.StopCauseVerifyParked, []string{"ALPHA-020", "ALPHA-021"}},
+		{"verify did not stop the healed run", protocol.StopCauseMaxTurns, []string{"ALPHA-020"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// make test is declared, so only the cause can keep it from replacing
+			// ALPHA-021's own command.
+			e := forwardEnv(t, verifyFix(), func(h *state.Heal) {
+				h.Cause, h.Check.Candidates = tc.cause, []string{"make test"}
+			})
+
+			e.rerunEnded(t, "ALPHA-001", protocol.StopCauseDone, "completed")
+
+			require.NoError(t, e.ctl.pass(context.Background()))
+
+			assert.Equal(t, state.StageHealed, e.store.heal(1).Stage)
+			assert.Equal(t, tc.want, patchedIDs(e))
+		})
+	}
+}
+
 func TestForwardOnlyAfterRerunPasses(t *testing.T) {
 	tests := []struct {
 		name, cause, worker string

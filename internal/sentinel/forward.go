@@ -74,12 +74,12 @@ func forwardFix(fix protocol.CardFix) protocol.CardFix {
 }
 
 // forwardTo vets fix against target and its project's verify under the healed
-// heal's check, writes it guarded on target, then records the forward row and
-// the target's one activity entry.
+// heal's cause and check, writes it guarded on target, then records the
+// forward row and the target's one activity entry.
 func (c *Controller) forwardTo(ctx context.Context, h *state.Heal, target *board.Card, verify *board.VerifyConfig, fix protocol.CardFix) error {
 	log := ctxlog.Logger(ctx).With("project", target.Project, "card_id", target.ID, "source_card", h.CardID)
 
-	if violations := vetForward(fixContext{Card: target, Project: verify, Fix: fix, Check: h.Check}); len(violations) > 0 {
+	if violations := vetForward(fixContext{Card: target, Project: verify, Cause: h.Cause, Fix: fix, Check: h.Check}); len(violations) > 0 {
 		log.Info("sentinel: fix not forwarded", "violations", violations)
 
 		return nil

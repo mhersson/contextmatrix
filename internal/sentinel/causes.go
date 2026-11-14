@@ -25,13 +25,14 @@ const (
 type causeRow struct {
 	Key, Response string
 	Reason        string // the park reason of a RespPark row
+	VerifyStopped bool   // verify stopped the run, so a fix may change the verify command
 }
 
 // causeTable is the one place a cause maps to a response: a new cause is one
 // row here plus its row in the tests.
 var causeTable = []causeRow{
-	{Key: protocol.StopCauseToolchainMissing, Response: RespInvestigateFix},
-	{Key: protocol.StopCauseVerifyParked, Response: RespInvestigateFix},
+	{Key: protocol.StopCauseToolchainMissing, Response: RespInvestigateFix, VerifyStopped: true},
+	{Key: protocol.StopCauseVerifyParked, Response: RespInvestigateFix, VerifyStopped: true},
 	{Key: protocol.StopCauseEmptySubtask, Response: RespInvestigateFix},
 	{Key: protocol.StopCauseMaxTurns, Response: RespInvestigateFix},
 	{Key: protocol.StopCauseContextLimit, Response: RespInvestigateFix},
