@@ -18,8 +18,11 @@ export interface CardSignal {
   importance: number;
 }
 
-/** Signals at or above this count switch the header into crowded mode. */
+/** Signals above this count are hidden behind the header's overflow. */
 export const HEADER_SIGNAL_CAP = 4;
+
+/** At this many signals the type pill collapses to its initial: a full pill plus three icons overruns the ID. */
+export const HEADER_PILL_COLLAPSE = 3;
 
 /** Shared stroke-icon attributes so the hovercard's rows match the header cluster. */
 export const signalSvgProps = {
