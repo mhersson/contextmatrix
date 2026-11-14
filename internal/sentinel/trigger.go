@@ -15,8 +15,9 @@ import (
 const settleGrace = backend.StaleWorkerGrace
 
 // causeKey says whether the run has settled and names its cause. An agent
-// parks the card over MCP before its container exits, so a parked card is not
-// settled until the terminal callback brings the stop cause or the grace passes.
+// parks the card over MCP before its container exits, so a run whose worker
+// ended is not settled until the terminal callback brings the stop cause or
+// the grace passes.
 func causeKey(run state.Run, card *board.Card, forward *state.Heal, now time.Time) (key string, settled bool) {
 	if card.State == board.StateStalled {
 		return CauseStalled, true
@@ -41,22 +42,20 @@ func causeKey(run state.Run, card *board.Card, forward *state.Heal, now time.Tim
 	return run.StopCause, true
 }
 
+// settledRun reports whether the run is over for good: its terminal status
+// arrived, or without one its worker is done and the card has gone unwritten,
+// or the run ended, for the settle grace.
 func settledRun(run state.Run, card *board.Card, now time.Time) bool {
-	switch card.WorkerStatus {
-	case "queued", "running":
+	switch {
+	case workerBusy(card):
 		return false
-	}
-
-	if run.StoppedAt != nil {
+	case run.StoppedAt != nil:
+		return true
+	case run.EndedAt != nil && now.Sub(*run.EndedAt) >= settleGrace:
 		return true
 	}
 
-	switch card.WorkerStatus {
-	case "failed", "killed", "parked":
-		return now.Sub(card.Updated) >= settleGrace
-	}
-
-	return false
+	return now.Sub(card.Updated) >= settleGrace
 }
 
 // forwardedBefore reports whether forward is a fix still on trial that was

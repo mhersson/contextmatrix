@@ -42,9 +42,9 @@ func (c *Controller) considerRuns(ctx context.Context, now time.Time, open map[c
 	return opened, nil
 }
 
-// consider decides a run once it has settled, then judges the fixes forwarded
-// to its card that the run tried. It reports whether it opened a heal that is
-// still open.
+// consider decides a run once it has settled, or at once when its card is
+// finished, then judges the fixes forwarded to its card that the run tried. It
+// reports whether it opened a heal that is still open.
 func (c *Controller) consider(ctx context.Context, now time.Time, run state.Run) (bool, error) {
 	card, err := c.cfg.Cards.GetCard(ctx, run.Project, run.CardID)
 
@@ -65,8 +65,10 @@ func (c *Controller) consider(ctx context.Context, now time.Time, run state.Run)
 		forward = &trial[0]
 	}
 
+	// A finished card's run is decided at once, so one that never settles is
+	// not read again every pass.
 	key, settled := causeKey(run, card, forward, now)
-	if !settled {
+	if !settled && !board.IsTerminalState(card.State) {
 		return false, nil
 	}
 

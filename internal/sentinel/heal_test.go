@@ -124,6 +124,12 @@ func TestNextStep(t *testing.T) {
 		{"rerun stopped done, card in review", with(rerunStopped("done"), cardIs(board.StateReview, "completed")), step{Kind: stepSettle, Stage: state.StageHealed}, nil},
 		{"rerun failed", with(rerunStopped("verify_parked"), cardIs(board.StateInProgress, "failed")), step{Kind: stepSettle, Stage: state.StageRerunFailed}, nil},
 		{"rerun parked before its callback", with(rerunGoing, cardIs(board.StateReview, "parked")), wait, nil},
+		{"rerun completed before its callback", with(rerunGoing, cardIs(board.StateReview, "")), wait, nil},
+		{
+			"rerun completed and its callback never came", with(rerunGoing, cardIs(board.StateReview, ""), func(v *healView) { v.Card.Updated = now.Add(-10 * time.Minute) }),
+			step{Kind: stepSettle, Stage: state.StageRerunFailed},
+			nil,
+		},
 		{"rerun card deleted", with(rerunGoing, deleted), closeHeal, nil},
 		{"a REST Run after the relaunch", with(rerunStopped("done"), launchedFrom(state.OriginREST), cardIs(board.StateReview, "completed")), closeHeal, nil},
 		{"an MCP run after the relaunch", with(rerunStopped("done"), launchedFrom(state.OriginMCP), cardIs(board.StateReview, "completed")), closeHeal, nil},

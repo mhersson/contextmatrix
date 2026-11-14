@@ -292,10 +292,11 @@ settled:
 - A stalled card is `stalled`.
 - A card whose worker is queued or running is not settled.
 - Otherwise the run is settled when its terminal status arrived (`stopped_at`),
-  or when the worker is `failed`, `killed` or `parked` and the card has gone
-  unwritten for the settle grace (10 minutes, `backend.StaleWorkerGrace`). The
-  agent parks a card before its container exits, so a parked card waits for the
-  callback's stop cause.
+  or, without it, once the card has gone unwritten for the settle grace (10
+  minutes, `backend.StaleWorkerGrace`) or the grace has passed since CM saw the
+  worker end (`ended_at`). So a run whose terminal status never matched its
+  run ID settles too, as `unknown`. The agent parks a card before its
+  container exits, so a parked card waits for the callback's stop cause.
 - A human Stop is `human_stop`. `review_parked` on a card with 7 or more
   review attempts (`board.MaxReviewAttempts`) is `review_cap`. Any stop but
   `done` or `usage_limit` on a card whose forwarded fix is still on trial and was forwarded
@@ -418,7 +419,8 @@ stage waits.
    `usage_wait` it reruns the card to resume, and at `rerun` it settles the
    heal once the rerun ends, forwarding a healed heal's fix.
 5. While `healing` is on, it considers every undecided run whose card has no
-   open heal (`consider.go`). A run that has not settled waits. One that is not eligible, or
+   open heal (`consider.go`). A run that has not settled waits, unless its card
+   is finished: such a run is marked decided at once. One that is not eligible, or
    whose cause is ignored, is marked decided. Otherwise a heal opens at
    `investigate` (either investigate response) or `usage_wait`, or parked at
    once: for a `park` row with its reason, for `investigate_fix` once the card

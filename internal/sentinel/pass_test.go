@@ -135,6 +135,9 @@ func TestPassIgnoresDoneAndHumanStop(t *testing.T) {
 		}},
 		{"claimed by a human since", func(c *board.Card, _ *state.Run) { c.AssignedAgent = "human:alice" }},
 		{"finished", func(c *board.Card, _ *state.Run) { c.State = board.StateDone }},
+		{"finished before its run settled", func(c *board.Card, r *state.Run) {
+			c.State, c.WorkerStatus, c.Updated, r.StoppedAt = board.StateDone, "", epoch, nil
+		}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
