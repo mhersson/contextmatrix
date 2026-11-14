@@ -97,9 +97,9 @@ Request headers are not part of the signed content.
 identical body, so a body-only signature could be replayed across endpoints.
 Binding the query keeps two same-second requests to one path (`GET
 /logs?project=A` vs `?project=B`) from colliding in the replay cache.
-CM's signed GETs to every backend (`/containers`, `/images`, `/health`) also
-carry a random `nonce` query parameter, so two reads of one path in the same
-second sign differently; the backends ignore it.
+Every signed GET CM sends (`/containers`, `/images`, `/health`, `/logs`,
+`/blueprints/{id}`) also carries a random `nonce` query parameter, so two reads
+of one path in the same second sign differently; the backends ignore it.
 
 **Verification.** The receiver recomputes the HMAC and compares in constant
 time. Timestamps outside the asymmetric skew window are rejected: up to 5
@@ -588,9 +588,10 @@ browser never calls it directly. Signed GET, empty body.
 | `session_id` | Filter to one chat session (the chat log bridge).   |
 | `nonce`      | Random per request; the backend ignores it.         |
 
-The session-log manager adds `nonce` to every connect: pumps of one project
-share the URI, and two connects signed in one second would otherwise carry the
-same `(timestamp, signature)` pair, which the replay cache refuses.
+The session-log manager and the chat log bridge add `nonce` to every connect:
+pumps of one project share the URI, and a reconnect for one session repeats it,
+so two connects signed in one second would otherwise carry the same
+`(timestamp, signature)` pair, which the replay cache refuses.
 
 ```json
 {
