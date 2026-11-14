@@ -251,7 +251,8 @@ the state as its label.
   label. The server sends no mark while Sentinel is off. A card is marked
   healing while a heal is in flight or a rerun is pending, healed once its
   rerun passed, edited when a fix from another card was applied to it, and
-  parked when a rerun failed or Sentinel left it for a human.
+  parked when a rerun failed or Sentinel left it for a human, until the card is
+  launched again.
 
 The settings page at `/admin/sentinel` (admin only in `multi` mode) has three
 switches (Sentinel, Healing, Friction analysis), the daily spend cap in USD

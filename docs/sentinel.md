@@ -528,7 +528,7 @@ What a heal leaves behind, and where:
 - The card: the guarded fix write (verify, the `## Sentinel` section, retired subtasks) and the activity entries above. The section is the note a human reads on the card.
 - `sentinel_heals`: every heal's stage, diagnosis, reasons (with why a fix's section was dropped) and spend.
 - `sentinel_findings`: the friction findings of an investigation, stored only while `friction` is on. `project_verify` findings are shown to admins only in `multi` mode.
-- The board mark (`marks.go`) and the card's Sentinel tab, both read from the latest heal.
+- The board mark (`marks.go`) and the card's Sentinel tab, both read from the latest heal, and the waiting list's Sentinel parks (`CardHolds`). A parked mark or hold lasts until the card's next launch.
 
 ## Applying a fix
 
@@ -728,7 +728,7 @@ the next pass.
 | `internal/sentinel/heal.go`                 | The pure heal flow: `nextStep` over a `healView`, one rule per stage and exit; `healFix`                                                                     |
 | `internal/sentinel/gate.go`                 | The pure budget gate, what work in flight counts against the cap (`inFlightReserve`, `rerunAccrued`), the daily cap's day (`dayStart`) and the worker-slot check (`roomFor`) |
 | `internal/sentinel/status.go`               | `Status`, the states and the pure summary                                                                                                                    |
-| `internal/sentinel/marks.go` | `SentinelMarks`: each card's board mark from its latest heal, and `markFor` |
+| `internal/sentinel/marks.go` | `SentinelMarks`: each card's board mark from its latest heal, `markFor`, and `CardHolds`: whether a card is being healed or parked for a human |
 | `internal/opstore/sqlite/sentinel.go`       | The settings row and the subscription windows the controller reads                                                                                           |
 | `internal/opstore/sqlite/card_runs.go`      | The run row                                                                                                                                                  |
 | `internal/opstore/sqlite/sentinel_heals.go` | Heals, findings and the spend ledger                                                                                                                         |

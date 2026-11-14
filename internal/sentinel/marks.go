@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/sentinel/state"
@@ -39,12 +40,83 @@ func (c *Controller) SentinelMarks(ctx context.Context, project string) (map[str
 	marks := make(map[string]board.SentinelMark, len(latest))
 
 	for id, h := range latest {
-		if m, ok := markFor(h); ok {
-			marks[id] = m
+		m, ok := markFor(h)
+		if !ok {
+			continue
 		}
+
+		if m.Action == markParked {
+			stands, err := c.parkStands(ctx, project, h)
+			if err != nil {
+				return nil, err
+			}
+
+			if !stands {
+				continue
+			}
+		}
+
+		marks[id] = m
 	}
 
 	return marks, nil
+}
+
+// CardHold is where Sentinel stands on a card a human may need to act on.
+type CardHold struct {
+	Healing bool      // a heal is open short of parking: nothing waits for a human yet
+	Reason  string    // set when parked: the board mark's label
+	Since   time.Time // set when parked: when the heal parked
+}
+
+// CardHolds answers, per card with a latest heal, whether Sentinel is still
+// healing it or has parked it for a human. It answers none while Sentinel is off.
+func (c *Controller) CardHolds(ctx context.Context, project string) (map[string]CardHold, error) {
+	set, _, _, err := c.cfg.Store.SentinelSettings(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("sentinel settings: %w", err)
+	}
+
+	if !set.Enabled {
+		return nil, nil
+	}
+
+	latest, err := c.cfg.Store.LatestHeals(ctx, project)
+	if err != nil {
+		return nil, fmt.Errorf("latest heals: %w", err)
+	}
+
+	holds := make(map[string]CardHold, len(latest))
+
+	for id, h := range latest {
+		switch h.Stage {
+		case state.StageInvestigate, state.StageCheck, state.StageApply, state.StageUsageWait, state.StageRerun:
+			holds[id] = CardHold{Healing: true}
+		case state.StageParked, state.StageRerunFailed:
+			stands, err := c.parkStands(ctx, project, h)
+			if err != nil {
+				return nil, err
+			}
+
+			if stands {
+				m, _ := markFor(h)
+				holds[id] = CardHold{Reason: m.Label, Since: h.UpdatedAt}
+			}
+		}
+	}
+
+	return holds, nil
+}
+
+// parkStands is whether a parked heal still holds: it ends when the card is
+// launched again. A terminal heal's UpdatedAt is when it parked.
+func (c *Controller) parkStands(ctx context.Context, project string, h state.Heal) (bool, error) {
+	run, err := c.cfg.Store.CardRunRow(ctx, project, h.CardID)
+	if err != nil {
+		return false, fmt.Errorf("read run row: %w", err)
+	}
+
+	return run == nil || !run.StartedAt.After(h.UpdatedAt), nil
 }
 
 // markFor is the mark a card's latest heal earns; closed and failed forwards earn none.

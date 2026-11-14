@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -94,4 +95,111 @@ func TestSentinelMarks(t *testing.T) {
 	marks, err = ctl.SentinelMarks(ctx, "p")
 	require.NoError(t, err)
 	assert.Empty(t, marks)
+}
+
+// parkCases are the park rule's rows, shared by the board mark and the holds.
+func parkCases(parkedAt time.Time) []struct {
+	name   string
+	heal   state.Heal
+	run    *state.Run
+	parked bool
+} {
+	relaunched := parkedAt.Add(-time.Minute)
+
+	return []struct {
+		name   string
+		heal   state.Heal
+		run    *state.Run
+		parked bool
+	}{
+		{name: "parked, no run row", heal: state.Heal{Stage: state.StageParked, Reason: "needs a key"}, parked: true},
+		{name: "parked, run started before the park", heal: state.Heal{Stage: state.StageParked}, run: &state.Run{StartedAt: parkedAt.Add(-time.Hour)}, parked: true},
+		{name: "relaunched after the park", heal: state.Heal{Stage: state.StageParked}, run: &state.Run{StartedAt: parkedAt.Add(time.Hour)}},
+		{name: "rerun_failed keeps its own rerun", heal: state.Heal{Stage: state.StageRerunFailed, RelaunchedAt: &relaunched}, run: &state.Run{StartedAt: relaunched}, parked: true},
+	}
+}
+
+func TestCardHolds(t *testing.T) {
+	ctx := context.Background()
+	parkedAt := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+
+	build := func(h state.Heal, run *state.Run, enabled bool) *Controller {
+		h.ID, h.Project, h.CardID, h.UpdatedAt = 1, "p", "P-001", parkedAt
+		st := &fakeStore{settings: state.Settings{Enabled: enabled}, heals: map[int64]state.Heal{1: h}}
+
+		if run != nil {
+			run.Project, run.CardID = "p", "P-001"
+			st.runs = []state.Run{*run}
+		}
+
+		return New(Config{Store: st, Pricer: ratePricer{}})
+	}
+
+	t.Run("sentinel off", func(t *testing.T) {
+		holds, err := build(state.Heal{Stage: state.StageParked}, nil, false).CardHolds(ctx, "p")
+		require.NoError(t, err)
+		assert.Nil(t, holds)
+	})
+
+	for _, stage := range []string{state.StageInvestigate, state.StageCheck, state.StageApply, state.StageUsageWait, state.StageRerun} {
+		t.Run("healing "+stage, func(t *testing.T) {
+			holds, err := build(state.Heal{Stage: stage}, nil, true).CardHolds(ctx, "p")
+			require.NoError(t, err)
+			assert.Equal(t, map[string]CardHold{"P-001": {Healing: true}}, holds)
+		})
+	}
+
+	for _, tt := range parkCases(parkedAt) {
+		t.Run(tt.name, func(t *testing.T) {
+			h := tt.heal
+			h.UpdatedAt = parkedAt
+			holds, err := build(h, tt.run, true).CardHolds(ctx, "p")
+			require.NoError(t, err)
+
+			if !tt.parked {
+				assert.Empty(t, holds)
+
+				return
+			}
+
+			want, _ := markFor(tt.heal)
+			assert.Equal(t, map[string]CardHold{"P-001": {Reason: want.Label, Since: parkedAt}}, holds)
+		})
+	}
+
+	for _, stage := range []string{state.StageHealed, state.StageClosed, state.StageForwarded} {
+		t.Run("absent "+stage, func(t *testing.T) {
+			holds, err := build(state.Heal{Stage: stage}, nil, true).CardHolds(ctx, "p")
+			require.NoError(t, err)
+			assert.Empty(t, holds)
+		})
+	}
+}
+
+func TestSentinelMarksPark(t *testing.T) {
+	ctx := context.Background()
+	parkedAt := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+
+	for _, tt := range parkCases(parkedAt) {
+		t.Run(tt.name, func(t *testing.T) {
+			h := tt.heal
+			h.ID, h.Project, h.CardID, h.UpdatedAt = 1, "p", "P-001", parkedAt
+			st := &fakeStore{settings: state.Settings{Enabled: true}, heals: map[int64]state.Heal{1: h}}
+
+			if tt.run != nil {
+				run := *tt.run
+				run.Project, run.CardID = "p", "P-001"
+				st.runs = []state.Run{run}
+			}
+
+			marks, err := New(Config{Store: st, Pricer: ratePricer{}}).SentinelMarks(ctx, "p")
+			require.NoError(t, err)
+
+			if tt.parked {
+				assert.Equal(t, "parked", marks["P-001"].Action)
+			} else {
+				assert.Empty(t, marks)
+			}
+		})
+	}
 }
