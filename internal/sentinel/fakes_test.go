@@ -141,6 +141,12 @@ func (f *fakeStore) RecordRunKindStatus(_ context.Context, r state.RunKindReport
 		}
 	}
 
+	if r.Result != nil && r.Kind == protocol.RunKindAnalyse {
+		if err := json.Unmarshal(r.Result, &newest.Analysis); err != nil {
+			return 0, false, err
+		}
+	}
+
 	newest.Version++
 	f.heals[newest.ID] = *newest
 
@@ -333,6 +339,42 @@ func (f *fakeStore) markQueued(project, cardID string, started time.Time) {
 			f.runs[i].AnalysisQueued = true
 		}
 	}
+}
+
+// OpenAnalyses returns the analysis rows at stage analyse, newest first.
+func (f *fakeStore) OpenAnalyses(context.Context) ([]state.Heal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	var rows []state.Heal
+
+	for _, h := range f.heals {
+		if h.Kind == state.HealKindAnalysis && h.Stage == state.StageAnalyse {
+			rows = append(rows, h)
+		}
+	}
+
+	slices.SortFunc(rows, func(a, b state.Heal) int { return int(b.ID - a.ID) })
+
+	return rows, nil
+}
+
+// RunHeal returns the heal of the run that started at started.
+func (f *fakeStore) RunHeal(_ context.Context, project, cardID string, started time.Time) (*state.Heal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.others++
+
+	for _, h := range f.heals {
+		if h.Kind == state.HealKindHeal && h.Project == project && h.CardID == cardID && h.RunStarted.Equal(started) {
+			return &h, nil
+		}
+	}
+
+	return nil, nil //nolint:nilnil // nil, nil means no heal, as the store answers
 }
 
 // CardHeals returns the card's rows, newest first.

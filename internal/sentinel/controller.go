@@ -50,6 +50,10 @@ type Store interface {
 	// already queued is no error.
 	QueueAnalysis(ctx context.Context, h state.Heal) error
 	MarkAnalysisQueued(ctx context.Context, project, cardID string, started time.Time) error
+	// OpenAnalyses returns every analysis row at stage analyse, newest first.
+	OpenAnalyses(ctx context.Context) ([]state.Heal, error)
+	// RunHeal answers nil when the run that started at started has no heal.
+	RunHeal(ctx context.Context, project, cardID string, started time.Time) (*state.Heal, error)
 	// CardRunRow answers nil when this instance never launched the card.
 	CardRunRow(ctx context.Context, project, cardID string) (*state.Run, error)
 	RefreshEditSnapshot(ctx context.Context, project, cardID string, snap board.EditSnapshot) error
@@ -128,7 +132,8 @@ type Controller struct {
 	published       Status
 	runKindBase     RunKindBase
 	relauncher      func(ctx context.Context, project, cardID string) error
-	noRunKindsUntil time.Time // the agent answered that it has no run kinds
+	noRunKindsUntil time.Time            // the agent answered that it has no run kinds
+	heldKinds       map[string]time.Time // run kinds the agent does not know, held until then
 }
 
 // New creates a controller; Start runs it. It panics on a Store without a

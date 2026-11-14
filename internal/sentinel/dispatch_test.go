@@ -403,3 +403,124 @@ func TestDispatchCheckWithoutAFixSendsNothing(t *testing.T) {
 	require.Error(t, e.ctl.dispatchCheck(context.Background(), h))
 	assert.Empty(t, e.backend.sent)
 }
+
+// analysis stores ALPHA-001's analysis row for its run, stopped by
+// verify_parked, and returns the copy a pass would have read.
+func (e *dispatchEnv) analysis() *state.Heal {
+	h := state.Heal{
+		ID: 2, Kind: state.HealKindAnalysis, Project: "alpha", CardID: "ALPHA-001", RunStarted: runStarted,
+		RunID: "run-1", Cause: protocol.StopCauseVerifyParked, Stage: state.StageAnalyse, CreatedAt: epoch, UpdatedAt: epoch,
+	}
+	e.store.putHeal(h)
+
+	return &h
+}
+
+// baseIn makes every model kind's payload base come from mode.
+func (e *dispatchEnv) baseIn(mode llmchannel.Mode) {
+	e.ctl.SetRunKindBase(func(_ context.Context, project, cardID string, model bool) (protocol.RunKindPayload, llmchannel.Mode, error) {
+		e.models = append(e.models, model)
+
+		return protocol.RunKindPayload{CardID: cardID, Project: project, GitToken: "read-tok", Model: "z-ai/glm-5.2"}, mode, nil
+	})
+}
+
+func TestDispatchAnalyseSendsTheChannelCeiling(t *testing.T) {
+	tests := []struct {
+		mode    llmchannel.Mode
+		ceiling float64
+	}{
+		{llmchannel.ModeClaudeCode, 2},
+		{llmchannel.ModeEndpoint, 1},
+	}
+	for _, tc := range tests {
+		t.Run(string(tc.mode), func(t *testing.T) {
+			e := newDispatchEnv(t)
+			e.investigateCards("Make the build pass.\n")
+			e.baseIn(tc.mode)
+			h := e.analysis()
+
+			require.NoError(t, e.ctl.dispatchAnalyse(context.Background(), h, state.DefaultSettings()))
+
+			require.Len(t, e.backend.sent, 1)
+			p := e.backend.sent[0]
+			assert.Equal(t, []bool{true}, e.models)
+			assert.Equal(t, protocol.RunKindAnalyse, p.Kind)
+			assert.InDelta(t, tc.ceiling, p.MaxCostUSD, 0)
+			assert.Nil(t, p.Investigate)
+			require.NotNil(t, p.Analyse)
+			assert.Equal(t, protocol.AnalyseInput{
+				RunID: "run-1", StopCause: protocol.StopCauseVerifyParked, Card: e.file(t, "ALPHA-001"),
+				Verify:   &protocol.VerifyConfig{Command: "make test", TimeoutSeconds: 600, Env: []string{"GOFLAGS"}},
+				Subtasks: []string{e.file(t, "ALPHA-010"), e.file(t, "ALPHA-011")},
+			}, *p.Analyse, "the card and its subtasks, never its playbook siblings")
+
+			stored := e.store.heal(h.ID)
+			assert.Equal(t, protocol.RunKindAnalyse, stored.Dispatch.Kind)
+			assert.Equal(t, string(tc.mode), stored.Dispatch.Mode)
+			assert.InDelta(t, tc.ceiling, stored.Dispatch.CeilingUSD, 0)
+			assert.Empty(t, stored.SentSiblings)
+		})
+	}
+}
+
+func TestDispatchAnalyseSkipsACardOverTheCap(t *testing.T) {
+	e := newDispatchEnv(t)
+	e.investigateCards(strings.Repeat("x", maxRunKindBody))
+	h := e.analysis()
+
+	require.NoError(t, e.ctl.dispatchAnalyse(context.Background(), h, state.DefaultSettings()))
+
+	assert.Empty(t, e.backend.sent)
+
+	stored := e.store.heal(h.ID)
+	assert.Equal(t, state.StageAnalyseSkipped, stored.Stage)
+	assert.NotEmpty(t, stored.Reason)
+	assert.Nil(t, stored.Dispatch.At)
+	assert.Empty(t, e.cards.logged)
+}
+
+func TestARefusedAnalysisEndsWithoutAnActivityEntry(t *testing.T) {
+	e := newDispatchEnv(t)
+	e.investigateCards("Make the build pass.\n")
+	h := e.analysis()
+	e.backend.err = fmt.Errorf("%w: invalid_field: invalid analyse", backend.ErrRunKindRejected)
+
+	require.NoError(t, e.ctl.dispatchAnalyse(context.Background(), h, state.DefaultSettings()))
+
+	stored := e.store.heal(h.ID)
+	assert.Equal(t, state.StageAnalyseFailed, stored.Stage)
+	assert.Contains(t, stored.Reason, protocol.RunKindAnalyse)
+	assert.Equal(t, state.Dispatch{}, stored.Dispatch)
+	assert.Empty(t, e.cards.logged, "an analysis never writes the card")
+	assert.Empty(t, e.store.charges())
+}
+
+func TestDispatchHoldsAKindTheAgentDoesNotKnow(t *testing.T) {
+	ctx := context.Background()
+	e := newDispatchEnv(t)
+	e.investigateCards("Make the build pass.\n")
+	row := e.analysis()
+	analyse := protocol.RunKindPayload{Kind: protocol.RunKindAnalyse, CardID: "ALPHA-001", Project: "alpha", MaxCostUSD: 1}
+
+	e.backend.err = backend.ErrRunKindUnknown
+	require.ErrorIs(t, e.ctl.dispatch(ctx, row, analyse, llmchannel.ModeEndpoint), backend.ErrRunKindUnknown)
+
+	stored := e.store.heal(row.ID)
+	assert.Equal(t, state.StageAnalyse, stored.Stage, "nothing ends")
+	assert.Equal(t, state.Dispatch{}, stored.Dispatch, "nothing is in flight to charge")
+
+	e.backend.err = nil
+	e.clk.Advance(noRunKindsHold - time.Second)
+	require.NoError(t, e.ctl.dispatch(ctx, row, analyse, llmchannel.ModeEndpoint))
+	assert.Len(t, e.backend.sent, 1, "the kind is held")
+	assert.Nil(t, e.store.heal(row.ID).Dispatch.At)
+
+	require.NoError(t, e.ctl.dispatch(ctx, e.heal(state.StageInvestigate), investigateRun(), llmchannel.ModeEndpoint))
+	assert.Len(t, e.backend.sent, 2, "other kinds are not")
+
+	e.clk.Advance(time.Second)
+	require.NoError(t, e.ctl.dispatch(ctx, row, analyse, llmchannel.ModeEndpoint))
+	assert.Len(t, e.backend.sent, 3)
+	assert.NotNil(t, e.store.heal(row.ID).Dispatch.At)
+}

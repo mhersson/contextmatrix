@@ -115,7 +115,7 @@ All POSTs carry `Content-Type: application/json` and go to
 | Method + path       | Purpose                                                                                                                                |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /trigger`     | Start a card run.                                                                                                                      |
-| `POST /run-kind`    | Start a Sentinel run kind (`check` or `investigate`) for one card.                                                                     |
+| `POST /run-kind`    | Start a Sentinel run kind (`check`, `investigate` or `analyse`) for one card.                                                          |
 | `POST /kill`        | Stop the container for one card, or with `kind` set, that card's run kind. Idempotent.                                                 |
 | `POST /stop-all`    | Stop every container for a project; the agent also ends run kinds.                                                                     |
 | `POST /message`     | Deliver a human message to a running HITL card.                                                                                        |
@@ -248,15 +248,16 @@ nothing to do, so CM's cleanup paths never distinguish "not found" from
 Dispatches a run kind: a sandboxed run for one card that carries no MCP key
 and never writes the card. The body is `protocol.RunKindPayload`. `202` means
 the agent accepted it and launches asynchronously. CM's client maps `404` to
-`ErrRunKindsUnavailable` (the agent has no run kinds), `429` and `503` to
-`ErrRunKindBusy`, and any other `4xx` to `ErrRunKindRejected` wrapping the
-agent's detail. Unlike the other webhooks, a run kind is sent once and never
-retried: after a timeout or a lost answer the agent may have admitted it, and
-a second send would start a second run. Any other `5xx` or transport failure
-is returned as a plain error, never as a rejection. The agent keys a
-run kind on (project, card ID, kind), so it coexists with the card's own run.
-Run kinds share the agent's `max_concurrent` and count in `/health`
-`running_containers`.
+`ErrRunKindsUnavailable` (the agent has no run kinds), a `400` with code
+`invalid_field` and message `invalid kind` to `ErrRunKindUnknown` (the agent
+does not know that kind), `429` and `503` to `ErrRunKindBusy`, and any other
+`4xx` to `ErrRunKindRejected` wrapping the agent's detail. Unlike the other
+webhooks, a run kind is sent once and never retried: after a timeout or a lost
+answer the agent may have admitted it, and a second send would start a second
+run. Any other `5xx` or transport failure is returned as a plain error, never
+as a rejection. The agent keys a run kind on (project, card ID, kind), so it
+coexists with the card's own run. Run kinds share the agent's `max_concurrent`
+and count in `/health` `running_containers`.
 
 #### GET {agent_url}/containers
 

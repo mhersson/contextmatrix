@@ -1,10 +1,12 @@
 package sentinel
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
 
@@ -60,6 +62,7 @@ func TestSummarize(t *testing.T) {
 			in.GateReason = "daily cap reached"
 		}), StatePaused, "the agent has no run kinds"},
 		{"healing", with(func(in *statusInput) { in.Healing = 2 }), StateWorking, ""},
+		{"analysing", with(func(in *statusInput) { in.Analysing = 1 }), StateWorking, ""},
 		{"quiet", quiet, StateWatching, ""},
 	}
 	for _, tc := range rows {
@@ -99,4 +102,20 @@ func TestNotRunningStatus(t *testing.T) {
 	assert.True(t, st.Enabled)
 	assert.Equal(t, StateNotRunning, st.State)
 	assert.Equal(t, "no execution backend", st.Reason)
+}
+
+func TestStatusCountsAnalysesInFlight(t *testing.T) {
+	e := newPassEnv(t)
+	e.store.set(analysing())
+	e.stopped("ALPHA-001", protocol.StopCauseDone, reviewed)
+	e.queued(t, "ALPHA-001")
+
+	require.NoError(t, e.ctl.pass(context.Background()))
+
+	require.Len(t, e.backend.sent, 1)
+
+	st := e.ctl.Status()
+	assert.Equal(t, 1, st.Analysing)
+	assert.Zero(t, st.Healing)
+	assert.Equal(t, StateWorking, st.State)
 }

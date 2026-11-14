@@ -785,3 +785,68 @@ func TestPassReportsSpendAndHealedToday(t *testing.T) {
 	assert.Equal(t, StatePaused, st.State)
 	assert.Equal(t, "daily cap reached", st.Reason)
 }
+
+func TestPassDispatchesHealsBeforeAnalyses(t *testing.T) {
+	e := newPassEnv(t) // one worker slot for run kinds
+	e.store.set(analysing())
+	e.stopped("ALPHA-002", protocol.StopCauseDone, reviewed)
+	require.NoError(t, e.store.MarkRunDecided(context.Background(), "alpha", "ALPHA-002", runStarted))
+	row := e.queued(t, "ALPHA-002")
+	e.stopped("ALPHA-001", protocol.StopCauseVerifyParked)
+	e.openHeal(t, "ALPHA-001", state.StageInvestigate)
+
+	require.NoError(t, e.ctl.pass(context.Background()))
+
+	require.Len(t, e.backend.sent, 1)
+	assert.Equal(t, protocol.RunKindInvestigate, e.backend.sent[0].Kind)
+	assert.Nil(t, e.store.heal(row.ID).Dispatch.At, "the analysis waits for a slot")
+	assert.Equal(t, 1, e.backend.healths, "the agent's health is read once")
+}
+
+func TestPassCountsEachDispatchForTheNext(t *testing.T) {
+	tests := []struct {
+		name          string
+		cap, ledger   float64
+		heal          bool // ALPHA-003 has a heal at investigate, stepped before the analyses
+		maxConcurrent int
+		sent          []string
+	}{
+		{"room and budget for both", 20, 0, false, 10, []string{protocol.RunKindAnalyse, protocol.RunKindAnalyse}},
+		{"a heal's ceiling shuts the analysis gate", 20, 9, true, 10, []string{protocol.RunKindInvestigate}},
+		{"an analysis's ceiling shuts the gate for the next", 2, 0, false, 10, []string{protocol.RunKindAnalyse}},
+		{"an analysis takes the slot the next needs", 20, 0, false, 2, []string{protocol.RunKindAnalyse}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			e := newPassEnv(t)
+			e.backend.health.MaxConcurrent = tc.maxConcurrent
+			e.baseIn(llmchannel.ModeEndpoint)
+
+			s := analysing()
+			s.DailyCapUSD = tc.cap
+			e.store.set(s)
+			require.NoError(t, e.store.Charge(ctx, 99, "endpoint", tc.ledger, epoch.Add(-time.Hour)))
+
+			for _, id := range []string{"ALPHA-001", "ALPHA-002"} {
+				e.stopped(id, protocol.StopCauseDone, reviewed)
+				require.NoError(t, e.store.MarkRunDecided(ctx, "alpha", id, runStarted))
+				e.queued(t, id)
+			}
+
+			if tc.heal {
+				e.stopped("ALPHA-003", protocol.StopCauseVerifyParked)
+				e.openHeal(t, "ALPHA-003", state.StageInvestigate)
+			}
+
+			require.NoError(t, e.ctl.pass(ctx))
+
+			kinds := make([]string, 0, len(e.backend.sent))
+			for _, p := range e.backend.sent {
+				kinds = append(kinds, p.Kind)
+			}
+
+			assert.Equal(t, tc.sent, kinds)
+		})
+	}
+}

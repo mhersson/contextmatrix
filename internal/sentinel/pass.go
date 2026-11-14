@@ -30,6 +30,7 @@ type passReads struct {
 	charged    float64                 // the endpoint ledger since 00:00 UTC
 	spent      float64                 // what the daily cap counts: charged, plus work in flight, kept current through the pass
 	heals      []state.Heal            // the open heals
+	analyses   []state.Heal            // the open analyses, newest first
 	inFlight   []state.Heal            // every row with a run kind in flight, whatever its kind or stage
 	containers []backend.ContainerInfo // listed only while a dispatch is in flight
 	listFailed bool                    // a failed listing counts every dispatch as listed
@@ -38,11 +39,11 @@ type passReads struct {
 
 type cardRef struct{ project, id string }
 
-// pass advances every open heal, then opens heals for runs that settled, and
-// records the status. A switched-off Sentinel reads nothing beyond its
-// settings. While analyses are on it also queues one per settled run. A pass
-// that moved a heal on, opened one, or found one changed under it nudges once,
-// so the next step is decided at once.
+// pass advances every open heal, then opens heals for runs that settled, then
+// steps every open analysis, and records the status. A switched-off Sentinel
+// reads nothing beyond its settings. While analyses are on it also queues one
+// per settled run. A pass that moved a heal on, opened one, or found one
+// changed under it nudges once, so the next step is decided at once.
 func (c *Controller) pass(ctx context.Context) error {
 	set, _, _, err := c.cfg.Store.SentinelSettings(ctx)
 	if err != nil {
@@ -87,6 +88,8 @@ func (c *Controller) pass(ctx context.Context) error {
 		}
 	}
 
+	analysing := c.advanceAnalyses(ctx, r)
+
 	healed, err := c.cfg.Store.HealedSince(ctx, dayStart(now))
 	if err != nil {
 		return fmt.Errorf("count healed cards: %w", err)
@@ -94,7 +97,7 @@ func (c *Controller) pass(ctx context.Context) error {
 
 	in.GateOpen, in.GateReason = r.gate()
 	in.Mode, in.Windows, in.NoRunKinds = r.mode, r.windows, c.noRunKinds(now)
-	in.Healing, in.HealedToday, in.SpentToday = len(open), healed, r.charged
+	in.Healing, in.Analysing, in.HealedToday, in.SpentToday = len(open), analysing, healed, r.charged
 	c.record(in)
 
 	if again {
@@ -104,9 +107,9 @@ func (c *Controller) pass(ctx context.Context) error {
 	return nil
 }
 
-// read reads the budget gate's inputs and the open heals, then lists the
-// agent's containers when a dispatch is in flight and reads its health when
-// one may go out.
+// read reads the budget gate's inputs and the open heals and analyses, then
+// lists the agent's containers when a dispatch is in flight and reads its
+// health when one may go out.
 func (c *Controller) read(ctx context.Context, set state.Settings, now time.Time) (*passReads, error) {
 	windows, err := c.cfg.Store.SubscriptionWindows(ctx)
 	if err != nil {
@@ -128,9 +131,15 @@ func (c *Controller) read(ctx context.Context, set state.Settings, now time.Time
 		return nil, fmt.Errorf("list in-flight rows: %w", err)
 	}
 
+	analyses, err := c.cfg.Store.OpenAnalyses(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list open analyses: %w", err)
+	}
+
 	r := &passReads{
 		set: set, now: now, mode: c.cfg.Channel.Effective(config.BackendNameAgent),
-		windows: windows, charged: charged, spent: charged + inFlightReserve(inFlight), heals: heals, inFlight: inFlight,
+		windows: windows, charged: charged, spent: charged + inFlightReserve(inFlight), heals: heals, analyses: analyses,
+		inFlight: inFlight,
 	}
 	log := ctxlog.Logger(ctx)
 
@@ -142,16 +151,39 @@ func (c *Controller) read(ctx context.Context, set state.Settings, now time.Time
 		}
 	}
 
-	// The gate only shuts as the pass counts more spend, so it is never more
-	// open than now.
-	budget, _ := r.gate()
-	if set.Healing && slices.ContainsFunc(heals, func(h state.Heal) bool { return mayDispatch(h, budget) }) {
+	if r.mayDispatchAny() {
 		if r.health, err = c.cfg.Backend.Health(ctx); err != nil {
 			log.Warn("sentinel: reading the agent's health failed", "error", err)
 		}
 	}
 
 	return r, nil
+}
+
+// mayDispatchAny reports whether a heal or an analysis could send a run kind
+// this pass. The gates only shut as the pass counts more spend, so they are
+// never more open than now.
+func (r *passReads) mayDispatchAny() bool {
+	budget, _ := r.gate()
+	if r.set.Healing && slices.ContainsFunc(r.heals, func(h state.Heal) bool { return mayDispatch(h, budget) }) {
+		return true
+	}
+
+	return r.set.Analyses() && analysisGate(r.mode, r.set, r.spent, r.windows, r.now) &&
+		slices.ContainsFunc(r.analyses, func(h state.Heal) bool { return h.Dispatch.At == nil })
+}
+
+// sent counts h's dispatch for the rest of the pass once it is in flight: the
+// run may hold a worker slot and charge its ceiling, and it holds its kind on
+// the card.
+func (r *passReads) sent(h state.Heal) {
+	if !inFlight(h.Dispatch) {
+		return
+	}
+
+	r.health.RunningContainers++
+	r.spent += inFlightReserve([]state.Heal{h})
+	r.inFlight = append(r.inFlight, h)
 }
 
 // gate is the budget gate on what the pass has counted so far.
@@ -180,8 +212,8 @@ func (r *passReads) held(h state.Heal) []string {
 }
 
 // expireDispatches fails each finished row's run kind that can no longer
-// report and charges its ceiling, so the card's open heal may send that kind
-// again. Open rows' run kinds are left to their own flow.
+// report and charges its ceiling, so an open row of the card may send that
+// kind again. Open rows' run kinds are left to their own flow.
 func (c *Controller) expireDispatches(ctx context.Context, r *passReads) {
 	kept := make([]state.Heal, 0, len(r.inFlight))
 
@@ -359,12 +391,7 @@ func (c *Controller) act(ctx context.Context, r *passReads, v *healView, s step)
 			return nil
 		}
 
-		// The run may hold a worker slot now, and may charge its ceiling, which
-		// the next heal's room and budget count.
-		if inFlight(h.Dispatch) {
-			r.health.RunningContainers++
-			r.spent += inFlightReserve([]state.Heal{*h})
-		}
+		r.sent(*h)
 
 		return err
 	case stepAdvance:

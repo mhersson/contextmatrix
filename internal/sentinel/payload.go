@@ -43,6 +43,22 @@ func investigatePayload(
 	return base, sentSubtasks, sentSiblings, true
 }
 
+// analysePayload adds the card, then subtasks in order, while the encoded
+// payload stays within 1 MiB; false when the card alone does not fit.
+func analysePayload(base protocol.RunKindPayload, in protocol.AnalyseInput, subtasks []cardFile) (protocol.RunKindPayload, bool) {
+	in.Subtasks = nil
+	base.Kind, base.Analyse = protocol.RunKindAnalyse, &in
+
+	size := jsonLen(base)
+	if size > maxRunKindBody {
+		return protocol.RunKindPayload{}, false
+	}
+
+	fill(&base, &in.Subtasks, subtasks, size)
+
+	return base, true
+}
+
 // fill appends files to list, a list inside p, while p's encoding of size
 // bytes stays within maxRunKindBody. It returns the IDs added, the new size
 // and whether every file fit.
@@ -102,9 +118,9 @@ func protocolVerify(v *board.VerifyConfig) *protocol.VerifyConfig {
 	return &protocol.VerifyConfig{Command: v.Command, TimeoutSeconds: v.TimeoutSeconds, Env: v.Env}
 }
 
-// investigateStopCause is the stop cause an investigation is told: none when
-// CM's own stall or lost-worker detection ended the run.
-func investigateStopCause(cause string) string {
+// runKindStopCause is the stop cause a model kind is told: none when CM's own
+// stall or lost-worker detection ended the run.
+func runKindStopCause(cause string) string {
 	if cause == CauseStalled || cause == CauseUnknown {
 		return ""
 	}

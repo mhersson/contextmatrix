@@ -39,6 +39,29 @@ func budgetGate(
 	return true, ""
 }
 
+// analysisGate reports whether an analysis may start now. On the endpoint
+// channel analyses stop at half the daily cap, so they never starve healing;
+// on Claude Code they follow the budget gate's headroom rule.
+func analysisGate(mode llmchannel.Mode, s state.Settings, spent float64, windows []protocol.SubscriptionUsage, now time.Time) bool {
+	if mode != llmchannel.ModeClaudeCode {
+		return spent < s.DailyCapUSD/2
+	}
+
+	open, _ := budgetGate(mode, s, spent, windows, now)
+
+	return open
+}
+
+// analyseCeiling is an analysis's max_cost_usd. Claude Code is exempt from
+// analyse_ceiling_usd, so it takes healing's own per-run bound there.
+func analyseCeiling(mode llmchannel.Mode, s state.Settings) float64 {
+	if mode == llmchannel.ModeClaudeCode {
+		return s.InvestigateCeilingUSD
+	}
+
+	return s.AnalyseCeilingUSD
+}
+
 // dayStart is 00:00 UTC on now's day, where the daily cap's day begins.
 func dayStart(now time.Time) time.Time {
 	y, m, d := now.UTC().Date()

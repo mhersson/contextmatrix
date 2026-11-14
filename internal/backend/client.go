@@ -55,10 +55,15 @@ type ContainerInfo struct {
 }
 
 var (
-	ErrRunKindsUnavailable = errors.New("agent has no run kinds") // 404
-	ErrRunKindBusy         = errors.New("agent busy")             // 429, 503
-	ErrRunKindRejected     = errors.New("run kind rejected")      // any other 4xx
+	ErrRunKindsUnavailable = errors.New("agent has no run kinds")           // 404
+	ErrRunKindUnknown      = errors.New("agent does not know the run kind") // 400 invalid_field "invalid kind"
+	ErrRunKindBusy         = errors.New("agent busy")                       // 429, 503
+	ErrRunKindRejected     = errors.New("run kind rejected")                // any other 4xx
 )
+
+// unknownKindDetail is rejectionDetail's form of the agent's 400 for a run kind
+// it does not know.
+const unknownKindDetail = protocol.CodeInvalidField + ": invalid kind"
 
 // Client sends signed webhooks to the task backend.
 type Client struct {
@@ -121,6 +126,8 @@ func (c *Client) RunKind(ctx context.Context, p protocol.RunKindPayload) error {
 		return ErrRunKindsUnavailable
 	case we.statusCode == http.StatusTooManyRequests, we.statusCode == http.StatusServiceUnavailable:
 		return ErrRunKindBusy
+	case we.statusCode == http.StatusBadRequest && we.body == unknownKindDetail:
+		return ErrRunKindUnknown
 	case we.statusCode >= 400 && we.statusCode < 500:
 		return fmt.Errorf("%w: %s", ErrRunKindRejected, we.body)
 	}

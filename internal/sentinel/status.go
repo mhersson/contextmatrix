@@ -29,6 +29,7 @@ type Status struct {
 	Reason        string                       `json:"reason,omitempty"`
 	Mode          string                       `json:"mode"`
 	Healing       int                          `json:"healing"`
+	Analysing     int                          `json:"analysing"`
 	HealedToday   int                          `json:"healed_today"`
 	SpentTodayUSD float64                      `json:"spent_today_usd"`
 	DailyCapUSD   float64                      `json:"daily_cap_usd"`
@@ -50,6 +51,7 @@ type statusInput struct {
 	NoRunKinds   bool // the agent said it has no run kinds, within the hold
 	Windows      []protocol.SubscriptionUsage
 	Healing      int // heals open after the pass
+	Analysing    int // analyses in flight after the pass
 	HealedToday  int
 	SpentToday   float64 // the endpoint ledger since 00:00 UTC
 }
@@ -68,6 +70,7 @@ func summarize(in statusInput) Status {
 		Enabled:       in.Settings.Enabled,
 		Mode:          string(in.Mode),
 		Healing:       in.Healing,
+		Analysing:     in.Analysing,
 		HealedToday:   in.HealedToday,
 		SpentTodayUSD: in.SpentToday,
 		DailyCapUSD:   in.Settings.DailyCapUSD,
@@ -95,7 +98,7 @@ func summarize(in statusInput) Status {
 		st.State, st.Reason = StatePaused, reasonNoRunKinds
 	case !in.GateOpen:
 		st.State, st.Reason = StatePaused, in.GateReason
-	case in.Healing > 0:
+	case in.Healing > 0 || in.Analysing > 0:
 		st.State = StateWorking
 	default:
 		st.State = StateWatching

@@ -165,3 +165,23 @@ func TestCheckPayload(t *testing.T) {
 		})
 	}
 }
+
+func TestAnalysePayloadFillsUnderTheCap(t *testing.T) {
+	const kib = 1 << 10
+
+	in := protocol.AnalyseInput{RunID: "run-1", StopCause: protocol.StopCauseDone, Card: strings.Repeat("c", 900*kib)}
+
+	p, ok := analysePayload(investigateBase(), in, files("SUB", 2, 100*kib))
+	require.True(t, ok)
+	assert.Equal(t, protocol.RunKindAnalyse, p.Kind)
+	assert.Nil(t, p.Investigate)
+	assert.Nil(t, p.Check)
+	require.NotNil(t, p.Analyse)
+	assert.Equal(t, "run-1", p.Analyse.RunID)
+	assert.Equal(t, []string{strings.Repeat("x", 100*kib)}, p.Analyse.Subtasks, "only the first subtask fits")
+	assert.LessOrEqual(t, encodedLen(t, p), maxRunKindBody)
+
+	in.Card = strings.Repeat("c", 1100*kib)
+	_, ok = analysePayload(investigateBase(), in, nil)
+	assert.False(t, ok, "a card alone over the cap is not sent")
+}

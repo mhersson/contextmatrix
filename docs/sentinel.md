@@ -40,6 +40,10 @@ run `analysis_queued`, so only runs launched afterwards are analysed.
 
 Numbers must be finite.
 
+The analysis gate also reads `daily_cap_usd`, at half, and `headroom`, and on
+Claude Code an analysis's `max_cost_usd` is `investigate_ceiling_usd` (see
+[Analyses](#analyses)).
+
 ## The controller
 
 - `main.go` builds the controller only when an agent backend is configured,
@@ -81,6 +85,11 @@ The gate uses the agent's effective LLM channel mode: the current mode, or
   and a utilization below `headroom`, else
   `waiting for subscription headroom`. A window whose reset time has passed
   counts as reset.
+
+Analyses have their own gate, `analysisGate` (`gate.go`): on the endpoint
+channel it is open while the counted spend is below half of `daily_cap_usd`,
+and on Claude Code it is this gate's headroom rule (see
+[Analyses](#analyses)).
 
 ## The run row
 
@@ -168,7 +177,9 @@ tab's heal list and `healed_today`.
 | `InFlightRows` | every kind                        |
 | `OpenAnalyses` | `analysis`                        |
 
-An analysis row ends at `analysed`, `analyse_failed` or `analyse_skipped`.
+An analysis row ends at `analysed` once its result arrives, at
+`analyse_failed` when its run failed, never reported or was refused, and at
+`analyse_skipped` when it is never sent (see [Analyses](#analyses)).
 
 ## Analyses
 
@@ -191,6 +202,59 @@ analysis: the row stays, and the new run starts unqueued.
 The switch starts fresh: turning it on marks every waiting run queued, so only
 runs launched afterwards are analysed. A run that settles while it is off
 stays unqueued until it is replaced by the next launch or the switch turns on.
+
+Every pass while `enabled` is on, analyses switched on or off, then steps each
+analysis row still at `analyse`, newest first, after the heals have taken their
+worker slots and budget (`advanceAnalyses`, `analyses.go`). It reads the row's card, the heal of
+the analysed run (`RunHeal`, by the run's start) and the card's run row, and
+`nextAnalysis` (`analysis.go`) decides. The first matching rule wins:
+
+1. The `analyse` run is in flight: wait while its container is listed or for
+   the settle grace (10 minutes) after it was sent; then end `analyse_failed`,
+   marking the dispatch failed and charging its ceiling.
+2. It was answered: with a result, end `analysed`; without one, end
+   `analyse_failed` with the failure the intake recorded.
+3. The card is deleted: end `analyse_skipped`.
+4. The row was queued more than 7 days ago (`analysisMaxAge`): end
+   `analyse_skipped`.
+5. The analysed run's heal holds an investigation, which reported the run's
+   friction: end `analyse_skipped`. While `healing` is on and that heal is
+   still at `investigate`, wait.
+6. While `healing` is on, the run has no heal and is still the card's run row,
+   launched autonomous and undecided: wait, since a heal may still open for
+   it. The pass considers only autonomous runs, so a run launched without
+   `autonomous` never waits here.
+7. Analyses are off, the analysis gate is shut, no worker slot is free, another
+   analysis row of the card has an `analyse` in flight, or the agent holds the
+   kind (below): wait.
+8. Otherwise dispatch `analyse` (see [Run kinds](#run-kinds)). A card whose
+   file alone is over 1 MiB ends `analyse_skipped` before anything is sent.
+
+Only rule 7 waits on analyses being on, so while they are off a run in flight
+or answered still finishes and rules 3 to 5 still end rows.
+
+The analysis gate (`analysisGate`) and the analysis's `max_cost_usd`
+(`analyseCeiling`, both in `gate.go`) follow the agent's effective channel:
+
+- **Endpoint:** open while the budget gate's counted spend (today's ledger,
+  work in flight and what the pass has sent) is below half of
+  `daily_cap_usd`, so analyses leave the other half to heals. Each analysis is
+  capped at `analyse_ceiling_usd`.
+- **Claude Code:** the budget gate's headroom rule, unchanged; cost does not
+  count. Each analysis is capped at `investigate_ceiling_usd`, healing's own
+  per-run bound, since the agent needs a `max_cost_usd` for every model kind.
+
+A dispatched analysis takes a worker slot and, on the endpoint, counts its
+ceiling against the cap for the rest of the pass, as a heal's run kind does.
+At most one `analyse` is in flight per card, so its status has one row to
+answer.
+
+An agent that does not know the kind answers `analyse` with 400
+`invalid_field` `invalid kind` (`backend.ErrRunKindUnknown`). Then no `analyse`
+is built or sent for 15 minutes (`noRunKindsHold`); the row stays open with no
+dispatch, and nothing ends, parks or is charged, while other kinds dispatch as
+usual. A refused `analyse` (any other 4xx) ends the row `analyse_failed`. An
+analysis never writes its card, so none of its ends writes an activity entry.
 
 ## Run-kind results
 
@@ -262,13 +326,14 @@ matching state wins:
 | `watching`    |                                                            | Sentinel was switched on after the last pass that landed, within those three ticks |
 | `paused`      | `the agent has no run kinds`                               | The agent answered a run kind with 404 in the last 15 minutes         |
 | `paused`      | `daily cap reached` or `waiting for subscription headroom` | The budget gate is closed                                             |
-| `working`     |                                                            | At least one heal is in progress                                      |
+| `working`     |                                                            | At least one heal is in progress, or an analysis is in flight         |
 | `watching`    |                                                            | Otherwise                                                             |
 
 The status also carries `enabled`, `mode` (the agent's effective mode, empty
 while Sentinel is off or has no controller), `daily_cap_usd`, `headroom`, and
 on Claude Code the `windows` that have not reset. `healing` counts the heals
-still open after the pass, `healed_today` the cards whose heal reached `healed`
+still open after the pass, `analysing` the analyses in flight after it,
+`healed_today` the cards whose heal reached `healed`
 since 00:00 UTC, and `spent_today_usd` the endpoint ledger since 00:00 UTC; a
 pass reads the spend before it acts, so a charge it makes shows on the next.
 The gate also counts work in flight, so the status can read
@@ -280,7 +345,7 @@ A run kind is a sandboxed agent run Sentinel dispatches for one card through
 the agent's `POST /run-kind` ([remote execution](remote-execution.md#post-agent_urlrun-kind)).
 It gets no MCP key, so it cannot write the board, and it reports only on its
 terminal status (see Run-kind results). The pass dispatches one when the heal
-flow says so.
+flow or the analysis flow (see [Analyses](#analyses)) says so.
 
 Every run kind's payload starts from the same base, filled by
 `backendHandlers.runKindBase` (`internal/api/backend_runkind.go`), which the
@@ -291,14 +356,16 @@ router hands the controller:
   (`GenerateRepoReadToken`), minted from the project's credential binding and
   failing closed as a launch does. A PAT cannot be narrowed, so a PAT install
   sends the PAT. The token carries no expiry: the run clones once;
-- for `investigate`, the model, selection context and LLM endpoint a card
-  launched now would get (`chooseModel`, shared with `launch`), and the mode
-  that endpoint belongs to. `check` runs no model and gets none of them.
+- for `investigate` and `analyse`, the model, selection context and LLM
+  endpoint a card launched now would get (`chooseModel`, shared with
+  `launch`), and the mode that endpoint belongs to. `check` runs no model and
+  gets none of them.
 
 | Kind          | Sends                                                                                                                                                                                                                       |
 | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `investigate` | `max_cost_usd` = `investigate_ceiling_usd`; the stopped run's ID and stop cause (none for `stalled` and `unknown`); the card file; its verify resolved card over project as the fix checks resolve it (`resolved`: a card verify with no content inherits the project's); its subtasks' card files; its unstarted siblings' card files |
 | `check`       | A trial of the verify the fix leaves, resolved as the card will store it (none when the fix keeps verify); the card's resolved verify command in force today; the fix's `## Sentinel` text                                    |
+| `analyse`     | `max_cost_usd` = `analyse_ceiling_usd` on the endpoint, `investigate_ceiling_usd` on Claude Code; the settled run's ID and stop cause (none when unknown); the card file; its verify resolved as for `investigate`; its subtasks' card files |
 
 Siblings are the cards of the playbook run holding the card, when that run is
 active on this instance: card entries in the same project that are incomplete,
@@ -310,20 +377,23 @@ order: the card, then subtasks, then siblings, while the encoded payload stays
 at or under 1 MiB. The first file that does not fit ends both lists. The heal
 records the subtask and sibling IDs sent, since a fix may retire only a
 subtask the investigation saw. A card whose file alone does not fit is not
-dispatched and the heal parks.
+dispatched and the heal parks. The `analyse` payload is filled the same way
+with the card, then its subtasks; a card whose file alone does not fit ends the
+analysis `analyse_skipped`.
 
-`dispatch` (`dispatch.go`) records the dispatch on the heal (kind, mode,
+`dispatch` (`dispatch.go`) records the dispatch on the row (kind, mode,
 ceiling, time) before it sends, so a run the agent starts is always on
 record. The backend client sends a run kind once and never retries it, so the
-agent is never asked for the same dispatch twice. A save refused because the heal changed since it was read sends
+agent is never asked for the same dispatch twice. A save refused because the row changed since it was read sends
 nothing. Only a definite answer that started nothing clears the dispatch:
 
 | Agent answer                       | Effect                                                                                                    |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | 404, the agent has no run kinds    | The dispatch is cleared, and nothing is dispatched for 15 minutes; the status reads paused meanwhile      |
+| 400 `invalid_field` `invalid kind`, the agent does not know the kind | The dispatch is cleared, and that kind is not dispatched for 15 minutes; the row stays open, and nothing parks or is charged |
 | 429 or 503, busy                   | The dispatch is cleared; a later pass retries                                                             |
-| Another 4xx, refused               | The dispatch is cleared and the heal parks                                                                |
-| A transport error or other failure | The agent may have admitted the run, so the dispatch stays on record and the error is logged: it is answered when the run reports, or the settle grace parks it with its ceiling charged. Clearing it could lose the run's spend and send a second run |
+| Another 4xx, refused               | The dispatch is cleared and the heal parks; an analysis ends `analyse_failed`                             |
+| A transport error or other failure | The agent may have admitted the run, so the dispatch stays on record and the error is logged: it is answered when the run reports, or the settle grace parks the heal (an analysis ends `analyse_failed`) with its ceiling charged. Clearing it could lose the run's spend and send a second run |
 
 A run kind takes one of the agent's `max_concurrent` worker slots and must
 leave one free for card runs: `roomFor` (`gate.go`) allows a dispatch only
@@ -508,15 +578,17 @@ stage waits.
 1. It reads the settings. While `enabled` is off the status reads `off` and
    nothing else is read.
 2. It reads the agent's effective mode, the subscription windows and today's
-   spend, decides the budget gate, and reads the open heals and every row of
-   any kind with a run kind in flight, whatever its stage. It lists the agent's
-   containers once, and only while a run kind is in flight, and reads the
-   agent's health once, and only while `healing` is on and a heal may
-   dispatch. A failed listing counts every run kind as listed, so none parks
-   on it; a failed health read leaves no worker slot free.
-3. It fails each parked or closed heal's run kind that can no longer report
-   (its container not listed and the settle grace passed since it was sent)
-   and charges its ceiling, so the card's open heal may send that kind again.
+   spend, decides the budget gate, and reads the open heals, the open analyses
+   and every row of any kind with a run kind in flight, whatever its stage. It
+   lists the agent's containers once, and only while a run kind is in flight,
+   and reads the agent's health once, and only while `healing` is on and a
+   heal may dispatch, or analyses are on, the analysis gate is open and an
+   analysis is not yet sent. A failed listing counts every run kind as listed,
+   so none parks on it; a failed health read leaves no worker slot free.
+3. It fails the run kind of each finished row, of any kind, that can no longer
+   report (its container not listed and the settle grace passed since it was
+   sent) and charges its ceiling, so an open row of the card may send that
+   kind again.
 4. For every open heal it reads the card and the run row fresh, runs
    `checkEdits` against the launch snapshot and, at stage `apply`, `vetFix` on
    a `card` diagnosis's fix, so a retire-only fix that skipped the check run
@@ -537,8 +609,8 @@ stage waits.
    has used its 2 heal attempts, and for an investigation of a run with no run
    ID, which left no log. Then it judges the fixes forwarded to the run's card
    (see [The circuit breaker](#the-circuit-breaker)).
-6. While the analyses switch is on, it queues an analysis row for every settled
-   run (see [Analyses](#analyses)).
+6. While analyses are on, it queues an analysis row for every settled run;
+   then, on or off, it steps every open analysis (see [Analyses](#analyses)).
 7. It records the status.
 
 A heal whose read or step fails is logged and decided again on the next pass.
@@ -549,12 +621,13 @@ once. A pass acts only on the heals still open, so a run kind's result that
 arrives after its heal parked or closed is recorded and charged, never applied.
 
 A run kind that never reported parks its heal; the same save marks the
-dispatch failed, and the dispatch's ceiling is then charged. A parked or closed
-heal's run kind that never reported is marked failed and charged its ceiling
-the same way, keeping the heal's stage. A late report matches no dispatch, so
-the ceiling is the only charge, except when the card's open heal has sent the
-same kind again since the expiry. The agent's 202 carries no run ID, so such a
-late report can answer that new dispatch instead.
+dispatch failed, and the dispatch's ceiling is then charged. A finished row's
+run kind that never reported, such as a parked or closed heal's, is marked
+failed and charged its ceiling the same way, keeping the row's stage. A late
+report matches no dispatch, so the ceiling is the only charge, except when an
+open row of the card has sent the same kind again since the expiry. The
+agent's 202 carries no run ID, so such a late report can answer that new
+dispatch instead.
 
 ### Activity entries
 
@@ -794,8 +867,12 @@ the next pass.
 | `internal/opstore/sqlite/sentinel_heals.go` | Heals, findings and the spend ledger                                                                                                                         |
 | `internal/api/backend_runkind.go`           | `runKindBase`: a run kind's common payload fields and its contents-read token; `sentinelRelaunch`: Sentinel's launch of a rerun                            |
 | `internal/api/sentinel.go` | The `/api/sentinel` settings and status endpoints and the per-card heal view |
-| `internal/sentinel/analysis.go` | The pure `queueStep`: what the analysis queue does with one unqueued run |
-| `internal/sentinel/analyses.go` | `queueAnalyses`: read each unqueued run's card, then mark it queued or store its analysis row |
+| `internal/sentinel/analysis.go` | The pure `queueStep`, what the analysis queue does with one unqueued run, and the pure `nextAnalysis` over an `analysisView`, one rule per exit |
+| `internal/sentinel/analyses.go` | `queueAnalyses`: read each unqueued run's card, then mark it queued or store its analysis row; `advanceAnalyses`: read each open analysis's view and act on its step |
+| `internal/sentinel/gate.go` (analyses) | The pure analysis gate and ceiling: `analysisGate`, `analyseCeiling` |
+| `internal/sentinel/payload.go` (analyses) | The pure `analysePayload`, under the same 1 MiB cap |
+| `internal/sentinel/dispatch.go` (analyses) | `dispatchAnalyse`; `endRefused`, which ends a refused row by its kind; the unknown-kind hold (`holdKind`, `kindHeld`) |
+| `internal/sentinel/pass.go` (analyses) | Reading the open analyses, `mayDispatchAny` (the one health read for heals and analyses), `sent` (the slot and spend accounting both flows share), and stepping the analyses after the heals; the expiry covers finished rows of every kind |
 
 `internal/sentinel/state` holds only types, constants and their trivial
 methods. It is a leaf, so the ops.db store imports it and nothing of the
