@@ -104,6 +104,23 @@ func bodyLines(body string) []bodyLine {
 	return lines
 }
 
+// DemoteHeadings turns every line the section rules read as a heading into an
+// H3 line, so text written under an H2 can never start another section. Lines
+// in code fences and indented "## " lines are not headings and stay as is.
+func DemoteHeadings(content string) string {
+	var b strings.Builder
+
+	for _, line := range bodyLines(content) {
+		if line.heading {
+			b.WriteByte('#')
+		}
+
+		b.WriteString(line.text)
+	}
+
+	return b.String()
+}
+
 func joinLines(lines []bodyLine) string {
 	var b strings.Builder
 

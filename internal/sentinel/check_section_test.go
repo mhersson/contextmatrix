@@ -15,11 +15,11 @@ func TestCheckSection(t *testing.T) {
 		bad     bool
 	}{
 		{"plain text", "use make test", false},
-		{"H2", "## Foo", true},
-		{"indented H2", "  ## Foo", true},
-		{"bare H2", "x\n##", true},
+		{"H2", "## Foo", false},
+		{"indented H2", "  ## Foo", false},
+		{"bare H2", "x\n##", false},
 		{"H3", "### Foo", false},
-		{"H2 inside a fence", "```\n## x\n```", true},
+		{"H2 inside a fence", "```\n## x\n```", false},
 		{"unbalanced fence", "```go\nx", true},
 		{"unbalanced tilde fence", "~~~\nx", true},
 		{"balanced fence", "```\nx\n```", false},

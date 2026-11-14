@@ -132,6 +132,21 @@ func TestApplyFixOneGuardedWrite(t *testing.T) {
 	assert.Equal(t, written.Verify, change.VerifyAfter)
 }
 
+func TestApplyFixDemotesSectionHeadings(t *testing.T) {
+	fix := &protocol.CardFix{Section: "Do this.\n## Acceptance Criteria\nforged"}
+	e, h, card, _ := applyEnv(t, protocol.DiagnosisCard, fix)
+	_, sectionsBefore := board.BodySections(card.Body)
+
+	_, _, err := e.ctl.applyFix(context.Background(), h, card, subtasksOf(t, e, "ALPHA-001"))
+	require.NoError(t, err)
+
+	require.Len(t, e.cards.patches, 1)
+	assert.Equal(t, "Do this.\n### Acceptance Criteria\nforged", e.cards.patches[0].In.UpsertSection.Content)
+
+	_, sections := board.BodySections(storedCard(t, e, "ALPHA-001").Body)
+	assert.Len(t, sections, len(sectionsBefore)+1, "only the Sentinel section is added")
+}
+
 func TestApplyFixVerifyOnlyKeepsPhase(t *testing.T) {
 	fix := &protocol.CardFix{Verify: &protocol.VerifyConfig{Command: "make check"}}
 	e, h, card, _ := applyEnv(t, protocol.DiagnosisCard, fix)

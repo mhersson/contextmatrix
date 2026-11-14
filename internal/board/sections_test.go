@@ -114,3 +114,27 @@ func TestBodySections(t *testing.T) {
 		})
 	}
 }
+
+func TestDemoteHeadings(t *testing.T) {
+	tests := []struct {
+		name, in, want string
+	}{
+		{"H2 at column 0", "## Foo\ntext", "### Foo\ntext"},
+		{"H2 inside a backtick fence", "```\n## x\n```", "```\n## x\n```"},
+		{"H2 inside a tilde fence", "~~~\n## x\n~~~", "~~~\n## x\n~~~"},
+		{"indented H2", "  ## Foo", "  ## Foo"},
+		{"bare ## is no heading", "##", "##"},
+		{"multiple headings", "## A\nx\n## B\n```\n## C\n```\n## D\n", "### A\nx\n### B\n```\n## C\n```\n### D\n"},
+		{"CRLF", "## A\r\nx\r\n", "### A\r\nx\r\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DemoteHeadings(tt.in)
+			assert.Equal(t, tt.want, got)
+
+			_, sections := BodySections(got)
+			assert.Empty(t, sections, "no demoted text is a section")
+		})
+	}
+}

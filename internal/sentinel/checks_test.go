@@ -15,7 +15,7 @@ func TestVetFixRunsEveryCheck(t *testing.T) {
 	c := fixContext{
 		Card:     card,
 		Snapshot: board.TakeEditSnapshot(card),
-		Fix:      protocol.CardFix{Section: "## bad"},
+		Fix:      protocol.CardFix{Section: "```bad"},
 		Check:    &protocol.CheckResult{},
 	}
 
@@ -25,7 +25,7 @@ func TestVetFixRunsEveryCheck(t *testing.T) {
 	c.Fix.RetireSubtasks = nil
 	assert.NotEmpty(t, vetFix(c), "shape")
 
-	c.Fix = protocol.CardFix{Section: "## bad", RetireSubtasks: []string{"P-9"}}
+	c.Fix = protocol.CardFix{Section: "```bad", RetireSubtasks: []string{"P-9"}}
 	assert.GreaterOrEqual(t, len(vetFix(c)), 3, "section, shape and retire")
 }
 

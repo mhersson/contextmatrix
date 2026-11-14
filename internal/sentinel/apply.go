@@ -56,9 +56,10 @@ func started(sub *board.Card) bool {
 }
 
 // sectionChanges reports whether writing section changes card's own section;
-// whitespace at either end does not count.
+// whitespace at either end does not count. The section is compared as it is
+// written, with its headings demoted.
 func sectionChanges(card *board.Card, section string) bool {
-	return section != "" && strings.TrimSpace(section) != strings.TrimSpace(sentinelSection(card))
+	return section != "" && strings.TrimSpace(board.DemoteHeadings(section)) != strings.TrimSpace(sentinelSection(card))
 }
 
 // applyFix writes the heal's fix in one write guarded on the card the pass
@@ -122,7 +123,7 @@ func fixPatch(card *board.Card, fix protocol.CardFix, fresh bool) service.PatchC
 	in := service.PatchCardInput{AgentID: Agent, ExpectUpdated: &updated}
 
 	if sectionChanges(card, fix.Section) {
-		in.UpsertSection = &service.SectionPatch{Heading: SectionHeading, Content: fix.Section}
+		in.UpsertSection = &service.SectionPatch{Heading: SectionHeading, Content: board.DemoteHeadings(fix.Section)}
 	}
 
 	if fix.Verify != nil {

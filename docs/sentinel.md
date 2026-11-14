@@ -330,7 +330,7 @@ forward runs `vetForward` on each card it forwards to (see
 | Check          | Refuses                                                                                                  | Lists                |
 | -------------- | -------------------------------------------------------------------------------------------------------- | -------------------- |
 | `checkShape`   | A fix that sets no field, or retires an ID the investigation was not sent                                | heal, forward        |
-| `checkSection` | A `## Sentinel` section with an H2 line or an unbalanced code fence (``` or ~~~)                         | heal, forward        |
+| `checkSection` | A `## Sentinel` section with an unbalanced code fence (``` or ~~~); H2 lines are not refused, they are demoted on write | heal, forward        |
 | `checkRetire`  | Retiring a subtask that is not this card's, is not in `todo`, is claimed, or has a queued or running worker, or retiring any subtask once a subtask of the card has started (`cannot re-split: subtasks have started`) | heal              |
 | `checkEdits`   | Any change since launch: `title edited`, `verify edited`, `autonomous changed`, `intro edited`, `section "X" edited`, `added` or `removed`; no launch snapshot is also refused | heal |
 | `checkVerify`  | A verify change that adds an env name (`adds env NAME`), drops the command (`removes the verify command`), changes the command for a cause verify did not stop (`changes the verify command, which did not stop the run`) or to one the check run kind did not list as a candidate (`command not declared by the repo`), was never trial-run (`verify not trial-run`), whose trial did not finish (`trial run: <trial>`), or that the card service would refuse, such as a command over one line or a timeout over 7200 seconds (`verify <rule>`, from `service.ValidateVerifyConfig`) | heal, forward |
@@ -501,7 +501,10 @@ entry.
 
 `applyFix` writes the fix as `system:sentinel` in one `PatchCard` guarded on
 the card's `updated` as the pass read it: the `## Sentinel` section (section
-upsert) when the fix changes it, the verify fields when it has them, and a cleared
+upsert) when the fix changes it, with every line the card-body parser reads as
+a section boundary (`## ` at column 0 outside a code fence) demoted to an H3
+line first (`board.DemoteHeadings`), so the text can never start another
+section; the change check compares the section as written, the verify fields when it has them, and a cleared
 `phase` for a fresh rerun. A human edit in between refuses the write
 (`ErrCardChanged`); the heal stays at `apply` and the next pass decides again,
 parking it when the edit check finds the edit. Any other refusal parks the
