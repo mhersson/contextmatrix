@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router';
 import { useMobileSidebar } from '../../context/MobileSidebarContext';
-import { formatAge, formatExactTime } from '../../lib/format';
+import { formatAge, formatExactTime, formatRelativeTime } from '../../lib/format';
 import { playbookStatus } from '../../lib/playbookStatus';
 import type { PlaybookSummary } from '../../types';
 import { PinIcon } from '../SessionIcons';
@@ -10,8 +10,8 @@ const STATUS_DOT = {
   running: 'var(--aqua)',
   waiting: 'var(--wait-yellow)',
   stopped: 'var(--orange)',
-  completed: 'var(--bg4)',
-  'not started': 'var(--bg4)',
+  completed: 'var(--grey0)',
+  'not started': 'var(--grey0)',
 } as const;
 
 export function PlaybookNavRow({ playbook: p, waiting, now }: { playbook: PlaybookSummary; waiting?: boolean; now: number }) {
@@ -24,7 +24,7 @@ export function PlaybookNavRow({ playbook: p, waiting, now }: { playbook: Playbo
         to={`/playbooks/${p.id}`}
         onClick={mobileSidebar.close}
         className={({ isActive }) =>
-          `sb-navrow${isActive ? ' active' : ''} flex items-center gap-2 pl-3 pr-2 py-1.5 rounded text-[13.5px]`
+          `sb-navrow sb-playbook-row${isActive ? ' active' : ''} flex items-center gap-2 pl-3 pr-1 py-1.5 rounded text-[13.5px]`
         }
       >
         <span
@@ -36,14 +36,19 @@ export function PlaybookNavRow({ playbook: p, waiting, now }: { playbook: Playbo
         />
         <span className="truncate flex-1">{p.title || p.id}</span>
         {waiting && <WaitBadge />}
-        {p.pinned === true && (
-          <span className="inline-flex shrink-0" style={{ color: 'var(--orange)' }}>
-            <PinIcon size={12} filled label="Pinned" />
-          </span>
-        )}
-        <span className="sb-age" title={formatExactTime(p.updated_at)}>
+        <span className="sb-age" title={formatExactTime(p.updated_at)} aria-hidden="true">
           {formatAge(p.updated_at, now)}
         </span>
+        <span className="sr-only">{formatRelativeTime(p.updated_at, now)}</span>
+        {p.pinned === true ? (
+          <span className="sb-pin sb-pin--shown sb-pin--mark" style={{ color: 'var(--orange)' }}>
+            <PinIcon size={12} filled label="Pinned" />
+          </span>
+        ) : (
+          <span className="sb-pin sb-pin--mark" aria-hidden="true">
+            <PinIcon size={12} />
+          </span>
+        )}
       </NavLink>
     </li>
   );

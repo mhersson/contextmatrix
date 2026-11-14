@@ -65,7 +65,7 @@ describe('Sessions table truncation', () => {
     expect(cell).not.toHaveAttribute('title');
   });
 
-  it('a playbook row truncates title, projects, wait reason and next-up', () => {
+  it('a playbook row truncates title, projects and wait reason', () => {
     render(
       <table><tbody>
         <PlaybookTableRow playbook={playbook} ticked={false} {...handlers} waiting={{ ...waiting, kind: 'playbook' }} />

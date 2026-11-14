@@ -1,5 +1,5 @@
 import type { ChatSession } from '../../types';
-import { formatAge, formatExactTime } from '../../lib/format';
+import { formatAge, formatExactTime, formatRelativeTime } from '../../lib/format';
 import { statusDotColor } from '../../lib/sessions';
 import { isTouchDevice } from '../../utils/isTouchDevice';
 import { CHAT_DRAG_START_EVENT, CHAT_DRAG_END_EVENT } from '../ChatLayout/dragProtocol';
@@ -46,9 +46,10 @@ export function SessionRow({ session: s, onOpen, onTogglePin, waiting, now }: Se
         />
         <span className="truncate flex-1">{title}</span>
         {waiting && <WaitBadge />}
-        <span className="sb-age" title={formatExactTime(s.last_active)}>
+        <span className="sb-age" title={formatExactTime(s.last_active)} aria-hidden="true">
           {formatAge(s.last_active, now)}
         </span>
+        <span className="sr-only">{formatRelativeTime(s.last_active, now)}</span>
       </button>
       <button
         type="button"

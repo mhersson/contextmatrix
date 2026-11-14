@@ -63,6 +63,6 @@ export function statusDotColor(status: ChatStatus): string {
     case 'warm-idle':
       return 'var(--yellow)';
     default:
-      return 'var(--bg4)';
+      return 'var(--grey0)';
   }
 }

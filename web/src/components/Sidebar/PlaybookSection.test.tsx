@@ -96,8 +96,8 @@ describe('PlaybookSection', () => {
     ['running', 'var(--aqua)', { run: 'running', complete: 1 }],
     ['waiting', 'var(--wait-yellow)', { run: 'waiting' }],
     ['stopped', 'var(--orange)', { run: 'stopped', complete: 2 }],
-    ['not started', 'var(--bg4)', {}],
-    ['completed', 'var(--bg4)', { complete: 4 }],
+    ['not started', 'var(--grey0)', {}],
+    ['completed', 'var(--grey0)', { complete: 4 }],
   ] as const)('leads with a %s dot and ends with the last activity, with no status pill', async (state, color, o) => {
     vi.spyOn(api, 'listPlaybooks').mockResolvedValue([pb('a', o)]);
     renderSection();
@@ -109,8 +109,40 @@ describe('PlaybookSection', () => {
     const age = row.querySelector('.sb-age')!;
     expect(age).toHaveAttribute('title', new Date('2026-10-01T12:00:00Z').toLocaleString());
     expect(age).toHaveTextContent(/^\d+[dh]$/);
-    expect(row.lastElementChild!.lastElementChild).toBe(age);
-    expect(row.textContent).toBe(`Title a${age.textContent}`);
+    expect(age).toHaveAttribute('aria-hidden', 'true');
+    const link = row.querySelector('a')!;
+    const slot = link.lastElementChild!;
+    expect(slot).toHaveClass('sb-pin');
+    expect(slot).toHaveAttribute('aria-hidden', 'true');
+    expect(slot).toHaveTextContent('');
+    expect(slot).not.toHaveClass('sb-pin--shown');
+    expect(slot.previousElementSibling!.previousElementSibling).toBe(age);
+  });
+
+  it('keeps the compact age out of the accessible name and reads the relative time instead', async () => {
+    vi.spyOn(api, 'listPlaybooks').mockResolvedValue([pb('a')]);
+    renderSection();
+    const link = (await screen.findByText('Title a')).closest('a')!;
+    expect(link).toHaveAccessibleName(/Title a.* ago$/);
+    expect(link).not.toHaveAccessibleName(/\d+[dhm]$/);
+  });
+
+  it('shows a pinned playbook pin in the trailing slot after the age', async () => {
+    vi.spyOn(api, 'listPlaybooks').mockResolvedValue([pb('a', { pinned: true })]);
+    renderSection();
+    const link = (await screen.findByText('Title a')).closest('a')!;
+    const slot = link.lastElementChild!;
+    expect(slot).toHaveClass('sb-pin', 'sb-pin--shown');
+    expect(slot).not.toHaveAttribute('aria-hidden');
+    expect(within(slot as HTMLElement).getByRole('img', { name: 'Pinned' })).toBeInTheDocument();
+    expect(link.querySelector('.sb-age')!.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('colours the title like a session row, not as a link', async () => {
+    vi.spyOn(api, 'listPlaybooks').mockResolvedValue([pb('a')]);
+    renderSection();
+    const link = (await screen.findByText('Title a')).closest('a')!;
+    expect(link).toHaveClass('sb-playbook-row');
   });
 
   it('marks a pinned playbook and offers no pin button', async () => {

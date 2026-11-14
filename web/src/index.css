@@ -5229,6 +5229,9 @@ textarea {
   color: var(--fg);
   background-color: var(--bg2);
 }
+.sb-pin--mark {
+  pointer-events: none;
+}
 .sb-pin[aria-pressed='true'] {
   color: var(--orange);
 }
@@ -5280,6 +5283,14 @@ textarea {
 }
 .sb-navrow.active {
   background-color: var(--bg2);
+}
+/* Playbook rows are links: match the session rows' text colour, not the link colour. */
+.sb-playbook-row {
+  color: var(--grey2);
+}
+.sb-playbook-row:hover,
+.sb-playbook-row.active {
+  color: var(--fg);
 }
 /* POC marker beside a sidebar project name: the tone sits in the ring and the
    text stays --fg, so it keeps contrast on every palette's tints. */
@@ -9795,9 +9806,10 @@ button.bp-rv-head {
   flex: none;
 }
 .ssn-title-line > .ssn-open {
-  flex: 0 4 auto;
+  flex: 0 1 auto;
 }
 .ssn-open {
+  overflow: hidden;
   display: flex;
   align-items: center;
   gap: 7px;

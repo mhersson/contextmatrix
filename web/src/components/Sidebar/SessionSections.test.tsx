@@ -88,8 +88,8 @@ describe('SessionSections', () => {
   it.each([
     ['active', 'var(--green)'],
     ['warm-idle', 'var(--yellow)'],
-    ['cold', 'var(--bg4)'],
-    ['ending', 'var(--bg4)'],
+    ['cold', 'var(--grey0)'],
+    ['ending', 'var(--grey0)'],
   ] as const)('leads a %s chat row with its dot and ends it with the last activity', async (status, color) => {
     store = [sess({ id: 'c1', title: 'Fix login', status, last_active: day(3) })];
     renderSections();
@@ -101,7 +101,10 @@ describe('SessionSections', () => {
     const age = row.querySelector('.sb-age')!;
     expect(age).toHaveAttribute('title', new Date(day(3)).toLocaleString());
     expect(age).toHaveTextContent(/^\d+[dhm]$/);
-    expect(row.querySelector('button')!.lastElementChild).toBe(age);
+    expect(age).toHaveAttribute('aria-hidden', 'true');
+    expect(row.querySelector('button')!.lastElementChild).toBe(age.nextElementSibling);
+    expect(row.querySelector('button')).toHaveAccessibleName(/Fix login.* ago$/);
+    expect(row.querySelector('button')).not.toHaveAccessibleName(/\d+[dhm]$/);
   });
 
   it('ends each section with a link to its Sessions tab carrying the kind total', async () => {
