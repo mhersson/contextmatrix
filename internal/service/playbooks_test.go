@@ -2566,3 +2566,26 @@ func TestPlaybookDelete_PinCleanupFailureDoesNotFailDelete(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, env.svc.Delete(ctx, "pinned", "human:a"))
 }
+
+func TestSummarizeDetail_ProjectNames(t *testing.T) {
+	card := func(project string) PlaybookEntryDetail {
+		return PlaybookEntryDetail{Type: board.EntryTypeCard, Project: project}
+	}
+
+	s := SummarizeDetail(&PlaybookDetail{Entries: []PlaybookEntryDetail{
+		card("beta"), card("alpha"), card("beta"), {Type: board.EntryTypeManual, Text: "ship"},
+	}})
+	assert.Equal(t, []string{"alpha", "beta"}, s.ProjectNames, "distinct and sorted")
+	assert.Equal(t, 2, s.Projects)
+
+	s = SummarizeDetail(&PlaybookDetail{Entries: []PlaybookEntryDetail{{Type: board.EntryTypeManual, Text: "ship"}}})
+	assert.NotNil(t, s.ProjectNames, "a manual-only playbook still serializes an array")
+	assert.Empty(t, s.ProjectNames)
+}
+
+func TestSummarizeDetail_CarriesSource(t *testing.T) {
+	src := &board.Source{System: "jira", ExternalID: "ABC-1", ExternalURL: "https://example.atlassian.net/browse/ABC-1"}
+
+	assert.Equal(t, src, SummarizeDetail(&PlaybookDetail{Source: src}).Source)
+	assert.Nil(t, SummarizeDetail(&PlaybookDetail{}).Source)
+}

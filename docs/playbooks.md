@@ -282,7 +282,7 @@ required on mutations for `created_by` and `done_by` attribution.
 
 | MCP tool                | REST                                           | Does                                                                     |
 | ----------------------- | ---------------------------------------------- | ------------------------------------------------------------------------ |
-| `list_playbooks`        | `GET /api/playbooks`                           | Summaries: progress, segments, project count, gates, next entry          |
+| `list_playbooks`        | `GET /api/playbooks`                           | Summaries: progress, segments, project names, source, gates, next entry |
 | `get_playbook`          | `GET /api/playbooks/{id}`                      | Full detail with every entry resolved against the card store             |
 | `create_playbook`       | `POST /api/playbooks`                          | `title`, `description`, `boards_repo`, initial `entries` and (MCP only) `followups`; all-or-nothing |
 | `update_playbook`       | `PATCH /api/playbooks/{id}`                    | Title, description; humans also set runnable and base_branch             |

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -192,6 +193,8 @@ type PlaybookSummary struct {
 	// Projects is the count of distinct projects referenced by card
 	// entries (the list row shows "N entries across M projects").
 	Projects int `json:"projects"`
+	// ProjectNames is those distinct projects, sorted; always an array.
+	ProjectNames []string `json:"project_names"`
 	// Gates lists the indexes of manual entries so the list page's route
 	// track can draw them as gates without fetching the detail.
 	Gates []int `json:"gates,omitempty"`
@@ -203,6 +206,8 @@ type PlaybookSummary struct {
 	Runnable  bool      `json:"runnable"`
 	RunStatus string    `json:"run_status,omitempty"`
 	Updated   time.Time `json:"updated_at"`
+	// Source is the external origin of an imported playbook, nil otherwise.
+	Source *board.Source `json:"source,omitempty"`
 	// Pinned is set by the REST list for its viewer; the service never sets it.
 	Pinned bool `json:"pinned,omitempty"`
 }
@@ -1855,23 +1860,30 @@ func SummarizeDetail(d *PlaybookDetail) PlaybookSummary {
 		}
 	}
 
+	projectNames := slices.Sorted(maps.Keys(projects))
+	if projectNames == nil {
+		projectNames = []string{}
+	}
+
 	runStatus := ""
 	if d.Run != nil {
 		runStatus = d.Run.Status
 	}
 
 	return PlaybookSummary{
-		ID:         d.ID,
-		BoardsRepo: d.BoardsRepo,
-		Title:      d.Title,
-		Complete:   d.Complete,
-		Total:      d.Total,
-		Segments:   segments,
-		Projects:   len(projects),
-		Gates:      gates,
-		Next:       next,
-		Runnable:   d.Runnable,
-		RunStatus:  runStatus,
-		Updated:    d.Updated,
+		ID:           d.ID,
+		BoardsRepo:   d.BoardsRepo,
+		Title:        d.Title,
+		Complete:     d.Complete,
+		Total:        d.Total,
+		Segments:     segments,
+		Projects:     len(projectNames),
+		ProjectNames: projectNames,
+		Gates:        gates,
+		Next:         next,
+		Runnable:     d.Runnable,
+		RunStatus:    runStatus,
+		Updated:      d.Updated,
+		Source:       d.Source.Clone(),
 	}
 }
