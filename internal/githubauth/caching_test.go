@@ -24,8 +24,15 @@ type fakeProvider struct {
 
 	repoCalls   atomic.Int32
 	readCalls   atomic.Int32
+	prCalls     atomic.Int32
 	lastRepo    string
 	repoFailErr error // returned by GenerateRepoToken when non-nil
+}
+
+func (f *fakeProvider) GenerateRepoPRToken(_ context.Context, repo string) (string, time.Time, error) {
+	n := f.prCalls.Add(1)
+
+	return fmt.Sprintf("pr-%s-%d", repo, n), f.expiry, nil
 }
 
 func (f *fakeProvider) GenerateRepoReadToken(_ context.Context, repo string) (string, time.Time, error) {
@@ -306,4 +313,30 @@ func TestCachingProvider_KeepsReadAndWriteTokensApart(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, read, again, "a fresh read token is reused")
 	assert.Equal(t, int32(1), inner.readCalls.Load())
+}
+
+func TestCachingProviderKeepsPRTokensApart(t *testing.T) {
+	inner := &fakeProvider{expiry: time.Now().Add(45 * time.Minute)}
+	cp := NewCachingProvider(inner)
+	ctx := context.Background()
+
+	read, _, err := cp.GenerateRepoReadToken(ctx, "widgets")
+	require.NoError(t, err)
+
+	pr, _, err := cp.GenerateRepoPRToken(ctx, "widgets")
+	require.NoError(t, err)
+
+	full, _, err := cp.GenerateRepoToken(ctx, "widgets")
+	require.NoError(t, err)
+
+	assert.NotEqual(t, read, pr)
+	assert.NotEqual(t, full, pr)
+	assert.Equal(t, int32(1), inner.readCalls.Load())
+	assert.Equal(t, int32(1), inner.prCalls.Load())
+	assert.Equal(t, int32(1), inner.repoCalls.Load())
+
+	again, _, err := cp.GenerateRepoPRToken(ctx, "Widgets")
+	require.NoError(t, err)
+	assert.Equal(t, pr, again, "a fresh PR token is reused")
+	assert.Equal(t, int32(1), inner.prCalls.Load())
 }

@@ -134,6 +134,20 @@ func (p *AppProvider) GenerateRepoReadToken(ctx context.Context, repo string) (s
 	})
 }
 
+// GenerateRepoPRToken mints an installation token limited to the named
+// repository and to contents and pull requests write. An empty name is refused
+// before any request.
+func (p *AppProvider) GenerateRepoPRToken(ctx context.Context, repo string) (string, time.Time, error) {
+	if repo == "" {
+		return "", time.Time{}, errors.New("repo is required")
+	}
+
+	return p.mintScoped(ctx, map[string]any{
+		"repositories": []string{repo},
+		"permissions":  map[string]string{"contents": "write", "pull_requests": "write"},
+	})
+}
+
 func (p *AppProvider) mintScoped(ctx context.Context, request map[string]any) (string, time.Time, error) {
 	body, err := json.Marshal(request)
 	if err != nil {

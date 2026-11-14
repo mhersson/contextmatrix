@@ -205,7 +205,11 @@ listing) keeps the broad installation token. Run kinds get no MCP key, and the
 git token CM mints for them is a contents-read token for one repository
 (`GenerateRepoReadToken`, cached apart from write tokens). On a PAT install the
 run kind gets the PAT with whatever scope it has: the model has no git-writing
-tool but can read the token file. Contract:
+tool but can read the token file. The `guidance_pr` run kind alone receives a
+write token (`GenerateRepoPRToken`): for an App install it is narrowed to
+contents and pull requests write on that one repository, and for a PAT install
+it is the PAT unchanged. No model runs where it is used, and a mint the
+installation refuses leaves the revision unsent. Contract:
 [API reference](api-reference.md) and [remote execution](remote-execution.md).
 
 The LLM key is kept out of workers by the backends, not by CM. CM still sends

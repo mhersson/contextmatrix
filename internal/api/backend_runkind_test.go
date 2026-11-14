@@ -35,6 +35,10 @@ func (m *mintRecorder) GenerateRepoToken(context.Context, string) (string, time.
 	return "write-tok", time.Time{}, nil
 }
 
+func (m *mintRecorder) GenerateRepoPRToken(context.Context, string) (string, time.Time, error) {
+	return "pr-tok", time.Time{}, nil
+}
+
 func (m *mintRecorder) GenerateRepoReadToken(_ context.Context, repo string) (string, time.Time, error) {
 	m.readCalls.Add(1)
 	m.readRepo.Store(repo)

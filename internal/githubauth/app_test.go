@@ -298,3 +298,35 @@ func TestAppProvider_GenerateRepoReadToken_EmptyRepo(t *testing.T) {
 	assert.Empty(t, token)
 	assert.Zero(t, hits.Load(), "no request may reach GitHub for an empty repo")
 }
+
+func TestAppProviderGenerateRepoPRTokenNarrowsPermissions(t *testing.T) {
+	var hits atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+
+		var got map[string]any
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&got))
+		assert.Equal(t, map[string]any{
+			"repositories": []any{"widgets"},
+			"permissions":  map[string]any{"contents": "write", "pull_requests": "write"},
+		}, got)
+
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"token": "ghs_pr", "expires_at": "2026-04-25T00:00:00Z"}`))
+	}))
+	defer server.Close()
+
+	p, err := NewAppProviderWithKey(123, 456, genTestKey(t), server.URL)
+	require.NoError(t, err)
+
+	token, _, err := p.GenerateRepoPRToken(context.Background(), "widgets")
+	require.NoError(t, err)
+	assert.Equal(t, "ghs_pr", token)
+	assert.Equal(t, int32(1), hits.Load())
+
+	token, _, err = p.GenerateRepoPRToken(context.Background(), "")
+	require.Error(t, err)
+	assert.Empty(t, token)
+	assert.Equal(t, int32(1), hits.Load(), "no request may reach GitHub for an empty repo")
+}

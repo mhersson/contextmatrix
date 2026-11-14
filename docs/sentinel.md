@@ -356,6 +356,10 @@ router hands the controller:
   (`GenerateRepoReadToken`), minted from the project's credential binding and
   failing closed as a launch does. A PAT cannot be narrowed, so a PAT install
   sends the PAT. The token carries no expiry: the run clones once;
+- `guidance_pr` alone gets a write token instead (`GenerateRepoPRToken`):
+  contents and pull requests write on that one repository for an App install,
+  the PAT unchanged for a PAT install. No model runs in that kind. A mint the
+  installation refuses leaves the revision unsent;
 - for `investigate` and `analyse`, the model, selection context and LLM
   endpoint a card launched now would get (`chooseModel`, shared with
   `launch`), and the mode that endpoint belongs to. `check` runs no model and
