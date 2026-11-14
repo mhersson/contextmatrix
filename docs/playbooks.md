@@ -235,7 +235,7 @@ through Stop then Run, in process as `system:sentinel`: the stop is recorded as
 `stopped by system:sentinel`, the resumed run's `started_by` reads
 `system:sentinel`, and the runner launches the card from `todo`. Once that
 rerun passes, Sentinel writes the same fix, as `system:sentinel` and under the
-same checks, to the run's cards that have not started and that its
+same checks, to the run's vetted cards that have not started and that its
 investigation named as sharing the cause (see
 [Fix forward](sentinel.md#fix-forward)). A card that runs with a forwarded fix
 and fails parks for a human, and the run holds on it as on any failed card.

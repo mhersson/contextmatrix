@@ -222,7 +222,8 @@ router hands the controller:
 
 Siblings are the cards of the playbook run holding the card, when that run is
 active on this instance: card entries in the same project that are incomplete,
-in `todo` with no worker status, other than the card itself, in entry order.
+in `todo`, vetted (an imported card no human vetted is never sent), with no
+worker status, other than the card itself, in entry order.
 
 The agent refuses a body over 1 MiB, so the investigate payload is filled in
 order: the card, then subtasks, then siblings, while the encoded payload stays
@@ -531,7 +532,10 @@ instance; fixing forward outside a playbook run is not done. `forwardTargets`
 keeps the named cards that were sent as siblings and are still unstarted
 entries of that run, by the rule the siblings were chosen by (`siblings` in
 `payload.go`): card entries in the card's project that are incomplete, in
-`todo` and with no worker status.
+`todo`, vetted and with no worker status. The playbook runner launches the
+next entry as soon as the healed card is `done`, while Sentinel settles the
+rerun only once its worker has ended, so that card has usually started and
+gets no forwarded fix; it gets its own heal if it fails for the same cause.
 
 Each target is read fresh with its project's `todo` cards. `forwardFix` drops
 the subtasks the fix retires, which belong to the healed card, and
@@ -551,11 +555,12 @@ can carry the fix started after it.
 
 A forward row is on trial (stage `forwarded`) until a run of its card that
 started after it settles with a verdict. The pass considers that run like any
-other (see [One pass](#one-pass)): `causeKey` reads any stop but `done` or
-`usage_limit` as `forward_fix_failed` (see [Triggers](#triggers)), whose row
-parks an eligible run's card for a human, and the playbook runner holds the
-run on the failed card as it does on any. Then `forwardOutcome` judges the
-card's rows on trial: `forward_passed` when the run stopped `done` or the card
+other (see [One pass](#one-pass)): unless the card stalled, a human stopped
+the run, the review cap applies, or the run stopped `done` or `usage_limit`,
+`causeKey` names the cause `forward_fix_failed` (see [Triggers](#triggers)),
+whose row parks an eligible run's card for a human, and the playbook runner
+holds the run on the failed card as it does on any. Then `forwardOutcome`
+judges the card's rows on trial: `forward_passed` when the run stopped `done` or the card
 is `done`, `forward_failed` when the cause is `forward_fix_failed`. Any other
 cause (a usage limit, a human stop, a stall, the review cap) leaves them on
 trial for the card's next run. The rows are judged after the run is decided,

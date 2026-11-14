@@ -176,6 +176,8 @@ func TestSiblings(t *testing.T) {
 		"ALPHA-004": {ID: "ALPHA-004", State: board.StateTodo, WorkerStatus: "failed"},
 		"ALPHA-005": {ID: "ALPHA-005", State: board.StateInProgress},
 		"ALPHA-007": {ID: "ALPHA-007", State: board.StateTodo},
+		"ALPHA-008": {ID: "ALPHA-008", State: board.StateTodo, Source: &board.Source{System: "jira", ExternalID: "OPS-1"}},
+		"ALPHA-009": {ID: "ALPHA-009", State: board.StateTodo, Source: &board.Source{System: "jira", ExternalID: "OPS-2"}, Vetted: true},
 	}
 	entry := func(id, typ, project, cardID string, complete bool) service.PlaybookEntryDetail {
 		return service.PlaybookEntryDetail{
@@ -197,6 +199,8 @@ func TestSiblings(t *testing.T) {
 				entry("e7", board.EntryTypeCard, "alpha", "ALPHA-005", false), // not in todo
 				entry("e8", board.EntryTypeCard, "alpha", "ALPHA-006", false), // gone
 				entry("e9", board.EntryTypeCard, "alpha", "ALPHA-003", false),
+				entry("e10", board.EntryTypeCard, "alpha", "ALPHA-008", false), // imported, not vetted
+				entry("e11", board.EntryTypeCard, "alpha", "ALPHA-009", false), // imported and vetted
 			},
 		}
 	}
@@ -207,8 +211,8 @@ func TestSiblings(t *testing.T) {
 		want []string
 	}{
 		{"no playbook", nil, nil},
-		{"running here, in entry order", run(board.RunStatusRunning, "lap-a"), []string{"ALPHA-007", "ALPHA-003"}},
-		{"waiting here", run(board.RunStatusWaiting, "lap-a"), []string{"ALPHA-007", "ALPHA-003"}},
+		{"running here, in entry order", run(board.RunStatusRunning, "lap-a"), []string{"ALPHA-007", "ALPHA-003", "ALPHA-009"}},
+		{"waiting here", run(board.RunStatusWaiting, "lap-a"), []string{"ALPHA-007", "ALPHA-003", "ALPHA-009"}},
 		{"stopped", run(board.RunStatusStopped, "lap-a"), nil},
 		{"another instance's run", run(board.RunStatusRunning, "lap-b"), nil},
 		{"not runnable", func() *service.PlaybookDetail {

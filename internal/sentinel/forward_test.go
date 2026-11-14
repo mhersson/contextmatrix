@@ -59,6 +59,9 @@ func TestForwardTargets(t *testing.T) {
 		{"started", func(_ *Heal, _ *service.PlaybookDetail, cards map[string]*board.Card) {
 			cards["ALPHA-020"].WorkerStatus = "running"
 		}, []string{"ALPHA-021"}},
+		{"imported and not vetted", func(_ *Heal, _ *service.PlaybookDetail, cards map[string]*board.Card) {
+			cards["ALPHA-020"].Source = &board.Source{System: "jira", ExternalID: "OPS-1"}
+		}, []string{"ALPHA-021"}},
 		{"another project's entry", func(_ *Heal, pb *service.PlaybookDetail, _ map[string]*board.Card) {
 			pb.Entries[2].Project = "beta"
 		}, []string{"ALPHA-020"}},
