@@ -334,7 +334,7 @@ forward runs `vetForward` on each card it forwards to (see
 | `checkRetire`  | Retiring a subtask that is not this card's, is not in `todo`, is claimed, or has a queued or running worker | heal              |
 | `checkEdits`   | Any change since launch: `title edited`, `verify edited`, `autonomous changed`, `intro edited`, `section "X" edited`, `added` or `removed`; no launch snapshot is also refused | heal |
 | `checkVerify`  | A verify change that adds an env name (`adds env NAME`), drops the command (`removes the verify command`), changes the command for a cause verify did not stop (`changes the verify command, which did not stop the run`) or to one the check run kind did not list as a candidate (`command not declared by the repo`), was never trial-run (`verify not trial-run`), whose trial did not finish (`trial run: <trial>`), or that the card service would refuse, such as a command over one line or a timeout over 7200 seconds (`verify <rule>`, from `service.ValidateVerifyConfig`) | heal, forward |
-| `checkText`    | A fix with a `## Sentinel` section when the check run kind did not run (`text not checked`), or when it reports text absent from the repo that is also absent from the card's title and body (`introduces <entry>`) | heal, forward |
+| `checkText`    | A fix with a `## Sentinel` section when the check run kind did not run (`text not checked`), or when it reports text absent from the repo that is also absent from the card's human-written title and body (`introduces <entry>`) | heal, forward |
 
 The verify rule compares the card's resolved verify (card over project) with the
 fix's resolved verify (a fix verify with no content, such as an empty env list, is stored as none, so the card inherits the project's). Commands are compared line by line (blank lines ignored, a newline is significant), each line by whitespace-separated
@@ -343,8 +343,12 @@ when the heal's cause is `toolchain_missing` or `verify_parked`, the causes wher
 verify stopped the run, and then only to a candidate; a forward is judged by the
 cause of the heal its fix came from. For any cause the timeout may change and
 env names may be removed, never added. The text
-check ignores the card's own `## Sentinel` section, so text Sentinel wrote
-earlier never whitelists itself.
+check reads the title, the intro and every section but the card's own
+`## Sentinel` section and the sections agents write (`agentHeadings` in
+`check_text.go`: `## Plan`, `## Review Findings` and the other headings the
+agent's orchestrator and CM's workflow skills write, a `(Round N)` suffix
+aside), so text Sentinel or an agent wrote earlier never whitelists new text.
+A section a human wrote under one of those headings is not read either.
 
 ## The heal flow
 
@@ -664,7 +668,7 @@ the next pass.
 | `internal/sentinel/check_retire.go` | `checkRetire` |
 | `internal/sentinel/check_edits.go` | `checkEdits` |
 | `internal/sentinel/check_verify.go` | `checkVerify` and its resolved-verify helpers |
-| `internal/sentinel/check_text.go` | `checkText` |
+| `internal/sentinel/check_text.go` | `checkText` and `agentHeadings` |
 | `internal/sentinel/trigger.go`              | The pure triggers: `causeKey` (settled and cause), `eligible`, and `openStage` (the stage a new heal opens at)                                               |
 | `internal/sentinel/heal.go`                 | The pure heal flow: `nextStep` over a `healView`, one rule per stage and exit; `healFix`                                                                     |
 | `internal/sentinel/gate.go`                 | The pure budget gate, what work in flight counts against the cap (`inFlightReserve`, `rerunAccrued`), the daily cap's day (`dayStart`) and the worker-slot check (`roomFor`) |
