@@ -1,12 +1,17 @@
-import type { SentinelStatus, SentinelVerify } from '../types';
+import type { SentinelFindingView, SentinelStatus, SentinelVerify } from '../types';
 
 export type SentinelTone = 'active' | 'paused' | 'stopped';
+
+function workingText(s: SentinelStatus): string {
+  if (s.analysing <= 0) return `healing ${s.healing}`;
+  return s.healing > 0 ? `healing ${s.healing} · analysing ${s.analysing}` : `analysing ${s.analysing}`;
+}
 
 /** Full state text: the tooltip and accessible name of the chip, and the popover's state. */
 export function stripText(s: SentinelStatus): string {
   switch (s.state) {
     case 'working':
-      return `healing ${s.healing}`;
+      return workingText(s);
     case 'paused':
       return s.reason ?? 'paused';
     case 'not_running':
@@ -90,4 +95,37 @@ export function verifyLines(v?: SentinelVerify): string {
   if (v.timeout_seconds) lines.push(`timeout_seconds: ${v.timeout_seconds}`);
   if (v.env?.length) lines.push(`env: ${v.env.join(', ')}`);
   return lines.join('\n');
+}
+
+export interface FindingOutcome {
+  text: string;
+  href?: string;
+  /** The href leaves the app and opens in a new tab. */
+  external?: boolean;
+}
+
+/** Where a finding stands on its way to an output; null when nothing is worth saying. */
+export function findingOutcome(f: SentinelFindingView, project: string, prURL?: string): FindingOutcome | null {
+  switch (f.state) {
+    case 'queued':
+      return { text: f.reason || 'Waiting to be routed' };
+    case 'pending':
+      return { text: 'Waiting for the next guidance PR' };
+    case 'proposed': {
+      const href = f.output || prURL;
+      return href ? { text: 'In the standing PR', href, external: true } : { text: 'In the standing PR' };
+    }
+    case 'merged':
+      return { text: 'Merged' };
+    case 'rejected':
+      return { text: 'Rejected in review' };
+    case 'duplicate':
+      return { text: f.reason };
+    case 'dropped':
+      return { text: `Dropped: ${f.reason}` };
+    case 'carded':
+      return { text: `Friction card ${f.output}`, href: `/projects/${project}?card=${f.output}` };
+    default:
+      return null;
+  }
 }

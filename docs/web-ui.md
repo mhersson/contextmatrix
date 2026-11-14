@@ -245,8 +245,9 @@ exists only while something waits. The mobile drawer shows the same content.
 
 While Sentinel is enabled, a chip in the status row, beside the LLM channel
 chip, names it: a solid shield with a check and its state word. The word is
-"watching", "healing N" while N cards are being healed, "paused" while paused
-or "not running". The chip's tooltip and the popover carry the full state,
+"watching", "healing N" while N cards are being healed, "analysing M" while M
+run analyses are in flight ("healing N · analysing M" when both are),
+"paused" while paused or "not running". The chip's tooltip and the popover carry the full state,
 including the pause reason. The shield and word are purple while watching or
 healing, yellow while paused and red while not running. Nothing shows while
 Sentinel is off. Every Sentinel surface uses the same solid shield. The
@@ -279,16 +280,24 @@ its label.
   that rerun has launched), and, when
   the fix's proposed section failed the section checks and was not written,
   "Section dropped" with the reasons. Then
-  come Friction (guidance, code, ecosystem) and Notes (card advice, project
-  verify for admins, hard card). All of this text is shown as plain text. The
+  come the project's standing guidance PR (a link to it, its state - open,
+  changed outside Sentinel, merged or closed, shown only once CM has read the
+  PR from GitHub - and its file), Friction (guidance, code, ecosystem) and Notes
+  (card advice, project verify for admins, hard card). Each finding carries an
+  outcome line: waiting to be routed (or the reason it is queued), waiting for
+  the next guidance PR, "In the standing PR" (a link to the PR, opened in a new
+  tab), merged, rejected in review, the duplicate's reason, "Dropped:" with the
+  reason, or "Friction card ID" (a link to that card); notes and held findings
+  have none. Last comes Analyses, newest first: each run analysis's stage, age,
+  spend and reason. All of this text is shown as plain text. The
   tab refetches on Sentinel events and events for the card.
 - A purple shield joins the board card's signal icons when the card carries a
-  Sentinel mark (healing, healed, edited or parked); its label is the mark's
+  Sentinel mark (healing, healed, edited, parked or created); its label is the mark's
   label. The server sends no mark while Sentinel is off. A card is marked
   healing while a heal is in flight or a rerun is pending, healed once its
   rerun passed, edited when a fix from another card was applied to it, and
   parked when a rerun failed or Sentinel left it for a human, until the card is
-  launched again.
+  launched again. A card Sentinel created from a run's friction is marked created.
 
 The settings page at `/admin/sentinel` (admin only in `multi` mode) has four
 switches (Sentinel, Healing, Friction analysis, Analyse every run), the daily

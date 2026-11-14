@@ -41,6 +41,7 @@ function sentinel(enabled: boolean): SentinelInfo {
       state: enabled ? 'watching' : 'off',
       mode: enabled ? 'endpoint' : '',
       healing: 0,
+      analysing: 0,
       healed_today: 0,
       spent_today_usd: 0,
       daily_cap_usd: 20,

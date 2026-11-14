@@ -880,6 +880,7 @@ export interface SentinelStatus {
   reason?: string;
   mode: LLMChannel | '';
   healing: number;
+  analysing: number;
   healed_today: number;
   spent_today_usd: number;
   daily_cap_usd: number;
@@ -898,11 +899,30 @@ export interface SentinelSettings {
   analyse_ceiling_usd: number;
 }
 
-/** Shape of GET /api/projects/{project}/cards/{id}/sentinel: the card's last run facts (null when this instance launched none), its heal and forward rows newest first, and its friction findings. */
+/** Shape of GET /api/projects/{project}/cards/{id}/sentinel: the card's last run facts (null when this instance launched none), its heal and forward rows newest first, its friction findings, its run analyses newest first and the project's standing guidance PR (null when it has none). */
 export interface SentinelCardView {
   run: SentinelRunView | null;
   heals: SentinelHealView[];
   findings: SentinelFindingView[];
+  analyses: SentinelAnalysisView[];
+  standing_pr: SentinelStandingPR | null;
+}
+
+export interface SentinelAnalysisView {
+  id: number;
+  run_id: string;
+  stage: string;
+  reason: string;
+  spend_usd: number;
+  created_at: string;
+}
+
+/** `state` is empty until CM's first GitHub read of the PR. */
+export interface SentinelStandingPR {
+  url: string;
+  state: 'open' | 'changed_outside' | 'merged' | 'closed' | '';
+  file: string;
+  pushed_at: string;
 }
 
 export interface SentinelVerify {
@@ -944,7 +964,25 @@ export type SentinelFindingKind =
   | 'project_verify'
   | 'hard_card';
 
+export type SentinelFindingState =
+  | 'queued'
+  | 'pending'
+  | 'proposed'
+  | 'merged'
+  | 'rejected'
+  | 'duplicate'
+  | 'dropped'
+  | 'carded'
+  | 'note'
+  | 'held'
+  | '';
+
+/** `reason` says why a finding was held, dropped or queued; `output` is a friction card's ID or the standing PR's URL. */
 export interface SentinelFindingView {
+  id: number;
+  state: SentinelFindingState;
+  reason: string;
+  output: string;
   kind: SentinelFindingKind;
   title: string;
   text: string;
@@ -965,7 +1003,7 @@ export interface SentinelRunView {
 
 /** Read-only mark on a card Sentinel touched. */
 export interface SentinelMark {
-  action: 'healing' | 'healed' | 'edited' | 'parked';
+  action: 'healing' | 'healed' | 'edited' | 'parked' | 'created';
   label: string;
 }
 

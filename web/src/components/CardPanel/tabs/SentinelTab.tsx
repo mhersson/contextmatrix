@@ -1,5 +1,8 @@
+import { Link } from 'react-router';
 import type {
   Card,
+  SentinelAnalysisView,
+  SentinelStandingPR,
   SentinelFindingKind,
   SentinelFindingView,
   SentinelHealView,
@@ -7,7 +10,7 @@ import type {
 } from '../../../types';
 import { useCardSentinel } from '../../../hooks/useSentinel';
 import { formatCost, formatRelativeTime } from '../../../lib/format';
-import { lineDiff, verifyLines, type DiffLine } from '../../../lib/sentinel';
+import { findingOutcome, lineDiff, verifyLines, type DiffLine } from '../../../lib/sentinel';
 
 const ORIGINS: Record<SentinelRunView['origin'], string> = {
   rest: 'UI or REST',
@@ -128,14 +131,95 @@ function Heal({ heal }: { heal: SentinelHealView }) {
   );
 }
 
+const PR_STATES: Record<string, string> = {
+  open: 'open',
+  changed_outside: 'changed outside Sentinel',
+  merged: 'merged',
+  closed: 'closed',
+};
+
+function ExternalLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--blue)' }}>
+      {children}
+    </a>
+  );
+}
+
+function StandingPR({ pr }: { pr: SentinelStandingPR }) {
+  return (
+    <section className="flex flex-col gap-1 text-sm">
+      <h3 className="font-medium" style={{ color: 'var(--fg)' }}>
+        Standing guidance PR
+      </h3>
+      <p className="wrap-anywhere">
+        <ExternalLink href={pr.url}>{pr.url}</ExternalLink>
+      </p>
+      <p className="flex flex-wrap gap-x-3" style={{ color: 'var(--grey1)' }}>
+        {PR_STATES[pr.state] && <span data-testid="standing-pr-state">{PR_STATES[pr.state]}</span>}
+        <span>{pr.file}</span>
+      </p>
+    </section>
+  );
+}
+
+function Outcome({ finding, project, prURL }: { finding: SentinelFindingView; project: string; prURL?: string }) {
+  const outcome = findingOutcome(finding, project, prURL);
+  if (!outcome) return null;
+  let line: React.ReactNode = outcome.text;
+  if (outcome.href && outcome.external) line = <ExternalLink href={outcome.href}>{outcome.text}</ExternalLink>;
+  else if (outcome.href) {
+    line = (
+      <Link to={outcome.href} style={{ color: 'var(--blue)' }}>
+        {outcome.text}
+      </Link>
+    );
+  }
+  return (
+    <p data-testid="finding-outcome" className="text-xs wrap-anywhere" style={{ color: 'var(--grey1)' }}>
+      {line}
+    </p>
+  );
+}
+
+function Analyses({ analyses }: { analyses: SentinelAnalysisView[] }) {
+  if (analyses.length === 0) return null;
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-sm font-medium" style={{ color: 'var(--fg)' }}>
+        Analyses
+      </h3>
+      {analyses.map((a) => (
+        <div key={a.id} data-testid="analysis" className="flex flex-col gap-0.5 text-sm">
+          <div className="flex justify-between gap-3">
+            <span style={{ color: 'var(--fg)' }}>{a.stage}</span>
+            <span style={{ color: 'var(--grey1)' }}>
+              {formatRelativeTime(a.created_at)}, {formatCost(a.spend_usd)}
+            </span>
+          </div>
+          {a.reason && (
+            <p className="wrap-anywhere" style={{ color: 'var(--grey1)' }}>
+              {a.reason}
+            </p>
+          )}
+        </div>
+      ))}
+    </section>
+  );
+}
+
 function Findings({
   title,
   groups,
   findings,
+  project,
+  prURL,
 }: {
   title: string;
   groups: { kind: SentinelFindingKind; label: string }[];
   findings: SentinelFindingView[];
+  project: string;
+  prURL?: string;
 }) {
   const shown = groups.flatMap((g) => findings.filter((f) => f.kind === g.kind).map((f) => ({ ...f, label: g.label })));
   if (shown.length === 0) return null;
@@ -144,8 +228,8 @@ function Findings({
       <h3 className="text-sm font-medium" style={{ color: 'var(--fg)' }}>
         {title}
       </h3>
-      {shown.map((f, i) => (
-        <article key={i} className="flex flex-col gap-1 text-sm">
+      {shown.map((f) => (
+        <article key={f.id} className="flex flex-col gap-1 text-sm">
           <h4 style={{ color: 'var(--fg)' }}>
             <span style={{ color: 'var(--grey1)' }}>{f.label}: </span>
             {f.title}
@@ -158,6 +242,7 @@ function Findings({
               {f.evidence}
             </pre>
           )}
+          <Outcome finding={f} project={project} prURL={prURL} />
         </article>
       ))}
     </section>
@@ -169,8 +254,8 @@ export function SentinelTab({ card }: { card: Card }) {
   const view = useCardSentinel(card.project, card.id);
   if (!view) return null;
 
-  const { run, heals, findings } = view;
-  if (!run && heals.length === 0 && findings.length === 0) {
+  const { run, heals, findings, analyses, standing_pr: standingPR } = view;
+  if (!run && heals.length === 0 && findings.length === 0 && analyses.length === 0 && !standingPR) {
     return (
       <p className="p-4 text-sm" style={{ color: 'var(--grey1)' }}>
         Sentinel acts only on runs this instance launched.
@@ -193,8 +278,10 @@ export function SentinelTab({ card }: { card: Card }) {
       {heals.map((h) => (
         <Heal key={h.id} heal={h} />
       ))}
-      <Findings title="Friction" groups={FRICTION} findings={findings} />
-      <Findings title="Notes" groups={NOTES} findings={findings} />
+      {standingPR && <StandingPR pr={standingPR} />}
+      <Findings title="Friction" groups={FRICTION} findings={findings} project={card.project} prURL={standingPR?.url} />
+      <Findings title="Notes" groups={NOTES} findings={findings} project={card.project} prURL={standingPR?.url} />
+      <Analyses analyses={analyses} />
     </div>
   );
 }

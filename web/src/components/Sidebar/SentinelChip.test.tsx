@@ -36,6 +36,7 @@ function info(over: Partial<SentinelStatus> = {}): SentinelInfo {
       state: 'watching',
       mode: 'endpoint',
       healing: 0,
+      analysing: 0,
       healed_today: 3,
       spent_today_usd: 1.2,
       daily_cap_usd: 20,

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { api } from '../../../api/client';
-import type { Card, SentinelCardView, SentinelFindingView, SentinelHealView, SentinelRunView } from '../../../types';
+import type { Card, SentinelAnalysisView, SentinelCardView, SentinelFindingView, SentinelHealView, SentinelRunView } from '../../../types';
+import { MemoryRouter } from 'react-router';
 import { SentinelTab } from './SentinelTab';
 
 const bus = vi.hoisted(() => ({ handlers: new Map<string, (e: unknown) => void>() }));
@@ -28,8 +29,12 @@ const run: SentinelRunView = {
 };
 
 function renderTab(view: Partial<SentinelCardView> & { run: SentinelRunView | null }) {
-  vi.spyOn(api, 'getCardSentinel').mockResolvedValue({ heals: [], findings: [], ...view });
-  return render(<SentinelTab card={card} />);
+  vi.spyOn(api, 'getCardSentinel').mockResolvedValue({ heals: [], findings: [], analyses: [], standing_pr: null, ...view });
+  return render(
+    <MemoryRouter>
+      <SentinelTab card={card} />
+    </MemoryRouter>,
+  );
 }
 
 const heal: SentinelHealView = {
@@ -54,6 +59,10 @@ const heal: SentinelHealView = {
 };
 
 const finding = (kind: SentinelFindingView['kind'], title: string): SentinelFindingView => ({
+  id: 1,
+  state: '',
+  reason: '',
+  output: '',
   kind,
   title,
   text: `${title} text`,
@@ -202,5 +211,71 @@ describe('SentinelTab', () => {
 
     act(() => bus.handlers.get('sentinel.*')?.({}));
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(3));
+  });
+
+  it("shows each finding's outcome with its link", async () => {
+    const f = (id: number, title: string, over: Partial<SentinelFindingView>) => ({ ...finding('guidance', title), id, ...over });
+    renderTab({
+      run: null,
+      standing_pr: { url: 'https://github.com/acme/app/pull/12', state: 'open', file: 'AGENTS.md', pushed_at: '2026-11-13T10:30:00Z' },
+      findings: [
+        f(1, 'queued one', { state: 'queued', reason: 'over the daily limit' }),
+        f(2, 'pending one', { state: 'pending' }),
+        f(3, 'proposed one', { state: 'proposed', output: 'https://github.com/acme/app/pull/3' }),
+        f(4, 'carded one', { state: 'carded', output: 'T-040' }),
+        f(5, 'dropped one', { state: 'dropped', reason: 'no evidence' }),
+        f(6, 'duplicate one', { state: 'duplicate', reason: 'same as another' }),
+        f(7, 'note one', { state: 'note' }),
+      ],
+    });
+    expect(await screen.findByText('over the daily limit')).toBeInTheDocument();
+    expect(screen.getByText('Waiting for the next guidance PR')).toBeInTheDocument();
+    const pr = screen.getByRole('link', { name: 'In the standing PR' });
+    expect(pr).toHaveAttribute('href', 'https://github.com/acme/app/pull/3');
+    expect(pr).toHaveAttribute('target', '_blank');
+    expect(pr).toHaveAttribute('rel', 'noopener noreferrer');
+    const carded = screen.getByRole('link', { name: 'Friction card T-040' });
+    expect(carded).toHaveAttribute('href', '/projects/p?card=T-040');
+    expect(carded).not.toHaveAttribute('target');
+    expect(screen.getByText('Dropped: no evidence')).toBeInTheDocument();
+    expect(screen.getByText('same as another')).toBeInTheDocument();
+    expect(screen.getAllByTestId('finding-outcome')).toHaveLength(6);
+  });
+
+  it('shows the standing PR changed outside Sentinel', async () => {
+    renderTab({
+      run: null,
+      standing_pr: { url: 'https://github.com/acme/app/pull/12', state: 'changed_outside', file: 'AGENTS.md', pushed_at: '2026-11-13T10:30:00Z' },
+    });
+    const link = await screen.findByRole('link', { name: /pull\/12/ });
+    expect(link).toHaveAttribute('href', 'https://github.com/acme/app/pull/12');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(screen.getByText('changed outside Sentinel')).toBeInTheDocument();
+    expect(screen.getByText('AGENTS.md')).toBeInTheDocument();
+  });
+
+  it('shows no state before the first GitHub read', async () => {
+    renderTab({ run: null, standing_pr: { url: 'https://github.com/acme/app/pull/12', state: '', file: 'AGENTS.md', pushed_at: '2026-11-13T10:30:00Z' } });
+    expect(await screen.findByRole('link', { name: /pull\/12/ })).toBeInTheDocument();
+    expect(screen.queryByTestId('standing-pr-state')).not.toBeInTheDocument();
+  });
+
+  it('lists analyses newest first', async () => {
+    const a = (id: number, stage: string, reason: string, spend: number): SentinelAnalysisView => ({
+      id,
+      run_id: `run-${id}`,
+      stage,
+      reason,
+      spend_usd: spend,
+      created_at: '2026-11-13T10:00:00Z',
+    });
+    renderTab({ run: null, analyses: [a(2, 'analysed', '', 0.31), a(1, 'analyse_skipped', 'not dispatched within 7 days', 0)] });
+    expect(await screen.findByText('Analyses')).toBeInTheDocument();
+    const items = screen.getAllByTestId('analysis');
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent('analysed');
+    expect(items[0]).toHaveTextContent('$0.31');
+    expect(items[1]).toHaveTextContent('analyse_skipped');
+    expect(items[1]).toHaveTextContent('not dispatched within 7 days');
   });
 });
