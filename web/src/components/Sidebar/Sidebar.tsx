@@ -90,7 +90,7 @@ export function Sidebar({ onNewProject, onNewSession, mobileOpen = false, onMobi
     [projects, boardsRepos]
   );
   const { summaries } = useProjectSummariesContext();
-  const { items: waiting } = useAttention();
+  const { items: waiting, projectCounts } = useAttention();
 
   const renderProject = (p: ProjectConfig) => (
     <NavLink
@@ -102,7 +102,7 @@ export function Sidebar({ onNewProject, onNewSession, mobileOpen = false, onMobi
     >
       {({ isActive }) => (
         <div aria-current={isActive ? 'page' : undefined}>
-          <ProjectCard name={p.name} displayName={p.display_name} summary={summaries.get(p.name)} isActive={isActive} poc={p.poc} />
+          <ProjectCard name={p.name} displayName={p.display_name} summary={summaries.get(p.name)} isActive={isActive} poc={p.poc} waiting={projectCounts.get(p.name)} />
         </div>
       )}
     </NavLink>

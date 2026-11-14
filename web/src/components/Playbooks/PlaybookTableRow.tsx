@@ -1,9 +1,10 @@
 import type { MouseEvent } from 'react';
-import type { PlaybookNext, PlaybookSummary } from '../../types';
+import type { AttentionItem, PlaybookNext, PlaybookSummary } from '../../types';
 import { formatExactTime, formatRelativeTime } from '../../lib/format';
 import { playbookStatus } from '../../lib/playbookStatus';
 import { sourceIcon } from '../icons';
 import { PinIcon, PlaybookIcon } from '../SessionIcons';
+import { WaitBadge } from '../WaitBadge';
 import { runStatusChip } from './playbookUtils';
 import { RouteTrack } from './RouteTrack';
 
@@ -13,6 +14,7 @@ export interface PlaybookTableRowProps {
   onToggle: (id: string) => void;
   onPin: (playbook: PlaybookSummary) => void;
   onOpen: (id: string) => void;
+  waiting?: AttentionItem;
 }
 
 // The row opens its playbook on click; the tick box and pin cells must not.
@@ -28,7 +30,7 @@ function NextUp({ next }: { next: PlaybookNext }) {
   );
 }
 
-export function PlaybookTableRow({ playbook: p, ticked, onToggle, onPin, onOpen }: PlaybookTableRowProps) {
+export function PlaybookTableRow({ playbook: p, ticked, onToggle, onPin, onOpen, waiting }: PlaybookTableRowProps) {
   const pinned = p.pinned === true;
   const status = playbookStatus(p);
   const agentActive = p.segments.includes('active');
@@ -61,6 +63,12 @@ export function PlaybookTableRow({ playbook: p, ticked, onToggle, onPin, onOpen 
             <span className="pbt-icon"><PlaybookIcon /></span>
             <span className="ssn-open-title">{p.title}</span>
           </button>
+          {waiting && (
+            <>
+              <WaitBadge />
+              <span className="ssn-wait-reason">{waiting.reason}</span>
+            </>
+          )}
           {p.source && (
             <span className="pbt-source" title={`Imported from ${p.source.system}`}>
               {sourceIcon(p.source.system) ?? p.source.system}

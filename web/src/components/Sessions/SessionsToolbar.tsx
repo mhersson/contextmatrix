@@ -7,9 +7,11 @@ interface SessionsToolbarProps {
   sessions: ChatSession[];
   filter: SessionFilter;
   onChange: (next: SessionFilter) => void;
+  /** Offers Status waiting; a chat never waits. */
+  offerWaiting?: boolean;
 }
 
-export function SessionsToolbar({ sessions, filter, onChange }: SessionsToolbarProps) {
+export function SessionsToolbar({ sessions, filter, onChange, offerWaiting = false }: SessionsToolbarProps) {
   const set = (patch: Partial<SessionFilter>) => onChange({ ...filter, ...patch });
 
   return (
@@ -40,6 +42,7 @@ export function SessionsToolbar({ sessions, filter, onChange }: SessionsToolbarP
           <option value="any">any</option>
           <option value="live">live</option>
           <option value="idle">not live</option>
+          {offerWaiting && <option value="waiting">waiting</option>}
         </select>
       </label>
       <button

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { PlaybookSummary } from '../../types';
+import type { AttentionItem, PlaybookSummary } from '../../types';
 import { PlaybookTableRow } from './PlaybookTableRow';
 
 interface PlaybooksTableProps {
@@ -11,9 +11,10 @@ interface PlaybooksTableProps {
   onToggleAll: () => void;
   onPin: (playbook: PlaybookSummary) => void;
   onOpen: (id: string) => void;
+  waiting: ReadonlyMap<string, AttentionItem>;
 }
 
-export function PlaybooksTable({ rows, createRow, selected, onToggle, onToggleAll, onPin, onOpen }: PlaybooksTableProps) {
+export function PlaybooksTable({ rows, createRow, selected, onToggle, onToggleAll, onPin, onOpen, waiting }: PlaybooksTableProps) {
   const ticked = rows.filter((p) => selected.has(p.id)).length;
   const all = rows.length > 0 && ticked === rows.length;
 
@@ -52,6 +53,7 @@ export function PlaybooksTable({ rows, createRow, selected, onToggle, onToggleAl
               onToggle={onToggle}
               onPin={onPin}
               onOpen={onOpen}
+              waiting={waiting.get(p.id)}
             />
           ))}
         </tbody>

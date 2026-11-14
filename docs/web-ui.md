@@ -228,6 +228,10 @@ exists only while something waits. The mobile drawer shows the same content.
   Chat, a playbook on its detail page, a card in its project with the card
   panel open, a Sentinel park on the card's Sentinel tab. In the drawer it also
   closes the drawer.
+- **Signals elsewhere:** while an item waits, its sidebar row (a blueprint or
+  playbook), its row in the [Sessions](#sessions) tables and the tab holding it
+  carry a yellow `!` badge, and a project row carries the count of its waiting
+  shared items. Each disappears when the item leaves the list.
 - **Tab title:** "(N) ContextMatrix" while N items wait, "ContextMatrix"
   otherwise, in every view.
 - **Collapsed sidebar:** a bell with the count sits above the LLM channel dot
@@ -720,10 +724,13 @@ dashboard.
   `?tab=playbooks`; a missing or unknown value opens Chats.
 - Search matches titles, ignoring case. On Chats and Blueprints the filters
   are Project (a chat's project, or any project in a blueprint's workspace),
-  Status (live is active or warm-idle, not live is everything else) and Pinned
-  only; on Playbooks they are Project (any project a card entry is on), Status
+  Status (live is active or warm-idle, not live is everything else; Blueprints
+  adds waiting, since a chat never waits) and Pinned only; on Playbooks they are Project (any project a card entry is on), Status
   and Pinned only. The filters combine. A tab without rows and filters that
   hide every row each show an empty state, the latter with Clear filters.
+- A tab holding a waiting item carries the yellow `!` badge. A waiting
+  blueprint or playbook row carries it too, with the wait's reason in yellow
+  after the title.
 - Rows sort newest activity first. On Chats and Blueprints the columns are a
   tick box, the pin, the title with a status dot (green while active and
   yellow while warm-idle, as in the sidebar), the project or projects, the

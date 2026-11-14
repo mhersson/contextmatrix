@@ -10096,3 +10096,9 @@ button.bp-rv-head {
   line-height: 1.3;
   color: var(--grey1);
 }
+
+.ssn-wait-reason {
+  color: var(--yellow);
+  font-size: 12px;
+  margin-left: 6px;
+}

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { api } from '../../api/client';
 import { notifyChatSessionsChanged, useChatSessions } from '../../hooks/useChatSessions';
+import { useAttention } from '../../hooks/useAttention';
 import { usePlaybooks } from '../../hooks/usePlaybooks';
 import { useSessionPin } from '../../hooks/useSessionPin';
 import { SESSIONS_TAB, sessionKind, sessionsTab, type SessionsTab } from '../../lib/sessions';
@@ -27,12 +28,16 @@ export function SessionsPage() {
   const { sessions, error, loaded } = useChatSessions();
   const { playbooks, loaded: playbooksLoaded, error: playbooksError } = usePlaybooks();
   const pin = useSessionPin();
+  const { blueprints, playbooks: waitingPlaybooks } = useAttention();
   const [filter, setFilter] = useState<SessionFilter>(EMPTY_FILTER);
   const [playbookFilter, setPlaybookFilter] = useState<PlaybookFilter>(EMPTY_PLAYBOOK_FILTER);
   const [confirming, setConfirming] = useState(false);
 
   const tabSessions = sessions.filter((s) => sessionKind(s) === tab);
-  const rows = newestActivityFirst(filterSessions(tabSessions, filter));
+  // Status waiting exists on Blueprints only; the tab comes from the URL, so derive rather than reset.
+  const sessionFilter: SessionFilter =
+    tab !== 'architect' && filter.status === 'waiting' ? { ...filter, status: 'any' } : filter;
+  const rows = newestActivityFirst(filterSessions(tabSessions, sessionFilter, new Set(blueprints.keys())));
   const { picked, selected, toggle, toggleAll, tickOnly } = useRowSelection(rows.map((s) => s.id));
   const { busy, run, deleteTicked } = useBulkActions({ selected, tickOnly });
   const counts: Record<SessionsTab, number> = {
@@ -40,6 +45,10 @@ export function SessionsPage() {
     architect: sessions.filter((s) => sessionKind(s) === 'architect').length,
     playbooks: playbooks.length,
   };
+
+  const waitingTabs = new Set<SessionsTab>();
+  if (blueprints.size > 0) waitingTabs.add('architect');
+  if (waitingPlaybooks.size > 0) waitingTabs.add('playbooks');
 
   const switchTab = (next: SessionsTab) => {
     setParams((prev) => {
@@ -54,7 +63,7 @@ export function SessionsPage() {
       <PageBar title="Sessions" />
       <div className="ssn-page">
         <h1 className="ssn-title">Sessions</h1>
-        <SessionsTabs active={tab} counts={counts} onChange={switchTab} />
+        <SessionsTabs active={tab} counts={counts} onChange={switchTab} waiting={waitingTabs} />
         <div
           id={SESSIONS_PANEL_ID}
           role="tabpanel"
@@ -65,7 +74,7 @@ export function SessionsPage() {
             <PlaybooksTab filter={playbookFilter} onFilterChange={setPlaybookFilter} />
           ) : (
             <>
-              <SessionsToolbar sessions={tabSessions} filter={filter} onChange={setFilter} />
+              <SessionsToolbar sessions={tabSessions} filter={sessionFilter} onChange={setFilter} offerWaiting={tab === 'architect'} />
               {error && <p className="ssn-error" role="alert">Could not load sessions: {error}</p>}
               {selected.length > 0 && (
                 <SessionsBulkBar
@@ -88,12 +97,13 @@ export function SessionsPage() {
                   onToggleAll={toggleAll}
                   onPin={(s) => void pin([s.id], !s.pinned)}
                   onOpen={(id) => navigate(`/chat/${id}`)}
+                  waiting={blueprints}
                 />
               ) : (
                 !error && (
                   <SessionsEmpty
                     emptyText={tab === 'architect' ? 'No blueprints yet.' : 'No chats yet.'}
-                    filtered={tabSessions.length > 0 && !isEmptyFilter(filter)}
+                    filtered={tabSessions.length > 0 && !isEmptyFilter(sessionFilter)}
                     onClear={() => setFilter(EMPTY_FILTER)}
                   />
                 )

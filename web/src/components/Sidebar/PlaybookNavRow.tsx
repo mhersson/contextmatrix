@@ -3,6 +3,7 @@ import { useMobileSidebar } from '../../context/MobileSidebarContext';
 import { playbookStatus } from '../../lib/playbookStatus';
 import type { PlaybookSummary } from '../../types';
 import { PinIcon, PlaybookIcon } from '../SessionIcons';
+import { WaitBadge } from '../WaitBadge';
 
 const STATUS_TONE = {
   running: 'var(--aqua)',
@@ -12,7 +13,7 @@ const STATUS_TONE = {
   'not started': 'var(--grey1)',
 } as const;
 
-export function PlaybookNavRow({ playbook: p }: { playbook: PlaybookSummary }) {
+export function PlaybookNavRow({ playbook: p, waiting }: { playbook: PlaybookSummary; waiting?: boolean }) {
   const mobileSidebar = useMobileSidebar();
   const status = playbookStatus(p);
   const pill = status === 'running' ? `${p.complete} of ${p.total}` : status;
@@ -30,6 +31,7 @@ export function PlaybookNavRow({ playbook: p }: { playbook: PlaybookSummary }) {
           <PlaybookIcon />
         </span>
         <span className="truncate flex-1">{p.title || p.id}</span>
+        {waiting && <WaitBadge />}
         {p.pinned === true && (
           <span className="inline-flex shrink-0" style={{ color: 'var(--orange)' }}>
             <PinIcon size={12} filled label="Pinned" />

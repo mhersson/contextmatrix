@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
+import { Link, MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { SessionsPage } from './SessionsPage';
 import { api } from '../../api/client';
 import { PlaybooksProvider } from '../../hooks/usePlaybooks';
-import type { ChatSession, PlaybookSummary } from '../../types';
+import type { AttentionItem, ChatSession, PlaybookSummary } from '../../types';
 import { SUBSCRIPTION_TOOLTIP } from '../../lib/subscription';
 
 const toast = vi.hoisted(() => ({ showToast: vi.fn() }));
@@ -16,6 +16,11 @@ vi.mock('../../context/MobileSidebarContext', () => ({
 
 vi.mock('../../hooks/useSSEBus', () => ({
   useSSEBus: () => ({ subscribe: () => () => {}, connected: true, reconnectEpoch: 0 }),
+}));
+
+const attention = vi.hoisted(() => ({ blueprints: new Map<string, unknown>() }));
+vi.mock('../../hooks/useAttention', () => ({
+  useAttention: () => ({ blueprints: attention.blueprints, playbooks: new Map() }),
 }));
 
 vi.mock('../../hooks/useTheme', () => ({ useTheme: () => ({ boardsRepos: [] }) }));
@@ -48,6 +53,7 @@ let store: ChatSession[] = [];
 
 beforeEach(() => {
   toast.showToast.mockReset();
+  attention.blueprints = new Map();
   store = [
     sess({ id: 'c1', title: 'Fix login', project: 'api', estimated_cost_usd: 0.5, last_active: '2026-10-20T10:00:00Z' }),
     sess({
@@ -124,6 +130,37 @@ const tick = (title: string) => fireEvent.click(within(row(title)).getByRole('ch
 const bulkBar = () => screen.queryByRole('toolbar');
 
 describe('SessionsPage', () => {
+  it('a waiting blueprint badges the Blueprints tab and its row', async () => {
+    const waiting: AttentionItem = { kind: 'blueprint', id: 'b2', title: 'Recipe box', reason: 'Asked a question', since: '2026-01-01T00:00:00Z' };
+    attention.blueprints = new Map([['b2', waiting]]);
+    renderAt();
+    await screen.findByText('Recipe box');
+    expect(within(screen.getByRole('tab', { name: /Blueprints/ })).getByText('!')).toBeInTheDocument();
+    expect(within(row('Recipe box')).getByText(waiting.reason)).toBeInTheDocument();
+    expect(within(row('Shopping list')).queryByText('!')).toBeNull();
+  });
+
+  it('Status waiting does not carry over to Chats when the URL changes the tab', async () => {
+    attention.blueprints = new Map([['b2', { kind: 'blueprint', id: 'b2', title: 'Recipe box', reason: 'r', since: '2026-01-01T00:00:00Z' }]]);
+    render(
+      <MemoryRouter initialEntries={['/sessions?tab=blueprints']}>
+        <PlaybooksProvider>
+          <Routes>
+            <Route path="/sessions" element={<SessionsPage />} />
+          </Routes>
+          <Link to="/sessions?tab=chats">all chats</Link>
+        </PlaybooksProvider>
+      </MemoryRouter>,
+    );
+    await screen.findByText('Recipe box');
+    fireEvent.change(screen.getByLabelText(/Status/), { target: { value: 'waiting' } });
+    expect(listedTitles()).toEqual(['Recipe box']);
+    fireEvent.click(screen.getByText('all chats'));
+    await screen.findByText('Fix login');
+    expect((screen.getByLabelText(/Status/) as HTMLSelectElement).value).toBe('any');
+  });
+
+
   it('opens on the tab in the URL and shows both counts', async () => {
     renderAt();
     await screen.findByText('Recipe box');

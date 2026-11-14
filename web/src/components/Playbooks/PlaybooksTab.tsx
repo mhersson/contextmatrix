@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { api } from '../../api/client';
+import { useAttention } from '../../hooks/useAttention';
 import { useJiraStatus } from '../../hooks/useJiraStatus';
 import { usePlaybooks } from '../../hooks/usePlaybooks';
 import { useTheme } from '../../hooks/useTheme';
@@ -32,6 +33,7 @@ export function PlaybooksTab({ filter, onFilterChange }: PlaybooksTabProps) {
   const [params, setParams] = useSearchParams();
   const { playbooks, loaded, error, refresh } = usePlaybooks();
   const pin = usePlaybookPin();
+  const { playbooks: waiting } = useAttention();
   const [confirming, setConfirming] = useState(false);
   const {
     creating, setCreating, newTitle, setNewTitle, newDescription, setNewDescription,
@@ -107,6 +109,7 @@ export function PlaybooksTab({ filter, onFilterChange }: PlaybooksTabProps) {
           onToggleAll={toggleAll}
           onPin={(p) => void pin([p.id], !p.pinned)}
           onOpen={(id) => navigate(`/playbooks/${id}`)}
+          waiting={waiting}
         />
       ) : !loaded ? (
         !error && <p className="ssn-loading">Loading…</p>
