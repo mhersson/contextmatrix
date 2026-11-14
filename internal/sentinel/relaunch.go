@@ -216,25 +216,32 @@ func usageRerunText(rerun int) string {
 
 // changeText names what a fix changed on the card.
 func changeText(change *Change) string {
-	var parts []string
-
-	if change != nil {
-		if change.SectionAfter != change.SectionBefore {
-			parts = append(parts, "updated the ## "+SectionHeading+" section")
-		}
-
-		if !reflect.DeepEqual(change.VerifyBefore, change.VerifyAfter) {
-			parts = append(parts, "changed verify")
-		}
-
-		if len(change.Retired) > 0 {
-			parts = append(parts, "retired "+strings.Join(change.Retired, ", "))
-		}
-	}
-
-	if len(parts) == 0 {
+	if change == nil || !change.changed() {
 		return "changed nothing on the card"
 	}
 
-	return strings.Join(parts, ", ")
+	return strings.Join(change.parts(), ", ")
+}
+
+// changed reports whether the fix altered the card.
+func (c Change) changed() bool {
+	return len(c.parts()) > 0
+}
+
+func (c Change) parts() []string {
+	var parts []string
+
+	if c.SectionAfter != c.SectionBefore {
+		parts = append(parts, "updated the ## "+SectionHeading+" section")
+	}
+
+	if !reflect.DeepEqual(c.VerifyBefore, c.VerifyAfter) {
+		parts = append(parts, "changed verify")
+	}
+
+	if len(c.Retired) > 0 {
+		parts = append(parts, "retired "+strings.Join(c.Retired, ", "))
+	}
+
+	return parts
 }

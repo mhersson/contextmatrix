@@ -62,7 +62,7 @@ func markFor(h Heal) (board.SentinelMark, bool) {
 	case StageUsageWait:
 		return mark(markHealing, "Sentinel will rerun after the usage limit resets")
 	case StageRerun:
-		if h.Change != nil {
+		if h.Change != nil && h.Change.changed() {
 			return mark(markHealing, "Sentinel changed the card and is rerunning it")
 		}
 

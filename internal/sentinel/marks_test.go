@@ -24,7 +24,8 @@ func TestMarkFor(t *testing.T) {
 		{name: "apply", heal: Heal{Stage: StageApply}, action: "healing"},
 		{name: "usage wait", heal: Heal{Stage: StageUsageWait}, action: "healing"},
 		{name: "rerun unchanged", heal: Heal{Stage: StageRerun}, action: "healing"},
-		{name: "rerun changed", heal: Heal{Stage: StageRerun, Change: &Change{}}, action: "healing"},
+		{name: "rerun empty change", heal: Heal{Stage: StageRerun, Change: &Change{}}, action: "healing"},
+		{name: "rerun section change", heal: Heal{Stage: StageRerun, Change: &Change{SectionAfter: "new"}}, action: "healing"},
 		{name: "healed", heal: Heal{Stage: StageHealed}, action: "healed"},
 		{name: "rerun failed", heal: Heal{Stage: StageRerunFailed}, action: "parked"},
 		{name: "parked", heal: Heal{Stage: StageParked, Reason: "needs a key\nsecond line"}, action: "parked", contains: "needs a key", notContain: "second line"},
@@ -58,9 +59,12 @@ func TestMarkFor(t *testing.T) {
 		})
 	}
 
-	changed, _ := markFor(Heal{Stage: StageRerun, Change: &Change{}})
+	changed, _ := markFor(Heal{Stage: StageRerun, Change: &Change{SectionAfter: "new"}})
 	unchanged, _ := markFor(Heal{Stage: StageRerun})
+	empty, _ := markFor(Heal{Stage: StageRerun, Change: &Change{}})
+
 	assert.NotEqual(t, changed.Label, unchanged.Label)
+	assert.Equal(t, unchanged.Label, empty.Label)
 }
 
 func TestSentinelMarks(t *testing.T) {
