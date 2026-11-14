@@ -45,8 +45,9 @@ function renderSections(onNewSession: (kind: SessionKind) => void = () => {}) {
 }
 
 const region = (name: string) => screen.getByRole('region', { name });
-const rowTitles = (r: HTMLElement) => within(r).queryAllByRole('listitem').map((li) => li.textContent);
+const rowTitles = (r: HTMLElement) => within(r).queryAllByRole('listitem').map((li) => li.querySelector('.truncate')?.textContent);
 const newButton = (r: HTMLElement) => within(r).queryByRole('button', { name: /^New / });
+const openButton = async (title: string) => (await screen.findByText(title)).closest('button')!;
 const where = () => screen.getByTestId('where').textContent;
 
 beforeEach(() => {
@@ -81,11 +82,26 @@ describe('SessionSections', () => {
     expect(second).toBe(region('Blueprints'));
     expect(rowTitles(region('Chats'))).toEqual(['Triage', 'Fix login']);
     expect(rowTitles(region('Blueprints'))).toEqual(['Shopping list']);
-    const bpRow = within(region('Blueprints')).getByRole('listitem');
-    expect(within(bpRow).getByRole('img', { name: 'Blueprint session' })).toBeInTheDocument();
-    for (const li of within(region('Chats')).getAllByRole('listitem')) {
-      expect(within(li).queryByRole('img', { name: 'Blueprint session' })).not.toBeInTheDocument();
-    }
+    expect(screen.queryByRole('img', { name: 'Blueprint session' })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['active', 'var(--green)'],
+    ['warm-idle', 'var(--yellow)'],
+    ['cold', 'var(--bg4)'],
+    ['ending', 'var(--bg4)'],
+  ] as const)('leads a %s chat row with its dot and ends it with the last activity', async (status, color) => {
+    store = [sess({ id: 'c1', title: 'Fix login', status, last_active: day(3) })];
+    renderSections();
+    const row = (await screen.findByText('Fix login')).closest('li')!;
+    const dot = within(row).getByRole('img', { name: status });
+    expect(dot).toHaveAttribute('title', status);
+    expect(dot.style.backgroundColor).toBe(color);
+    expect(row.querySelector('button')!.firstElementChild).toBe(dot);
+    const age = row.querySelector('.sb-age')!;
+    expect(age).toHaveAttribute('title', new Date(day(3)).toLocaleString());
+    expect(age).toHaveTextContent(/^\d+[dhm]$/);
+    expect(row.querySelector('button')!.lastElementChild).toBe(age);
   });
 
   it('ends each section with a link to its Sessions tab carrying the kind total', async () => {
@@ -190,14 +206,14 @@ describe('SessionSections', () => {
 
   it('opens the session as a pane on row click and closes the drawer', async () => {
     renderSections();
-    fireEvent.click(await screen.findByRole('button', { name: 'Fix login' }));
+    fireEvent.click(await openButton('Fix login'));
     expect(where()).toBe('/chat/c1');
     expect(drawer.close).toHaveBeenCalled();
   });
 
   it('drags a row with its session id', async () => {
     renderSections();
-    const open = await screen.findByRole('button', { name: 'Fix login' });
+    const open = await openButton('Fix login');
     const onStart = vi.fn();
     window.addEventListener(CHAT_DRAG_START_EVENT, onStart);
     const setData = vi.fn();

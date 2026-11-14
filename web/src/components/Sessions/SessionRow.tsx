@@ -55,7 +55,7 @@ export function SessionRow({ session: s, showMode, ticked, onToggle, onPin, onOp
         <button type="button" className="ssn-open" onClick={(e) => { stop(e); onOpen(s.id); }}>
           <span
             className="ssn-dot"
-            style={{ background: statusDotColor(s.status) ?? 'var(--bg4)' }}
+            style={{ background: statusDotColor(s.status) }}
             title={s.status}
             aria-hidden="true"
           />

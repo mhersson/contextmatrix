@@ -5240,6 +5240,19 @@ textarea {
     justify-content: center;
   }
 }
+.sb-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.sb-age {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--grey1);
+  white-space: nowrap;
+}
 .sb-all {
   display: flex;
   align-items: baseline;

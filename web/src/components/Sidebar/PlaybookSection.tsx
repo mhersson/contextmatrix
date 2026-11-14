@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router';
 import { useAttention } from '../../hooks/useAttention';
+import { useNow } from '../../hooks/useNow';
 import { usePlaybooks } from '../../hooks/usePlaybooks';
 import { sessionsTabHref } from '../../lib/sessions';
 import { PlaybookNavRow } from './PlaybookNavRow';
@@ -10,6 +11,7 @@ export function PlaybookSection() {
   const { playbooks, loaded } = usePlaybooks();
   const navigate = useNavigate();
   const { playbooks: waiting } = useAttention();
+  const now = useNow(60_000);
 
   return (
     <WorkSection
@@ -24,7 +26,7 @@ export function PlaybookSection() {
       loaded={loaded}
     >
       {playbookRows(playbooks).map((p) => (
-        <PlaybookNavRow key={p.id} playbook={p} waiting={waiting.has(p.id)} />
+        <PlaybookNavRow key={p.id} playbook={p} waiting={waiting.has(p.id)} now={now} />
       ))}
     </WorkSection>
   );

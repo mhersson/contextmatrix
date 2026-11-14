@@ -1,23 +1,22 @@
 import { NavLink } from 'react-router';
 import { useMobileSidebar } from '../../context/MobileSidebarContext';
+import { formatAge, formatExactTime } from '../../lib/format';
 import { playbookStatus } from '../../lib/playbookStatus';
 import type { PlaybookSummary } from '../../types';
-import { PinIcon, PlaybookIcon } from '../SessionIcons';
+import { PinIcon } from '../SessionIcons';
 import { WaitBadge } from '../WaitBadge';
 
-const STATUS_TONE = {
+const STATUS_DOT = {
   running: 'var(--aqua)',
   waiting: 'var(--wait-yellow)',
-  stopped: 'var(--red)',
-  completed: 'var(--green)',
-  'not started': 'var(--grey1)',
+  stopped: 'var(--orange)',
+  completed: 'var(--bg4)',
+  'not started': 'var(--bg4)',
 } as const;
 
-export function PlaybookNavRow({ playbook: p, waiting }: { playbook: PlaybookSummary; waiting?: boolean }) {
+export function PlaybookNavRow({ playbook: p, waiting, now }: { playbook: PlaybookSummary; waiting?: boolean; now: number }) {
   const mobileSidebar = useMobileSidebar();
   const status = playbookStatus(p);
-  const progressed = status === 'running' || (status === 'not started' && p.complete > 0);
-  const pill = progressed ? `${p.complete} of ${p.total}` : status;
 
   return (
     <li>
@@ -28,9 +27,13 @@ export function PlaybookNavRow({ playbook: p, waiting }: { playbook: PlaybookSum
           `sb-navrow${isActive ? ' active' : ''} flex items-center gap-2 pl-3 pr-2 py-1.5 rounded text-[13.5px]`
         }
       >
-        <span className="inline-flex shrink-0" style={{ color: 'var(--aqua)' }}>
-          <PlaybookIcon />
-        </span>
+        <span
+          className="sb-dot"
+          role="img"
+          title={status}
+          aria-label={status}
+          style={{ backgroundColor: STATUS_DOT[status] }}
+        />
         <span className="truncate flex-1">{p.title || p.id}</span>
         {waiting && <WaitBadge />}
         {p.pinned === true && (
@@ -38,8 +41,8 @@ export function PlaybookNavRow({ playbook: p, waiting }: { playbook: PlaybookSum
             <PinIcon size={12} filled label="Pinned" />
           </span>
         )}
-        <span className="shrink-0 font-mono text-[10.5px]" style={{ color: STATUS_TONE[status] }}>
-          {pill}
+        <span className="sb-age" title={formatExactTime(p.updated_at)}>
+          {formatAge(p.updated_at, now)}
         </span>
       </NavLink>
     </li>

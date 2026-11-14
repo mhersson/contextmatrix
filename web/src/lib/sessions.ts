@@ -56,13 +56,13 @@ export function formatSessionCost(s: ChatSession): string {
   return sessionCostLabel(s, formatCost) ?? '-';
 }
 
-export function statusDotColor(status: ChatStatus): string | null {
+export function statusDotColor(status: ChatStatus): string {
   switch (status) {
     case 'active':
       return 'var(--green)';
     case 'warm-idle':
       return 'var(--yellow)';
     default:
-      return null;
+      return 'var(--bg4)';
   }
 }

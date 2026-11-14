@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router';
 import { useMobileSidebar } from '../../context/MobileSidebarContext';
 import { useAttention } from '../../hooks/useAttention';
+import { useNow } from '../../hooks/useNow';
 import { useSessionPin } from '../../hooks/useSessionPin';
 import { sessionsTabHref } from '../../lib/sessions';
 import type { ChatSession, SessionKind } from '../../types';
@@ -40,6 +41,7 @@ export function SessionSection({ kind, sessions, onNew, loaded = true }: Session
   const mobileSidebar = useMobileSidebar();
   const setPinned = useSessionPin();
   const { blueprints } = useAttention();
+  const now = useNow(60_000);
 
   const handleOpen = (id: string) => {
     // ChatPage opens /chat/<id> on top of the persisted layout.
@@ -64,6 +66,7 @@ export function SessionSection({ kind, sessions, onNew, loaded = true }: Session
           key={s.id}
           session={s}
           waiting={kind === 'architect' && blueprints.has(s.id)}
+          now={now}
           onOpen={handleOpen}
           onTogglePin={(row) => void setPinned([row.id], row.pinned !== true)}
         />

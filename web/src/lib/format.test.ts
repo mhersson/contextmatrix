@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatCost, formatExactTime, formatRelativeTime, formatTokens } from './format';
+import { formatCost, formatAge, formatExactTime, formatRelativeTime, formatTokens } from './format';
 
 describe('formatCost', () => {
   it('keeps 4 decimals below 10 cents', () => {
@@ -50,5 +50,26 @@ describe('formatRelativeTime', () => {
   it('never reports a future stamp as negative and names an unparseable one', () => {
     expect(formatRelativeTime('2026-09-10T12:00:30Z', now)).toBe('just now');
     expect(formatRelativeTime('not a date', now)).toBe('unknown');
+  });
+});
+
+describe('formatAge', () => {
+  const now = Date.parse('2026-09-10T12:00:00Z');
+  const ago = (seconds: number) => new Date(now - seconds * 1000).toISOString();
+
+  it.each([
+    [59, 'now'],
+    [60, '1m'],
+    [59 * 60, '59m'],
+    [60 * 60, '1h'],
+    [23 * 3600, '23h'],
+    [24 * 3600, '1d'],
+    [3 * 86400, '3d'],
+  ])('%i seconds ago is %s', (seconds, want) => {
+    expect(formatAge(ago(seconds), now)).toBe(want);
+  });
+
+  it('returns a dash for an unparseable stamp', () => {
+    expect(formatAge('not a date', now)).toBe('-');
   });
 });
