@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
+	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/chat"
 )
 
@@ -376,4 +378,43 @@ func TestBackendClient_CopiesSubscriptionFields(t *testing.T) {
 
 	require.NotNil(t, got[2].UsageLimit)
 	assert.True(t, got[2].UsageLimit.ResetsAt.IsZero())
+}
+
+// A reconnect for one session in the same second must not collide in the
+// backend's replay cache: the nonce keeps the two signatures apart.
+func TestBackendClient_StreamLogs_SameSecondReconnectVerifies(t *testing.T) {
+	const key = "k"
+
+	cache := backend.NewSignatureCache()
+
+	var sessionIDs []string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sig := strings.TrimPrefix(r.Header.Get(protocol.SignatureHeader), "sha256=")
+		ts := r.Header.Get(protocol.TimestampHeader)
+
+		if !protocol.VerifySignatureWithTimestamp(key, r.Method, r.URL.RequestURI(), sig, ts, nil, protocol.DefaultMaxClockSkew, cache) {
+			w.WriteHeader(http.StatusUnauthorized)
+
+			return
+		}
+
+		sessionIDs = append(sessionIDs, r.URL.Query().Get("session_id"))
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"ts":"2026-01-02T03:04:05Z","type":"text","content":"x"}`+"\n\n")
+	}))
+	t.Cleanup(srv.Close)
+
+	rc := chat.NewBackendClient(chat.BackendClientConfig{BaseURL: srv.URL, HMACKey: key})
+
+	// Both connects must land in one second for a shared pair to collide.
+	time.Sleep(time.Until(time.Now().Truncate(time.Second).Add(time.Second)))
+
+	noop := func(chat.LogEntry) {}
+
+	require.NoError(t, rc.StreamLogs(context.Background(), "S1", noop))
+	require.NoError(t, rc.StreamLogs(context.Background(), "S1", noop))
+
+	assert.Equal(t, []string{"S1", "S1"}, sessionIDs)
 }

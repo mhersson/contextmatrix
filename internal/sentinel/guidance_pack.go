@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 )
@@ -14,6 +15,9 @@ const maxBodyLine = 300
 
 // maxBodyBytes is the agent's limit on a guidance PR body.
 const maxBodyBytes = 60 << 10
+
+// maxPRTitleBytes is the agent's limit on a guidance PR title.
+const maxPRTitleBytes = 256
 
 const prBodyIntro = "Sentinel proposes this guidance from friction in this project's agent runs; each item names the evidence it came from."
 
@@ -69,7 +73,29 @@ func tooLong(fs []state.Finding, maxBytes int) []state.Finding {
 }
 
 func prTitle(project string) string {
-	return "Sentinel guidance for " + project
+	const prefix = "Sentinel guidance for "
+
+	if len(prefix)+len(project) <= maxPRTitleBytes {
+		return prefix + project
+	}
+
+	const ellipsis = "..."
+
+	budget := maxPRTitleBytes - len(prefix) - len(ellipsis)
+
+	// Cut at the last rune boundary that fits, so the title stays valid UTF-8.
+	cut := 0
+
+	for i, r := range project {
+		end := i + utf8.RuneLen(r)
+		if end > budget {
+			break
+		}
+
+		cut = end
+	}
+
+	return prefix + project[:cut] + ellipsis
 }
 
 // prBody is one intro line, then an item per finding: its text's first line,

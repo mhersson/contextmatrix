@@ -97,6 +97,9 @@ Request headers are not part of the signed content.
 identical body, so a body-only signature could be replayed across endpoints.
 Binding the query keeps two same-second requests to one path (`GET
 /logs?project=A` vs `?project=B`) from colliding in the replay cache.
+Every signed GET CM sends (`/containers`, `/images`, `/health`, `/logs`,
+`/blueprints/{id}`) also carries a random `nonce` query parameter, so two reads
+of one path in the same second sign differently; the backends ignore it.
 
 **Verification.** The receiver recomputes the HMAC and compares in constant
 time. Timestamps outside the asymmetric skew window are rejected: up to 5
@@ -585,9 +588,10 @@ browser never calls it directly. Signed GET, empty body.
 | `session_id` | Filter to one chat session (the chat log bridge).   |
 | `nonce`      | Random per request; the backend ignores it.         |
 
-The session-log manager adds `nonce` to every connect: pumps of one project
-share the URI, and two connects signed in one second would otherwise carry the
-same `(timestamp, signature)` pair, which the replay cache refuses.
+The session-log manager and the chat log bridge add `nonce` to every connect:
+pumps of one project share the URI, and a reconnect for one session repeats it,
+so two connects signed in one second would otherwise carry the same
+`(timestamp, signature)` pair, which the replay cache refuses.
 
 ```json
 {
@@ -1276,9 +1280,7 @@ one; a failed probe reports `unreachable`.
 The project-settings image pickers read `GET /api/backends/{backend}/images`
 (`backend` is `agent` or `chat`), which proxies that backend's `GET /images`.
 `internal/api/backend_images.go` caches each backend's result for 30 seconds
-behind singleflight, with a 5-second probe timeout on a detached context. The
-30-second window is load-bearing: concurrent same-second signed GETs would
-produce identical signatures and collide in the backend's replay cache.
+behind singleflight, with a 5-second probe timeout on a detached context.
 
 The route is registered unconditionally and admin-gated in multi mode (the
 same gate as the project-settings `PUT` the picker feeds). It returns `404

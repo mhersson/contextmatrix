@@ -23,9 +23,7 @@ type imageLister interface {
 
 // backendImagesCacheTTL is how long a /images probe result is reused. Image
 // inventories change on redeploys, not per-request, so this is deliberately
-// longer than the health cache - and the CM-side cache is load-bearing:
-// concurrent same-second signed GETs produce identical signatures and would
-// collide in the backend's replay cache.
+// longer than the health cache.
 const backendImagesCacheTTL = 30 * time.Second
 
 // backendImagesProbeTimeout bounds one upstream /images call.

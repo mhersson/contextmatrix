@@ -1038,3 +1038,72 @@ func TestRunKindMapsAnInvalidKindToUnknown(t *testing.T) {
 		})
 	}
 }
+
+// TestClient_SendGet_SameSecondReadsBothVerify pins that two back-to-back
+// signed GETs to one path pass a shared replay cache: the nonce makes their
+// signatures differ even within one second.
+func TestClient_SendGet_SameSecondReadsBothVerify(t *testing.T) {
+	const apiKey = "shared-secret"
+
+	var (
+		mu    sync.Mutex
+		sigs  []string
+		cache = NewSignatureCache()
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sig := r.Header.Get(protocol.SignatureHeader)
+		ts := r.Header.Get(protocol.TimestampHeader)
+
+		mu.Lock()
+
+		sigs = append(sigs, sig)
+
+		mu.Unlock()
+
+		if !protocol.VerifySignatureWithTimestamp(apiKey, r.Method, r.URL.RequestURI(),
+			strings.TrimPrefix(sig, "sha256="), ts, nil, protocol.DefaultMaxClockSkew, cache) {
+			w.WriteHeader(http.StatusUnauthorized)
+
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "containers": []any{}})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, apiKey)
+
+	// Both reads must land in one second for a shared pair to collide.
+	time.Sleep(time.Until(time.Now().Truncate(time.Second).Add(time.Second)))
+
+	_, err := c.ListContainers(context.Background())
+	require.NoError(t, err)
+
+	_, err = c.ListContainers(context.Background())
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	require.Len(t, sigs, 2)
+	assert.NotEqual(t, sigs[0], sigs[1])
+}
+
+func TestClient_SendGet_KeepsExistingQuery(t *testing.T) {
+	var gotQuery map[string][]string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "k")
+
+	_, err := c.sendGet(context.Background(), srv.URL+"/x?a=1")
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"1"}, gotQuery["a"])
+	require.Len(t, gotQuery["nonce"], 1)
+	assert.NotEmpty(t, gotQuery["nonce"][0])
+}
