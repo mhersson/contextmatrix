@@ -72,16 +72,23 @@ func TestCheckVerify(t *testing.T) {
 		{
 			"newline makes a changed command", &board.VerifyConfig{Command: "a b"},
 			&protocol.VerifyConfig{Command: "a\nb"}, finished,
-			[]string{"command not declared by the repo"},
+			[]string{"command not declared by the repo", "verify command must be a single line"},
 		},
 		{
 			"blank lines and spacing are unchanged", &board.VerifyConfig{Command: "a b\nc"},
-			&protocol.VerifyConfig{Command: "a  b\n\nc"}, finished, nil,
+			&protocol.VerifyConfig{Command: "a  b\n\nc"}, finished,
+			[]string{"verify command must be a single line"},
 		},
 		{
-			"multi-line candidate matches line for line", &board.VerifyConfig{Command: "x"},
+			"multi-line candidate matches line for line, which the card service refuses", &board.VerifyConfig{Command: "x"},
 			&protocol.VerifyConfig{Command: "a\nb"},
-			&protocol.CheckResult{Trial: protocol.TrialFinished, Candidates: []string{"a  \n b\n"}}, nil,
+			&protocol.CheckResult{Trial: protocol.TrialFinished, Candidates: []string{"a  \n b\n"}},
+			[]string{"verify command must be a single line"},
+		},
+		{
+			"a timeout over the card service's limit", nil,
+			&protocol.VerifyConfig{Command: "make test", TimeoutSeconds: 7201}, finished,
+			[]string{"verify timeout_seconds must be between 0 and 7200"},
 		},
 		{
 			"joined command does not match a multi-line candidate", &board.VerifyConfig{Command: "x"},

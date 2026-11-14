@@ -206,6 +206,35 @@ func TestApplyParksARefusedRetire(t *testing.T) {
 	}
 }
 
+func TestApplyParksAFixTheCardServiceRefuses(t *testing.T) {
+	const rawPath = "/srv/boards/alpha/tasks/ALPHA-001.md"
+
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{"an invalid verify", fmt.Errorf("patch %s: %w: timeout_seconds must be between 0 and 7200", rawPath, service.ErrInvalidVerify)},
+		{"a body over its limit", fmt.Errorf("patch %s: body length 70000 exceeds limit of 65536: %w", rawPath, service.ErrFieldTooLong)},
+		{"a store failure", fmt.Errorf("write %s: permission denied", rawPath)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e, h, card, run := applyEnv(t, protocol.DiagnosisCard, sectionFix())
+			e.cards.refuse = map[string]error{"ALPHA-001": tc.err}
+
+			require.NoError(t, e.ctl.apply(context.Background(), h, card, run))
+
+			stored := e.store.heal(h.ID)
+			assert.Equal(t, state.StageParked, stored.Stage, "a refused fix parks instead of retrying every pass")
+			assert.Contains(t, stored.Reason, refusal(tc.err))
+			assert.NotContains(t, stored.Reason, rawPath, "the reason is committed with the card")
+			assert.Len(t, e.cards.logged["ALPHA-001"], 1)
+			assert.Empty(t, e.relaunched)
+			assert.Zero(t, e.store.run("alpha", "ALPHA-001").Attempts)
+		})
+	}
+}
+
 func TestApplyWithNoRerunLeavesTheCardUntouched(t *testing.T) {
 	fix := sectionFix()
 	fix.RetireSubtasks = []string{"ALPHA-011"}

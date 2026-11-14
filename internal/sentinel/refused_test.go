@@ -31,6 +31,9 @@ func TestRefusal(t *testing.T) {
 		{"a playbook run stopped", fmt.Errorf("%w: rollout", playbookrun.ErrRunInactive), refusedByChange},
 		{"a playbook run played", fmt.Errorf("%w: rollout is running", service.ErrPlaybookRunActive), refusedByChange},
 		{"a playbook made unrunnable", service.ErrPlaybookNotRunnable, refusedByChange},
+		{"an invalid verify", fmt.Errorf("%w: command must be a single line", service.ErrInvalidVerify), refusedByService},
+		{"a body over its limit", fmt.Errorf("body length 70000 exceeds limit of 65536: %w", service.ErrFieldTooLong), refusedByService},
+		{"an invalid section patch", fmt.Errorf("bad heading: %w", service.ErrInvalidSectionPatch), refusedByService},
 		{"anything else", errors.New("open /srv/boards/alpha: permission denied"), refusedOther},
 	}
 	for _, tc := range tests {

@@ -13,9 +13,9 @@ import (
 )
 
 // apply writes the heal's fix and reruns the card. A heal that cannot rerun
-// parks before anything is written, and so does a subtask the fix cannot
-// retire; a card changed since the pass read it leaves the heal at apply for
-// the next pass to decide.
+// parks before anything is written, and a refused write or retire parks it; a
+// card changed since the pass read it leaves the heal at apply for the next
+// pass to decide.
 func (c *Controller) apply(ctx context.Context, h *state.Heal, card *board.Card, run state.Run) error {
 	plan, err := c.planRelaunch(ctx, card, run)
 	if err != nil {
@@ -76,11 +76,17 @@ func (c *Controller) applyFix(ctx context.Context, h *state.Heal, card *board.Ca
 }
 
 // writeFix writes the fix's section and verify in one write guarded on card,
-// and returns the written card and what changed.
+// and returns the written card and what changed. A card changed since it was
+// read comes back as is, for the next pass to decide again; any other error is
+// a refusal, so the same write is not retried every pass.
 func (c *Controller) writeFix(ctx context.Context, card *board.Card, fix protocol.CardFix) (*board.Card, state.Change, error) {
 	written, err := c.cfg.Cards.PatchCard(ctx, card.Project, card.ID, fixPatch(card, fix))
-	if err != nil {
+
+	switch {
+	case errors.Is(err, service.ErrCardChanged):
 		return nil, state.Change{}, fmt.Errorf("write the fix: %w", err)
+	case err != nil:
+		return nil, state.Change{}, refused(ctx, "cannot write the fix", err)
 	}
 
 	return written, state.Change{
@@ -99,8 +105,8 @@ func fixPatch(card *board.Card, fix protocol.CardFix) service.PatchCardInput {
 		in.UpsertSection = &service.SectionPatch{Heading: SectionHeading, Content: fix.Section}
 	}
 
-	if v := fix.Verify; v != nil {
-		in.Verify = &board.VerifyConfig{Command: v.Command, TimeoutSeconds: v.TimeoutSeconds, Env: v.Env}
+	if fix.Verify != nil {
+		in.Verify = boardVerify(fix.Verify)
 	}
 
 	if freshRerun(&fix) {

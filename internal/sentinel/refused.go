@@ -18,6 +18,7 @@ import (
 const (
 	refusedByProject = "the project does not allow it"
 	refusedByChange  = "it changed meanwhile"
+	refusedByService = "the card service refused it"
 	refusedOther     = "refused"
 )
 
@@ -30,6 +31,9 @@ func refusal(err error) string {
 		errors.Is(err, storage.ErrCardNotFound), errors.Is(err, playbookrun.ErrRunInactive),
 		errors.Is(err, service.ErrPlaybookRunActive), errors.Is(err, service.ErrPlaybookNotRunnable):
 		return refusedByChange
+	case errors.Is(err, service.ErrInvalidVerify), errors.Is(err, service.ErrFieldTooLong),
+		errors.Is(err, service.ErrInvalidSectionPatch):
+		return refusedByService
 	}
 
 	return refusedOther

@@ -45,7 +45,7 @@ func TestValidateVerifyConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateVerifyConfig(tt.cfg)
+			err := ValidateVerifyConfig(tt.cfg)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {

@@ -8,10 +8,13 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/service"
 )
 
 // checkVerify applies the verify rule: env names only removed, a changed
 // command must be a declared candidate, and the trial run must have finished.
+// The card service's own verify rules apply too, so a fix it would refuse is
+// rejected before anything is written.
 func checkVerify(c fixContext) []string {
 	if c.Fix.Verify == nil {
 		return nil
@@ -42,6 +45,10 @@ func checkVerify(c fixContext) []string {
 		violations = append(violations, fmt.Sprintf("trial run: %s", c.Check.Trial))
 	}
 
+	if err := service.ValidateVerifyConfig(boardVerify(c.Fix.Verify)); err != nil {
+		violations = append(violations, "verify "+err.Error())
+	}
+
 	return violations
 }
 
@@ -62,11 +69,15 @@ func resolved(card, project *board.VerifyConfig) board.VerifyConfig {
 
 // resolvedFix is a fix's verify as the card will resolve it once written.
 func resolvedFix(fix *protocol.VerifyConfig, project *board.VerifyConfig) board.VerifyConfig {
-	return resolved(&board.VerifyConfig{
-		Command:        strings.TrimSpace(fix.Command),
-		TimeoutSeconds: fix.TimeoutSeconds,
-		Env:            fix.Env,
-	}, project)
+	v := boardVerify(fix)
+	v.Command = strings.TrimSpace(v.Command)
+
+	return resolved(v, project)
+}
+
+// boardVerify is a fix's verify as the card service is asked to write it.
+func boardVerify(fix *protocol.VerifyConfig) *board.VerifyConfig {
+	return &board.VerifyConfig{Command: fix.Command, TimeoutSeconds: fix.TimeoutSeconds, Env: fix.Env}
 }
 
 func declared(check *protocol.CheckResult, command string) bool {

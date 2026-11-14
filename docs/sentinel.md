@@ -308,7 +308,7 @@ forward runs `vetForward` on each card it forwards to (see
 | `checkSection` | A `## Sentinel` section with an H2 line or an unbalanced code fence (``` or ~~~)                         | heal, forward        |
 | `checkRetire`  | Retiring a subtask that is not this card's, is not in `todo`, is claimed, or has a queued or running worker | heal              |
 | `checkEdits`   | Any change since launch: `title edited`, `verify edited`, `autonomous changed`, `intro edited`, `section "X" edited`, `added` or `removed`; no launch snapshot is also refused | heal |
-| `checkVerify`  | A verify change that adds an env name (`adds env NAME`), drops the command (`removes the verify command`), changes the command to one the check run kind did not list as a candidate (`command not declared by the repo`), was never trial-run (`verify not trial-run`), or whose trial did not finish (`trial run: <trial>`) | heal, forward |
+| `checkVerify`  | A verify change that adds an env name (`adds env NAME`), drops the command (`removes the verify command`), changes the command to one the check run kind did not list as a candidate (`command not declared by the repo`), was never trial-run (`verify not trial-run`), whose trial did not finish (`trial run: <trial>`), or that the card service would refuse, such as a command over one line or a timeout over 7200 seconds (`verify <rule>`, from `service.ValidateVerifyConfig`) | heal, forward |
 | `checkText`    | A fix with a `## Sentinel` section when the check run kind did not run (`text not checked`), or when it reports text absent from the repo that is also absent from the card's title and body (`introduces <entry>`) | heal, forward |
 
 The verify rule compares the card's resolved verify (card over project) with the
@@ -453,7 +453,9 @@ the card's `updated` as the pass read it: the `## Sentinel` section (section
 upsert) when the fix has one, the verify fields when it has them, and a cleared
 `phase` for a fresh rerun. A human edit in between refuses the write
 (`ErrCardChanged`); the heal stays at `apply` and the next pass decides again,
-parking it when the edit check finds the edit. Each subtask the fix retires
+parking it when the edit check finds the edit. Any other refusal parks the
+heal with `cannot write the fix: <class>` (see [Refusals](#refusals)), so a
+write the card service rejects is never retried. Each subtask the fix retires
 then moves to `not_planned`, one guarded write per subtask on a fresh read, so
 a claim that lands first wins; a refused retire parks the heal with
 `cannot retire <ID>: <class>` (see [Refusals](#refusals)). Last, the run row's
@@ -500,6 +502,7 @@ reason names the step and one class, decided from the error:
 | ------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `the project does not allow it` | A refused transition, no transition path, or a state the project lacks                                   |
 | `it changed meanwhile`          | A guarded write that lost, a claim, a deleted card, or a playbook run stopped, started or made unrunnable since the pass read it |
+| `the card service refused it`   | A verify, a field length or a section patch the card service rejects                                     |
 | `refused`                       | Anything else                                                                                            |
 
 ## Usage-limit reruns
