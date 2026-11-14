@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { api } from '../../../api/client';
-import type { Card, SentinelRunView } from '../../../types';
+import type { Card, SentinelCardView, SentinelFindingView, SentinelHealView, SentinelRunView } from '../../../types';
 import { SentinelTab } from './SentinelTab';
 
 const bus = vi.hoisted(() => ({ handlers: new Map<string, (e: unknown) => void>() }));
@@ -27,13 +27,80 @@ const run: SentinelRunView = {
   human_stop: false,
 };
 
-function renderTab(view: { run: SentinelRunView | null }) {
-  vi.spyOn(api, 'getCardSentinel').mockResolvedValue(view);
+function renderTab(view: Partial<SentinelCardView> & { run: SentinelRunView | null }) {
+  vi.spyOn(api, 'getCardSentinel').mockResolvedValue({ heals: [], findings: [], ...view });
   return render(<SentinelTab card={card} />);
 }
 
+const heal: SentinelHealView = {
+  id: 1,
+  kind: 'heal',
+  cause: 'gave_up',
+  stage: 'healed',
+  reason: '',
+  diagnosis: 'The criteria were vague.',
+  spend_usd: 0.42,
+  created_at: '2026-11-13T10:00:00Z',
+  updated_at: '2026-11-13T10:05:00Z',
+  change: {
+    section_before: 'keep\nold line',
+    section_after: 'keep\nnew line',
+    verify_before: { command: 'make a' },
+    verify_after: { command: 'make b' },
+    retired: ['T-002'],
+    fresh: false,
+  },
+};
+
+const finding = (kind: SentinelFindingView['kind'], title: string): SentinelFindingView => ({
+  kind,
+  title,
+  text: `${title} text`,
+  evidence: '',
+  created_at: '2026-11-13T10:00:00Z',
+});
+
 describe('SentinelTab', () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it('lists heals with diagnosis, diff and spend', async () => {
+    renderTab({ run, heals: [heal] });
+    expect(await screen.findByText('The criteria were vague.')).toBeInTheDocument();
+    expect(screen.getByText(/gave_up, healed/)).toBeInTheDocument();
+    expect(screen.getByText(/\$0\.42/)).toBeInTheDocument();
+    expect(screen.getByText('- old line')).toBeInTheDocument();
+    expect(screen.getByText('+ new line')).toBeInTheDocument();
+    expect(screen.getByText('keep')).toBeInTheDocument();
+    expect(screen.getByText('- command: make a')).toBeInTheDocument();
+    expect(screen.getByText('+ command: make b')).toBeInTheDocument();
+  });
+
+  it('shows retired subtasks', async () => {
+    renderTab({ run, heals: [heal] });
+    expect(await screen.findByText(/Retired subtasks: T-002/)).toBeInTheDocument();
+  });
+
+  it('groups findings and notes', async () => {
+    renderTab({
+      run,
+      findings: [
+        finding('guidance', 'Add a hint'),
+        finding('hard_card', 'Too big'),
+        finding('project_verify', 'Slow verify'),
+      ],
+    });
+    expect(await screen.findByRole('heading', { name: 'Friction' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Notes' })).toBeInTheDocument();
+    expect(screen.getByText('Add a hint')).toBeInTheDocument();
+    expect(screen.getByText('Too big')).toBeInTheDocument();
+    expect(screen.getByText('Slow verify text')).toBeInTheDocument();
+  });
+
+  it('renders model text as plain text', async () => {
+    renderTab({ run, heals: [{ ...heal, diagnosis: '<img src=x onerror=alert(1)>' }] });
+    expect(await screen.findByText('<img src=x onerror=alert(1)>')).toBeInTheDocument();
+    expect(document.querySelector('img')).toBeNull();
+  });
 
   it('shows origin, autonomy, attempts and the last stop', async () => {
     renderTab({ run: { ...run, stop_cause: 'usage_limit', stopped_at: '2026-11-13T10:30:00Z' } });

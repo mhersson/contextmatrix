@@ -232,8 +232,13 @@ the state as its label.
   REST, MCP, playbook or Sentinel), whether the card was autonomous at launch,
   the heal attempts used against the cap, and the last stop (its cause and
   time, or that a human stopped it). A card this instance never launched shows
-  a note that Sentinel acts only on runs this instance launched. The tab
-  refetches on Sentinel events and events for the card.
+  a note that Sentinel acts only on runs this instance launched. Below the
+  facts, each heal shows a header (cause and stage, age, spend), its
+  diagnosis, a line diff of the card's `## Sentinel` section and of the verify
+  change (additions green, removals red), and the subtasks it retired. Then
+  come Friction (guidance, code, ecosystem) and Notes (card advice, project
+  verify for admins, hard card). All of this text is shown as plain text. The
+  tab refetches on Sentinel events and events for the card.
 - A purple shield joins the board card's signal icons when the card carries a
   Sentinel mark (healing, healed, edited or parked); its label is the mark's
   label. The server sends no mark while Sentinel is off. A card is marked

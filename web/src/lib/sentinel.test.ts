@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { SentinelState, SentinelStatus } from '../types';
-import { spendLine, stripText, stripTone, windowLines } from './sentinel';
+import { lineDiff, spendLine, verifyLines, stripText, stripTone, windowLines } from './sentinel';
 
 function status(over: Partial<SentinelStatus> = {}): SentinelStatus {
   return {
@@ -51,5 +51,27 @@ describe('windowLines', () => {
   });
   it('is empty without windows', () => {
     expect(windowLines(status())).toEqual([]);
+  });
+});
+
+describe('lineDiff', () => {
+  it.each<[string, string, string, [string, string][]]>([
+    ['replaced line', 'a\nb', 'a\nc', [['same', 'a'], ['del', 'b'], ['add', 'c']]],
+    ['identical', 'a\nb', 'a\nb', [['same', 'a'], ['same', 'b']]],
+    ['from empty', '', 'a', [['add', 'a']]],
+    ['to empty', 'a', '', [['del', 'a']]],
+    ['insert in the middle', 'a\nc', 'a\nb\nc', [['same', 'a'], ['add', 'b'], ['same', 'c']]],
+    ['both empty', '', '', []],
+  ])('%s', (_name, before, after, want) => {
+    expect(lineDiff(before, after).map((l) => [l.kind, l.text])).toEqual(want);
+  });
+});
+
+describe('verifyLines', () => {
+  it('is empty when absent and lists the set fields otherwise', () => {
+    expect(verifyLines(undefined)).toBe('');
+    expect(verifyLines({ command: 'make test', timeout_seconds: 60, env: ['A', 'B'] })).toBe(
+      'command: make test\ntimeout_seconds: 60\nenv: A, B',
+    );
   });
 });

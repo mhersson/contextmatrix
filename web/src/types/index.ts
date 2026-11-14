@@ -897,6 +897,54 @@ export interface SentinelSettings {
 /** Shape of GET /api/projects/{project}/cards/{id}/sentinel: the card's last run facts, null when this instance launched none. */
 export interface SentinelCardView {
   run: SentinelRunView | null;
+  heals: SentinelHealView[];
+  findings: SentinelFindingView[];
+}
+
+export interface SentinelVerify {
+  command?: string;
+  timeout_seconds?: number;
+  env?: string[];
+}
+
+export interface SentinelChangeView {
+  section_before: string;
+  section_after: string;
+  verify_before?: SentinelVerify;
+  verify_after?: SentinelVerify;
+  retired: string[];
+  fresh: boolean;
+}
+
+/** One heal or forward row, newest first. `diagnosis` is empty until the investigation answers. */
+export interface SentinelHealView {
+  id: number;
+  kind: 'heal' | 'forward';
+  cause: string;
+  stage: string;
+  reason: string;
+  diagnosis: string;
+  source_card?: string;
+  change?: SentinelChangeView;
+  spend_usd: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type SentinelFindingKind =
+  | 'guidance'
+  | 'code'
+  | 'ecosystem'
+  | 'card_advice'
+  | 'project_verify'
+  | 'hard_card';
+
+export interface SentinelFindingView {
+  kind: SentinelFindingKind;
+  title: string;
+  text: string;
+  evidence: string;
+  created_at: string;
 }
 
 export interface SentinelRunView {

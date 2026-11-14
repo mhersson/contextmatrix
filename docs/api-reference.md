@@ -1160,8 +1160,8 @@ outside 0-10000, `investigate_ceiling_usd` not above 0 or over 100, or
 
 ### GET /api/projects/{project}/cards/{id}/sentinel
 
-The last run this instance launched for the card, or `{"run": null}` when
-there is none.
+The last run this instance launched for the card (`run` is null when there is
+none), the card's heals and the friction findings stored for it.
 
 ```json
 {
@@ -1174,7 +1174,38 @@ there is none.
     "stop_cause": "usage_limit",
     "stopped_at": "2026-11-13T11:00:00Z",
     "human_stop": false
-  }
+  },
+  "heals": [
+    {
+      "id": 7,
+      "kind": "heal",
+      "cause": "gave_up",
+      "stage": "healed",
+      "reason": "",
+      "diagnosis": "The criteria were vague.",
+      "source_card": "",
+      "change": {
+        "section_before": "",
+        "section_after": "...",
+        "verify_before": { "command": "make test" },
+        "verify_after": { "command": "make test" },
+        "retired": ["PROJ-002"],
+        "fresh": false
+      },
+      "spend_usd": 0.42,
+      "created_at": "2026-11-13T10:00:00Z",
+      "updated_at": "2026-11-13T10:05:00Z"
+    }
+  ],
+  "findings": [
+    {
+      "kind": "guidance",
+      "title": "...",
+      "text": "...",
+      "evidence": "...",
+      "created_at": "2026-11-13T10:05:00Z"
+    }
+  ]
 }
 ```
 
@@ -1182,6 +1213,21 @@ there is none.
 reruns since the last UI or REST Run; `max_attempts` is
 the per-card cap. `stop_cause` and `stopped_at` are omitted until the run's
 terminal status arrives (and `stop_cause` when the cause is unknown).
+
+`heals` is newest first and is `[]` when there are none. `kind` is `heal`, or
+`forward` for a fix applied from another card's heal (`source_card` names it;
+omitted otherwise). `diagnosis` is empty until the investigation answers.
+`change` is omitted until the heal changes the card; `section_before` and
+`section_after` are the card's `## Sentinel` section, `verify_before` and
+`verify_after` are omitted when the card had no verify config, `retired` lists
+the retired subtask IDs and `fresh` says the rerun starts fresh. `spend_usd` is
+the heal's recorded spend.
+
+`findings` is newest heal first and is `[]` when there are none; only the
+friction analysis switch makes Sentinel store them. `kind` is `guidance`,
+`code`, `ecosystem`, `card_advice`, `project_verify` or `hard_card`.
+`project_verify` findings are returned to admins in `multi` mode and to every
+caller in `none` mode.
 
 ## Health Endpoints
 

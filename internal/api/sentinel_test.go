@@ -10,9 +10,11 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/sentinel"
 )
@@ -22,6 +24,8 @@ type fakeSentinelStore struct {
 	settings sentinel.Settings
 	by       string
 	run      *sentinel.Run
+	heals    []sentinel.Heal
+	findings []sentinel.Finding
 }
 
 func newFakeSentinelStore() *fakeSentinelStore {
@@ -50,6 +54,14 @@ func (f *fakeSentinelStore) PutSentinelSettings(_ context.Context, s sentinel.Se
 
 func (f *fakeSentinelStore) CardRunRow(context.Context, string, string) (*sentinel.Run, error) {
 	return f.run, nil
+}
+
+func (f *fakeSentinelStore) CardHeals(context.Context, string, string) ([]sentinel.Heal, error) {
+	return f.heals, nil
+}
+
+func (f *fakeSentinelStore) CardFindings(context.Context, string, string) ([]sentinel.Finding, error) {
+	return f.findings, nil
 }
 
 func sentinelDo(t *testing.T, srv *httptest.Server, method, path string, body any, cookie *http.Cookie) (int, map[string]any) {
@@ -197,4 +209,91 @@ func TestCardSentinelRunView(t *testing.T) {
 	run = body["run"].(map[string]any)
 	assert.NotContains(t, run, "stop_cause")
 	assert.NotContains(t, run, "stopped_at")
+}
+
+func findingKinds(body map[string]any) []string {
+	var kinds []string
+	for _, f := range body["findings"].([]any) {
+		kinds = append(kinds, f.(map[string]any)["kind"].(string))
+	}
+
+	return kinds
+}
+
+func TestCardSentinelViewHealsAndFindings(t *testing.T) {
+	store := newFakeSentinelStore()
+	at := time.Date(2026, 11, 13, 10, 0, 0, 0, time.UTC)
+	store.heals = []sentinel.Heal{{
+		ID: 7, Kind: sentinel.HealKindHeal, Cause: "gave_up", Stage: sentinel.StageHealed, Reason: "fixed",
+		Investigation: &protocol.InvestigateResult{Diagnosis: "the criteria were vague"},
+		Change: &sentinel.Change{
+			SectionBefore: "old", SectionAfter: "new",
+			VerifyBefore: &board.VerifyConfig{Command: "make a"}, VerifyAfter: &board.VerifyConfig{Command: "make b"},
+			Retired: []string{"P-002"}, Fresh: true,
+		},
+		SpendUSD: 0.42, CreatedAt: at, UpdatedAt: at.Add(time.Minute),
+	}, {ID: 6, Kind: sentinel.HealKindForward, SourceCard: "P-009", CreatedAt: at, UpdatedAt: at}}
+	store.findings = []sentinel.Finding{{HealID: 7, Kind: protocol.FindingGuidance, Title: "t", Text: "x", Evidence: "e", CreatedAt: at}}
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
+
+	code, body := sentinelDo(t, srv, http.MethodGet, "/api/projects/p/cards/p-001/sentinel", nil, nil)
+	require.Equal(t, http.StatusOK, code)
+
+	heals := body["heals"].([]any)
+	require.Len(t, heals, 2)
+
+	h := heals[0].(map[string]any)
+	assert.EqualValues(t, 7, h["id"])
+	assert.Equal(t, "the criteria were vague", h["diagnosis"])
+	assert.InDelta(t, 0.42, h["spend_usd"], 1e-9)
+	assert.Equal(t, "2026-11-13T10:01:00Z", h["updated_at"])
+
+	change := h["change"].(map[string]any)
+	assert.Equal(t, "old", change["section_before"])
+	assert.Equal(t, "new", change["section_after"])
+	assert.Equal(t, []any{"P-002"}, change["retired"])
+	assert.Equal(t, true, change["fresh"])
+	assert.Equal(t, "make b", change["verify_after"].(map[string]any)["command"])
+
+	fwd := heals[1].(map[string]any)
+	assert.Equal(t, "P-009", fwd["source_card"])
+	assert.NotContains(t, fwd, "change")
+
+	f := body["findings"].([]any)[0].(map[string]any)
+	assert.Equal(t, "guidance", f["kind"])
+	assert.Equal(t, "e", f["evidence"])
+}
+
+func TestCardSentinelViewEmptyListsAreArrays(t *testing.T) {
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore()}, false)
+
+	_, body := sentinelDo(t, srv, http.MethodGet, "/api/projects/p/cards/p-001/sentinel", nil, nil)
+	assert.Equal(t, []any{}, body["heals"])
+	assert.Equal(t, []any{}, body["findings"])
+}
+
+func TestCardSentinelViewHidesAdminNotesFromNonAdmins(t *testing.T) {
+	newStore := func() *fakeSentinelStore {
+		store := newFakeSentinelStore()
+		store.findings = []sentinel.Finding{
+			{Kind: protocol.FindingProjectVerify, Title: "verify"},
+			{Kind: protocol.FindingHardCard, Title: "hard"},
+		}
+
+		return store
+	}
+	path := "/api/projects/p/cards/p-001/sentinel"
+
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newStore()}, true)
+
+	_, body := sentinelDo(t, srv, http.MethodGet, path, nil, login(t, srv, "bob", "bob password1"))
+	assert.Equal(t, []string{protocol.FindingHardCard}, findingKinds(body))
+
+	_, body = sentinelDo(t, srv, http.MethodGet, path, nil, login(t, srv, "root", "root password1"))
+	assert.Equal(t, []string{protocol.FindingProjectVerify, protocol.FindingHardCard}, findingKinds(body))
+
+	none := newSelectorAdminServer(t, RouterConfig{SentinelStore: newStore()}, false)
+
+	_, body = sentinelDo(t, none, http.MethodGet, path, nil, nil)
+	assert.Equal(t, []string{protocol.FindingProjectVerify, protocol.FindingHardCard}, findingKinds(body))
 }
