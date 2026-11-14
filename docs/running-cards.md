@@ -118,10 +118,10 @@ card panel shows them read-only as "Set by playbook <title>". See
 ## Best-of-N
 
 One container. After the plan phase the agent cuts N worktrees from the
-plan-approved base, gives each a distinct auto-selected coder model and its own
-budget, and races them. A judge (reviewer role, complex tier) picks the winner;
-only the winner's branch is pushed, the rest are removed. Outcomes land in the
-ledger through `report_model_outcome`.
+plan-approved base, gives each a distinct auto-selected coder model and, on an
+endpoint, its own budget, and races them. A judge (reviewer role, complex
+tier) picks the winner; only the winner's branch is pushed, the rest are
+removed. Outcomes land in the ledger through `report_model_outcome`.
 
 ## Mob sessions
 
@@ -129,8 +129,8 @@ One container hosts every internal seat behind a loopback A2A server and dials
 registered guests over the same wire. Each phase in `mob_phases` runs a blind
 round then critique rounds, and the decision model synthesizes the answer into
 the phase's normal output. Discussions degrade to the solo path on quorum loss,
-engine errors or an exhausted mob budget. The transcript streams to the Chat
-tab.
+engine errors or, on an endpoint, an exhausted mob budget (a Claude Code run
+has none). The transcript streams to the Chat tab.
 
 ## POC projects
 
@@ -346,7 +346,8 @@ A Claude Code run reports with `cost_basis: subscription`. Its cost is an
 API-equivalent estimate priced from the rate table (see
 [Claude Code cost](remote-execution.md#cost)), kept in buckets of its own and
 never billed spend; the UI marks it `≈` wherever it shows (see
-[web UI](web-ui.md#board-view)).
+[web UI](web-ui.md#board-view)). No card budget is enforced on it: a Claude
+Code run has no per-card cost ceiling.
 
 ## See also
 

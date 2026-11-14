@@ -888,8 +888,9 @@ Everything below happens inside the agent:
   the orchestrator adopts it onto the main clone before the run's first push
   and removes the losing worktrees. Each candidate's result lands in the
   [outcome ledger](model-selection.md#the-outcome-ledger).
-- Wall-clock time is roughly the slowest candidate plus the judge pass; the
-  per-card budget ceiling scales to `MaxCardCost x (N + 1)`.
+- Wall-clock time is roughly the slowest candidate plus the judge pass. On an
+  endpoint the per-card budget ceiling scales to `MaxCardCost x (N + 1)`; a
+  Claude Code run has no card budget ceiling.
 
 ### Mob sessions
 
@@ -923,8 +924,9 @@ Inside the agent:
 - Plan and review phases convene a discussion: a blind round 0, then critique
   rounds up to `rounds`. The decision model synthesizes the group's answer
   into the phase's normal output format. Discussions degrade, never fail:
-  quorum below 2 responding seats, engine errors, or an exhausted mob budget
-  (`budget_factor x max card cost`) fall back to the solo path.
+  quorum below 2 responding seats, engine errors, or, on an endpoint, an
+  exhausted mob budget (`budget_factor x max card cost`) fall back to the
+  solo path. A Claude Code run has no mob budget.
 - Wire conventions shared by internal seats and guest shims: message bodies
   are markdown transcript deltas formatted `[round N] author (lens): text`;
   control metadata rides A2A `Message.metadata` under key `cm_mob` as
@@ -941,10 +943,11 @@ Inside the agent:
   one fix pass on the same coder before the push; the revised diff is not
   re-checkpointed. Checkpoints are best-effort. The card gets one activity
   entry per checkpoint outcome, plus `revise skipped - budget exhausted` when
-  a revise then hits the card budget ceiling. Checkpoint discussions draw
-  from the shared mob budget, so operators enabling `execute` on
-  multi-subtask cards should consider raising `mob.budget_factor`; the fix
-  pass itself spends from the card budget like any other coder run.
+  a revise then hits the card budget ceiling on an endpoint. There,
+  checkpoint discussions draw from the shared mob budget, so operators
+  enabling `execute` on multi-subtask cards should consider raising
+  `mob.budget_factor`; the fix pass itself spends from the card budget like
+  any other coder run. A Claude Code run has neither budget.
 
 ### GitHub token refresh
 
