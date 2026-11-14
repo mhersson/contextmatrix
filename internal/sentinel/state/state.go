@@ -5,6 +5,7 @@ package state
 
 import (
 	"errors"
+	"slices"
 	"time"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
@@ -69,14 +70,15 @@ const (
 	StageForwardFailed = "forward_failed"
 )
 
+// TerminalStages are the stages a row never moves on from; the store reads
+// open heals by this same list.
+var TerminalStages = []string{
+	StageHealed, StageRerunFailed, StageParked, StageClosed, StageForwardPassed, StageForwardFailed,
+}
+
 // Terminal reports whether a row in stage never moves again.
 func Terminal(stage string) bool {
-	switch stage {
-	case StageHealed, StageRerunFailed, StageParked, StageClosed, StageForwardPassed, StageForwardFailed:
-		return true
-	}
-
-	return false
+	return slices.Contains(TerminalStages, stage)
 }
 
 // Dispatch is a heal's latest run kind, in flight while At is set and neither

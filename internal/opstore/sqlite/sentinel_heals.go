@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
@@ -112,9 +113,13 @@ func (s *Store) SaveHeal(ctx context.Context, h *state.Heal) error {
 
 // OpenHeals returns every heal whose stage is not terminal, oldest first.
 func (s *Store) OpenHeals(ctx context.Context) ([]state.Heal, error) {
-	heals, err := s.queryHeals(ctx, `kind = ? AND stage NOT IN (?, ?, ?, ?, ?, ?) ORDER BY id`,
-		state.HealKindHeal, state.StageHealed, state.StageRerunFailed, state.StageParked,
-		state.StageClosed, state.StageForwardPassed, state.StageForwardFailed)
+	args := []any{state.HealKindHeal}
+	for _, stage := range state.TerminalStages {
+		args = append(args, stage)
+	}
+
+	heals, err := s.queryHeals(ctx,
+		`kind = ? AND stage NOT IN (`+placeholders(len(state.TerminalStages))+`) ORDER BY id`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list open heals: %w", err)
 	}
@@ -417,4 +422,9 @@ func nullUnixNano(t *time.Time) any {
 	}
 
 	return t.UnixNano()
+}
+
+// placeholders is n comma-separated SQL parameters.
+func placeholders(n int) string {
+	return strings.TrimSuffix(strings.Repeat("?, ", n), ", ")
 }

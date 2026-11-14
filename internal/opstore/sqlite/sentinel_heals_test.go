@@ -109,7 +109,7 @@ func TestOpenHealsReturnsOnlyOpenHeals(t *testing.T) {
 	ctx := context.Background()
 
 	open := []string{state.StageInvestigate, state.StageCheck, state.StageApply, state.StageUsageWait, state.StageRerun}
-	done := []string{state.StageHealed, state.StageRerunFailed, state.StageParked, state.StageClosed}
+	done := state.TerminalStages
 
 	for i, stage := range slices.Concat(open, done) {
 		_, err := st.OpenHeal(ctx, state.Heal{
