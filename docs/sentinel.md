@@ -15,6 +15,12 @@ and a healed one forwards its fix to the unstarted cards of its playbook run
 that share the cause (see [Fix forward](#fix-forward)). The status callback
 hands the controller run kinds' results, which it records and charges.
 
+With friction analysis on, Sentinel also analyses finished runs (see
+[Analyses](#analyses)): an analysis reports findings, which it routes to
+outputs - friction cards, card notes and one standing guidance PR per project,
+written by the agent's `guidance_pr` run kind (see
+[Routing findings](#routing-findings) and [Standing PR](#standing-pr)).
+
 ## Settings
 
 The switches, caps and threshold live in one row of the `sentinel_settings`
@@ -130,7 +136,7 @@ system writes read as edits against it.
 
 ## Heal records
 
-Three ops.db tables hold what Sentinel does. The pass opens heals, and the
+Four ops.db tables hold what Sentinel does. The pass opens heals, and the
 run-kind intake records results, findings and spend on them.
 
 - `sentinel_heals`: one row per heal, for one stopped run (at most one per run
@@ -143,9 +149,13 @@ run-kind intake records results, findings and spend on them.
   a forward row also holds the card the fix came from. `healed`,
   `rerun_failed`, `parked` and `closed` end a heal; `forward_passed` and
   `forward_failed` end a forward row.
-- `sentinel_findings`: the friction findings an investigation reported.
+- `sentinel_findings`: the friction findings an investigation or analysis
+  reported, each with its routing state, reason and output (see
+  [Routing findings](#routing-findings)).
 - `sentinel_spend`: the spend ledger, one row per charge with the LLM channel
   mode it ran on and, for a run kind's status, its run ID.
+- `sentinel_standing_prs`: one row per project for its standing guidance PR (see
+  [Standing PR](#standing-pr)).
 
 A run kind's terminal status is recorded on the card's heal with that kind in
 flight and not yet answered or failed, whatever the heal's stage, and charges
@@ -814,7 +824,9 @@ reuses the open row that was never sent (the agent was busy, had no run kinds,
 or did not know the kind), re-packed. A payload that cannot be filled, such as a write token
 GitHub refuses to mint, ends the row `revision_failed` with `not sent: <why>`
 as its reason, so rule 5 holds the next try for an hour; the findings stay
-`pending`, and nothing falls back to another token. The outcomes:
+`pending`, and nothing falls back to another token. A dispatch record that
+cannot be saved sends nothing and leaves the row open, so the next pass tries
+again. The outcomes:
 
 - `pushed` ends `revised`: the record takes the result's URL, head SHA and
   file, the state `open` and the push time now, and every sent finding becomes
@@ -1059,6 +1071,10 @@ the next pass.
 | `internal/sentinel/payload.go` (revisions) | The pure `guidancePayload` |
 | `internal/sentinel/pass.go` (revisions) | `readHealth`, the one health read a pass makes, also for a revision; stepping the revisions last |
 | `internal/opstore/sqlite/sentinel_heals.go` (revisions) | `OpenRevision`, `OpenRevisions`, `LastRefusedRevision`, `LastFailedRevision`, `LastRevisedRevision`, `PendingFindings` and `Findings` (by ID, whatever the state) |
+| `internal/sentinel/dedup.go` | The pure `similar`: word 3-shingle Jaccard or containment between two texts |
+| `internal/sentinel/safety.go` | `holdsSecret` and `redactCardIDs`: what keeps a secret or a card ID out of published text |
+| `internal/config/secrets.go` | `Config.SecretValues`: every secret the config holds, for the secret check |
+| `internal/api/sentinel_github.go` | `sentinelGitHub`: reads a project's standing PR state and merged file from GitHub with the project's own credentials |
 
 `internal/sentinel/state` holds only types, constants and their trivial
 methods. It is a leaf, so the ops.db store imports it and nothing of the

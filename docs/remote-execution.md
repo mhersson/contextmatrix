@@ -115,7 +115,7 @@ All POSTs carry `Content-Type: application/json` and go to
 | Method + path       | Purpose                                                                                                                                |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /trigger`     | Start a card run.                                                                                                                      |
-| `POST /run-kind`    | Start a Sentinel run kind (`check`, `investigate` or `analyse`) for one card.                                                          |
+| `POST /run-kind`    | Start a Sentinel run kind (`check`, `investigate`, `analyse` or `guidance_pr`) for one card, or for one project (`guidance_pr`).       |
 | `POST /kill`        | Stop the container for one card, or with `kind` set, that card's run kind. Idempotent.                                                 |
 | `POST /stop-all`    | Stop every container for a project; the agent also ends run kinds.                                                                     |
 | `POST /message`     | Deliver a human message to a running HITL card.                                                                                        |
@@ -245,8 +245,8 @@ nothing to do, so CM's cleanup paths never distinguish "not found" from
 
 #### POST {agent_url}/run-kind
 
-Dispatches a run kind: a sandboxed run for one card that carries no MCP key
-and never writes the card. The body is `protocol.RunKindPayload`. `202` means
+Dispatches a run kind: a sandboxed run for one card (`guidance_pr`: one
+project, no card ID) that carries no MCP key and never writes the card. The body is `protocol.RunKindPayload`. `202` means
 the agent accepted it and launches asynchronously. CM's client maps `404` to
 `ErrRunKindsUnavailable` (the agent has no run kinds), a `400` with code
 `invalid_field` and message `invalid kind` to `ErrRunKindUnknown` (the agent
