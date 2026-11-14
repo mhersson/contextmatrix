@@ -46,8 +46,9 @@ Numbers must be finite.
   that woke it. Wake-ups only shorten the wait, so a dropped event or a
   restart is covered by the next pass.
 - A pass that panics is logged with its stack and recovered; a pass whose read
-  fails is logged. Either leaves the status as it was, and the next wake-up
-  tries again.
+  fails is logged. Either leaves the last landed pass's status, and the next
+  wake-up tries again. A pass keeps the settings it read before anything else
+  can fail, so a switch turned on reads as on even while passes fail.
 - When the status a pass derives differs from the last one published, the
   controller publishes `sentinel.changed` with an empty project and no data.
 
@@ -181,8 +182,9 @@ its cost so far.
 
 ## Status
 
-`Controller.Status` summarizes the last pass as of the moment it is asked, so
-a controller whose passes stopped landing reads as not running.
+`Controller.Status` summarizes the last pass that landed as of the moment it
+is asked, under the settings a pass last read, so a controller whose passes
+stopped landing, or have not landed since it started, reads as not running.
 `NotRunningStatus` is the status of a server with no controller. The first
 matching state wins:
 
@@ -190,7 +192,8 @@ matching state wins:
 | ------------- | ---------------------------------------------------------- | --------------------------------------------------------------------- |
 | `off`         |                                                            | `enabled` is off                                                      |
 | `not_running` | `no execution backend`                                     | Sentinel is on and no agent backend is configured, so no controller exists |
-| `not_running` | `controller stopped`                                       | No pass has landed for more than three ticks                          |
+| `not_running` | `controller stopped`                                       | No pass has landed for more than three ticks (counted from the start when none has) |
+| `watching`    |                                                            | Sentinel was switched on after the last pass that landed, within those three ticks |
 | `paused`      | `the agent has no run kinds`                               | The agent answered a run kind with 404 in the last 15 minutes         |
 | `paused`      | `daily cap reached` or `waiting for subscription headroom` | The budget gate is closed                                             |
 | `working`     |                                                            | At least one heal is in progress                                      |

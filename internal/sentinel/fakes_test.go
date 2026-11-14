@@ -27,6 +27,7 @@ type fakeStore struct {
 	reads     int
 	others    int // calls to every method but SentinelSettings
 	panicNext bool
+	readErr   error // answered by SubscriptionWindows, so a pass fails after its settings read
 	heals     map[int64]state.Heal
 	runs      []state.Run
 	ledger    []ledgerRow
@@ -96,7 +97,14 @@ func (f *fakeStore) SubscriptionWindows(context.Context) ([]protocol.Subscriptio
 
 	f.others++
 
-	return f.windows, nil
+	return f.windows, f.readErr
+}
+
+func (f *fakeStore) fail(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.readErr = err
 }
 
 // RecordRunKindStatus records on the card's newest heal with the kind in

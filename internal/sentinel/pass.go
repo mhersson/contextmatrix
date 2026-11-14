@@ -50,8 +50,13 @@ func (c *Controller) pass(ctx context.Context) error {
 		return fmt.Errorf("read sentinel settings: %w", err)
 	}
 
+	// Kept before anything else can fail, so a switch turned on reads as on.
+	c.mu.Lock()
+	c.settings = set
+	c.mu.Unlock()
+
 	now := c.cfg.Clock.Now()
-	in := statusInput{Settings: set, LastPass: now, Now: now, Tick: c.cfg.Tick}
+	in := statusInput{Settings: set, Active: set.Enabled, LastPass: now, Now: now, Tick: c.cfg.Tick}
 
 	if !set.Enabled {
 		c.record(in)

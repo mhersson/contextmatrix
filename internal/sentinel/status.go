@@ -38,9 +38,10 @@ type Status struct {
 
 // statusInput is everything a Status is derived from.
 type statusInput struct {
-	Settings     state.Settings
-	NoController bool // no execution backend, so no controller exists
-	LastPass     time.Time
+	Settings     state.Settings // as a pass last read them, whether or not it landed
+	Active       bool           // the last pass that landed ran with Sentinel enabled
+	NoController bool           // no execution backend, so no controller exists
+	LastPass     time.Time      // when the last pass landed, else when the controller started
 	Now          time.Time
 	Tick         time.Duration
 	Mode         llmchannel.Mode
@@ -59,7 +60,9 @@ func NotRunningStatus(s state.Settings) Status {
 }
 
 // summarize derives the status. The first matching state wins: off, not
-// running, paused (no run kinds, then the budget gate), working, watching.
+// running, paused (no run kinds, then the budget gate), working, watching. A
+// switch turned on since the last pass that landed reads as watching until
+// three ticks pass without one, then as not running.
 func summarize(in statusInput) Status {
 	st := Status{
 		Enabled:       in.Settings.Enabled,
@@ -86,6 +89,8 @@ func summarize(in statusInput) Status {
 		st.State, st.Reason = StateNotRunning, "no execution backend"
 	case in.Now.Sub(in.LastPass) > staleTicks*in.Tick:
 		st.State, st.Reason = StateNotRunning, "controller stopped"
+	case !in.Active:
+		st.State = StateWatching
 	case in.NoRunKinds:
 		st.State, st.Reason = StatePaused, reasonNoRunKinds
 	case !in.GateOpen:

@@ -15,7 +15,7 @@ import (
 func TestSummarize(t *testing.T) {
 	now := time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
 	quiet := statusInput{
-		Settings: enabledSettings(), LastPass: now, Now: now, Tick: 30 * time.Second,
+		Settings: enabledSettings(), Active: true, LastPass: now, Now: now, Tick: 30 * time.Second,
 		Mode: llmchannel.ModeEndpoint, GateOpen: true,
 	}
 	with := func(f func(in *statusInput)) statusInput {
@@ -39,6 +39,11 @@ func TestSummarize(t *testing.T) {
 		{"enabled without controller", with(func(in *statusInput) { in.NoController = true }), StateNotRunning, "no execution backend"},
 		{"last pass 91 s ago", with(func(in *statusInput) { in.Now = now.Add(91 * time.Second) }), StateNotRunning, "controller stopped"},
 		{"last pass 90 s ago", with(func(in *statusInput) { in.Now = now.Add(90 * time.Second) }), StateWatching, ""},
+		{"switched on since the last pass", with(func(in *statusInput) { in.Active, in.GateOpen = false, false }), StateWatching, ""},
+		{"switched on, no pass landed in three ticks", with(func(in *statusInput) {
+			in.Active, in.GateOpen = false, false
+			in.Now = now.Add(91 * time.Second)
+		}), StateNotRunning, "controller stopped"},
 		{"gate closed", with(func(in *statusInput) {
 			in.GateOpen = false
 			in.GateReason = "daily cap reached"
@@ -72,7 +77,7 @@ func TestSummarizeCarriesModeCapsAndLiveWindows(t *testing.T) {
 	live := protocol.SubscriptionUsage{Window: "five_hour", Utilization: 0.62, Status: "allowed", ResetsAt: now.Add(time.Hour)}
 	reset := protocol.SubscriptionUsage{Window: "seven_day", Utilization: 1, Status: "rejected", ResetsAt: now}
 	in := statusInput{
-		Settings: enabledSettings(), LastPass: now, Now: now, Tick: 30 * time.Second,
+		Settings: enabledSettings(), Active: true, LastPass: now, Now: now, Tick: 30 * time.Second,
 		Mode: llmchannel.ModeClaudeCode, GateOpen: true, Windows: []protocol.SubscriptionUsage{live, reset}, Healing: 1,
 	}
 

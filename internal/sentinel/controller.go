@@ -115,7 +115,9 @@ type Controller struct {
 	wg    sync.WaitGroup
 
 	mu              sync.Mutex
-	last            statusInput // from the last pass that completed
+	started         time.Time
+	settings        state.Settings // as the last pass read them, landed or not
+	last            statusInput    // from the last pass that completed
 	published       Status
 	runKindBase     RunKindBase
 	relauncher      func(ctx context.Context, project, cardID string) error
@@ -145,6 +147,10 @@ func New(cfg Config) *Controller {
 func (c *Controller) Start(ctx context.Context) {
 	ch, unsubscribe := c.cfg.Bus.Subscribe()
 	ticker := c.cfg.Clock.NewTicker(c.cfg.Tick)
+
+	c.mu.Lock()
+	c.started = c.cfg.Clock.Now()
+	c.mu.Unlock()
 
 	c.wg.Go(func() {
 		defer unsubscribe()
@@ -204,14 +210,18 @@ func (c *Controller) Nudge() {
 	}
 }
 
-// Status summarizes the last pass as of now, so a controller whose passes
-// stopped landing reads as not running.
+// Status summarizes the last pass that landed as of now, under the settings
+// a pass last read, so a controller whose passes stopped landing, or never
+// landed since Start, reads as not running once Sentinel is on.
 func (c *Controller) Status() Status {
 	c.mu.Lock()
-	in := c.last
+	in, set, started := c.last, c.settings, c.started
 	c.mu.Unlock()
 
-	in.Now = c.cfg.Clock.Now()
+	in.Settings, in.Now = set, c.cfg.Clock.Now()
+	if in.LastPass.IsZero() {
+		in.LastPass = started
+	}
 
 	return summarize(in)
 }

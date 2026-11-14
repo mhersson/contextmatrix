@@ -2,6 +2,7 @@ package sentinel
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -115,6 +116,46 @@ func TestControllerSurvivesPanickingPass(t *testing.T) {
 	e.clk.Advance(30 * time.Second)
 	e.waitPasses(t, 2)
 	e.waitState(t, StateWatching)
+}
+
+func TestControllerSwitchedOnWhilePassesFail(t *testing.T) {
+	tests := []struct {
+		name     string
+		settings state.Settings // what passes found before the switch
+	}{
+		{"no pass has landed since Start", enabledSettings()},
+		{"the last pass that landed ran off", state.DefaultSettings()},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeStore{settings: tc.settings}
+			if tc.settings.Enabled {
+				store.readErr = errors.New("ops.db is locked")
+			}
+
+			e := newEnv(t, store, llmchannel.ModeEndpoint)
+			e.start(t)
+			e.waitPasses(t, 1)
+
+			if !tc.settings.Enabled {
+				require.Equal(t, StateOff, e.ctl.Status().State)
+
+				store.fail(errors.New("ops.db is locked"))
+				store.set(enabledSettings())
+				e.ctl.Nudge()
+				e.waitPasses(t, 2)
+			}
+
+			assert.Equal(t, StateWatching, e.ctl.Status().State, "on, and inside three ticks of the last pass or Start")
+
+			e.clk.Advance(91 * time.Second)
+
+			st := e.ctl.Status()
+			assert.True(t, st.Enabled)
+			assert.Equal(t, StateNotRunning, st.State, "never off while switched on")
+			assert.Equal(t, "controller stopped", st.Reason)
+		})
+	}
 }
 
 func TestControllerPublishesOnlyOnStatusChange(t *testing.T) {
