@@ -370,6 +370,44 @@ func TestEnsureSchema_AddsPinAndSpendWithoutABump(t *testing.T) {
 	assert.Nil(t, old.SpentUSD)
 }
 
+func TestEnsureSchema_AddsWaitingWithoutABump(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ops.db")
+
+	s, err := Open(path)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	db, err := sql.Open("sqlite", sqliteutil.DSN(path, sqliteutil.WithForeignKeys()))
+	require.NoError(t, err)
+	_, err = db.Exec("ALTER TABLE chat_sessions DROP COLUMN waiting_kind")
+	require.NoError(t, err)
+	_, err = db.Exec("ALTER TABLE chat_sessions DROP COLUMN waiting_since")
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	s2, err := Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s2.Close() })
+
+	assert.True(t, columnExists(t, s2.db, "chat_sessions", "waiting_kind"))
+	assert.True(t, columnExists(t, s2.db, "chat_sessions", "waiting_since"))
+
+	var v int
+
+	require.NoError(t, s2.db.QueryRow("PRAGMA user_version").Scan(&v))
+	assert.Equal(t, schemaVersion, v)
+
+	_, err = s2.db.Exec(`INSERT INTO chat_sessions
+		(id, title, status, created_at, last_active, created_by)
+		VALUES ('OLD', 'old', 'cold', 1, 1, 'human:web')`)
+	require.NoError(t, err)
+
+	old, err := s2.GetSession(context.Background(), "OLD")
+	require.NoError(t, err)
+	assert.Empty(t, old.WaitingKind)
+	assert.Nil(t, old.WaitingSince)
+}
+
 // The column needs no schema bump: a database without it grows it and keeps
 // its version, so an older image still opens it, and the insert that image
 // runs, naming no unattended, reads back as not unattended.

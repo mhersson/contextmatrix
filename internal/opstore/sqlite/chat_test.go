@@ -1134,6 +1134,64 @@ func TestUpdateSessionSpend_RecordsAndOverwrites(t *testing.T) {
 	assert.ErrorIs(t, s.UpdateSessionSpend(ctx, "missing", 1), chat.ErrSessionNotFound)
 }
 
+func TestUpdateSessionWaiting(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	sess := sessionRow("W1")
+	sess.Kind = chat.KindArchitect
+	require.NoError(t, s.CreateSession(ctx, sess))
+
+	waitingOf := func() (string, *time.Time) {
+		t.Helper()
+
+		got, err := s.GetSession(ctx, "W1")
+		require.NoError(t, err)
+
+		return got.WaitingKind, got.WaitingSince
+	}
+
+	first := time.Date(2026, 11, 14, 10, 0, 0, 0, time.UTC)
+
+	changed, err := s.UpdateSessionWaiting(ctx, "W1", "question", first)
+	require.NoError(t, err)
+	assert.True(t, changed)
+
+	kind, since := waitingOf()
+	assert.Equal(t, "question", kind)
+	require.NotNil(t, since)
+	assert.Equal(t, first, *since)
+
+	changed, err = s.UpdateSessionWaiting(ctx, "W1", "question", first.Add(time.Minute))
+	require.NoError(t, err)
+	assert.False(t, changed, "the same wait again is a no-op")
+
+	changed, err = s.UpdateSessionWaiting(ctx, "W1", "gate", first.Add(2*time.Minute))
+	require.NoError(t, err)
+	assert.True(t, changed)
+
+	kind, since = waitingOf()
+	assert.Equal(t, "gate", kind)
+	require.NotNil(t, since)
+	assert.Equal(t, first, *since, "a set while already waiting keeps the since")
+
+	changed, err = s.UpdateSessionWaiting(ctx, "W1", "", first.Add(3*time.Minute))
+	require.NoError(t, err)
+	assert.True(t, changed)
+
+	kind, since = waitingOf()
+	assert.Empty(t, kind)
+	assert.Nil(t, since)
+
+	changed, err = s.UpdateSessionWaiting(ctx, "W1", "", first.Add(4*time.Minute))
+	require.NoError(t, err)
+	assert.False(t, changed, "clearing no wait is a no-op")
+
+	changed, err = s.UpdateSessionWaiting(ctx, "missing", "question", first)
+	require.NoError(t, err)
+	assert.False(t, changed)
+}
+
 func TestUpdateSession_KeepsPinAndSpend(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()

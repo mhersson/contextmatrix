@@ -124,6 +124,17 @@ type Session struct {
 	// AssistantWorking is false. Late-joining browsers use it to show a
 	// truthful elapsed time.
 	AssistantWorkingSince *time.Time `json:"assistant_working_since,omitempty"`
+
+	// WaitingKind is the open prompt's kind while the architect waits, ""
+	// otherwise; WaitingSince is when the wait began. Never on the wire.
+	WaitingKind  string     `json:"-"`
+	WaitingSince *time.Time `json:"-"`
+}
+
+// BlueprintStatus is what CM keeps from a blueprint view.
+type BlueprintStatus struct {
+	SpentUSD *float64 // nil when the view carries no spend
+	Waiting  string   // the open prompt's kind while State == "waiting" ("other" without one), else ""
 }
 
 // Message is a single persisted transcript entry. Kind discriminates

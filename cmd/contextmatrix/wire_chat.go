@@ -84,7 +84,7 @@ func wireChat(
 		architectDefaultModel           string
 		architectWorkerCredentialsToken func(sessionID string) string
 		research                        *protocol.ResearchStart
-		architectSpend                  func(ctx context.Context, sessionID string) (float64, bool, error)
+		architectView                   func(ctx context.Context, sessionID string) (chat.BlueprintStatus, error)
 	)
 
 	if entry, ok := cfg.ArchitectBackend(); ok {
@@ -95,7 +95,7 @@ func wireChat(
 		})
 		architectDefaultModel = entry.DefaultModel
 		research = architectResearch(entry)
-		architectSpend = api.ArchitectSpendReader(entry.URL, entry.APIKey)
+		architectView = api.ArchitectViewReader(entry.URL, entry.APIKey)
 
 		// GET /api/worker/git-credentials verifies these against the same architect entry's api_key.
 		architectKey := entry.APIKey
@@ -126,7 +126,7 @@ func wireChat(
 		ArchitectPrice:                  architectPriceFor(svc),
 		ArchitectContextWindow:          architectContextWindow,
 		ArchitectResearch:               research,
-		ArchitectSpend:                  architectSpend,
+		ArchitectView:                   architectView,
 		ResolveProjectExec: func(rctx context.Context, project string) (chat.ProjectExecInfo, error) {
 			p, err := svc.GetProject(rctx, project)
 			if err != nil {
@@ -235,7 +235,7 @@ func wireChat(
 
 	// One best-effort pass on the server ctx, not the reattach deadline, so a
 	// slow architect neither delays startup nor cuts the pass short.
-	go chatMgr.BackfillBlueprintSpend(ctx)
+	go chatMgr.BackfillBlueprintViews(ctx)
 
 	// The chat store is the shared operational store, owned and closed by the
 	// caller (defer opStore.Close() in main). Only the manager is torn down here.

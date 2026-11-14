@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
 	"slices"
 	"strconv"
@@ -235,10 +236,14 @@ type Config struct {
 	// keeps research off. It carries the provider's API key: never log it.
 	ArchitectResearch *protocol.ResearchStart
 
-	// ArchitectSpend reads a blueprint's cost.spent_usd from the architect's
-	// view; ok is false when the view carries none. nil disables the read on
-	// an idle frame and the startup backfill.
-	ArchitectSpend func(ctx context.Context, sessionID string) (spentUSD float64, ok bool, err error)
+	// ArchitectView reads what CM keeps from a blueprint's view on the
+	// architect. nil disables the read on an idle frame and the startup
+	// backfill.
+	ArchitectView func(ctx context.Context, sessionID string) (BlueprintStatus, error)
+
+	// WaitingChanged is called after a write that changed a blueprint's
+	// waiting state. nil-safe.
+	WaitingChanged func()
 }
 
 // Manager orchestrates chat session lifecycle, transcript persistence,
@@ -272,7 +277,8 @@ type Manager struct {
 	architectPrice                  func(model string) (protocol.ModelPrice, bool)
 	architectContextWindow          func(ctx context.Context, model string) int
 	architectResearch               *protocol.ResearchStart
-	architectSpend                  func(ctx context.Context, sessionID string) (float64, bool, error)
+	architectView                   func(ctx context.Context, sessionID string) (BlueprintStatus, error)
+	waitingChanged                  func()
 
 	mu           sync.Mutex
 	seqMap       map[string]int64           // sessionID → last assigned seq
@@ -290,7 +296,13 @@ type Manager struct {
 	// lost on restart by design (a restarted CM has no turn in flight it
 	// knows about).
 	working map[string]time.Time
-	wg      sync.WaitGroup
+	// statusGen maps sessionID → a counter every status frame and every
+	// clearWaiting bumps, so a view read can tell it was overtaken.
+	statusGen map[string]uint64
+	wg        sync.WaitGroup
+
+	// waitMu holds every waiting write together with its statusGen check.
+	waitMu sync.Mutex
 
 	// openGroup deduplicates concurrent cold-open work per sessionID. Two
 	// callers racing to open the same id share one Backend.StartChat
@@ -386,7 +398,8 @@ func NewManager(cfg Config) *Manager {
 		architectPrice:                  cfg.ArchitectPrice,
 		architectContextWindow:          cfg.ArchitectContextWindow,
 		architectResearch:               cfg.ArchitectResearch,
-		architectSpend:                  cfg.ArchitectSpend,
+		architectView:                   cfg.ArchitectView,
+		waitingChanged:                  cfg.WaitingChanged,
 
 		seqMap:            make(map[string]int64),
 		titled:            make(map[string]bool),
@@ -394,6 +407,7 @@ func NewManager(cfg Config) *Manager {
 		sendFailures:      make(map[string]int),
 		rehydrationActive: make(map[string]bool),
 		working:           make(map[string]time.Time),
+		statusGen:         make(map[string]uint64),
 		appendLocks:       map[string]*sync.Mutex{},
 		statusLocks:       map[string]*sync.Mutex{},
 		transcriptLocks:   map[string]*sync.Mutex{},
@@ -537,9 +551,11 @@ func (m *Manager) setWorking(sessionID string, working bool) bool {
 // (Content "working" or "idle"). Status frames are ephemeral indicator state:
 // never persisted, never a transcript row. Rehydration replay must not arm
 // the indicator - the first real turn starts with the user's next message.
-// A blueprint's idle frame re-reads its spend off the consumer goroutine, so
+// A blueprint's idle frame re-reads its view off the consumer goroutine, so
 // the consumer never waits on the architect.
 func (m *Manager) handleStatusEntry(ctx context.Context, sessionID string, kind SessionKind, e LogEntry) {
+	gen := m.bumpStatusGen(sessionID)
+
 	switch e.Content {
 	case "working":
 		if m.isRehydrationActive(ctx, sessionID) {
@@ -547,16 +563,82 @@ func (m *Manager) handleStatusEntry(ctx context.Context, sessionID string, kind 
 		}
 
 		m.setWorking(sessionID, true)
+
+		// Synchronous: an async clear could land after a newer idle frame's write.
+		if kind == KindArchitect {
+			m.recordWaiting(ctx, sessionID, "", gen)
+		}
 	case "idle":
 		m.setWorking(sessionID, false)
 
-		if kind == KindArchitect && m.architectSpend != nil {
-			m.wg.Go(func() { m.readBlueprintSpend(ctx, sessionID) })
+		if kind == KindArchitect && m.architectView != nil {
+			m.wg.Go(func() {
+				if status, ok := m.readBlueprintView(ctx, sessionID); ok {
+					m.recordWaiting(ctx, sessionID, status.Waiting, gen)
+				}
+			})
 		}
 	default:
 		m.logger.Debug("chat: unknown status frame content",
 			"session_id", sessionID, "content", e.Content)
 	}
+}
+
+// bumpStatusGen advances sessionID's status generation and returns it.
+func (m *Manager) bumpStatusGen(sessionID string) uint64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.statusGen[sessionID]++
+
+	return m.statusGen[sessionID]
+}
+
+// statusGenOf returns sessionID's current status generation.
+func (m *Manager) statusGenOf(sessionID string) uint64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.statusGen[sessionID]
+}
+
+// statusGens copies every session's status generation.
+func (m *Manager) statusGens() map[string]uint64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return maps.Clone(m.statusGen)
+}
+
+// recordWaiting stores a blueprint's waiting kind ("" clears it), dropped
+// when a status frame newer than gen arrived: the check and the write share
+// waitMu, so a view read a newer frame overtook can never land after it.
+func (m *Manager) recordWaiting(ctx context.Context, sessionID, kind string, gen uint64) {
+	m.waitMu.Lock()
+
+	if m.statusGenOf(sessionID) != gen {
+		m.waitMu.Unlock()
+
+		return
+	}
+
+	changed, err := m.store.UpdateSessionWaiting(ctx, sessionID, kind, m.clk.Now().UTC())
+	m.waitMu.Unlock()
+
+	if err != nil {
+		m.logger.Debug("chat: blueprint wait not recorded", "session_id", sessionID, "error", err)
+
+		return
+	}
+
+	if changed && m.waitingChanged != nil {
+		m.waitingChanged()
+	}
+}
+
+// clearWaiting clears a blueprint's stored wait and drops any view read in flight.
+func (m *Manager) clearWaiting(ctx context.Context, sessionID string) {
+	m.recordWaiting(ctx, sessionID, "", m.bumpStatusGen(sessionID))
 }
 
 // decorateWorking stamps the in-memory assistant-working state onto a session
@@ -2481,6 +2563,10 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 		return err
 	}
 
+	if sess.Kind == KindArchitect {
+		m.clearWaiting(ctx, sess.ID)
+	}
+
 	// Reset any leftover rehydration flag so a subsequent reopen starts
 	// from a clean state. setRehydrationActive is idempotent and tolerant
 	// of an already-false value. setRehydrationActive itself acquires the
@@ -2549,6 +2635,11 @@ func (m *Manager) DeleteSession(ctx context.Context, id string) error {
 
 	m.stopConsumer(id)
 
+	// Cleared before the row goes, so a waiting blueprint's delete reports once.
+	if sess.Kind == KindArchitect {
+		m.clearWaiting(ctx, id)
+	}
+
 	if err := m.store.DeleteSession(ctx, id); err != nil {
 		return err
 	}
@@ -2569,6 +2660,7 @@ func (m *Manager) DeleteSession(ctx context.Context, id string) error {
 	delete(m.rehydrationActive, id)
 	delete(m.sendFailures, id)
 	delete(m.working, id)
+	delete(m.statusGen, id)
 	m.mu.Unlock()
 
 	// Drop the per-session append lock entry. Held under appendLocksMu
@@ -3002,21 +3094,26 @@ func (m *Manager) RecordBlueprintSpend(ctx context.Context, sessionID string, sp
 	return nil
 }
 
-// spendBackfillConcurrency bounds the startup backfill's architect reads in flight.
-const spendBackfillConcurrency = 4
+// viewBackfillConcurrency bounds the startup backfill's architect reads in flight.
+const viewBackfillConcurrency = 4
 
-// BackfillBlueprintSpend reads the architect's view once for every blueprint
-// with no recorded spend and records what it finds. Best-effort: a failed or
-// empty read leaves the row unrecorded until the next view read. It returns
-// when the pass ends and starts no read once ctx is done.
-func (m *Manager) BackfillBlueprintSpend(ctx context.Context) {
-	if m.architectSpend == nil || ctx.Err() != nil {
+// BackfillBlueprintViews reads the architect's view once for every blueprint
+// with no recorded spend or with a stored wait, so a wait that ended while CM
+// was down clears. Best-effort: a failed read leaves the row as it is until
+// the next view read. It returns when the pass ends and starts no read once
+// ctx is done.
+func (m *Manager) BackfillBlueprintViews(ctx context.Context) {
+	if m.architectView == nil || ctx.Err() != nil {
 		return
 	}
 
+	// Taken before the list, so a status frame or an End after the snapshot
+	// moves that row's generation on and the write judged from it is dropped.
+	gens := m.statusGens()
+
 	sessions, err := m.store.ListSessions(ctx, SessionFilter{Kind: KindArchitect})
 	if err != nil {
-		m.logger.Warn("chat: blueprint spend backfill: list failed", "error", err)
+		m.logger.Warn("chat: blueprint view backfill: list failed", "error", err)
 
 		return
 	}
@@ -3024,13 +3121,13 @@ func (m *Manager) BackfillBlueprintSpend(ctx context.Context) {
 	var (
 		wg         sync.WaitGroup
 		candidates int
-		recorded   atomic.Int64
+		read       atomic.Int64
 	)
 
-	sem := make(chan struct{}, spendBackfillConcurrency)
+	sem := make(chan struct{}, viewBackfillConcurrency)
 
 	for _, sess := range sessions {
-		if sess.SpentUSD != nil {
+		if sess.SpentUSD != nil && sess.WaitingKind == "" {
 			continue
 		}
 
@@ -3049,42 +3146,48 @@ func (m *Manager) BackfillBlueprintSpend(ctx context.Context) {
 		wg.Go(func() {
 			defer func() { <-sem }()
 
-			if m.readBlueprintSpend(ctx, sess.ID) {
-				recorded.Add(1)
+			gen := gens[sess.ID]
+
+			status, ok := m.readBlueprintView(ctx, sess.ID)
+			if !ok {
+				return
 			}
+
+			read.Add(1)
+
+			// A wait clears when its session ends, so a cold row never carries one.
+			if sess.Status == StatusCold {
+				status.Waiting = ""
+			}
+
+			m.recordWaiting(ctx, sess.ID, status.Waiting, gen)
 		})
 	}
 
 	wg.Wait()
 
-	m.logger.Info("chat: blueprint spend backfill done",
-		"recorded", recorded.Load(), "unrecorded", int64(candidates)-recorded.Load())
+	m.logger.Info("chat: blueprint view backfill done",
+		"read", read.Load(), "unread", int64(candidates)-read.Load())
 }
 
-// readBlueprintSpend reads a blueprint's spend from the architect and records
-// it. A failed or empty read leaves the row as it is; it reports whether a
-// spend was recorded.
-func (m *Manager) readBlueprintSpend(ctx context.Context, sessionID string) bool {
-	spent, ok, err := m.architectSpend(ctx, sessionID)
+// readBlueprintView reads a blueprint's view from the architect and records
+// its spend; the caller records the wait through the generation check. ok is
+// false when the read failed.
+func (m *Manager) readBlueprintView(ctx context.Context, sessionID string) (BlueprintStatus, bool) {
+	status, err := m.architectView(ctx, sessionID)
 	if err != nil {
-		m.logger.Debug("chat: blueprint spend read failed", "session_id", sessionID, "error", err)
+		m.logger.Debug("chat: blueprint view read failed", "session_id", sessionID, "error", err)
 
-		return false
+		return BlueprintStatus{}, false
 	}
 
-	if !ok {
+	if status.SpentUSD == nil {
 		m.logger.Debug("chat: blueprint view carries no spend", "session_id", sessionID)
-
-		return false
-	}
-
-	if err := m.RecordBlueprintSpend(ctx, sessionID, spent); err != nil {
+	} else if err := m.RecordBlueprintSpend(ctx, sessionID, *status.SpentUSD); err != nil {
 		m.logger.Debug("chat: blueprint spend not recorded", "session_id", sessionID, "error", err)
-
-		return false
 	}
 
-	return true
+	return status, true
 }
 
 // ListMessages returns the transcript slice (seq > sinceSeq, oldest-first,
