@@ -36,8 +36,8 @@ export function PlaybooksTable({ rows, createRow, selected, onToggle, onToggleAl
               />
             </th>
             <th className="ssn-col-pin"><span className="sr-only">Pinned</span></th>
-            <th>Title</th>
-            <th>Projects</th>
+            <th className="ssn-col-title">Title</th>
+            <th className="ssn-col-projects">Projects</th>
             <th>Run</th>
             <th>Progress</th>
             <th>Last active</th>

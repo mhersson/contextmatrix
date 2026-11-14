@@ -744,6 +744,9 @@ dashboard.
   else CM's estimate from token counts; a blueprint's is the architect's
   recorded spend and "-" until one is recorded, never CM's estimate. A Claude
   subscription share is labelled as in the pane header.
+  A long title or project list is cut to one line with an ellipsis, its full
+  text in a tooltip, so the right-hand columns stay in view; on narrow screens
+  the table scrolls sideways.
 - Clicking a row, or its title from the keyboard, opens it: a session on
   `/chat`, as the sidebar does, a playbook on `/playbooks/:id`. The tick box
   and the pin do not open it; the pin pins or unpins the row (playbook pins

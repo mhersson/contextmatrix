@@ -55,16 +55,16 @@ export function PlaybookTableRow({ playbook: p, ticked, onToggle, onPin, onOpen,
           <PinIcon filled={pinned} />
         </button>
       </td>
-      <td>
-        <div className="pbt-title">
+      <td className="ssn-col-title">
+        <div className="ssn-title-line">
           <button type="button" className="ssn-open" onClick={(e) => { stop(e); onOpen(p.id); }}>
             <span className="pbt-icon"><PlaybookIcon /></span>
-            <span className="ssn-open-title">{p.title}</span>
+            <span className="ssn-open-title" title={p.title}>{p.title}</span>
           </button>
           {waiting && (
             <>
               <WaitBadge />
-              <span className="ssn-wait-reason">{waiting.reason}</span>
+              <span className="ssn-wait-reason" title={waiting.reason}>{waiting.reason}</span>
             </>
           )}
           {p.source && (
@@ -77,7 +77,9 @@ export function PlaybookTableRow({ playbook: p, ticked, onToggle, onPin, onOpen,
         </div>
         {p.next && <NextUp next={p.next} />}
       </td>
-      <td>{p.project_names.length > 0 ? p.project_names.join(', ') : '-'}</td>
+      <td className="ssn-col-projects" title={p.project_names.length > 0 ? p.project_names.join(', ') : undefined}>
+        {p.project_names.length > 0 ? p.project_names.join(', ') : '-'}
+      </td>
       <td>
         {p.run_status || agentActive ? (
           <span className="pbt-run">

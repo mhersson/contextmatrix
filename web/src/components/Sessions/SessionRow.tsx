@@ -52,23 +52,27 @@ export function SessionRow({ session: s, showMode, ticked, onToggle, onPin, onOp
         </button>
       </td>
       <td className="ssn-col-title">
-        <button type="button" className="ssn-open" onClick={(e) => { stop(e); onOpen(s.id); }}>
-          <span
-            className="ssn-dot"
-            style={{ background: statusDotColor(s.status) }}
-            title={s.status}
-            aria-hidden="true"
-          />
-          <span className="ssn-open-title">{title}</span>
-        </button>
-        {waiting && (
-          <>
-            <WaitBadge />
-            <span className="ssn-wait-reason">{waiting.reason}</span>
-          </>
-        )}
+        <div className="ssn-title-line">
+          <button type="button" className="ssn-open" onClick={(e) => { stop(e); onOpen(s.id); }}>
+            <span
+              className="ssn-dot"
+              style={{ background: statusDotColor(s.status) }}
+              title={s.status}
+              aria-hidden="true"
+            />
+            <span className="ssn-open-title" title={title}>{title}</span>
+          </button>
+          {waiting && (
+            <>
+              <WaitBadge />
+              <span className="ssn-wait-reason" title={waiting.reason}>{waiting.reason}</span>
+            </>
+          )}
+        </div>
       </td>
-      <td>{projects.length > 0 ? projects.join(', ') : '-'}</td>
+      <td className="ssn-col-projects" title={projects.length > 0 ? projects.join(', ') : undefined}>
+        {projects.length > 0 ? projects.join(', ') : '-'}
+      </td>
       {showMode && (
         <td>{s.mode ? <span className={`ssn-tag${modeTone(s.mode)}`}>{s.mode}</span> : '-'}</td>
       )}
