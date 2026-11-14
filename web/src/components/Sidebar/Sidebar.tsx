@@ -1,18 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router';
-import { api } from '../../api/client';
 import { sortProjectsForSidebar } from '../../lib/projectOrder';
 import { useProjects } from '../../hooks/useProjects';
 import { useProjectSummariesContext } from '../../hooks/ProjectSummariesProvider';
-import { useSSEBus } from '../../hooks/useSSEBus';
 import { useTheme } from '../../hooks/useTheme';
 import { useSync } from '../../hooks/useSync';
 import { useOptionalAuth } from '../../hooks/useAuth';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useRepoSectionsCollapsed } from '../../hooks/useRepoSectionsCollapsed';
 import { formatVersionWithLocalTime } from '../../utils/formatVersion';
-import { boardsRepoName, type PlaybookSummary, type ProjectConfig, type SessionKind } from '../../types';
+import { boardsRepoName, type ProjectConfig, type SessionKind } from '../../types';
 import { ProjectCard } from './ProjectCard';
+import { PlaybookSection } from './PlaybookSection';
 import { SessionSections } from './SessionSections';
 import { UserMenu } from './UserMenu';
 import { SettingsMenu } from './SettingsMenu';
@@ -39,43 +38,16 @@ function DashboardIcon() {
   );
 }
 
-function PlaybooksIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="6" cy="5" r="2" />
-      <path d="M6 7v7a4 4 0 0 0 4 4h4" />
-      <path d="M18 15.2 20.8 18 18 20.8 15.2 18z" />
-    </svg>
-  );
-}
-
-// With exactly one playbook the sidebar link jumps straight to its detail
-// page; the list stays reachable via the detail page's back link, so the
-// "New playbook" action is never trapped behind the shortcut.
-function usePlaybooksLinkTarget(): string {
-  const [playbooks, setPlaybooks] = useState<PlaybookSummary[] | null>(null);
-  const { subscribe, reconnectEpoch } = useSSEBus();
-  const fetchAll = useCallback(() => {
-    api.listPlaybooks().then(setPlaybooks).catch(() => setPlaybooks(null));
-  }, []);
-  useEffect(() => { fetchAll(); }, [fetchAll, reconnectEpoch]);
-  useEffect(() => subscribe('playbook.*', fetchAll), [subscribe, fetchAll]);
-  return playbooks?.length === 1 ? `/playbooks/${playbooks[0].id}` : '/playbooks';
-}
-
-interface WorkspaceNavLinkProps {
+interface BoardsNavLinkProps {
   to: string;
-  /** Path prefix that marks this link active; defaults to `to`. */
-  activeBase?: string;
   label: string;
   icon: ReactNode;
   onNavigate?: () => void;
 }
 
-function WorkspaceNavLink({ to, activeBase, label, icon, onNavigate }: WorkspaceNavLinkProps) {
+function BoardsNavLink({ to, label, icon, onNavigate }: BoardsNavLinkProps) {
   const { pathname } = useLocation();
-  const base = activeBase ?? to;
-  const isActive = pathname === base || pathname.startsWith(`${base}/`);
+  const isActive = pathname === to || pathname.startsWith(`${to}/`);
   return (
     <NavLink to={to} className="block" onClick={onNavigate}>
       <div
@@ -115,7 +87,6 @@ export function Sidebar({ onNewProject, onNewSession, mobileOpen = false, onMobi
     [projects, boardsRepos]
   );
   const { summaries } = useProjectSummariesContext();
-  const playbooksTarget = usePlaybooksLinkTarget();
 
   const renderProject = (p: ProjectConfig) => (
     <NavLink
@@ -208,24 +179,22 @@ export function Sidebar({ onNewProject, onNewSession, mobileOpen = false, onMobi
       </div>
 
       <nav aria-label="Projects" className="flex-1 overflow-y-auto py-1.5">
+        <div className="sb-eyebrow flex items-baseline justify-between px-5 pt-2 pb-0.5">
+          Work
+          <span className="normal-case tracking-normal" style={{ fontSize: '10px' }}>chat → blueprint → playbook</span>
+        </div>
+        <SessionSections onNewSession={onNewSession} />
+        <PlaybookSection />
+
         <div className="px-2">
-          <div className="sb-eyebrow px-3 pt-2 pb-1">Workspace</div>
-          <WorkspaceNavLink
+          <div className="sb-eyebrow px-3 pt-2 pb-1">Boards</div>
+          <BoardsNavLink
             to="/all"
             label="Dashboard"
             icon={<DashboardIcon />}
             onNavigate={mobileOpen ? onMobileClose : undefined}
           />
-          <WorkspaceNavLink
-            to={playbooksTarget}
-            activeBase="/playbooks"
-            label="Playbooks"
-            icon={<PlaybooksIcon />}
-            onNavigate={mobileOpen ? onMobileClose : undefined}
-          />
         </div>
-
-        <SessionSections onNewSession={onNewSession} />
 
         <div className="px-2">
           {multiRepo ? (

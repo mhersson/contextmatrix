@@ -41,20 +41,20 @@ function blueprints(count: number, firstDay: number, status: ChatStatus = 'cold'
 const ids = (rows: ChatSession[]) => rows.map((r) => r.id);
 
 describe('sectionRows', () => {
-  it('caps cold sessions at five, newest first', () => {
+  it('caps cold sessions at three, newest first', () => {
     const rows = sectionRows(cold(8, 1));
-    expect(SECTION_ROW_CAP).toBe(5);
-    expect(ids(rows)).toEqual(['cold7', 'cold6', 'cold5', 'cold4', 'cold3']);
+    expect(SECTION_ROW_CAP).toBe(3);
+    expect(ids(rows)).toEqual(['cold7', 'cold6', 'cold5']);
   });
 
-  it('puts pinned first, then live, then fills the rest with the newest cold', () => {
+  it('puts pinned first, then live, then fills any room with the newest cold', () => {
     const rows = sectionRows([
       ...cold(8, 10),
       s('pinOld', { pinned: true, last_active: day(1) }),
       s('pinNew', { pinned: true, last_active: day(2) }),
       s('live', { status: 'active', last_active: day(3) }),
     ]);
-    expect(ids(rows)).toEqual(['pinNew', 'pinOld', 'live', 'cold7', 'cold6']);
+    expect(ids(rows)).toEqual(['pinNew', 'pinOld', 'live']);
   });
 
   it('shows every pinned and live row past the cap and no cold row', () => {
@@ -86,7 +86,7 @@ describe('sectionRows', () => {
       s('ending', { status: 'ending', last_active: day(1) }),
     ]);
     expect(ids(rows)).not.toContain('ending');
-    expect(rows).toHaveLength(5);
+    expect(rows).toHaveLength(3);
   });
 
   it('does not depend on input order', () => {
@@ -102,9 +102,9 @@ describe('sectionRows', () => {
     expect(ids(sectionRows([...input.slice(4), ...input.slice(0, 4)]))).toEqual(expected);
   });
 
-  it('caps warm-idle blueprints at five, newest first', () => {
+  it('caps warm-idle blueprints at three, newest first', () => {
     const rows = sectionRows(blueprints(8, 1, 'warm-idle'));
-    expect(ids(rows)).toEqual(['bp7', 'bp6', 'bp5', 'bp4', 'bp3']);
+    expect(ids(rows)).toEqual(['bp7', 'bp6', 'bp5']);
   });
 
   it('fills a warm-idle blueprint as a recent row by its last activity', () => {
@@ -113,7 +113,7 @@ describe('sectionRows', () => {
       s('warmOld', { kind: 'architect', status: 'warm-idle', last_active: day(1) }),
       s('warmNew', { kind: 'architect', status: 'warm-idle', last_active: day(20) }),
     ]);
-    expect(ids(rows)).toEqual(['warmNew', 'bp4', 'bp3', 'bp2', 'bp1']);
+    expect(ids(rows)).toEqual(['warmNew', 'bp4', 'bp3']);
   });
 
   it('always shows an active blueprint and one mid-turn', () => {
@@ -122,7 +122,7 @@ describe('sectionRows', () => {
       s('active', { kind: 'architect', status: 'active', last_active: day(1) }),
       s('working', { kind: 'architect', status: 'warm-idle', assistant_working: true, last_active: day(2) }),
     ]);
-    expect(ids(rows)).toEqual(['working', 'active', 'bp5', 'bp4', 'bp3']);
+    expect(ids(rows)).toEqual(['working', 'active', 'bp5']);
   });
 
   it('always shows a warm-idle chat', () => {
@@ -131,6 +131,6 @@ describe('sectionRows', () => {
       s('warmChat', { kind: 'chat', status: 'warm-idle', last_active: day(1) }),
       s('warmLegacy', { status: 'warm-idle', last_active: day(2) }),
     ]);
-    expect(ids(rows)).toEqual(['warmLegacy', 'warmChat', 'cold5', 'cold4', 'cold3']);
+    expect(ids(rows)).toEqual(['warmLegacy', 'warmChat', 'cold5']);
   });
 });

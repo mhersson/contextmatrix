@@ -270,20 +270,27 @@ the strip; the footer names who last saved and when, once someone has.
 
 `/chat` hosts board-aware chat sessions that outlive any card.
 
-- The sidebar lists sessions in two sections between Workspace and Projects,
-  **Chats** and **Blueprints**. A row's dot is green while the session is active
-  and yellow while it is warm-idle. Each section shows its pinned sessions, then
-  its live ones, then the most recently active of the rest, up to five rows in
-  all; pinned and live rows always show, even past five. A live chat is active
-  or warm-idle. A live blueprint is active or mid-turn; a warm-idle blueprint
-  counts among the rest, since blueprints are never ended for idleness. A
-  section that holds any session ends with **All chats →** or
-  **All blueprints →** and the kind's total, linking to that tab of the
-  [Sessions](#sessions) page. **+ new** opens the New chat dialog on the
-  section's kind. Without an architect backend the Blueprints section shows only
-  while blueprint sessions exist, and then without **+ new**. Each section
-  collapses on its own, remembered per browser under
-  `sidebar.chat_section_collapsed` and `sidebar.blueprint_section_collapsed`.
+- The sidebar is ordered by the work flow: a **Work** group (Chats,
+  Blueprints, Playbooks, under a quiet "chat → blueprint → playbook" hint),
+  then **Boards** (the Dashboard, then the projects). A row's dot is green while
+  the session is active and yellow while it is warm-idle. Each Work section
+  shows its pinned rows, then its live ones, then the most recently active of
+  the rest, up to three rows in all; pinned and live rows always show, even
+  past three. A live chat is active or warm-idle. A live blueprint is active
+  or mid-turn; a warm-idle blueprint counts among the rest, since blueprints
+  are never ended for idleness. A section that holds any row ends with
+  **All chats →**, **All blueprints →** or **All playbooks →** and the total;
+  the first two link to that tab of the [Sessions](#sessions) page, the third
+  to the playbook list. **+ new** on Chats and Blueprints opens the New chat
+  dialog on the section's kind. Without an architect backend the Blueprints
+  section shows only while blueprint sessions exist, and then without
+  **+ new**. The Playbooks section lists the viewer's pinned playbooks, then
+  running and waiting ones, then the newest, each with a status on the right:
+  `n of m` while running, else completed, waiting, stopped or not started; a
+  pinned row shows a filled pin (see [Playbooks](playbooks.md) for pins). Each
+  section collapses on its own, remembered per browser under
+  `sidebar.chat_section_collapsed`, `sidebar.blueprint_section_collapsed` and
+  `sidebar.playbook_section_collapsed`.
   Clicking a row opens the session (`/chat/:id`) and closes the mobile drawer.
 - A sidebar row's pin button shows on hover or keyboard focus, and always on
   touch screens; a pinned row shows a filled orange pin. Pins are stored with

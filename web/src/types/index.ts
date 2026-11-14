@@ -1263,6 +1263,8 @@ export interface PlaybookSummary {
   boards_repo?: string;
   runnable?: boolean;
   run_status?: PlaybookRunStatus;
+  /** The viewer's own pin. */
+  pinned?: boolean;
 }
 
 export interface PlaybookCardRef {

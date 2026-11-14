@@ -61,8 +61,7 @@ Longer playbooks (over 20 entries) fall back to the segmented meter. Each row
 also names its next entry. Completed playbooks sit under a "Completed" rule as
 one-line receipts, open by default. "New playbook" opens a ghost row at the
 top of the list: name it, optionally describe it, pick the boards repo on a
-multi-repo instance, and Enter creates. The sidebar link jumps straight to the
-detail page when exactly one playbook exists.
+multi-repo instance, and Enter creates.
 
 When Jira is configured, the title also takes a Jira epic key or URL and
 **Import from Jira** builds the playbook from the epic instead (see

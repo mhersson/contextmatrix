@@ -28,8 +28,9 @@ Auto-loaded when working in `web/`. Backend conventions live in the root
   `useTheme()`. Don't add a parallel theme mechanism.
 - `vite.config.ts` proxies `/api` → `http://localhost:8080` for dev.
 - **No `localStorage` outside the documented allowlist:** theme, `palette`, human
-  agent ID, `last_chat_id`, Chats and Blueprints section collapse
-  (`sidebar.chat_section_collapsed`, `sidebar.blueprint_section_collapsed`),
+  agent ID, `last_chat_id`, Chats, Blueprints and Playbooks section collapse
+  (`sidebar.chat_section_collapsed`, `sidebar.blueprint_section_collapsed`,
+  `sidebar.playbook_section_collapsed`),
   `chat_layout`, collapsed column/card state, `chat_filter_prefs`, rail-expanded,
   NowRail-open, column-sort preferences, `contextmatrix-manual-order-<project>`,
   `contextmatrix-board-header-collapsed`,

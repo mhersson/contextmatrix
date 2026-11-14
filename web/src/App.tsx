@@ -7,6 +7,7 @@ import { ProjectSummariesProvider } from './hooks/ProjectSummariesProvider';
 import { ThemeProvider } from './hooks/useTheme';
 import { AboutProvider } from './hooks/useAbout';
 import { SentinelProvider } from './hooks/useSentinel';
+import { PlaybooksProvider } from './hooks/usePlaybooks';
 import { AuthProvider } from './hooks/useAuth';
 import { ToastContext, useToastState } from './hooks/useToast';
 import { MobileSidebarProvider, useMobileSidebar } from './context/MobileSidebarContext';
@@ -89,6 +90,7 @@ function AppInner() {
     <ToastContext.Provider value={toastState}>
       <SSEProvider>
         <SentinelProvider>
+        <PlaybooksProvider>
         <SyncProvider>
           <ProjectsProvider>
             <ProjectSummariesProvider>
@@ -139,6 +141,7 @@ function AppInner() {
             </ProjectSummariesProvider>
           </ProjectsProvider>
         </SyncProvider>
+        </PlaybooksProvider>
         </SentinelProvider>
       </SSEProvider>
     </ToastContext.Provider>

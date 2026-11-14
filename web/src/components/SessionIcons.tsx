@@ -71,3 +71,24 @@ export function PinIcon({ size = 14, filled = false, label }: IconProps & { fill
     </svg>
   );
 }
+
+/** Branching path to a diamond: a playbook. */
+export function PlaybookIcon({ size = 14, label }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...a11y(label)}
+    >
+      <circle cx="6" cy="5" r="2" />
+      <path d="M6 7v7a4 4 0 0 0 4 4h4" />
+      <path d="M18 15.2 20.8 18 18 20.8 15.2 18z" />
+    </svg>
+  );
+}
