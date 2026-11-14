@@ -21,6 +21,19 @@ export function formatExactTime(iso: string): string | undefined {
   return Number.isNaN(d.getTime()) ? undefined : d.toLocaleString();
 }
 
+/** Compact age for a dense row: "now", "12m", "2h", "3d"; "-" for an unparseable stamp. */
+export function formatAge(iso: string, now: number = Date.now()): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return '-';
+  const s = Math.max(0, Math.round((now - then) / 1000));
+  if (s < 60) return 'now';
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.round(h / 24)}d`;
+}
+
 /** Coarse "how long ago" for an RFC 3339 stamp: "just now", "5 min ago", "3 h ago", "2 d ago". */
 export function formatRelativeTime(iso: string, now: number = Date.now()): string {
   const then = Date.parse(iso);

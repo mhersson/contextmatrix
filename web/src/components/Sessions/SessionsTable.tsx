@@ -35,8 +35,8 @@ export function SessionsTable({ rows, showMode, selected, onToggle, onToggleAll,
               />
             </th>
             <th className="ssn-col-pin"><span className="sr-only">Pinned</span></th>
-            <th>Title</th>
-            <th>{showMode ? 'Projects' : 'Project'}</th>
+            <th className="ssn-col-title">Title</th>
+            <th className="ssn-col-projects">{showMode ? 'Projects' : 'Project'}</th>
             {showMode && <th>Mode</th>}
             <th>Cost</th>
             <th>Last active</th>

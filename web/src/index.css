@@ -5229,6 +5229,11 @@ textarea {
   color: var(--fg);
   background-color: var(--bg2);
 }
+.sb-pin--mark {
+  pointer-events: none;
+  /* Cancels half of the row's 8px flex gap so the age-to-pin spacing is the session row's 4px. */
+  margin-left: -4px;
+}
 .sb-pin[aria-pressed='true'] {
   color: var(--orange);
 }
@@ -5239,6 +5244,19 @@ textarea {
     align-items: center;
     justify-content: center;
   }
+}
+.sb-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.sb-age {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--grey1);
+  white-space: nowrap;
 }
 .sb-all {
   display: flex;
@@ -5267,6 +5285,14 @@ textarea {
 }
 .sb-navrow.active {
   background-color: var(--bg2);
+}
+/* Playbook rows are links: match the session rows' text colour, not the link colour. */
+.sb-playbook-row {
+  color: var(--grey2);
+}
+.sb-playbook-row:hover,
+.sb-playbook-row.active {
+  color: var(--fg);
 }
 /* POC marker beside a sidebar project name: the tone sits in the ring and the
    text stays --fg, so it keeps contrast on every palette's tints. */
@@ -9692,6 +9718,7 @@ button.bp-rv-head {
 }
 .ssn-table {
   width: 100%;
+  min-width: 720px;
   border-collapse: collapse;
   font-size: 13px;
   color: var(--fg);
@@ -9760,11 +9787,35 @@ button.bp-rv-head {
     justify-content: center;
   }
 }
-.ssn-open {
+.ssn-table .ssn-col-title,
+.ssn-table .ssn-col-projects {
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ssn-table .ssn-col-title {
+  width: 60%;
+}
+.ssn-table .ssn-col-projects {
+  width: 25%;
+}
+.ssn-title-line {
   display: flex;
   align-items: center;
   gap: 7px;
-  max-width: 330px;
+}
+.ssn-title-line > * {
+  flex: none;
+}
+.ssn-title-line > .ssn-open {
+  flex: 0 1 auto;
+}
+.ssn-open {
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
   padding: 0;
   font: inherit;
   text-align: left;
@@ -9912,11 +9963,6 @@ button.bp-rv-head {
   font-size: 12px;
   color: var(--grey1);
 }
-.pbt-title {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
 .pbt-icon {
   display: inline-flex;
   flex: none;
@@ -9938,12 +9984,13 @@ button.bp-rv-head {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  max-width: 290px;
+  max-width: 100%;
   margin-top: 3px;
   font-size: 12px;
   color: var(--grey1);
 }
 .pbt-next .pb-nextup-chip {
+  flex: none;
   color: var(--grey1);
   border-color: var(--bg4);
 }
@@ -9954,8 +10001,10 @@ button.bp-rv-head {
   color: var(--grey2);
 }
 .pbt-next-title {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .pbt-run {
   display: inline-flex;
@@ -10113,6 +10162,13 @@ button.bp-rv-head {
   color: var(--blueprint-quiet-strong);
 }
 
+.ssn-title-line > .ssn-wait-reason {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ssn-wait-reason {
   color: var(--wait-yellow);
   font-size: 12px;

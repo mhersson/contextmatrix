@@ -74,13 +74,13 @@ describe('sidebar wait signals', () => {
   it('a playbook row carries the badge only when waiting', () => {
     const { rerender } = render(
       <MemoryRouter>
-        <PlaybookNavRow playbook={playbook} />
+        <PlaybookNavRow now={Date.now()} playbook={playbook} />
       </MemoryRouter>,
     );
     expect(document.querySelectorAll('.wait-badge')).toHaveLength(0);
     rerender(
       <MemoryRouter>
-        <PlaybookNavRow playbook={playbook} waiting />
+        <PlaybookNavRow now={Date.now()} playbook={playbook} waiting />
       </MemoryRouter>,
     );
     expect(document.querySelectorAll('.wait-badge')).toHaveLength(1);

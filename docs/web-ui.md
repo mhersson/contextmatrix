@@ -306,8 +306,12 @@ when, once someone has.
 
 - The sidebar is ordered by the work flow: a **Work** group (Chats,
   Blueprints, Playbooks, under a quiet "chat → blueprint → playbook" hint),
-  then **Boards** (the Dashboard, then the projects). A row's dot is green while
-  the session is active and yellow while it is warm-idle. Each Work section
+  then **Boards** (the Dashboard, then the projects). Every Work row leads with
+  a dot and ends with its last activity (`now`, `12m`, `2h`, `1d`), the exact
+  time in a tooltip. A chat or blueprint dot is green while active, yellow
+  while warm-idle and muted otherwise; a playbook dot is green while running,
+  yellow while waiting, orange when stopped and muted when not started or
+  completed, with the state in its tooltip. Each Work section
   shows its pinned rows, then its live ones, then the most recently active of
   the rest, up to three rows in all; pinned and live rows always show, even
   past three. A live chat is active or warm-idle. A live blueprint is active
@@ -320,10 +324,8 @@ when, once someone has.
   [create row](#playbooks-tab) open. Without an architect backend the Blueprints
   section shows only while blueprint sessions exist, and then without
   **+ new**. The Playbooks section lists the viewer's pinned playbooks, then
-  running and waiting ones, then the newest, each with a status on the right:
-  `n of m` while running, or while not started with some entries already
-  complete, else completed, waiting, stopped or not started; a pinned row
-  shows a filled pin (see [Playbooks](playbooks.md) for pins). Each section
+  running and waiting ones, then the newest; a pinned row shows a filled pin (see
+  [Playbooks](playbooks.md) for pins). Each section
   collapses on its own, remembered per browser under
   `sidebar.chat_section_collapsed`, `sidebar.blueprint_section_collapsed` and
   `sidebar.playbook_section_collapsed`.
@@ -411,8 +413,7 @@ when, once someone has.
   is refused with a message. A blueprint started from a hand-off shows the need
   as its first message, with "handed over from the chat <title>" under it
   linking back to the chat ("handed over from a chat" without a link when the
-  chat is gone). The sidebar marks blueprint sessions with an aqua
-  drafting-compass icon. The pane header shows a blueprint's mode and cost cap,
+  chat is gone). The pane header shows a blueprint's mode and cost cap,
   and the architect's spend from the blueprint view (the figure the scale bar
   shows) where a chat's header shows its cost (the gateway's reported cost per
   turn, else CM's estimate from token counts). A cost that includes Claude
@@ -743,6 +744,9 @@ dashboard.
   else CM's estimate from token counts; a blueprint's is the architect's
   recorded spend and "-" until one is recorded, never CM's estimate. A Claude
   subscription share is labelled as in the pane header.
+  A long title or project list is cut to one line with an ellipsis, its full
+  text in a tooltip, so the right-hand columns stay in view; on narrow screens
+  the table scrolls sideways.
 - Clicking a row, or its title from the keyboard, opens it: a session on
   `/chat`, as the sidebar does, a playbook on `/playbooks/:id`. The tick box
   and the pin do not open it; the pin pins or unpins the row (playbook pins

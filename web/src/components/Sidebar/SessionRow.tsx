@@ -1,8 +1,9 @@
 import type { ChatSession } from '../../types';
+import { formatAge, formatExactTime, formatRelativeTime } from '../../lib/format';
 import { statusDotColor } from '../../lib/sessions';
 import { isTouchDevice } from '../../utils/isTouchDevice';
 import { CHAT_DRAG_START_EVENT, CHAT_DRAG_END_EVENT } from '../ChatLayout/dragProtocol';
-import { BlueprintIcon, PinIcon } from '../SessionIcons';
+import { PinIcon } from '../SessionIcons';
 import { WaitBadge } from '../WaitBadge';
 
 interface SessionRowProps {
@@ -10,14 +11,14 @@ interface SessionRowProps {
   onOpen: (id: string) => void;
   onTogglePin: (session: ChatSession) => void;
   waiting?: boolean;
+  now: number;
 }
 
-export function SessionRow({ session: s, onOpen, onTogglePin, waiting }: SessionRowProps) {
+export function SessionRow({ session: s, onOpen, onTogglePin, waiting, now }: SessionRowProps) {
   const title = s.title || '(untitled)';
   const pinned = s.pinned === true;
   // Touch has no hover, so the pin stays visible there.
   const touch = isTouchDevice();
-  const dot = statusDotColor(s.status);
 
   return (
     <li className="cm-chat-row sb-session flex items-center rounded">
@@ -36,14 +37,19 @@ export function SessionRow({ session: s, onOpen, onTogglePin, waiting }: Session
         className="flex-1 min-w-0 text-left pl-3 pr-1 py-1.5 rounded text-[13.5px] flex items-center gap-2"
         style={{ cursor: touch ? 'pointer' : 'grab' }}
       >
-        {s.kind === 'architect' && (
-          <span className="inline-flex shrink-0" style={{ color: 'var(--aqua)' }} title="Blueprint session">
-            <BlueprintIcon label="Blueprint session" />
-          </span>
-        )}
+        <span
+          className="sb-dot"
+          role="img"
+          title={s.status}
+          aria-label={s.status}
+          style={{ backgroundColor: statusDotColor(s.status) }}
+        />
         <span className="truncate flex-1">{title}</span>
         {waiting && <WaitBadge />}
-        {dot && <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: dot }} />}
+        <span className="sb-age" title={formatExactTime(s.last_active)} aria-hidden="true">
+          {formatAge(s.last_active, now)}
+        </span>
+        <span className="sr-only">{formatRelativeTime(s.last_active, now)}</span>
       </button>
       <button
         type="button"
