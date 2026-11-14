@@ -133,6 +133,8 @@ export function findingOutcome(f: SentinelFindingView, project: string, prURL?: 
       return { text: `Dropped: ${f.reason}` };
     case 'carded':
       return { text: `Friction card ${f.output}`, href: `/projects/${project}?card=${f.output}` };
+    case 'note':
+      return f.reason ? { text: f.reason } : null;
     default:
       return null;
   }
@@ -214,6 +216,11 @@ export function splitFindings(findings: SentinelFindingView[]): {
 /** A stage or state as a pill word. */
 export function stateWord(state: string): string {
   return state.replaceAll('_', ' ');
+}
+
+/** A note kind as its Notes table label; project_verify is the admin-only project setup note. */
+export function noteLabel(kind: SentinelFindingKind): string {
+  return kind === 'project_verify' ? 'Project setup (admins)' : stateWord(kind);
 }
 
 /** A finding's name for its row: the title, else its text's first line, else its kind; never empty. */

@@ -96,7 +96,12 @@ func (c *Controller) routeFinding(ctx context.Context, f state.Finding, pr *proj
 
 	switch f.Kind {
 	case protocol.FindingGuidance:
-		newState, reason = routeGuidance(f, pr.guidance, secrets)
+		var kind string
+
+		kind, newState, reason = routeGuidance(f, pr.guidance, secrets)
+		if kind != f.Kind {
+			return c.rerouteFinding(ctx, f, kind, newState, reason, now)
+		}
 	case protocol.FindingCode:
 		newState, reason = routeCode(f, pr.cards, secrets, pr.createdToday)
 

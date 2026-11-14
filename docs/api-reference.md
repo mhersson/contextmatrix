@@ -1267,8 +1267,10 @@ and was not written: the section checks' violations, such as
 stores them only while the friction analysis switch is on; switching it off
 stores no new ones and keeps those already stored, which are still returned. `kind` is `guidance`,
 `code`, `ecosystem`, `card_advice`, `project_verify` or `hard_card`.
-`project_verify` findings are returned to admins in `multi` mode and to every
-caller in `none` mode. `state` is where the finding sits on its way to an output,
+`project_verify` findings, the project's CM execution setup (verify command,
+worker image) for admins, are returned to admins in `multi` mode and to every
+caller in `none` mode; guidance that names CM is re-routed to this kind.
+`state` is where the finding sits on its way to an output,
 `reason` says why a finding is `dropped`, a `duplicate` or `rejected`, or
 kept `queued` at the daily card limit, and `output` names what it
 became: a friction card's ID, or the standing PR's URL.

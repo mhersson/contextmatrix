@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -52,6 +53,49 @@ func TestRouteFindingsCreatesOneCardAndQueuesGuidance(t *testing.T) {
 	assert.Equal(t, state.FindingCarded, code.State)
 	assert.Equal(t, "ALPHA-100", code.Output)
 	assert.Equal(t, state.FindingPending, e.store.finding(2).State)
+}
+
+func TestRouteFindingsReroutesGuidanceThatNamesCM(t *testing.T) {
+	plain := "run make fmt before every commit so lint stays quiet"
+	e := routeEnv(t,
+		queued(1, "guidance", "", plain+", the worker image has no gofumpt"),
+		queued(2, "guidance", "", plain),
+	)
+
+	ch, unsubscribe := e.bus.Subscribe()
+	t.Cleanup(unsubscribe)
+
+	require.NoError(t, e.ctl.pass(context.Background()))
+
+	rerouted := e.store.finding(1)
+	assert.Equal(t, protocol.FindingProjectVerify, rerouted.Kind)
+	assert.Equal(t, state.FindingNote, rerouted.State)
+	assert.Equal(t, rerouteReason, rerouted.Reason)
+
+	assert.Contains(t, cardEvents(ch), "alpha/ALPHA-001", "a reroute announces its card")
+
+	later := e.store.finding(2)
+	assert.Equal(t, state.FindingPending, later.State, "a rerouted finding is not an earlier guidance finding")
+
+	pending, err := e.store.PendingFindings(context.Background(), "alpha")
+	require.NoError(t, err)
+	require.Len(t, pending, 1, "no guidance PR sees the rerouted finding")
+	assert.Equal(t, int64(2), pending[0].ID)
+}
+
+func TestRouteFindingsKeepsAFindingQueuedWhenItsRerouteWriteFails(t *testing.T) {
+	e := routeEnv(t, queued(1, "guidance", "", "run make fmt first, the worker image has no gofumpt"))
+	e.store.outcomeErr = errors.New("disk full")
+
+	ch, unsubscribe := e.bus.Subscribe()
+	t.Cleanup(unsubscribe)
+
+	require.NoError(t, e.ctl.pass(context.Background()))
+
+	f := e.store.finding(1)
+	assert.Equal(t, state.FindingQueued, f.State)
+	assert.Equal(t, protocol.FindingGuidance, f.Kind)
+	assert.NotContains(t, cardEvents(ch), "alpha/ALPHA-001", "a failed write announces nothing")
 }
 
 func TestRouteFindingsDedupsWithinOnePass(t *testing.T) {

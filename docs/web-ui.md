@@ -301,8 +301,9 @@ its label.
     the standing PR" (a link to the PR, opened in a new tab), merged, rejected
     in review, the duplicate's reason, "Dropped:" with the reason, or "Friction
     card ID" (a link to that card); held findings have none. Notes follow: card
-    advice, project verify (marked admin, sent only to admins in `multi` mode)
-    and hard card, each with its title, text and evidence.
+    advice, project setup (labelled "Project setup (admins)", sent only to
+    admins in `multi` mode; a re-routed guidance finding shows its reason) and
+    hard card, each with its title, text and evidence.
   - Analyses: each run analysis, newest first: its age, result (analysed,
     failed, skipped, or analysing while open), reason and cost.
   - PR: the project's standing guidance PR (a link to it, its state - open,

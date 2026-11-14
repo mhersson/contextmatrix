@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type {
   SentinelCardView,
+  SentinelFindingKind,
   SentinelFindingView,
   SentinelHealView,
   SentinelRunView,
@@ -13,6 +14,7 @@ import {
   findingLabel,
   findingOutcome,
   lineDiff,
+  noteLabel,
   pillTone,
   sentinelSpend,
   spendLine,
@@ -301,6 +303,16 @@ describe('splitFindings', () => {
     ]);
     expect(got.friction.map((x) => x.id)).toEqual([3, 7, 2, 5]);
     expect(got.notes.map((x) => x.id)).toEqual([6, 4, 1]);
+  });
+});
+
+describe('noteLabel', () => {
+  it.each<[SentinelFindingKind, string]>([
+    ['project_verify', 'Project setup (admins)'],
+    ['card_advice', 'card advice'],
+    ['hard_card', 'hard card'],
+  ])('labels %s', (kind, want) => {
+    expect(noteLabel(kind)).toBe(want);
   });
 });
 

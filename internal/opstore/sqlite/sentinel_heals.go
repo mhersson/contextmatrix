@@ -602,6 +602,19 @@ func (s *Store) SetFindingOutcome(ctx context.Context, id int64, st, reason, out
 	return nil
 }
 
+// RerouteFinding changes a finding's kind together with its state and reason,
+// so no reader sees it half moved.
+func (s *Store) RerouteFinding(ctx context.Context, id int64, kind, st, reason string, at time.Time) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE sentinel_findings SET kind = ?, state = ?, reason = ?, updated_at = ? WHERE id = ?`,
+		kind, st, reason, unixNano(at), id)
+	if err != nil {
+		return fmt.Errorf("reroute finding: %w", err)
+	}
+
+	return nil
+}
+
 func (s *Store) queryFindings(ctx context.Context, where string, args ...any) ([]state.Finding, error) {
 	// where is a constant of this file's callers, never user input.
 	rows, err := s.db.QueryContext(ctx, `SELECT `+findingColumns+` FROM sentinel_findings WHERE `+where, args...) //nolint:gosec // see above

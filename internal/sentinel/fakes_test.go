@@ -962,6 +962,27 @@ func (f *fakeStore) CardedSince(_ context.Context, project string, since time.Ti
 	})), nil
 }
 
+func (f *fakeStore) RerouteFinding(_ context.Context, id int64, kind, st, reason string, at time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.outcomeWrites++
+
+	if f.outcomeErr != nil {
+		return f.outcomeErr
+	}
+
+	for i, fd := range f.findings {
+		if fd.ID == id {
+			f.findings[i].Kind, f.findings[i].State, f.findings[i].Reason, f.findings[i].UpdatedAt = kind, st, reason, at
+
+			return nil
+		}
+	}
+
+	return nil
+}
+
 func (f *fakeStore) CardedFindings(_ context.Context, project string) (map[string]bool, error) {
 	out := map[string]bool{}
 

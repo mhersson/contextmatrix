@@ -1,9 +1,12 @@
 package sentinel
 
 import (
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+
+	protocol "github.com/mhersson/contextmatrix-protocol"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/sentinel/state"
@@ -16,7 +19,7 @@ const (
 	maxFrictionTitle        = 200
 	limitReason             = "today's friction-card limit reached"
 	secretReason            = "holds a secret"
-	markerReason            = "holds a guidance block marker"
+	rerouteReason           = "re-routed: mentions CM"
 	blankReason             = "has no text"
 	likeFindingReason       = "like finding "
 	likeCardReason          = "like card "
@@ -24,9 +27,8 @@ const (
 	frictionDefaultPriority = "medium"
 )
 
-// guidanceMarker begins every marker of a guidance block; the agent refuses a
-// section that holds it.
-const guidanceMarker = "<!-- sentinel:"
+// cmTerms name CM itself; guidance holds project knowledge only.
+var cmTerms = regexp.MustCompile(`(?i)\b(?:Sentinel|ContextMatrix|worker image|agent run|the worker)\b`)
 
 // holdsSecretFinding reports whether any part of the finding holds a secret.
 func holdsSecretFinding(f state.Finding, secrets []string) bool {
@@ -34,29 +36,29 @@ func holdsSecretFinding(f state.Finding, secrets []string) bool {
 }
 
 // routeGuidance decides a queued guidance finding: dropped when it holds a
-// secret, has no text or its text holds a guidance block marker, a duplicate
-// of an earlier finding already pending or in a guidance PR, else pending.
-// earlier may hold findings in any state.
-func routeGuidance(f state.Finding, earlier []state.Finding, secrets []string) (newState, reason string) {
+// secret or has no text, re-routed to an admin project_verify note when its
+// title or text names CM, a duplicate of an earlier finding already pending or
+// in a guidance PR, else pending. earlier may hold findings in any state.
+func routeGuidance(f state.Finding, earlier []state.Finding, secrets []string) (newKind, newState, reason string) {
 	switch {
 	case holdsSecretFinding(f, secrets):
-		return state.FindingDropped, secretReason
+		return f.Kind, state.FindingDropped, secretReason
 	case strings.TrimSpace(f.Text) == "":
-		return state.FindingDropped, blankReason
-	case strings.Contains(f.Text, guidanceMarker):
-		return state.FindingDropped, markerReason
+		return f.Kind, state.FindingDropped, blankReason
+	case cmTerms.MatchString(f.Title + "\n" + f.Text):
+		return protocol.FindingProjectVerify, state.FindingNote, rerouteReason
 	}
 
 	for _, e := range earlier {
 		switch e.State {
 		case state.FindingPending, state.FindingProposed, state.FindingMerged, state.FindingRejected:
 			if similar(f.Text, e.Text) {
-				return state.FindingDuplicate, likeFindingReason + strconv.FormatInt(e.ID, 10)
+				return f.Kind, state.FindingDuplicate, likeFindingReason + strconv.FormatInt(e.ID, 10)
 			}
 		}
 	}
 
-	return state.FindingPending, ""
+	return f.Kind, state.FindingPending, ""
 }
 
 // routeCode decides a queued code finding against the project's friction

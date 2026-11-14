@@ -708,8 +708,9 @@ What a heal leaves behind, and where:
 - `sentinel_heals`: every heal's stage, diagnosis, reasons (with why a fix's
   section was dropped) and spend.
 - `sentinel_findings`: the friction findings of an investigation or analysis,
-  stored only while `friction` is on. `project_verify` findings are shown to
-  admins only in `multi` mode.
+  stored only while `friction` is on. `project_verify` findings, the project's
+  CM execution setup (verify command, worker image) and re-routed guidance, are
+  shown to admins only in `multi` mode.
 - Friction cards: new cards for `code` findings (see
   [Routing findings](#routing-findings)).
 - The board mark (`marks.go`) and the card's Sentinel tab, both read from the
@@ -738,9 +739,16 @@ cannot be read leaves its findings queued.
 - A finding that holds one of CM's secret values (8 bytes or more) in its
   title, text or evidence is `dropped` with the reason `holds a secret`.
 - A `guidance` finding with no text is `dropped` with the reason
-  `has no text`, since no section can carry it. One whose text holds the
-  guidance block marker prefix `<!-- sentinel:`, which the agent refuses in a
-  section, is `dropped` with the reason `holds a guidance block marker`.
+  `has no text`, since no section can carry it.
+- Guidance is project knowledge only. A `guidance` finding whose title or text
+  names CM (`Sentinel`, `ContextMatrix`, `worker image`, `agent run` or
+  `the worker`, matched as whole words or phrases, ignoring case, so
+  `sentinels` and `coworker` do not match) is re-routed instead of proposed:
+  its kind becomes `project_verify` and its state `note`, with the reason
+  `re-routed: mentions CM`, so it is shown to admins only in `multi` mode and
+  never reaches the PR. It is checked after the secret and no-text rules and
+  before the duplicate rule, and is never a duplicate of, or a duplicate
+  source for, another finding.
 - A `guidance` finding is a `duplicate` of an earlier guidance finding of the
   project that is `pending`, `proposed`, `merged` or `rejected` when their texts
   are similar, else it becomes `pending`, waiting for the guidance PR. Similar
@@ -857,6 +865,9 @@ closes. Card IDs are redacted to `a card` with every project's prefix in the
 section and the body, and card-run branches (`cm/<card ID in lower case>`,
 with any suffix) to `a card branch`, as settling compares them; project and
 repo names stay.
+The agent appends the section's lines as plain text at the end of the
+project's instruction file, with no heading or markers, so nothing in the
+file names CM.
 The title is `Sentinel guidance for <project>`. The body is one intro line,
 then per finding an item with its text's first line and, indented below it,
 `Evidence: ` with its evidence's first line, each cut to 300 runes. Items stop

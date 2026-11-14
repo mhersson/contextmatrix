@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { SentinelFindingView } from '../../../../types';
-import { findingLabel, findingOutcome, stateWord } from '../../../../lib/sentinel';
+import { findingLabel, findingOutcome, noteLabel, stateWord } from '../../../../lib/sentinel';
 import { CaretHeader, Empty, ExpandRow, ExternalLink, Heading, Pill, Table } from './SentinelParts';
 
 function Outcome({ finding, project, prURL }: { finding: SentinelFindingView; project: string; prURL?: string }) {
@@ -60,8 +60,7 @@ function Notes({ notes, project, prURL }: FindingProps & { notes: SentinelFindin
           {notes.map((n) => (
             <tr key={n.id}>
               <td className="snt-wrap">
-                <span className="snt-kind">{stateWord(n.kind)}</span>
-                {n.kind === 'project_verify' && <span className="snt-pill snt-pill--mark">admin</span>}
+                <span className="snt-kind">{noteLabel(n.kind)}</span>
               </td>
               <td className="snt-wrap">
                 {n.title && <p className="font-medium">{n.title}</p>}

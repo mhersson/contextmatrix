@@ -11,7 +11,7 @@ import type {
   SentinelStandingPR,
 } from '../../../types';
 import { MemoryRouter } from 'react-router';
-import { cardStatus, findingLabel, stateWord, type CardStatus } from '../../../lib/sentinel';
+import { cardStatus, findingLabel, noteLabel, stateWord, type CardStatus } from '../../../lib/sentinel';
 import { SentinelTab } from './SentinelTab';
 
 const bus = vi.hoisted(() => ({ handlers: new Map<string, (e: unknown) => void>() }));
@@ -463,14 +463,19 @@ describe('SentinelTab', () => {
       expect(within(notes).getByText('ten criteria')).toBeInTheDocument();
     });
 
-    it('marks project-verify notes, the ones the server sends only to admins', async () => {
+    it('labels project-verify notes as admin project setup, and shows a re-route reason', async () => {
       renderTab({
         run,
-        findings: [finding('project_verify', 'Slow verify', { id: 1 }), finding('card_advice', 'Split it', { id: 2 })],
+        findings: [
+          finding('project_verify', 'Slow verify', { id: 1, state: 'note', reason: 're-routed: mentions CM' }),
+          finding('card_advice', 'Split it', { id: 2 }),
+        ],
       });
       await screen.findByText('Slow verify');
-      expect(within(rowFor('Slow verify')).getByText('admin')).toBeInTheDocument();
-      expect(within(rowFor('Split it')).queryByText('admin')).not.toBeInTheDocument();
+      expect(within(rowFor('Slow verify')).getByText(noteLabel('project_verify'))).toBeInTheDocument();
+      expect(within(rowFor('Slow verify')).getByText('re-routed: mentions CM')).toBeInTheDocument();
+      expect(within(rowFor('Split it')).queryByText(noteLabel('project_verify'))).not.toBeInTheDocument();
+      expect(within(rowFor('Split it')).getByText(noteLabel('card_advice'))).toBeInTheDocument();
     });
 
     it('shows a notes-only card the notes and no findings rows', async () => {

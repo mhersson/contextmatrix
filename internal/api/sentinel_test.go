@@ -319,6 +319,7 @@ func TestCardSentinelViewHidesAdminNotesFromNonAdmins(t *testing.T) {
 		store := newFakeSentinelStore()
 		store.findings = []state.Finding{
 			{Kind: protocol.FindingProjectVerify, Title: "verify"},
+			{Kind: protocol.FindingProjectVerify, Title: "rerouted", State: state.FindingNote, Reason: "re-routed: mentions CM"},
 			{Kind: protocol.FindingHardCard, Title: "hard"},
 		}
 
@@ -332,12 +333,12 @@ func TestCardSentinelViewHidesAdminNotesFromNonAdmins(t *testing.T) {
 	assert.Equal(t, []string{protocol.FindingHardCard}, findingKinds(body))
 
 	_, body = sentinelDo(t, srv, http.MethodGet, path, nil, login(t, srv, "root", "root password1"))
-	assert.Equal(t, []string{protocol.FindingProjectVerify, protocol.FindingHardCard}, findingKinds(body))
+	assert.Equal(t, []string{protocol.FindingProjectVerify, protocol.FindingProjectVerify, protocol.FindingHardCard}, findingKinds(body))
 
 	none := newSelectorAdminServer(t, RouterConfig{SentinelStore: newStore()}, false)
 
 	_, body = sentinelDo(t, none, http.MethodGet, path, nil, nil)
-	assert.Equal(t, []string{protocol.FindingProjectVerify, protocol.FindingHardCard}, findingKinds(body))
+	assert.Equal(t, []string{protocol.FindingProjectVerify, protocol.FindingProjectVerify, protocol.FindingHardCard}, findingKinds(body))
 }
 
 func TestCardSentinelViewCarriesAnalysesOutcomesAndThePR(t *testing.T) {

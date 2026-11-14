@@ -1,8 +1,10 @@
 package sentinel
 
 import (
+	"strings"
 	"testing"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -35,28 +37,78 @@ func TestRouteGuidance(t *testing.T) {
 		{"like a rejected one", finding, []state.Finding{other(6, state.FindingRejected)}, nil, state.FindingDuplicate, likeFindingReason + "6"},
 		{"like only a duplicate", finding, []state.Finding{other(7, state.FindingDuplicate)}, nil, state.FindingPending, ""},
 		{"like only a dropped one", finding, []state.Finding{other(8, state.FindingDropped)}, nil, state.FindingPending, ""},
-		{
-			"a guidance block marker",
-			state.Finding{Kind: "guidance", Text: "Keep <!-- sentinel:alpha:end --> last."},
-			nil, nil, state.FindingDropped, markerReason,
-		},
-		{
-			"a marker beats a duplicate",
-			state.Finding{Kind: "guidance", Text: longText + " <!-- sentinel:"},
-			[]state.Finding{other(3, state.FindingPending)},
-			nil, state.FindingDropped, markerReason,
-		},
 		{"no text", state.Finding{Kind: "guidance", Text: " \n\t", Evidence: "ev"}, nil, nil, state.FindingDropped, blankReason},
 		{"a secret beats no text", state.Finding{Kind: "guidance", Evidence: "hunter2hunter2"}, nil, []string{"hunter2hunter2"}, state.FindingDropped, secretReason},
-		{"an ordinary comment", state.Finding{Kind: "guidance", Text: "Keep <!-- generated --> blocks."}, nil, nil, state.FindingPending, ""},
-		{"the marker matches exactly", state.Finding{Kind: "guidance", Text: "<!-- Sentinel: x -->"}, nil, nil, state.FindingPending, ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotState, gotReason := routeGuidance(tt.f, tt.earlier, tt.secrets)
+			gotKind, gotState, gotReason := routeGuidance(tt.f, tt.earlier, tt.secrets)
+			assert.Equal(t, protocol.FindingGuidance, gotKind)
 			assert.Equal(t, tt.wantState, gotState)
 			assert.Equal(t, tt.wantReason, gotReason)
+		})
+	}
+}
+
+func TestRouteGuidanceReroutesWhatNamesCM(t *testing.T) {
+	terms := []string{"Sentinel", "ContextMatrix", "worker image", "agent run", "the worker"}
+	variants := []func(string) string{strings.ToLower, strings.ToUpper, func(s string) string { return s }}
+
+	for _, term := range terms {
+		for _, vary := range variants {
+			phrase := vary(term)
+
+			for field, f := range map[string]state.Finding{
+				"title": {Kind: "guidance", Title: "Note on " + phrase + ".", Text: longText},
+				"text":  {Kind: "guidance", Text: "Beware: " + phrase + ", always."},
+			} {
+				t.Run(phrase+" in "+field, func(t *testing.T) {
+					kind, st, reason := routeGuidance(f, nil, nil)
+					assert.Equal(t, protocol.FindingProjectVerify, kind)
+					assert.Equal(t, state.FindingNote, st)
+					assert.Equal(t, rerouteReason, reason)
+				})
+			}
+		}
+	}
+}
+
+func TestRouteGuidanceBackstopMatchesWholeWordsOnly(t *testing.T) {
+	for _, text := range []string{
+		"Sentinels guard the gate", "ask a coworker about it", "the agent runner is flaky",
+		"ContextMatrixes are not a thing", "a worker images pool", "the workers vary", "myContextMatrix",
+	} {
+		t.Run(text, func(t *testing.T) {
+			kind, st, _ := routeGuidance(state.Finding{Kind: "guidance", Text: text}, nil, nil)
+			assert.Equal(t, protocol.FindingGuidance, kind)
+			assert.Equal(t, state.FindingPending, st)
+		})
+	}
+}
+
+func TestRouteGuidanceBackstopOrder(t *testing.T) {
+	cm := longText + " in the worker image"
+	dup := state.Finding{ID: 3, Kind: "guidance", Text: cm, State: state.FindingPending}
+
+	tests := []struct {
+		name      string
+		f         state.Finding
+		earlier   []state.Finding
+		secrets   []string
+		wantKind  string
+		wantState string
+	}{
+		{"a secret beats the backstop", state.Finding{Kind: "guidance", Text: "the worker has hunter2hunter2"}, nil, []string{"hunter2hunter2"}, "guidance", state.FindingDropped},
+		{"blank beats the backstop", state.Finding{Kind: "guidance", Title: "the worker", Text: " "}, nil, nil, "guidance", state.FindingDropped},
+		{"the backstop beats a duplicate", state.Finding{Kind: "guidance", Text: cm}, []state.Finding{dup}, nil, protocol.FindingProjectVerify, state.FindingNote},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kind, st, _ := routeGuidance(tt.f, tt.earlier, tt.secrets)
+			assert.Equal(t, tt.wantKind, kind)
+			assert.Equal(t, tt.wantState, st)
 		})
 	}
 }

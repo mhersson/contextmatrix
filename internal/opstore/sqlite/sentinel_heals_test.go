@@ -1468,3 +1468,42 @@ func ids(heals []state.Heal) []int64 {
 
 	return out
 }
+
+func TestRerouteFindingMovesKindStateAndReasonTogether(t *testing.T) {
+	ctx := context.Background()
+	st := openLadderStore(t)
+
+	healID, err := st.OpenHeal(ctx, state.Heal{Kind: state.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0})
+	require.NoError(t, err)
+
+	at := runT0.Add(time.Hour)
+	require.NoError(t, st.AddFindings(ctx, healID, "p", "P-001",
+		[]protocol.FrictionFinding{{Kind: protocol.FindingGuidance, Title: "t", Text: "the worker has no docker", Evidence: "e"}}, runT0))
+
+	queued, err := st.QueuedFindings(ctx)
+	require.NoError(t, err)
+	require.Len(t, queued, 1)
+
+	require.NoError(t, st.RerouteFinding(ctx, queued[0].ID, protocol.FindingProjectVerify, state.FindingNote, "re-routed: mentions CM", at))
+
+	got, err := st.CardFindings(ctx, "p", "P-001")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, protocol.FindingProjectVerify, got[0].Kind)
+	assert.Equal(t, state.FindingNote, got[0].State)
+	assert.Equal(t, "re-routed: mentions CM", got[0].Reason)
+	assert.True(t, got[0].UpdatedAt.Equal(at))
+	assert.Equal(t, "the worker has no docker", got[0].Text)
+
+	left, err := st.QueuedFindings(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, left)
+
+	guidance, err := st.ProjectGuidance(ctx, "p")
+	require.NoError(t, err)
+	assert.Empty(t, guidance, "a rerouted finding is no guidance")
+
+	pending, err := st.PendingFindings(ctx, "p")
+	require.NoError(t, err)
+	assert.Empty(t, pending)
+}
