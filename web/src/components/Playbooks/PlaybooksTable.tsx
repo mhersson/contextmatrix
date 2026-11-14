@@ -1,8 +1,11 @@
+import type { ReactNode } from 'react';
 import type { PlaybookSummary } from '../../types';
 import { PlaybookTableRow } from './PlaybookTableRow';
 
 interface PlaybooksTableProps {
   rows: PlaybookSummary[];
+  /** The create row, drawn above the playbooks. */
+  createRow?: ReactNode;
   selected: ReadonlySet<string>;
   onToggle: (id: string) => void;
   onToggleAll: () => void;
@@ -10,7 +13,7 @@ interface PlaybooksTableProps {
   onOpen: (id: string) => void;
 }
 
-export function PlaybooksTable({ rows, selected, onToggle, onToggleAll, onPin, onOpen }: PlaybooksTableProps) {
+export function PlaybooksTable({ rows, createRow, selected, onToggle, onToggleAll, onPin, onOpen }: PlaybooksTableProps) {
   const ticked = rows.filter((p) => selected.has(p.id)).length;
   const all = rows.length > 0 && ticked === rows.length;
 
@@ -40,6 +43,7 @@ export function PlaybooksTable({ rows, selected, onToggle, onToggleAll, onPin, o
           </tr>
         </thead>
         <tbody>
+          {createRow}
           {rows.map((p) => (
             <PlaybookTableRow
               key={p.id}

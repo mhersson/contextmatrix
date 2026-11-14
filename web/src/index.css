@@ -3559,43 +3559,9 @@ textarea {
   background: color-mix(in srgb, var(--purple) 55%, var(--bg2));
 }
 
-/* Playbook list - header, route rows, receipts, ghost row, empty state.
-   The route track reuses the detail rail's colour grammar at node scale;
+/* Playbooks tab: route track, pills, and the create row's buttons and chips.
+   The track reuses the detail rail's colour grammar at node scale;
    node and rail sizes couple, so they live here rather than in utilities. */
-.pbl-page {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 28px 24px 40px;
-}
-
-.pbl-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px 16px;
-  margin-bottom: 18px;
-}
-
-.pbl-title {
-  font-family: var(--font-sans);
-  font-weight: 500;
-  font-size: 26px;
-  letter-spacing: -0.015em;
-  line-height: 1.15;
-  color: var(--fg);
-}
-
-.pbl-summary {
-  margin-top: 4px;
-  font-size: 13px;
-  color: var(--grey1);
-}
-.pbl-summary b {
-  font-weight: 500;
-  color: var(--fg);
-}
-
 .pbl-btn-new {
   display: inline-flex;
   align-items: center;
@@ -3634,79 +3600,19 @@ textarea {
     color 0.12s,
     border-color 0.12s;
 }
-.pbl-btn-quiet:hover {
+.pbl-btn-quiet:hover:not(:disabled) {
   color: var(--fg);
   border-color: var(--bg3);
 }
+.pbl-btn-quiet:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 
 .pbl-btn-new:focus-visible,
-.pbl-btn-quiet:focus-visible,
-.pbl-row:focus-visible,
-.pbl-receipt:focus-visible,
-.pbl-section:focus-visible,
-.pbl-ghost-title:focus-visible,
-.pbl-ghost-desc:focus-visible {
+.pbl-btn-quiet:focus-visible {
   outline: 2px solid var(--aqua);
   outline-offset: 2px;
-}
-
-.pbl-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.pbl-row {
-  display: block;
-  padding: 12px 16px 14px;
-  border-radius: 10px;
-  background: var(--bg0);
-  border: 1px solid var(--bg2);
-  color: inherit;
-  text-decoration: none;
-  transition:
-    background 0.15s,
-    transform 0.15s,
-    box-shadow 0.15s;
-}
-.pbl-row:hover {
-  background: var(--bg1);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 18px -8px rgba(0, 0, 0, 0.35);
-  text-decoration: none;
-}
-
-.pbl-row-head {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-}
-.pbl-row-title {
-  flex: 1;
-  min-width: 0;
-  font-size: 14px;
-  font-weight: 500;
-  letter-spacing: -0.005em;
-  color: var(--fg);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pbl-row-frac {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--grey1);
-  white-space: nowrap;
-}
-.pbl-row-frac b {
-  font-weight: 500;
-  color: var(--fg);
-}
-.pbl-row-time {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--grey0);
-  white-space: nowrap;
 }
 
 /* Route track: the frontier ring only marks a pending node - an active
@@ -3715,7 +3621,6 @@ textarea {
   display: flex;
   align-items: center;
   height: 14px;
-  margin-top: 10px;
 }
 .pbl-node {
   flex: none;
@@ -3758,19 +3663,6 @@ textarea {
 .pbl-rail-dash {
   border-top-style: dashed;
 }
-.pbl-track-placeholder {
-  opacity: 0.55;
-}
-
-.pbl-row-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 14px;
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--grey1);
-}
 .pbl-pill {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -3802,126 +3694,6 @@ textarea {
   color: var(--green);
 }
 
-.pbl-row-next {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-  margin-top: 8px;
-  font-size: 12.5px;
-}
-.pbl-next-id {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--purple);
-}
-.pbl-next-title {
-  color: var(--fg);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pbl-section {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  margin: 22px 0 6px;
-  padding: 4px 0;
-  font-size: 12.5px;
-  color: var(--grey1);
-  background: none;
-  border: 0;
-  cursor: pointer;
-  user-select: none;
-}
-.pbl-section-chev {
-  font-size: 10px;
-  transition: transform 0.15s;
-}
-.pbl-section-open .pbl-section-chev {
-  transform: rotate(90deg);
-}
-.pbl-section-count {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--grey0);
-}
-.pbl-section-line {
-  flex: 1;
-  border-top: 1px solid var(--bg3);
-}
-
-.pbl-receipt {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 6px;
-  border-radius: 6px;
-  color: inherit;
-  text-decoration: none;
-}
-.pbl-receipt + .pbl-receipt {
-  border-top: 1px solid color-mix(in srgb, var(--bg3) 60%, transparent);
-}
-.pbl-receipt:hover {
-  background: var(--bg0);
-  text-decoration: none;
-}
-.pbl-receipt-tick {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  font-size: 10px;
-  color: var(--green);
-  background: var(--bg-green);
-}
-.pbl-receipt-title {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  color: var(--grey2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pbl-receipt-meta {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--grey0);
-  white-space: nowrap;
-}
-
-/* Ghost row: the playbook drawn as the row it is about to become. */
-@keyframes pbl-ghost-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-.pbl-ghost {
-  padding: 14px 16px;
-  border-radius: 10px;
-  background: var(--bg0);
-  border: 1px dashed var(--bg3);
-  animation: pbl-ghost-in 0.16s ease-out;
-}
-.pbl-ghost-top {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
-}
 .pbl-repo-chip {
   display: inline-flex;
   align-items: center;
@@ -3946,49 +3718,6 @@ textarea {
   outline: 2px solid var(--aqua);
   outline-offset: 2px;
 }
-.pbl-ghost-hint {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--grey0);
-}
-.pbl-ghost-title,
-.pbl-ghost-desc {
-  display: block;
-  width: 100%;
-  padding: 2px 0;
-  color: var(--fg);
-  background: transparent;
-  border: 0;
-  border-radius: 4px;
-}
-.pbl-ghost-title {
-  font-family: var(--font-sans);
-  font-weight: 500;
-  font-size: 22px;
-  letter-spacing: -0.015em;
-}
-.pbl-ghost-title::placeholder {
-  color: var(--grey0);
-  font-style: italic;
-}
-.pbl-ghost-desc {
-  margin-top: 2px;
-  font-size: 13px;
-}
-.pbl-ghost-desc::placeholder {
-  color: var(--grey0);
-}
-.pbl-ghost-foot {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 12px;
-}
-.pbl-ghost-keys {
-  flex: 1;
-  font-size: 12px;
-  color: var(--grey1);
-}
 .pbl-kbd {
   padding: 1px 5px;
   border-radius: 4px;
@@ -3998,45 +3727,8 @@ textarea {
   border: 1px solid var(--bg3);
 }
 
-.pbl-empty {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: safe center;
-  gap: 6px;
-  padding: 24px;
-  text-align: center;
-}
-.pbl-empty > .pbl-track {
-  width: 220px;
-  margin: 0 0 14px;
-}
-.pbl-empty-title {
-  font-family: var(--font-sans);
-  font-weight: 500;
-  font-size: 22px;
-  letter-spacing: -0.015em;
-  color: var(--fg);
-}
-.pbl-empty-sub {
-  max-width: 46ch;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--grey1);
-}
-.pbl-empty-cta {
-  margin-top: 14px;
-}
-.pbl-empty-ghost {
-  width: min(560px, 100%);
-  margin-top: 18px;
-  text-align: left;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .pbl-node-active,
-  .pbl-ghost {
+  .pbl-node-active {
     animation: none;
   }
 }
@@ -10154,7 +9846,65 @@ button.bp-rv-head {
   outline-offset: 2px;
 }
 
-/* Sessions page, Playbooks tab: the playbook cells inside the ssn table. */
+/* Sessions page, Playbooks tab: the toolbar, the create row and the playbook cells inside the ssn table. */
+.pbt-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+/* The filters take a line of their own on a phone; the buttons wrap below. */
+.pbt-bar .ssn-bar {
+  flex: 1 1 20rem;
+  margin-bottom: 0;
+}
+.pbt-create td {
+  padding: 10px;
+  white-space: normal;
+  background: var(--bg1);
+  border-bottom-color: var(--bg2);
+}
+.pbt-create-fields,
+.pbt-create-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.pbt-create-foot {
+  margin-top: 8px;
+}
+.pbt-create-input {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 6px 9px;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg0);
+  border: 1px solid var(--bg3);
+  border-radius: 6px;
+}
+.pbt-create-title {
+  font-weight: 500;
+}
+.pbt-create-input::placeholder {
+  color: var(--grey1);
+}
+.pbt-create-input:focus {
+  outline: none;
+  border-color: var(--aqua);
+}
+.pbt-create-warn {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--yellow);
+}
+.pbt-create-keys {
+  flex: 1;
+  font-size: 12px;
+  color: var(--grey1);
+}
 .pbt-title {
   display: flex;
   align-items: center;
@@ -10214,7 +9964,6 @@ button.bp-rv-head {
 .pbt-track {
   flex: 1 0 auto;
   min-width: 5.5rem;
-  margin-top: 0;
 }
 .pbt-track .pbl-node {
   width: 8px;

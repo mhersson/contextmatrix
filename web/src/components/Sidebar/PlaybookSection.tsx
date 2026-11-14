@@ -1,10 +1,13 @@
+import { useNavigate } from 'react-router';
 import { usePlaybooks } from '../../hooks/usePlaybooks';
+import { sessionsTabHref } from '../../lib/sessions';
 import { PlaybookNavRow } from './PlaybookNavRow';
 import { playbookRows } from './playbookRows';
 import { WorkSection } from './WorkSection';
 
 export function PlaybookSection() {
   const { playbooks, loaded } = usePlaybooks();
+  const navigate = useNavigate();
 
   return (
     <WorkSection
@@ -12,8 +15,10 @@ export function PlaybookSection() {
       storageKey="sidebar.playbook_section_collapsed"
       emptyText="No playbooks yet."
       allLabel="All playbooks"
-      allHref="/playbooks"
+      allHref={sessionsTabHref('playbooks')}
       total={playbooks.length}
+      onNew={() => navigate(`${sessionsTabHref('playbooks')}&new=1`)}
+      newLabel="New playbook"
       loaded={loaded}
     >
       {playbookRows(playbooks).map((p) => (

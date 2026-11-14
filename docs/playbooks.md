@@ -53,15 +53,17 @@ nor `total`.
 
 ## Detail view
 
-`/playbooks` lists playbooks still in progress as rows, each with a miniature
+The Playbooks tab of the Sessions page (`/sessions?tab=playbooks`, where
+`/playbooks` redirects) lists every playbook as a table row with a miniature
 of the detail rail: one node per entry (manual steps as gates), solid green
 where a step is complete, an aqua pulse on an `in_progress` card, a purple
 ring on the first pending entry, a dashed red node for a broken reference.
-Longer playbooks (over 20 entries) fall back to the segmented meter. Each row
-also names its next entry. Completed playbooks sit under a "Completed" rule as
-one-line receipts, open by default. "New playbook" opens a ghost row at the
-top of the list: name it, optionally describe it, pick the boards repo on a
-multi-repo instance, and Enter creates.
+Longer playbooks (over 20 entries) fall back to the segmented meter. While a
+run is running or waiting, the row also names its next entry. Completed
+playbooks are rows like the rest, found through the Status filter. "New
+playbook" opens a create row at the top of the table: name it, optionally
+describe it, pick the boards repo on a multi-repo instance, and Enter creates.
+See [Sessions](web-ui.md#playbooks-tab).
 
 When Jira is configured, the title also takes a Jira epic key or URL and
 **Import from Jira** builds the playbook from the epic instead (see

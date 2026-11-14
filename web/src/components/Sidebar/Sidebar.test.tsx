@@ -217,7 +217,7 @@ describe('Sidebar', () => {
       renderSidebar();
       const section = await screen.findByRole('region', { name: 'Playbooks' });
       await within(section).findByText('pb-1');
-      expect(within(section).getByRole('link', { name: /All playbooks/ })).toHaveAttribute('href', '/playbooks');
+      expect(within(section).getByRole('link', { name: /All playbooks/ })).toHaveAttribute('href', '/sessions?tab=playbooks');
     });
   });
 

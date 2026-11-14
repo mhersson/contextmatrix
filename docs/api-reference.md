@@ -1656,6 +1656,7 @@ payload.
   "mob_execute_checkpoints": true,
   "chat_enabled": true,
   "architect_enabled": false,
+  "jira_enabled": true,
   "instance_id": "laptop-3f9a2c",
   "shared_boards": true,
   "boards_repos": [{ "name": "team", "shared": true }, { "name": "private", "shared": false }]
@@ -1676,6 +1677,7 @@ payload.
 | `mob_execute_checkpoints`                          | full, omitempty | `true` when `mob.execute_checkpoints_enabled` is on; absent (not `false`) when off                 |
 | `chat_enabled`                                     | full, always    | A chat backend entry is enabled with `url` and `api_key` set                                       |
 | `architect_enabled`                                | full, always    | An architect backend entry is enabled with `url` and `api_key` set; gates the blueprint option in the New Chat dialog |
+| `jira_enabled`                                     | full, always    | `jira.site_url` is set; never probes Jira (`GET /api/jira/status` does). Shows **Import from Jira** in the Playbooks tab toolbar |
 | `instance_id`, `shared_boards`                     | full, omitempty | `instance.id` and whether any boards repo is shared; both drop out on a private board              |
 | `boards_repos`                                     | full, omitempty | Every configured boards repository in config order, `{name, shared}`                               |
 

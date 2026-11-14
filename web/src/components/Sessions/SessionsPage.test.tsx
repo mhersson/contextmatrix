@@ -18,6 +18,8 @@ vi.mock('../../hooks/useSSEBus', () => ({
   useSSEBus: () => ({ subscribe: () => () => {}, connected: true, reconnectEpoch: 0 }),
 }));
 
+vi.mock('../../hooks/useTheme', () => ({ useTheme: () => ({ boardsRepos: [] }) }));
+
 const playbook = (id: string, title: string): PlaybookSummary => ({
   id,
   title,

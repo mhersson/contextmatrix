@@ -7,6 +7,10 @@ export type SessionsTab = SessionKind | 'playbooks';
 /** The `?tab=` value of each Sessions page tab. */
 export const SESSIONS_TAB: Record<SessionsTab, string> = { chat: 'chats', architect: 'blueprints', playbooks: 'playbooks' };
 
+export function sessionsTabHref(tab: SessionsTab): string {
+  return `/sessions?tab=${SESSIONS_TAB[tab]}`;
+}
+
 /** The tab a `?tab=` value names; Chats for a missing or unknown value. */
 export function sessionsTab(value: string | null): SessionsTab {
   return (Object.keys(SESSIONS_TAB) as SessionsTab[]).find((t) => SESSIONS_TAB[t] === value) ?? 'chat';

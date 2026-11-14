@@ -75,11 +75,12 @@ curl -s -H 'X-Requested-With: contextmatrix' localhost:8080/api/jira/status
 
 ## Importing an epic
 
-1. Click **New playbook**, paste an epic key (`PROJ-1`, any case) or a Jira URL
-   on the configured site into the title, and click **Import from Jira**. Enter
-   still creates an ordinary playbook. While the status probe fails, the form
-   says why (`unauthorized`, `captcha_required`, `unreachable`). The button
-   stays disabled for `unauthorized` and `captcha_required` only.
+1. On the Sessions page's Playbooks tab, click **Import from Jira** (or **New
+   playbook**), paste an epic key (`PROJ-1`, any case) or a Jira URL on the
+   configured site into the title, and click the row's **Import from Jira**.
+   Enter still creates an ordinary playbook. While the status probe fails, the
+   form says why (`unauthorized`, `captcha_required`, `unreachable`). The
+   button stays disabled for `unauthorized` and `captcha_required` only.
 2. The dialog shows the epic's children and their sub-tasks. Open issues that
    were never imported are preselected. Pick a project per issue, or one for
    all; defaults come from `jira.project_map`, and sub-tasks follow their

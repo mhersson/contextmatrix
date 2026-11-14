@@ -189,7 +189,8 @@ interactions.
 - **URL state:** for bookmarkable UI state use `useSearchParams` with the
   updater-callback form and `{ replace: true }`; validate the value against the
   known set and fall back gracefully on unknown. Current params: `?card=<id>` (with `&tab=sentinel` for the card's Sentinel tab),
-  `?project=<slug>`, `?new=1|blueprint`, `?tab=<chats|blueprints|playbooks>` (Sessions page).
+  `?project=<slug>`, `?new=1|blueprint` (chat), `?tab=<chats|blueprints|playbooks>` (Sessions page;
+  `?tab=playbooks&new=1` opens the create row once, then drops `new`).
 - **Delivery-unit metrics:** headline counters (MetricsRibbon, KpiRow, BoardBand)
   count only cards where `parent === ""` (standalone + parent tasks); subtasks are
   excluded so decomposition doesn't inflate throughput. Backend source:

@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router';
 import { useMobileSidebar } from '../../context/MobileSidebarContext';
 import { useSessionPin } from '../../hooks/useSessionPin';
-import { SESSIONS_TAB } from '../../lib/sessions';
+import { sessionsTabHref } from '../../lib/sessions';
 import type { ChatSession, SessionKind } from '../../types';
 import { sectionRows } from './sectionRows';
 import { SessionRow } from './SessionRow';
@@ -51,7 +51,7 @@ export function SessionSection({ kind, sessions, onNew, loaded = true }: Session
       storageKey={cfg.storageKey}
       emptyText={cfg.empty}
       allLabel={cfg.all}
-      allHref={`/sessions?tab=${SESSIONS_TAB[kind]}`}
+      allHref={sessionsTabHref(kind)}
       total={sessions.length}
       onNew={onNew}
       newLabel={cfg.newLabel}

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 import { PlaybookDetailPage } from './PlaybookDetailPage';
 import { persistReorder } from './playbookUtils';
 import { api } from '../../api/client';
@@ -82,12 +82,19 @@ function baseDetail(): PlaybookDetail {
   };
 }
 
+function Where() {
+  const loc = useLocation();
+  return <div data-testid="where">{loc.pathname + loc.search}</div>;
+}
+
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={['/playbooks/roll']}>
       <Routes>
         <Route path="playbooks/:id" element={<PlaybookDetailPage />} />
+        <Route path="*" element={null} />
       </Routes>
+      <Where />
     </MemoryRouter>,
   );
 }
@@ -112,18 +119,32 @@ describe('PlaybookDetailPage', () => {
     expect(screen.getByRole('img', { name: /1 of 2 complete/i })).toBeInTheDocument();
   });
 
-  it('links the breadcrumb back to the playbooks list', async () => {
+  it('links the breadcrumb back to the Playbooks tab', async () => {
     vi.mocked(api.getPlaybook).mockResolvedValue(baseDetail());
     renderPage();
     await screen.findByText('Roll');
     const crumb = screen.getByRole('link', { name: /^playbooks$/i });
-    expect(crumb.getAttribute('href')).toBe('/playbooks');
+    expect(crumb.getAttribute('href')).toBe('/sessions?tab=playbooks');
   });
 
-  it('shows the not-found state when the fetch rejects', async () => {
+  it('shows the not-found state, linking back to the Playbooks tab, when the fetch rejects', async () => {
     vi.mocked(api.getPlaybook).mockRejectedValueOnce({ error: 'playbook not found', code: 'PLAYBOOK_NOT_FOUND' });
     renderPage();
     expect(await screen.findByText(/not found/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /back to playbooks/i })).toHaveAttribute('href', '/sessions?tab=playbooks');
+  });
+
+  it('returns to the Playbooks tab after a delete', async () => {
+    vi.mocked(api.getPlaybook).mockResolvedValue(baseDetail());
+    vi.mocked(api.deletePlaybook).mockResolvedValueOnce(undefined);
+    renderPage();
+    await screen.findByText('Roll');
+
+    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /^delete$/i }));
+
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/sessions?tab=playbooks'));
+    expect(api.deletePlaybook).toHaveBeenCalledWith('roll');
   });
 
   it('persists a reorder with the final index', async () => {

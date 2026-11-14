@@ -40,6 +40,9 @@ type appConfigHandlers struct {
 	// architectEnabled reports whether an architect backend is configured
 	// (an enabled entry with url and api_key set).
 	architectEnabled bool
+	// jiraEnabled reports whether a Jira client is configured. Never a probe:
+	// every page load reads it, and failed Jira logins trip a login CAPTCHA.
+	jiraEnabled bool
 	// instanceID names this server among the instances sharing a boards repo;
 	// sharedBoards reports whether the board is shared at all. Empty and false
 	// on a private board, where both fields drop out of the payload.
@@ -72,6 +75,7 @@ type appConfigResponse struct {
 	MobExecuteCheckpoints  bool                `json:"mob_execute_checkpoints,omitempty"`
 	ChatEnabled            bool                `json:"chat_enabled"`
 	ArchitectEnabled       bool                `json:"architect_enabled"`
+	JiraEnabled            bool                `json:"jira_enabled"`
 	InstanceID             string              `json:"instance_id,omitempty"`
 	SharedBoards           bool                `json:"shared_boards,omitempty"`
 	BoardsRepos            []BoardsRepoInfo    `json:"boards_repos,omitempty"`
@@ -143,6 +147,7 @@ func (h *appConfigHandlers) getAppConfig(w http.ResponseWriter, r *http.Request)
 		MobExecuteCheckpoints:  h.mobExecuteCheckpoints,
 		ChatEnabled:            h.chatEnabled,
 		ArchitectEnabled:       h.architectEnabled,
+		JiraEnabled:            h.jiraEnabled,
 		InstanceID:             h.instanceID,
 		SharedBoards:           h.sharedBoards,
 		BoardsRepos:            h.boardsRepos,

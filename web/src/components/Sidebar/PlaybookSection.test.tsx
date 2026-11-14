@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { PlaybookSection } from './PlaybookSection';
+import { SessionsPage } from '../Sessions/SessionsPage';
 import { PlaybooksProvider } from '../../hooks/usePlaybooks';
 import { api } from '../../api/client';
 import type { PlaybookRunStatus, PlaybookSummary } from '../../types';
@@ -12,6 +13,9 @@ vi.mock('../../hooks/useSSEBus', () => ({
 vi.mock('../../context/MobileSidebarContext', () => ({
   useMobileSidebar: () => ({ isOpen: true, toggle: () => {}, close: () => {} }),
 }));
+const toast = vi.hoisted(() => ({ showToast: () => {} }));
+vi.mock('../../hooks/useToast', () => ({ useToast: () => toast }));
+vi.mock('../../hooks/useTheme', () => ({ useTheme: () => ({ boardsRepos: [] }) }));
 
 function pb(id: string, o: { run?: PlaybookRunStatus; pinned?: boolean; complete?: number; day?: number } = {}): PlaybookSummary {
   return {
@@ -47,17 +51,45 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function Where() {
+  const loc = useLocation();
+  return <div data-testid="where">{loc.pathname + loc.search}</div>;
+}
+
 describe('PlaybookSection', () => {
-  it('shows at most three rows and the total on the All link, which has no + new beside it', async () => {
+  it('+ new lands on the Playbooks tab with the create row open', async () => {
+    vi.spyOn(api, 'listPlaybooks').mockResolvedValue([pb('a')]);
+    vi.spyOn(api, 'listChats').mockResolvedValue([]);
+    vi.spyOn(api, 'getJiraStatus').mockResolvedValue({ configured: false });
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <PlaybooksProvider>
+          <PlaybookSection />
+          <Routes>
+            <Route path="/sessions" element={<SessionsPage />} />
+            <Route path="*" element={null} />
+          </Routes>
+          <Where />
+        </PlaybooksProvider>
+      </MemoryRouter>,
+    );
+    const section = await screen.findByRole('region', { name: 'Playbooks' });
+    fireEvent.click(within(section).getByRole('button', { name: 'New playbook' }));
+
+    expect(await screen.findByLabelText('Playbook title')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Playbooks/ })).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/sessions\?tab=playbooks$/));
+  });
+
+  it('shows at most three rows and the total on the All link, which opens the Playbooks tab', async () => {
     vi.spyOn(api, 'listPlaybooks').mockResolvedValue([1, 2, 3, 4, 5].map((d) => pb(`p${d}`, { day: d })));
     renderSection();
     const section = await screen.findByRole('region', { name: 'Playbooks' });
     await within(section).findByText('Title p5');
     expect(within(section).getAllByRole('listitem')).toHaveLength(3);
     const all = within(section).getByRole('link', { name: /All playbooks/ });
-    expect(all).toHaveAttribute('href', '/playbooks');
+    expect(all).toHaveAttribute('href', '/sessions?tab=playbooks');
     expect(all).toHaveTextContent('5');
-    expect(within(section).queryByRole('button', { name: /^New / })).not.toBeInTheDocument();
   });
 
   it('reads n of m while running and the status word otherwise', async () => {

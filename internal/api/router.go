@@ -456,6 +456,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mobExecuteCheckpoints:  cfg.Mob.ExecuteCheckpoints(),
 		chatEnabled:            chatBackendConfigured,
 		architectEnabled:       architectBackendConfigured,
+		jiraEnabled:            cfg.Jira != nil,
 		instanceID:             cfg.InstanceID,
 		sharedBoards:           cfg.SharedBoards,
 		boardsRepos:            cfg.BoardsRepos,

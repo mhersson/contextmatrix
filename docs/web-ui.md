@@ -13,8 +13,9 @@ reference for people using the UI; execution semantics live in
 | `/projects/:project`                        | Board. `?card=ID` opens that card's detail panel (`&tab=sentinel` on its Sentinel tab) |
 | `/projects/:project/settings`               | Project settings                                         |
 | `/chat`, `/chat/:id`                        | Global chat surface. `/chat?new=1` opens the New Chat dialog on Chat, `?new=blueprint` on Blueprint |
-| `/playbooks`, `/playbooks/:id`              | Playbook list and detail (see [playbooks](playbooks.md)) |
-| `/sessions`                                 | Sessions page. `?tab=chats`, `?tab=blueprints` or `?tab=playbooks` picks the tab |
+| `/playbooks`                                | Redirects to `/sessions?tab=playbooks`                   |
+| `/playbooks/:id`                            | Playbook detail (see [playbooks](playbooks.md))          |
+| `/sessions`                                 | Sessions page. `?tab=chats`, `?tab=blueprints` or `?tab=playbooks` picks the tab; `?tab=playbooks&new=1` opens the create row |
 | `/admin/users`, `/admin/credentials`        | Admin pages, `multi` auth mode only                      |
 | `/admin/chats`                              | Chat administration (admin; open in `none` mode)         |
 | `/admin/model-selection`                    | Tier ladders (admin; open in `none` mode)                |
@@ -306,10 +307,11 @@ the strip; the footer names who last saved and when, once someone has.
   past three. A live chat is active or warm-idle. A live blueprint is active
   or mid-turn; a warm-idle blueprint counts among the rest, since blueprints
   are never ended for idleness. A section that holds any row ends with
-  **All chats →**, **All blueprints →** or **All playbooks →** and the total;
-  the first two link to that tab of the [Sessions](#sessions) page, the third
-  to the playbook list. **+ new** on Chats and Blueprints opens the New chat
-  dialog on the section's kind. Without an architect backend the Blueprints
+  **All chats →**, **All blueprints →** or **All playbooks →** and the total,
+  each linking to its tab of the [Sessions](#sessions) page. **+ new** on
+  Chats and Blueprints opens the New chat dialog on the section's kind; on
+  Playbooks it opens the Playbooks tab with the
+  [create row](#playbooks-tab) open. Without an architect backend the Blueprints
   section shows only while blueprint sessions exist, and then without
   **+ new**. The Playbooks section lists the viewer's pinned playbooks, then
   running and waiting ones, then the newest, each with a status on the right:
@@ -759,6 +761,13 @@ dashboard.
   status pill, plus `agent active` while a card entry is `in_progress`, and
   "-" when neither applies. The progress is the route track (manual steps
   drawn as gates) and done / total.
+- **New playbook** in the toolbar opens a create row at the top of the
+  table: the title, an optional description, and the boards repo on a
+  multi-repo instance. Enter or **Create playbook** creates the playbook and
+  opens it; Escape or **Cancel** closes the row and drops the draft. With
+  Jira configured, **Import from Jira** sits beside it and opens the same
+  row, which then imports an epic (see [Playbooks](#playbooks)). Jira's
+  status is checked only once the row opens.
 
 ## Image attachments
 
@@ -858,10 +867,11 @@ opens. The server caches backend answers for 2 seconds and bounds each probe at
 
 ## Playbooks
 
-When Jira is configured, the "New playbook" form's title also takes a Jira epic
-key or URL, and **Import from Jira** sits next to **Create playbook** (Enter
-still creates). It is enabled only for a key or a URL on the configured site,
-and disabled only while Jira rejects the token or a login CAPTCHA blocks it.
+When Jira is configured, the [create row](#playbooks-tab)'s title also takes
+a Jira epic key or URL, and **Import from Jira** sits next to **Create
+playbook** (Enter still creates). It is enabled only for a key or a URL on the
+configured site, and disabled only while Jira rejects the token or a login
+CAPTCHA blocks it.
 The import dialog shows the epic's children and their sub-tasks with checkboxes
 (open, never-imported issues preselected; issues already in the playbook
 disabled), a project picker per
@@ -898,8 +908,8 @@ on the run's entry (while a run is held on an unvetted card, on the first
 incomplete entry). Removing the run's current entry, dragging any entry, or
 unchecking a done manual entry is refused until the run is stopped; a
 refused drag snaps the order back and a refused uncheck stays checked. The
-toasts carry the server's reason. The list page shows a run pill. See
-[playbooks](playbooks.md#running-a-playbook).
+toasts carry the server's reason. The [Playbooks tab](#playbooks-tab) shows
+the run pill. See [playbooks](playbooks.md#running-a-playbook).
 
 The detail page's **How to verify what was built** section lists the
 playbook's follow-ups.

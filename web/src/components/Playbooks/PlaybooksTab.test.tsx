@@ -1,18 +1,51 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useState } from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { api } from '../../api/client';
 import { PlaybooksProvider } from '../../hooks/usePlaybooks';
-import type { APIError, PlaybookSummary } from '../../types';
+import type { APIError, BoardEvent, PlaybookDetail, PlaybookSummary } from '../../types';
+import { samplePreview } from '../JiraImport/previewFixture';
 import { EMPTY_PLAYBOOK_FILTER } from './playbookFilter';
 import { PlaybooksTab } from './PlaybooksTab';
 
 const toast = vi.hoisted(() => ({ showToast: vi.fn() }));
 vi.mock('../../hooks/useToast', () => ({ useToast: () => toast }));
 
+// A stand-in SSE bus that keeps every handler, so a test can deliver an event.
+const sse = vi.hoisted(() => ({ handlers: new Map<string, Set<(e: BoardEvent) => void>>() }));
 vi.mock('../../hooks/useSSEBus', () => ({
-  useSSEBus: () => ({ subscribe: () => () => {}, connected: true, reconnectEpoch: 0 }),
+  useSSEBus: () => ({
+    subscribe: (pattern: string, fn: (e: BoardEvent) => void) => {
+      if (!sse.handlers.has(pattern)) sse.handlers.set(pattern, new Set());
+      sse.handlers.get(pattern)!.add(fn);
+      return () => sse.handlers.get(pattern)?.delete(fn);
+    },
+    connected: true,
+    reconnectEpoch: 0,
+  }),
+}));
+
+function emit(type: string, data: Record<string, unknown>) {
+  act(() => {
+    sse.handlers.get(type)?.forEach((fn) => fn({ type, project: '', card_id: '', timestamp: '', data } as BoardEvent));
+  });
+}
+
+const themeState = vi.hoisted(() => ({ boardsRepos: [] as { name: string; shared: boolean }[], jiraEnabled: false }));
+vi.mock('../../hooks/useTheme', () => ({
+  useTheme: () => ({ boardsRepos: themeState.boardsRepos, jiraEnabled: themeState.jiraEnabled }),
+}));
+
+// The import dialog renders project pickers; useProjects throws outside ProjectsProvider.
+vi.mock('../../hooks/useProjects', () => ({
+  useProjects: () => ({
+    projects: [{ name: 'api', display_name: 'API', prefix: 'API' }, { name: 'web', display_name: 'Web', prefix: 'WEB' }],
+    loading: false,
+    error: null,
+    connected: true,
+    refreshProjects: () => {},
+  }),
 }));
 
 function pb(o: Partial<PlaybookSummary> & { id: string }): PlaybookSummary {
@@ -54,11 +87,23 @@ beforeEach(() => {
   vi.spyOn(api, 'deletePlaybook').mockImplementation(async (id) => {
     store = store.filter((p) => p.id !== id);
   });
+  vi.spyOn(api, 'createPlaybook').mockImplementation(async (input) => detail(input.title));
+  vi.spyOn(api, 'getJiraStatus').mockResolvedValue({ configured: false });
+  vi.spyOn(api, 'previewJiraEpic').mockReturnValue(new Promise(() => {}));
+  vi.spyOn(api, 'importJiraEpic').mockResolvedValue({ import_id: 'ji-1' });
+  vi.spyOn(api, 'getJiraImport').mockReturnValue(new Promise(() => {}));
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  themeState.boardsRepos = [];
+  themeState.jiraEnabled = false;
 });
+
+function detail(title: string): PlaybookDetail {
+  const id = title.toLowerCase().replace(/\s+/g, '-');
+  return { id, title, created_at: '', updated_at: '', complete: 0, total: 0, entries: [] };
+}
 
 function Where() {
   const loc = useLocation();
@@ -71,9 +116,9 @@ function Tab() {
   return <PlaybooksTab filter={filter} onFilterChange={setFilter} />;
 }
 
-function renderTab() {
+function renderTab(url = '/sessions?tab=playbooks') {
   return render(
-    <MemoryRouter initialEntries={['/sessions?tab=playbooks']}>
+    <MemoryRouter initialEntries={[url]}>
       <PlaybooksProvider>
         <Routes>
           <Route path="/sessions" element={<Tab />} />
@@ -260,5 +305,237 @@ describe('PlaybooksTab', () => {
 
     expect(await screen.findByRole('alert')).toBeInTheDocument();
     expect(screen.queryByRole('status')).toBeNull();
+  });
+});
+
+const newButton = () => screen.getByRole('button', { name: /new playbook/i });
+const titleInput = () => screen.getByLabelText('Playbook title');
+
+describe('PlaybooksTab - create row', () => {
+  it('+ New playbook opens the create row above the first playbook', async () => {
+    renderTab();
+    await screen.findByText('Rollout');
+    expect(screen.queryByLabelText('Playbook title')).not.toBeInTheDocument();
+
+    fireEvent.click(newButton());
+    const createRow = titleInput().closest('tr')!;
+    expect(createRow.compareDocumentPosition(row('Cleanup')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(newButton()).toBeDisabled();
+  });
+
+  it('Enter creates the playbook, sending a description only when typed, and opens it', async () => {
+    renderTab();
+    await screen.findByText('Rollout');
+
+    fireEvent.click(newButton());
+    fireEvent.change(titleInput(), { target: { value: 'New rollout' } });
+    fireEvent.keyDown(titleInput(), { key: 'Enter' });
+    await waitFor(() => expect(where()).toBe('/playbooks/new-rollout'));
+    expect(api.createPlaybook).toHaveBeenCalledWith({ title: 'New rollout' });
+  });
+
+  it('a typed description is sent trimmed', async () => {
+    renderTab();
+    await screen.findByText('Rollout');
+
+    fireEvent.click(newButton());
+    fireEvent.change(titleInput(), { target: { value: 'With notes' } });
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: '  Why this route exists  ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create playbook' }));
+    await waitFor(() =>
+      expect(api.createPlaybook).toHaveBeenCalledWith({ title: 'With notes', description: 'Why this route exists' }),
+    );
+  });
+
+  it('Create playbook sends one request while it is in flight', async () => {
+    let resolve: (d: PlaybookDetail) => void = () => {};
+    vi.mocked(api.createPlaybook).mockReturnValue(new Promise((r) => { resolve = r; }));
+    renderTab();
+    await screen.findByText('Rollout');
+
+    fireEvent.click(newButton());
+    fireEvent.change(titleInput(), { target: { value: 'New rollout' } });
+    const create = screen.getByRole('button', { name: 'Create playbook' });
+    fireEvent.click(create);
+    expect(create).toBeDisabled();
+    fireEvent.click(create);
+    fireEvent.keyDown(titleInput(), { key: 'Enter' });
+    expect(api.createPlaybook).toHaveBeenCalledTimes(1);
+
+    resolve(detail('New rollout'));
+    await waitFor(() => expect(where()).toBe('/playbooks/new-rollout'));
+  });
+
+  it('Escape closes the row and drops the draft', async () => {
+    renderTab();
+    await screen.findByText('Rollout');
+
+    fireEvent.click(newButton());
+    fireEvent.change(titleInput(), { target: { value: 'Draft' } });
+    fireEvent.keyDown(titleInput(), { key: 'Escape' });
+    expect(screen.queryByLabelText('Playbook title')).not.toBeInTheDocument();
+    expect(listedTitles()).toHaveLength(4);
+
+    fireEvent.click(newButton());
+    expect(titleInput()).toHaveValue('');
+  });
+
+  it('?new=1 opens the row once and leaves the URL without it', async () => {
+    renderTab('/sessions?tab=playbooks&new=1');
+    expect(titleInput()).toBeInTheDocument();
+    await waitFor(() => expect(where()).toBe('/sessions?tab=playbooks'));
+
+    fireEvent.keyDown(titleInput(), { key: 'Escape' });
+    await screen.findByText('Rollout');
+    expect(screen.queryByLabelText('Playbook title')).not.toBeInTheDocument();
+  });
+
+  it('opens while the list is still loading, and keeps the draft when the playbooks arrive', async () => {
+    let resolve: (list: PlaybookSummary[]) => void = () => {};
+    vi.mocked(api.listPlaybooks).mockReturnValue(new Promise((r) => { resolve = r; }));
+    renderTab();
+
+    fireEvent.click(newButton());
+    fireEvent.change(titleInput(), { target: { value: 'Draft' } });
+
+    resolve(store);
+    await screen.findByText('Rollout');
+    expect(titleInput()).toHaveValue('Draft');
+    expect(titleInput().closest('tr')!.compareDocumentPosition(row('Cleanup')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('opens under a filter that matches nothing, in place of the empty state', async () => {
+    renderTab();
+    await screen.findByText('Rollout');
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'zzz' } });
+    expect(screen.getByRole('status')).toBeInTheDocument();
+
+    fireEvent.click(newButton());
+    expect(titleInput()).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(listedTitles()).toHaveLength(0);
+
+    fireEvent.keyDown(titleInput(), { key: 'Escape' });
+    expect(screen.getByRole('status')).toBeInTheDocument();
+  });
+
+  it('opens on an empty list without the empty state', async () => {
+    store = [];
+    renderTab();
+    await screen.findByRole('status');
+
+    fireEvent.click(newButton());
+    expect(titleInput()).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('sends the chosen boards repo on a multi-repo instance', async () => {
+    themeState.boardsRepos = [{ name: 'team', shared: true }, { name: 'private', shared: false }];
+    renderTab();
+    await screen.findByText('Rollout');
+
+    fireEvent.click(newButton());
+    const select = screen.getByRole('combobox', { name: 'Boards repo' });
+    expect(select).toHaveValue('team');
+    fireEvent.change(select, { target: { value: 'private' } });
+    fireEvent.change(titleInput(), { target: { value: 'X' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create playbook' }));
+    await waitFor(() => expect(api.createPlaybook).toHaveBeenCalledWith({ title: 'X', boards_repo: 'private' }));
+  });
+});
+
+describe('PlaybooksTab - Jira import', () => {
+  const SITE = 'https://acme.atlassian.net';
+
+  beforeEach(() => {
+    themeState.jiraEnabled = true;
+    vi.mocked(api.getJiraStatus).mockResolvedValue({ configured: true, authenticated: true, site_url: SITE });
+  });
+
+  const createRow = () => titleInput().closest('tr')!;
+  const toolbarImport = () => within(screen.getByRole('search').parentElement!).queryByRole('button', { name: 'Import from Jira' });
+  const rowImport = () => within(createRow()).findByRole('button', { name: 'Import from Jira' });
+
+  async function openRow() {
+    renderTab();
+    await screen.findByText('Rollout');
+    fireEvent.click(newButton());
+    return rowImport();
+  }
+
+  it('Import from Jira in the toolbar opens the create row, without asking Jira until then', async () => {
+    renderTab();
+    await screen.findByText('Rollout');
+    expect(api.getJiraStatus).not.toHaveBeenCalled();
+
+    fireEvent.click(toolbarImport()!);
+    expect(createRow()).toBeInTheDocument();
+    expect(toolbarImport()).toBeDisabled();
+    expect(newButton()).toBeDisabled();
+    await rowImport();
+    expect(api.getJiraStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers no import anywhere when Jira is not configured', async () => {
+    themeState.jiraEnabled = false;
+    vi.mocked(api.getJiraStatus).mockResolvedValue({ configured: false });
+    renderTab();
+    await screen.findByText('Rollout');
+    expect(toolbarImport()).not.toBeInTheDocument();
+
+    fireEvent.click(newButton());
+    await waitFor(() => expect(api.getJiraStatus).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: 'Import from Jira' })).not.toBeInTheDocument();
+  });
+
+  it('opens the import dialog for the parsed key', async () => {
+    const button = await openRow();
+    fireEvent.change(titleInput(), { target: { value: `${SITE}/browse/PROJ-12` } });
+    fireEvent.click(button);
+    expect(await screen.findByRole('dialog', { name: /^Import Jira epic PROJ-12/ })).toBeInTheDocument();
+    expect(api.previewJiraEpic).toHaveBeenCalledWith('PROJ-12');
+  });
+
+  it.each(['unauthorized', 'captcha_required'] as const)('disables the import and says why when Jira reports %s', async (auth_error) => {
+    vi.mocked(api.getJiraStatus).mockResolvedValue({ configured: true, authenticated: false, auth_error, site_url: SITE });
+    const button = await openRow();
+    fireEvent.change(titleInput(), { target: { value: 'PROJ-12' } });
+    expect(button).toBeDisabled();
+    expect(within(createRow()).getByRole('status')).toBeInTheDocument();
+  });
+
+  it('keeps the import enabled, with the warning, when only the status probe fails', async () => {
+    vi.mocked(api.getJiraStatus).mockResolvedValue({ configured: true, authenticated: false, auth_error: 'unreachable', site_url: SITE });
+    const button = await openRow();
+    fireEvent.change(titleInput(), { target: { value: 'PROJ-12' } });
+    expect(button).toBeEnabled();
+    expect(within(createRow()).getByRole('status')).toBeInTheDocument();
+  });
+
+  it('keeps the import dialog and its progress when the first import fills an empty list', async () => {
+    store = [];
+    vi.mocked(api.previewJiraEpic).mockResolvedValueOnce(samplePreview());
+    renderTab();
+    await screen.findByRole('status');
+
+    fireEvent.click(newButton());
+    const button = await rowImport();
+    fireEvent.change(titleInput(), { target: { value: 'PROJ-1' } });
+    fireEvent.click(button);
+    const dialog = await screen.findByRole('dialog', { name: /Checkout revamp/ });
+    fireEvent.change(await within(dialog).findByLabelText('Project for PROJ-7'), { target: { value: 'web' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Import 3 issues/ }));
+    await within(dialog).findByRole('list', { name: 'Import results' });
+    // The list can paint before the hook's passive effect subscribes; an event emitted earlier is dropped.
+    await waitFor(() => expect(sse.handlers.get('jira_import.progress')?.size).toBeGreaterThan(0));
+    emit('jira_import.progress', { import_id: 'ji-1', key: 'PROJ-3', status: 'created', project: 'api', card_id: 'API-001', reason: '' });
+
+    // The import created the epic's playbook, so the list fills mid-run.
+    store = [pb({ id: 'checkout', title: 'Checkout revamp' })];
+    emit('playbook.*', {});
+    await screen.findByRole('button', { name: 'Checkout revamp' }, { timeout: 3000 });
+
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByRole('list', { name: 'Import results' })).toHaveTextContent('API-001');
   });
 });

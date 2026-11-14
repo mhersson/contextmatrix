@@ -681,6 +681,8 @@ export interface AppConfig {
    * in the New Chat dialog. Full-payload-only, same posture as chat_enabled.
    */
   architect_enabled?: boolean;
+  /** Whether Jira is configured (never probed); shows Import from Jira in the Playbooks tab toolbar. */
+  jira_enabled?: boolean;
   /**
    * Operator-configured favorite model slugs per tier (key = tier name,
    * value = All slugs for that tier). Only present when the agent backend
