@@ -177,11 +177,16 @@ accept it and is admin-gated in multi mode.
 "UI = human" holds in both modes: a convention behind the CSRF gate in none
 mode, a proof in multi mode.
 
-**Sentinel's authority is CM's own.** Its triggers come only from the
-HMAC-signed status callback and CM's own stall and lost-worker detection; no
-MCP call and no browser request can start a heal. It acts through in-process
-service calls under the agent ID `system:sentinel`, never over MCP, so the
-`mcp_api_key` gives no route to it. Run kinds get no MCP key and a
+**Sentinel's authority is CM's own.** Its triggers are the HMAC-signed
+status callback and CM's own stall and lost-worker detection; no MCP call and
+no browser request can name a stop cause or start a heal directly. One path is
+indirect: a run parked over MCP (`report_parked`) that gets no terminal status
+within the settle grace (10 minutes) settles with no stop cause, and an
+eligible run's heal then opens. With no cause to fix, that heal investigates at
+most once, within the investigate ceiling and the daily cap, then parks for a
+human; it never writes a fix or reruns the card. Sentinel acts
+through in-process service calls under the agent ID `system:sentinel`, never
+over MCP, so the `mcp_api_key` gives no route to it. Run kinds get no MCP key and a
 contents-read token (see Worker credentials). See [Sentinel](sentinel.md).
 
 ### Worker credentials
@@ -414,7 +419,7 @@ failure the service layer closes the gap:
 | `backend`           | client, reconcile, `sessionlog.Manager`              | Task-backend webhook client, reconcile sweep, end-session subscriber, HMAC signature cache, per-card session-log buffer and fan-out hub.                                 |
 | `chat`              | `Manager`, `Store`, `SSEHub`, `IdleReaper`, `transcript` | Global chat sessions: lifecycle, transcript persistence, per-session SSE, cost accumulation, cold-reopen resume payloads.                                            |
 | `llmchannel`        | `Holder`                                             | The global LLM channel mode (`endpoint` or `claude_code`), saved in `ops.db`: resolves each start's endpoint and model, records subscription usage readings, publishes `llm_channel.changed`. |
-| `sentinel`          | `Controller`, `Settings`, `Status`                   | The healing controller: one goroutine, woken by a 30 s tick, bus events and nudges, reads its settings and the subscription windows from `ops.db`, applies the budget gate and publishes `sentinel.changed` when its status changes. Takes run kinds' results from the status callback and charges them to its spend ledger. Built only when an agent backend is configured. See [Sentinel](sentinel.md). |
+| `sentinel`          | `Controller`, `Status`, `state.Settings`             | The healing controller: one goroutine, woken by a 30 s tick, bus events and nudges, reads its settings and the subscription windows from `ops.db`, applies the budget gate and publishes `sentinel.changed` when its status changes. Takes run kinds' results from the status callback and charges them to its spend ledger. Built only when an agent backend is configured. Its durable types live in the leaf `sentinel/state`, which `opstore` imports instead of the controller. See [Sentinel](sentinel.md). |
 | `opstore`           | `sqlite.Store`                                       | `ops.db` (tables: see configuration.md). Schema is `CREATE TABLE IF NOT EXISTS` with no migration ledger.               |
 | `images`            | `Store`, `Layered`, `RepoIndex`, `Process`           | Content-hashed image store: `images.db` plus `<project>/images/` files in shared repos.                                                                                 |
 | `modelcatalog`      | `Builder`                                            | Fetches and rates model candidates (Artificial Analysis joined with OpenRouter or an OpenAI-compatible endpoint); 6h TTL, last-good fallback. See [model selection](model-selection.md). |

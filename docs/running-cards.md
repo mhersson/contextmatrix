@@ -237,8 +237,10 @@ without a human (which stop causes qualify is in
   as Run Auto runs it. Inside one, Sentinel reruns it through the playbook
   run's Stop then Run, and only while the run is still on that card (see
   [playbooks](playbooks.md#run-and-stop)); a card an active playbook run holds
-  is never rerun on its own. When Sentinel cannot rerun a card, it writes no
-  fix to it.
+  is never rerun on its own. When a card has no such route, Sentinel leaves it
+  for a human before writing any fix. A fix already written stays on the card
+  when a subtask cannot be retired or the rerun itself is refused; the card is
+  then left for a human too.
 - Each rerun writes a `sentinel` activity entry naming what changed, or that
   it reruns after a usage limit. A card Sentinel leaves for a human gets one
   saying why.

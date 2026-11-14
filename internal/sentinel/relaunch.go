@@ -60,9 +60,9 @@ func (c *Controller) activePlaybook(ctx context.Context, card *board.Card) (*ser
 
 // relaunchRoute picks the rerun's route. A playbook origin reruns only through
 // its active run on this instance, while that run is on the card, so its Stop
-// kills no other card's worker; any other origin reruns alone unless an active
-// playbook run holds the card. pb is the playbook the card's active lock
-// names, nil without one.
+// normally finds no other card's worker to kill; any other origin reruns alone
+// unless an active playbook run holds the card. pb is the playbook the card's
+// active lock names, nil without one.
 func relaunchRoute(run state.Run, card *board.Card, pb *service.PlaybookDetail, instance string) (route, string) {
 	if run.Launch.Origin != state.OriginPlaybook {
 		if card.PlaybookLock.Active() {

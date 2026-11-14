@@ -510,7 +510,7 @@ on the card's `updated` as the pass read it or Sentinel's fix wrote it
 
 | Origin           | Route                                                                                                                                         |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `playbook`       | Through the playbook run's Stop then Play, as `system:sentinel`, while that run is active on this instance and its current entry is the card's, so Stop kills no other card's worker; else it parks |
+| `playbook`       | Through the playbook run's Stop then Play, as `system:sentinel`, while that run is active on this instance and its current entry is the card's; else it parks. Stop kills every worker of the run's cards queued or running on this instance; with the run on the card, that is normally the card's own at most |
 | any other origin | Alone: the card launches as a hand run with origin `sentinel`; while an active playbook run holds the card it parks                          |
 
 The playbook route needs the move too: a resumed run's walker relaunches its
