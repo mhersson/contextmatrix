@@ -321,10 +321,10 @@ when, once someone has.
   section shows only while blueprint sessions exist, and then without
   **+ new**. The Playbooks section lists the viewer's pinned playbooks, then
   running and waiting ones, then the newest, each with a status on the right:
-  `n of m` while running or progressed by hand with no run, else completed,
-  waiting, stopped or not started; a pinned row shows a filled pin (see
-  [Playbooks](playbooks.md) for pins). Each section collapses on its own,
-  remembered per browser under
+  `n of m` while running, or while not started with some entries already
+  complete, else completed, waiting, stopped or not started; a pinned row
+  shows a filled pin (see [Playbooks](playbooks.md) for pins). Each section
+  collapses on its own, remembered per browser under
   `sidebar.chat_section_collapsed`, `sidebar.blueprint_section_collapsed` and
   `sidebar.playbook_section_collapsed`.
   Clicking a row opens the session (`/chat/:id`) and closes the mobile drawer.

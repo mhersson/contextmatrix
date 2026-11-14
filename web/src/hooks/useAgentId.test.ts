@@ -30,6 +30,7 @@ Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock });
 beforeEach(() => {
   localStorageMock.clear();
   vi.clearAllMocks();
+  api.setAgentId(null);
 });
 
 describe('useAgentId', () => {
@@ -65,6 +66,25 @@ it('enabled keeps the existing behavior', () => {
 });
 
 describe('useAgentId localStorage resilience', () => {
+  it('keeps the id the client already sends when storage throws', () => {
+    const realGet = localStorageMock.getItem.getMockImplementation()!;
+    const realSet = localStorageMock.setItem.getMockImplementation()!;
+    const deny = () => {
+      throw new Error('denied');
+    };
+    localStorageMock.getItem.mockImplementation(deny);
+    localStorageMock.setItem.mockImplementation(deny);
+    try {
+      api.setAgentId('human:web-0000beef');
+      const { result } = renderHook(() => useAgentId(true));
+      expect(result.current.agentId).toBe('human:web-0000beef');
+      expect(api.getAgentId()).toBe('human:web-0000beef');
+    } finally {
+      localStorageMock.getItem.mockImplementation(realGet);
+      localStorageMock.setItem.mockImplementation(realSet);
+    }
+  });
+
   it('falls back to in-memory id when localStorage.getItem throws', () => {
     localStorageMock.getItem.mockImplementationOnce(() => {
       throw new Error('quota');
