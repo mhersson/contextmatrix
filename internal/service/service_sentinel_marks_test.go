@@ -15,9 +15,14 @@ import (
 type fakeSentinelMarks struct {
 	marks map[string]board.SentinelMark
 	err   error
+	got   *[]*board.Card
 }
 
-func (f fakeSentinelMarks) SentinelMarks(context.Context, string) (map[string]board.SentinelMark, error) {
+func (f fakeSentinelMarks) SentinelMarks(_ context.Context, _ string, cards []*board.Card) (map[string]board.SentinelMark, error) {
+	if f.got != nil {
+		*f.got = cards
+	}
+
 	return f.marks, f.err
 }
 
@@ -89,4 +94,23 @@ func TestListCardsSurvivesSentinelMarkError(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, listed, 1)
 	assert.Nil(t, listed[0].Sentinel)
+}
+
+func TestEnrichSentinelMarksPassesItsCards(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "one", Type: "task", Priority: "low"})
+	require.NoError(t, err)
+
+	var got []*board.Card
+
+	svc.SetSentinelMarks(fakeSentinelMarks{got: &got})
+
+	_, err = svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, card.ID, got[0].ID)
 }

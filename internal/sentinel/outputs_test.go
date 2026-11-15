@@ -18,6 +18,7 @@ func routeEnv(t *testing.T, findings ...state.Finding) *dispatchEnv {
 	t.Helper()
 
 	e := newPassEnv(t)
+	e.cards.now = e.clk.Now
 	e.cards.projects["alpha"] = &board.ProjectConfig{Name: "alpha", Types: []string{"task"}, Priorities: []string{"medium"}}
 
 	for _, f := range findings {
@@ -53,6 +54,20 @@ func TestRouteFindingsCreatesOneCardAndQueuesGuidance(t *testing.T) {
 	assert.Equal(t, state.FindingCarded, code.State)
 	assert.Equal(t, "ALPHA-100", code.Output)
 	assert.Equal(t, state.FindingPending, e.store.finding(2).State)
+}
+
+func TestRouteFindingsStampsACardedFindingAtItsCardsCreation(t *testing.T) {
+	e := routeEnv(t, queued(1, "code", "Cache the config loader", "the loader reads every file twice because the cache key ignores the path"))
+
+	created := e.clk.Now().Add(time.Minute) // the card is created after the pass read the clock
+
+	e.cards.now = func() time.Time { return created }
+
+	require.NoError(t, e.ctl.pass(context.Background()))
+
+	carded, err := e.store.CardedFindings(context.Background(), "alpha")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]time.Time{"ALPHA-100": created}, carded)
 }
 
 func TestRouteFindingsReroutesGuidanceThatNamesCM(t *testing.T) {

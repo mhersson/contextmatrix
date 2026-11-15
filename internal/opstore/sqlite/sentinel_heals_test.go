@@ -1195,7 +1195,16 @@ func TestFindingRouting(t *testing.T) {
 
 	carded, err := st.CardedFindings(ctx, "p")
 	require.NoError(t, err)
-	assert.Equal(t, map[string]bool{"P-009": true}, carded)
+	require.Len(t, carded, 1)
+	assert.True(t, carded["P-009"].Equal(at))
+
+	later := at.Add(time.Hour)
+	require.NoError(t, st.SetFindingOutcome(ctx, queued[2].ID, state.FindingCarded, "like finding 2", "P-009", 0, later))
+
+	carded, err = st.CardedFindings(ctx, "p")
+	require.NoError(t, err)
+	require.Len(t, carded, 1)
+	assert.True(t, carded["P-009"].Equal(later), "the newest carded time of the card")
 
 	got, err := st.CardFindings(ctx, "p", "P-001")
 	require.NoError(t, err)

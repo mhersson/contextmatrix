@@ -231,6 +231,10 @@ time ignores nothing.
   open analysis row older than its card ends `analyse_skipped`.
 - A guidance finding older than its source card has no source text for the
   revision.
+- The board mark, the `analysing` mark and the `created` mark (against the
+  finding's carded time) skip a record older than its card, and so do the
+  waiting-list holds. `SentinelMarks` takes the cards the service is enriching;
+  `CardHolds` lists the project's cards once a latest heal exists.
 
 ## Analyses
 

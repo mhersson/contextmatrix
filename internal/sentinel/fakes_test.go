@@ -655,6 +655,7 @@ type fakeCards struct {
 	refuse      map[string]error
 	transitions []string // "<ID> <state> <agent>"
 	created     []service.CreateCardInput
+	now         func() time.Time // the Created time of a card CreateCard makes; zero when nil
 }
 
 type patchCall struct {
@@ -983,13 +984,15 @@ func (f *fakeStore) RerouteFinding(_ context.Context, id int64, kind, st, reason
 	return nil
 }
 
-func (f *fakeStore) CardedFindings(_ context.Context, project string) (map[string]bool, error) {
-	out := map[string]bool{}
+func (f *fakeStore) CardedFindings(_ context.Context, project string) (map[string]time.Time, error) {
+	out := map[string]time.Time{}
 
 	for _, fd := range f.findingsWhere(func(fd state.Finding) bool {
 		return fd.Project == project && fd.State == state.FindingCarded && fd.Output != ""
 	}) {
-		out[fd.Output] = true
+		if at, seen := out[fd.Output]; !seen || fd.UpdatedAt.After(at) {
+			out[fd.Output] = fd.UpdatedAt
+		}
 	}
 
 	return out, nil
@@ -1025,6 +1028,11 @@ func (f *fakeCards) CreateCard(_ context.Context, project string, in service.Cre
 		ID: strings.ToUpper(project) + "-" + strconv.Itoa(99+len(f.created)), Project: project, Title: in.Title,
 		Type: in.Type, State: board.StateTodo, Labels: in.Labels, Body: in.Body,
 	}
+
+	if f.now != nil {
+		c.Created = f.now()
+	}
+
 	f.cards = append(f.cards, c)
 
 	return c, nil

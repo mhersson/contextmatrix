@@ -115,6 +115,7 @@ func (c *Controller) routeFinding(ctx context.Context, f state.Finding, pr *proj
 			pr.cards = append(pr.cards, created)
 			pr.createdToday++
 			output = created.ID
+			now = created.Created // the board mark cuts records made before the card
 		}
 	default:
 		return nil

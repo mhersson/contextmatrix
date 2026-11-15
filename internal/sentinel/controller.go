@@ -77,8 +77,8 @@ type Store interface {
 	PutStandingPR(ctx context.Context, p state.StandingPR) error
 	// CardedSince counts the project's findings that became cards at or after since.
 	CardedSince(ctx context.Context, project string, since time.Time) (int, error)
-	// CardedFindings returns the IDs of the project's cards made from a finding.
-	CardedFindings(ctx context.Context, project string) (map[string]bool, error)
+	// CardedFindings returns the project's cards made from a finding, each with its newest carded time.
+	CardedFindings(ctx context.Context, project string) (map[string]time.Time, error)
 	SetFindingOutcome(ctx context.Context, id int64, state, reason, output string, revisionID int64, at time.Time) error
 	// RerouteFinding changes a finding's kind, state and reason together.
 	RerouteFinding(ctx context.Context, id int64, kind, state, reason string, at time.Time) error

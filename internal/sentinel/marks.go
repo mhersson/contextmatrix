@@ -3,11 +3,13 @@ package sentinel
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/sentinel/state"
+	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 // Mark actions, as the board icon names them.
@@ -28,9 +30,10 @@ const createdLabel = "Sentinel created this card from a run's friction"
 
 const analysingLabel = "Sentinel is analysing the last run"
 
-// SentinelMarks answers each card's board mark from its latest heal. It
-// answers none while Sentinel is off.
-func (c *Controller) SentinelMarks(ctx context.Context, project string) (map[string]board.SentinelMark, error) {
+// SentinelMarks answers each of cards' board marks from its latest heal. A
+// record made before its card was created belongs to an earlier card with the
+// same ID and marks nothing. It answers none while Sentinel is off.
+func (c *Controller) SentinelMarks(ctx context.Context, project string, cards []*board.Card) (map[string]board.SentinelMark, error) {
 	set, _, _, err := c.cfg.Store.SentinelSettings(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("sentinel settings: %w", err)
@@ -44,6 +47,9 @@ func (c *Controller) SentinelMarks(ctx context.Context, project string) (map[str
 	if err != nil {
 		return nil, fmt.Errorf("latest heals: %w", err)
 	}
+
+	byID := cardsByID(cards)
+	dropReused(latest, byID)
 
 	marks := make(map[string]board.SentinelMark, len(latest))
 
@@ -67,15 +73,38 @@ func (c *Controller) SentinelMarks(ctx context.Context, project string) (map[str
 		marks[id] = m
 	}
 
-	if err := c.addCreatedMarks(ctx, project, marks); err != nil {
+	if err := c.addCreatedMarks(ctx, project, byID, marks); err != nil {
 		return nil, err
 	}
 
-	if err := c.addAnalysingMarks(ctx, project, marks); err != nil {
+	if err := c.addAnalysingMarks(ctx, project, byID, marks); err != nil {
 		return nil, err
 	}
 
 	return marks, nil
+}
+
+func cardsByID(cards []*board.Card) map[string]*board.Card {
+	byID := make(map[string]*board.Card, len(cards))
+	for _, card := range cards {
+		byID[card.ID] = card
+	}
+
+	return byID
+}
+
+// reusedID is whether the record of id made at at belongs to an earlier card
+// with the same ID. A card absent from byID cuts nothing.
+func reusedID(byID map[string]*board.Card, id string, at time.Time) bool {
+	card, ok := byID[id]
+
+	return ok && card.CreatedAfter(at)
+}
+
+// dropReused removes the latest heals made before their card was created. IDs
+// grow with time, so an older latest heal means every heal of that ID is older.
+func dropReused(latest map[string]state.Heal, byID map[string]*board.Card) {
+	maps.DeleteFunc(latest, func(id string, h state.Heal) bool { return reusedID(byID, id, h.CreatedAt) })
 }
 
 // withAnalysis is the mark a card shows while an analysis of it is in flight,
@@ -98,14 +127,14 @@ func analysisInFlight(h state.Heal) bool {
 
 // addAnalysingMarks overlays the analysing mark on each card of the project
 // with an analysis in flight, by withAnalysis's precedence.
-func (c *Controller) addAnalysingMarks(ctx context.Context, project string, marks map[string]board.SentinelMark) error {
+func (c *Controller) addAnalysingMarks(ctx context.Context, project string, byID map[string]*board.Card, marks map[string]board.SentinelMark) error {
 	open, err := c.cfg.Store.OpenAnalyses(ctx)
 	if err != nil {
 		return fmt.Errorf("open analyses: %w", err)
 	}
 
 	for _, h := range open {
-		if h.Project != project || !analysisInFlight(h) {
+		if h.Project != project || !analysisInFlight(h) || reusedID(byID, h.CardID, h.CreatedAt) {
 			continue
 		}
 
@@ -138,6 +167,15 @@ func (c *Controller) CardHolds(ctx context.Context, project string) (map[string]
 	latest, err := c.cfg.Store.LatestHeals(ctx, project)
 	if err != nil {
 		return nil, fmt.Errorf("latest heals: %w", err)
+	}
+
+	if len(latest) > 0 {
+		cards, err := c.cfg.Cards.ListCards(ctx, project, storage.CardFilter{})
+		if err != nil {
+			return nil, fmt.Errorf("list cards: %w", err)
+		}
+
+		dropReused(latest, cardsByID(cards))
 	}
 
 	holds := make(map[string]CardHold, len(latest))
@@ -232,14 +270,14 @@ func firstLine(s string, limit int) string {
 
 // addCreatedMarks marks each card Sentinel created from a finding that has no
 // heal mark.
-func (c *Controller) addCreatedMarks(ctx context.Context, project string, marks map[string]board.SentinelMark) error {
+func (c *Controller) addCreatedMarks(ctx context.Context, project string, byID map[string]*board.Card, marks map[string]board.SentinelMark) error {
 	carded, err := c.cfg.Store.CardedFindings(ctx, project)
 	if err != nil {
 		return fmt.Errorf("carded findings: %w", err)
 	}
 
-	for id := range carded {
-		if _, ok := marks[id]; !ok {
+	for id, at := range carded {
+		if _, ok := marks[id]; !ok && !reusedID(byID, id, at) {
 			marks[id] = board.SentinelMark{Action: markCreated, Label: createdLabel}
 		}
 	}
