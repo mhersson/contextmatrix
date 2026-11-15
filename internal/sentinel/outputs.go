@@ -34,11 +34,7 @@ func (c *Controller) routeFindings(ctx context.Context, now time.Time) error {
 		return fmt.Errorf("list queued findings: %w", err)
 	}
 
-	var secrets []string
-	if c.cfg.Secrets != nil {
-		secrets = c.cfg.Secrets()
-	}
-
+	secrets := c.secrets()
 	projects := map[string]*projectRouting{}
 	log := ctxlog.Logger(ctx)
 
@@ -132,12 +128,8 @@ func (c *Controller) routeFinding(ctx context.Context, f state.Finding, pr *proj
 		return nil
 	}
 
-	if newState == f.State && reason == f.Reason {
-		return nil
-	}
-
-	if err := c.setFindingOutcome(ctx, f, newState, reason, "", 0, now); err != nil {
-		return fmt.Errorf("set finding outcome: %w", err)
+	if err := c.writeOutcome(ctx, f, newState, reason, "", now); err != nil {
+		return err
 	}
 
 	if newState == state.FindingPending {
@@ -146,4 +138,25 @@ func (c *Controller) routeFinding(ctx context.Context, f state.Finding, pr *proj
 	}
 
 	return nil
+}
+
+// writeOutcome writes a finding's outcome when its state or reason changes.
+func (c *Controller) writeOutcome(ctx context.Context, f state.Finding, newState, reason, output string, now time.Time) error {
+	if newState == f.State && reason == f.Reason {
+		return nil
+	}
+
+	if err := c.setFindingOutcome(ctx, f, newState, reason, output, 0, now); err != nil {
+		return fmt.Errorf("set finding outcome: %w", err)
+	}
+
+	return nil
+}
+
+func (c *Controller) secrets() []string {
+	if c.cfg.Secrets == nil {
+		return nil
+	}
+
+	return c.cfg.Secrets()
 }

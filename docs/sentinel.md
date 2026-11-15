@@ -1239,7 +1239,7 @@ the next pass.
 | `internal/sentinel/analysis.go`             | The pure `queueStep`, what the analysis queue does with one unqueued run, and the pure `nextAnalysis` over an `analysisView`, one rule per exit |
 | `internal/sentinel/analyses.go`             | `queueAnalyses`: read each unqueued run's card, then mark it queued or store its analysis row; `advanceAnalyses`: read each open analysis's view and act on its step |
 | `internal/sentinel/route.go`                | The pure routing: `routeGuidance`, `routeCode`, `routeEcosystem`, `upstreamProject` and `frictionCardInput` |
-| `internal/sentinel/outputs.go`              | `routeFindings`: read the queued findings and each project's friction cards, guidance and today's count, apply the decisions and write the outcomes; `readRouting` and `createFrictionCard`, which the ecosystem path shares |
+| `internal/sentinel/outputs.go`              | `routeFindings`: read the queued findings and each project's friction cards, guidance and today's count, apply the decisions and write the outcomes; `readRouting`, `createFrictionCard`, `writeOutcome` and `secrets`, which the ecosystem path shares |
 | `internal/sentinel/ecosystem.go`            | `routeHeldFindings`: read the held findings and the board, then card each in the upstream project of its boards repo or draft it, and write the outcomes |
 | `internal/sentinel/blocklist.go`            | The blocklist: `issueTerms` over `termSources`, `urlSecrets`, and the whole-word `redactTerms` and `namesTerm` |
 | `internal/sentinel/issue.go`                | The pure draft: `issueDraft`, `issueBody`, `newIssueURL` and `fitIssue`, which trims the body to the link limit |

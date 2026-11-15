@@ -76,9 +76,9 @@ func (c *Controller) cardHeldFindings(ctx context.Context, held []state.Finding,
 		case state.FindingCarded:
 			err = c.createFrictionCard(ctx, f, pr, now)
 		case state.FindingQueued:
-			err = c.writeHeld(ctx, f, state.FindingHeld, reason, "", now)
+			err = c.writeOutcome(ctx, f, state.FindingHeld, reason, "", now)
 		default:
-			err = c.writeHeld(ctx, f, newState, reason, "", now)
+			err = c.writeOutcome(ctx, f, newState, reason, "", now)
 		}
 
 		if err != nil {
@@ -115,7 +115,7 @@ func (c *Controller) draftHeldFindings(ctx context.Context, held []state.Finding
 	for _, f := range held {
 		newState, reason, link := routeEcosystem(f, earlier, secrets, ic)
 
-		if err := c.writeHeld(ctx, f, newState, reason, link, now); err != nil {
+		if err := c.writeOutcome(ctx, f, newState, reason, link, now); err != nil {
 			log.Warn("sentinel: routing a held finding failed", "finding", f.ID, "error", err)
 
 			continue
@@ -128,25 +128,4 @@ func (c *Controller) draftHeldFindings(ctx context.Context, held []state.Finding
 	}
 
 	return nil
-}
-
-// writeHeld writes a held finding's outcome when its state or reason changes.
-func (c *Controller) writeHeld(ctx context.Context, f state.Finding, newState, reason, output string, now time.Time) error {
-	if newState == f.State && reason == f.Reason {
-		return nil
-	}
-
-	if err := c.setFindingOutcome(ctx, f, newState, reason, output, 0, now); err != nil {
-		return fmt.Errorf("set finding outcome: %w", err)
-	}
-
-	return nil
-}
-
-func (c *Controller) secrets() []string {
-	if c.cfg.Secrets == nil {
-		return nil
-	}
-
-	return c.cfg.Secrets()
 }
