@@ -10,72 +10,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func isLocationTag(tag string) bool {
-	name, _, _ := strings.Cut(tag, ",")
-
+func isLocationTag(name string) bool {
 	return name == "url" || name == "host" || strings.HasSuffix(name, "_url")
 }
 
-// fillLocations sets every location-tagged string reachable from v to a
-// distinct value, allocating pointers, slice elements and map entries on the way.
-func fillLocations(v reflect.Value, n *int, want *[]string) {
-	switch v.Kind() {
-	case reflect.Pointer:
-		if v.IsNil() {
-			v.Set(reflect.New(v.Type().Elem()))
-		}
-
-		fillLocations(v.Elem(), n, want)
-	case reflect.Struct:
-		for i := range v.NumField() {
-			f := v.Type().Field(i)
-			if !f.IsExported() {
-				continue
-			}
-
-			fv := v.Field(i)
-			if fv.Kind() == reflect.String && isLocationTag(f.Tag.Get("yaml")) {
-				*n++
-				s := "https://location-" + strconv.Itoa(*n) + ".example"
-				fv.SetString(s)
-				*want = append(*want, s)
-
-				continue
-			}
-
-			fillLocations(fv, n, want)
-		}
-	case reflect.Slice:
-		if v.Type().Elem().Kind() == reflect.String {
-			return
-		}
-
-		v.Set(reflect.MakeSlice(v.Type(), 2, 2))
-
-		for i := range v.Len() {
-			fillLocations(v.Index(i), n, want)
-		}
-	case reflect.Map:
-		if v.Type().Key().Kind() != reflect.String {
-			return
-		}
-
-		v.Set(reflect.MakeMap(v.Type()))
-
-		e := reflect.New(v.Type().Elem()).Elem()
-		fillLocations(e, n, want)
-		v.SetMapIndex(reflect.ValueOf("k").Convert(v.Type().Key()), e)
-	}
-}
-
 func TestLocationValuesCoversEveryLocationField(t *testing.T) {
-	var (
-		cfg  Config
-		n    int
-		want []string
-	)
+	var cfg Config
 
-	fillLocations(reflect.ValueOf(&cfg).Elem(), &n, &want)
+	want := fillTagged(reflect.ValueOf(&cfg).Elem(), isLocationTag, func(n int) string {
+		return "https://location-" + strconv.Itoa(n) + ".example"
+	})
 	require.NotEmpty(t, want)
 
 	assert.ElementsMatch(t, want, cfg.LocationValues())

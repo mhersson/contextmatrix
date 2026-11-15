@@ -32,13 +32,5 @@ func (c *Config) SecretValues() []string {
 		candidates = append(candidates, p.Token)
 	}
 
-	var out []string
-
-	for _, s := range candidates {
-		if s != "" {
-			out = append(out, s)
-		}
-	}
-
-	return out
+	return nonEmpty(candidates)
 }
