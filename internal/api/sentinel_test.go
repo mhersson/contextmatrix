@@ -19,6 +19,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/sentinel"
 	"github.com/mhersson/contextmatrix/internal/sentinel/state"
+	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 type fakeSentinelStore struct {
@@ -87,6 +88,21 @@ func (f *fakeSentinelStore) LastRevision(_ context.Context, project string) (*st
 	return f.revision, nil
 }
 
+type fakeSentinelCards struct{ card *board.Card }
+
+// sentinelCardAt serves one card created at the given time; nil means no card.
+func sentinelCardAt(created time.Time) *fakeSentinelCards {
+	return &fakeSentinelCards{card: &board.Card{ID: "P-001", Created: created}}
+}
+
+func (f *fakeSentinelCards) GetCard(context.Context, string, string) (*board.Card, error) {
+	if f.card == nil {
+		return nil, storage.ErrCardNotFound
+	}
+
+	return f.card, nil
+}
+
 func sentinelDo(t *testing.T, srv *httptest.Server, method, path string, body any, cookie *http.Cookie) (int, map[string]any) {
 	t.Helper()
 
@@ -106,7 +122,7 @@ func sentinelDo(t *testing.T, srv *httptest.Server, method, path string, body an
 }
 
 func TestSentinelGetDefaults(t *testing.T) {
-	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore()}, false)
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore(), SentinelCards: sentinelCardAt(time.Time{})}, false)
 
 	code, body := sentinelDo(t, srv, http.MethodGet, "/api/sentinel", nil, nil)
 	require.Equal(t, http.StatusOK, code)
@@ -130,7 +146,7 @@ func TestSentinelPutRequiresAdminInMultiMode(t *testing.T) {
 
 	t.Run("multi", func(t *testing.T) {
 		store := newFakeSentinelStore()
-		srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, true)
+		srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store, SentinelCards: sentinelCardAt(time.Time{})}, true)
 
 		bob := login(t, srv, "bob", "bob password1")
 		code, _ := sentinelDo(t, srv, http.MethodPut, "/api/admin/sentinel", on, bob)
@@ -146,7 +162,7 @@ func TestSentinelPutRequiresAdminInMultiMode(t *testing.T) {
 
 	t.Run("none", func(t *testing.T) {
 		store := newFakeSentinelStore()
-		srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
+		srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store, SentinelCards: sentinelCardAt(time.Time{})}, false)
 
 		code, body := sentinelDo(t, srv, http.MethodPut, "/api/admin/sentinel", on, nil)
 		require.Equal(t, http.StatusOK, code)
@@ -157,7 +173,7 @@ func TestSentinelPutRequiresAdminInMultiMode(t *testing.T) {
 
 func TestSentinelPutRejectsInvalid(t *testing.T) {
 	store := newFakeSentinelStore()
-	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store, SentinelCards: sentinelCardAt(time.Time{})}, false)
 
 	bad := state.DefaultSettings()
 	bad.Headroom = 1.5
@@ -170,7 +186,7 @@ func TestSentinelPutRejectsInvalid(t *testing.T) {
 
 func TestSentinelPutRejectsAnalyseCeilingZero(t *testing.T) {
 	store := newFakeSentinelStore()
-	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store, SentinelCards: sentinelCardAt(time.Time{})}, false)
 
 	bad := state.DefaultSettings()
 	bad.AnalyseCeilingUSD = 0
@@ -188,7 +204,7 @@ func TestSentinelPutPublishesAndNudges(t *testing.T) {
 	defer unsub()
 
 	ctl := sentinel.New(sentinel.Config{Store: nil})
-	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore(), Sentinel: ctl, Bus: bus}, false)
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore(), Sentinel: ctl, Bus: bus, SentinelCards: sentinelCardAt(time.Time{})}, false)
 
 	code, _ := sentinelDo(t, srv, http.MethodPut, "/api/admin/sentinel", state.DefaultSettings(), nil)
 	require.Equal(t, http.StatusOK, code)
@@ -204,7 +220,7 @@ func TestSentinelPutPublishesAndNudges(t *testing.T) {
 func TestSentinelGetWithoutControllerIsNotRunning(t *testing.T) {
 	store := newFakeSentinelStore()
 	store.settings.Enabled = true
-	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store, SentinelCards: sentinelCardAt(time.Time{})}, false)
 
 	code, body := sentinelDo(t, srv, http.MethodGet, "/api/sentinel", nil, nil)
 	require.Equal(t, http.StatusOK, code)
@@ -216,7 +232,7 @@ func TestSentinelGetWithoutControllerIsNotRunning(t *testing.T) {
 
 func TestCardSentinelRunView(t *testing.T) {
 	store := newFakeSentinelStore()
-	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store, SentinelCards: sentinelCardAt(time.Time{})}, false)
 	path := "/api/projects/p/cards/p-001/sentinel"
 
 	code, body := sentinelDo(t, srv, http.MethodGet, path, nil, nil)
@@ -273,7 +289,7 @@ func TestCardSentinelViewHealsAndFindings(t *testing.T) {
 		SpendUSD: 0.42, CreatedAt: at, UpdatedAt: at.Add(time.Minute),
 	}, {ID: 6, Kind: state.HealKindForward, SourceCard: "P-009", CreatedAt: at, UpdatedAt: at}}
 	store.findings = []state.Finding{{HealID: 7, Kind: protocol.FindingGuidance, Title: "t", Text: "x", Evidence: "e", CreatedAt: at}}
-	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store, SentinelCards: sentinelCardAt(time.Time{})}, false)
 
 	code, body := sentinelDo(t, srv, http.MethodGet, "/api/projects/p/cards/p-001/sentinel", nil, nil)
 	require.Equal(t, http.StatusOK, code)
@@ -307,7 +323,7 @@ func TestCardSentinelViewHealsAndFindings(t *testing.T) {
 }
 
 func TestCardSentinelViewEmptyListsAreArrays(t *testing.T) {
-	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore()}, false)
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore(), SentinelCards: sentinelCardAt(time.Time{})}, false)
 
 	_, body := sentinelDo(t, srv, http.MethodGet, "/api/projects/p/cards/p-001/sentinel", nil, nil)
 	assert.Equal(t, []any{}, body["heals"])
@@ -327,7 +343,7 @@ func TestCardSentinelViewHidesAdminNotesFromNonAdmins(t *testing.T) {
 	}
 	path := "/api/projects/p/cards/p-001/sentinel"
 
-	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newStore()}, true)
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newStore(), SentinelCards: sentinelCardAt(time.Time{})}, true)
 
 	_, body := sentinelDo(t, srv, http.MethodGet, path, nil, login(t, srv, "bob", "bob password1"))
 	assert.Equal(t, []string{protocol.FindingHardCard}, findingKinds(body))
@@ -335,7 +351,7 @@ func TestCardSentinelViewHidesAdminNotesFromNonAdmins(t *testing.T) {
 	_, body = sentinelDo(t, srv, http.MethodGet, path, nil, login(t, srv, "root", "root password1"))
 	assert.Equal(t, []string{protocol.FindingProjectVerify, protocol.FindingProjectVerify, protocol.FindingHardCard}, findingKinds(body))
 
-	none := newSelectorAdminServer(t, RouterConfig{SentinelStore: newStore()}, false)
+	none := newSelectorAdminServer(t, RouterConfig{SentinelStore: newStore(), SentinelCards: sentinelCardAt(time.Time{})}, false)
 
 	_, body = sentinelDo(t, none, http.MethodGet, path, nil, nil)
 	assert.Equal(t, []string{protocol.FindingProjectVerify, protocol.FindingProjectVerify, protocol.FindingHardCard}, findingKinds(body))
@@ -384,15 +400,15 @@ func TestCardSentinelViewCarriesAnalysesOutcomesAndThePR(t *testing.T) {
 		assert.Equal(t, "2026-11-14T09:00:00Z", pr["pushed_at"])
 	}
 
-	none := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
+	none := newSelectorAdminServer(t, RouterConfig{SentinelStore: store, SentinelCards: sentinelCardAt(time.Time{})}, false)
 	_, body := sentinelDo(t, none, http.MethodGet, path, nil, nil)
 	check(t, body, 2)
 
-	multi := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, true)
+	multi := newSelectorAdminServer(t, RouterConfig{SentinelStore: store, SentinelCards: sentinelCardAt(time.Time{})}, true)
 	_, body = sentinelDo(t, multi, http.MethodGet, path, nil, login(t, multi, "bob", "bob password1"))
 	check(t, body, 1)
 
-	empty := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore()}, false)
+	empty := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore(), SentinelCards: sentinelCardAt(time.Time{})}, false)
 	_, body = sentinelDo(t, empty, http.MethodGet, path, nil, nil)
 	assert.Equal(t, []any{}, body["analyses"])
 	assert.Nil(t, body["standing_pr"])
@@ -431,7 +447,7 @@ func TestCardSentinelViewNamesARevisionThatDidNotGoOut(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			store := newFakeSentinelStore()
 			store.revision = tt.revision
-			srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
+			srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store, SentinelCards: sentinelCardAt(time.Time{})}, false)
 
 			_, body := sentinelDo(t, srv, http.MethodGet, "/api/projects/p/cards/p-001/sentinel", nil, nil)
 
@@ -449,8 +465,51 @@ func TestCardSentinelViewNamesARevisionThatDidNotGoOut(t *testing.T) {
 }
 
 func TestSentinelStatusCarriesAnalysing(t *testing.T) {
-	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore()}, false)
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore(), SentinelCards: sentinelCardAt(time.Time{})}, false)
 
 	_, body := sentinelDo(t, srv, http.MethodGet, "/api/sentinel", nil, nil)
 	assert.EqualValues(t, 0, body["status"].(map[string]any)["analysing"])
+}
+
+func TestCardSentinelViewLeavesOutWhatTheCardWasCreatedAfter(t *testing.T) {
+	older := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	created := older.Add(24 * time.Hour)
+	newer := created.Add(time.Hour)
+
+	store := newFakeSentinelStore()
+	store.heals = []state.Heal{{ID: 1, Kind: state.HealKindHeal, CreatedAt: older}, {ID: 2, Kind: state.HealKindHeal, CreatedAt: newer}}
+	store.analyses = []state.Heal{{ID: 3, CreatedAt: older}, {ID: 4, CreatedAt: newer}}
+	store.findings = []state.Finding{
+		{ID: 5, Kind: protocol.FindingGuidance, CreatedAt: older}, {ID: 6, Kind: protocol.FindingGuidance, CreatedAt: newer},
+	}
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store, SentinelCards: sentinelCardAt(created)}, false)
+	path := "/api/projects/p/cards/p-001/sentinel"
+
+	ids := func(body map[string]any, key string) []float64 {
+		var out []float64
+		for _, v := range body[key].([]any) {
+			out = append(out, v.(map[string]any)["id"].(float64))
+		}
+
+		return out
+	}
+
+	store.run = &state.Run{StartedAt: older, Attempts: 1}
+	code, body := sentinelDo(t, srv, http.MethodGet, path, nil, nil)
+	require.Equal(t, http.StatusOK, code)
+	assert.Nil(t, body["run"])
+	assert.Equal(t, []float64{2}, ids(body, "heals"))
+	assert.Equal(t, []float64{4}, ids(body, "analyses"))
+	assert.Equal(t, []float64{6}, ids(body, "findings"))
+
+	store.run = &state.Run{StartedAt: newer, Attempts: 1}
+	_, body = sentinelDo(t, srv, http.MethodGet, path, nil, nil)
+	assert.EqualValues(t, 1, body["run"].(map[string]any)["attempts"])
+}
+
+func TestCardSentinelViewOfAMissingCardIs404(t *testing.T) {
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore(), SentinelCards: &fakeSentinelCards{}}, false)
+
+	code, _ := sentinelDo(t, srv, http.MethodGet, "/api/projects/p/cards/p-001/sentinel", nil, nil)
+	assert.Equal(t, http.StatusNotFound, code)
 }

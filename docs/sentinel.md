@@ -235,6 +235,8 @@ time ignores nothing.
   finding's carded time) skip a record older than its card, and so do the
   waiting-list holds. `SentinelMarks` takes the cards the service is enriching;
   `CardHolds` lists the project's cards once a latest heal exists.
+- The card's Sentinel view (`GET /api/projects/{project}/cards/{id}/sentinel`)
+  leaves out the run row, heals, analyses and findings older than the card.
 
 ## Analyses
 

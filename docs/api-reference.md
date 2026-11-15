@@ -1172,7 +1172,9 @@ outside 0-10000, `investigate_ceiling_usd` not above 0 or over 100, or
 
 The last run this instance launched for the card (`run` is null when there is
 none), the card's heals, analyses and the friction findings stored for it, and
-the project's standing guidance PR and failed guidance revision.
+the project's standing guidance PR and failed guidance revision. Records
+older than the card's `created` time belong to an earlier card with the same
+ID and are left out. A missing card or project answers **404**.
 
 ```json
 {
