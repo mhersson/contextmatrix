@@ -111,7 +111,7 @@ step, Sentinel's rerun) replaces the row and records:
 | `edit_snapshot` | sha256 hashes of the title, verify, autonomous flag, body intro and each H2 section (`board.TakeEditSnapshot`) |
 | `autonomous`    | The card's `autonomous` flag at launch                                                                    |
 | `origin`        | `rest`, `mcp`, `playbook`, or `sentinel` for Sentinel's rerun of a card outside a playbook run (inside one, the playbook step's `playbook`) |
-| `attempts`      | Heal reruns, at most `MaxHealAttempts` (2): Sentinel counts one before each rerun from `apply`; a `rest` launch resets it to 0, every other launch keeps it |
+| `attempts`      | Heal reruns, at most `MaxHealAttempts` (2): Sentinel counts one before each rerun from `apply`; a `rest` launch, or a launch over a row that started before the card was created, resets it to 0, every other launch keeps it |
 | `usage_reruns`  | Usage-limit reruns, at most `MaxUsageReruns` (3): Sentinel counts one before each rerun from `usage_wait`; reset and kept like `attempts` |
 
 A launch also clears `run_id`, `stop_cause`, `stopped_at`, `human_stop`,
@@ -209,6 +209,18 @@ A revision row has no card: it is the project's, at most one at `revise` per
 project. It holds the findings it packed (`sent_findings`) and the `allowed`
 entries it was sent with, and ends at `revised`, `revision_stale`,
 `revision_refused` or `revision_failed` (see [Standing PR](#standing-pr)).
+
+## Reused card IDs
+
+A card's ID is reused when its project is deleted and recreated or its
+boards repo is edited, and ops.db still holds the earlier card's rows under
+the same project and ID. A Sentinel record made before the card's
+`created` time belongs to that earlier card and is ignored
+(`board.Card.CreatedAfter`); no row is deleted. A card without a `created`
+time ignores nothing.
+
+- A launch over a run row that started before the card was created resets
+  `attempts` and `usage_reruns`, whatever its origin.
 
 ## Analyses
 

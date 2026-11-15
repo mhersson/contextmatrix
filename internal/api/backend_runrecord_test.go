@@ -109,6 +109,8 @@ func TestLaunchRecordsOriginAndFacts(t *testing.T) {
 			assert.Equal(t, tc.origin, runs.opened[0].Origin)
 			assert.True(t, runs.opened[0].Autonomous)
 			assert.Equal(t, board.TakeEditSnapshot(queued), runs.opened[0].Snapshot)
+			assert.True(t, queued.Created.Equal(runs.opened[0].CardCreated))
+			assert.False(t, runs.opened[0].CardCreated.IsZero())
 		})
 	}
 }

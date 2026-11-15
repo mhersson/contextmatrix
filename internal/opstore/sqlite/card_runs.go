@@ -26,7 +26,8 @@ type CardRun struct {
 
 // OpenCardRun records a run's mode and launch facts. A card has one row: a
 // rerun replaces it and clears every per-run column. Heal attempts and
-// usage-limit reruns reset only for a REST launch.
+// usage-limit reruns reset for a REST launch, or when the stored row started
+// before the card was created (an earlier card's).
 func (s *Store) OpenCardRun(ctx context.Context, project, cardID, mode string, at time.Time, facts state.LaunchFacts) error {
 	snap, err := json.Marshal(facts.Snapshot)
 	if err != nil {
@@ -39,10 +40,11 @@ func (s *Store) OpenCardRun(ctx context.Context, project, cardID, mode string, a
 		 ON CONFLICT(project, card_id) DO UPDATE SET mode = excluded.mode,
 		   started_at = excluded.started_at, ended_at = NULL,
 		   edit_snapshot = excluded.edit_snapshot, autonomous = excluded.autonomous, origin = excluded.origin,
-		   attempts = CASE WHEN excluded.origin = 'rest' THEN 0 ELSE attempts END,
-		   usage_reruns = CASE WHEN excluded.origin = 'rest' THEN 0 ELSE usage_reruns END,
+		   attempts = CASE WHEN excluded.origin = 'rest' OR started_at < ? THEN 0 ELSE attempts END,
+		   usage_reruns = CASE WHEN excluded.origin = 'rest' OR started_at < ? THEN 0 ELSE usage_reruns END,
 		   run_id = '', stop_cause = '', stopped_at = NULL, human_stop = 0, decided = 0, analysis_queued = 0`,
-		project, cardID, mode, at.UnixNano(), string(snap), facts.Autonomous, facts.Origin); err != nil {
+		project, cardID, mode, at.UnixNano(), string(snap), facts.Autonomous, facts.Origin,
+		unixNano(facts.CardCreated), unixNano(facts.CardCreated)); err != nil {
 		return fmt.Errorf("open card run: %w", err)
 	}
 

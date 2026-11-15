@@ -1308,3 +1308,22 @@ func TestCard_DependenciesBlocked(t *testing.T) {
 		})
 	}
 }
+
+func TestCardCreatedAfter(t *testing.T) {
+	at := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
+
+	for name, tc := range map[string]struct {
+		created time.Time
+		want    bool
+	}{
+		"created after":  {at.Add(time.Second), true},
+		"created equal":  {at, false},
+		"created before": {at.Add(-time.Second), false},
+		"zero created":   {time.Time{}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := &Card{Created: tc.created}
+			assert.Equal(t, tc.want, c.CreatedAfter(at))
+		})
+	}
+}

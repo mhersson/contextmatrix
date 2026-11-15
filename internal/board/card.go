@@ -249,6 +249,10 @@ func (l *CardPlaybookLock) Active() bool {
 	return l != nil && (l.RunStatus == RunStatusRunning || l.RunStatus == RunStatusWaiting)
 }
 
+// CreatedAfter reports whether the card was created after t. A record made
+// before its card was created belongs to an earlier card with the same ID.
+func (c *Card) CreatedAfter(t time.Time) bool { return c.Created.After(t) }
+
 // HasPlaybookSettings reports whether the card already carries the settings
 // a runnable playbook forces: autonomous, create_pr, await_ci and merge_pr
 // on, and base_branch equal to branch.

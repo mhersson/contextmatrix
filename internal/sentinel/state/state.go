@@ -32,6 +32,9 @@ type LaunchFacts struct {
 	Snapshot   board.EditSnapshot
 	Autonomous bool
 	Origin     string
+	// CardCreated is the card's created time; not stored, a run row that
+	// started before it is an earlier card's.
+	CardCreated time.Time
 }
 
 // Run is a card's run row: the last run this instance launched for the card.
