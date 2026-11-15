@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -269,15 +270,20 @@ func firstLine(s string, limit int) string {
 }
 
 // addCreatedMarks marks each card Sentinel created from a finding that has no
-// heal mark.
+// heal mark. A carded row is stamped before its friction card exists, so its
+// time cannot tell an earlier card; the friction label can.
 func (c *Controller) addCreatedMarks(ctx context.Context, project string, byID map[string]*board.Card, marks map[string]board.SentinelMark) error {
 	carded, err := c.cfg.Store.CardedFindings(ctx, project)
 	if err != nil {
 		return fmt.Errorf("carded findings: %w", err)
 	}
 
-	for id, at := range carded {
-		if _, ok := marks[id]; !ok && !reusedID(byID, id, at) {
+	for id := range carded {
+		if card, found := byID[id]; found && !slices.Contains(card.Labels, frictionLabel) {
+			continue
+		}
+
+		if _, ok := marks[id]; !ok {
 			marks[id] = board.SentinelMark{Action: markCreated, Label: createdLabel}
 		}
 	}

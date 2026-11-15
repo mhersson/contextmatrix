@@ -362,8 +362,8 @@ func reusedFixture(created time.Time) (*fakeStore, []*board.Card) {
 			6: analysis(6, "P-006", after),
 		},
 		findings: []state.Finding{
-			{ID: 1, Project: "p", State: state.FindingCarded, Output: "P-007", UpdatedAt: before},
-			{ID: 2, Project: "p", State: state.FindingCarded, Output: "P-008", UpdatedAt: after},
+			{ID: 1, Project: "p", State: state.FindingCarded, Output: "P-007", UpdatedAt: after},
+			{ID: 2, Project: "p", State: state.FindingCarded, Output: "P-008", UpdatedAt: before},
 		},
 	}
 
@@ -372,6 +372,9 @@ func reusedFixture(created time.Time) (*fakeStore, []*board.Card) {
 	for _, id := range []string{"P-001", "P-002", "P-003", "P-004", "P-005", "P-006", "P-007", "P-008"} {
 		cards = append(cards, &board.Card{ID: id, Project: "p", Created: created})
 	}
+
+	// P-008 is a friction card whose finding was carded before the card existed.
+	cards[7].Labels = []string{frictionLabel}
 
 	return st, cards
 }
@@ -385,13 +388,13 @@ func TestSentinelMarksIgnoreRecordsOfAnEarlierCard(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, id := range []string{"P-001", "P-003", "P-005", "P-007"} {
-		assert.NotContains(t, marks, id, "the record predates the card")
+		assert.NotContains(t, marks, id, "the record is of an earlier card")
 	}
 
 	assert.Equal(t, markHealed, marks["P-002"].Action)
 	assert.Equal(t, markHealing, marks["P-004"].Action)
 	assert.Equal(t, markAnalysing, marks["P-006"].Action)
-	assert.Equal(t, markCreated, marks["P-008"].Action)
+	assert.Equal(t, markCreated, marks["P-008"].Action, "the friction label, not the carded time, marks the card")
 
 	marks, err = ctl.SentinelMarks(context.Background(), "p", nil)
 	require.NoError(t, err)
@@ -406,4 +409,29 @@ func TestCardHoldsIgnoreHealsOfAnEarlierCard(t *testing.T) {
 	holds, err := ctl.CardHolds(context.Background(), "p")
 	require.NoError(t, err)
 	assert.Equal(t, map[string]CardHold{"P-004": {Healing: true}}, holds)
+}
+
+func TestSentinelMarksCreatedNeedsTheFrictionLabel(t *testing.T) {
+	st := &fakeStore{
+		settings: state.Settings{Enabled: true},
+		heals: map[int64]state.Heal{
+			1: {ID: 1, Kind: state.HealKindHeal, Project: "p", CardID: "P-003", Stage: state.StageParked, Reason: "x"},
+		},
+		findings: []state.Finding{
+			{ID: 1, Project: "p", State: state.FindingCarded, Output: "P-001"},
+			{ID: 2, Project: "p", State: state.FindingCarded, Output: "P-002"},
+			{ID: 3, Project: "p", State: state.FindingCarded, Output: "P-003"},
+		},
+	}
+	cards := []*board.Card{
+		{ID: "P-001", Labels: []string{frictionLabel}},
+		{ID: "P-002", Labels: []string{"other"}},
+		{ID: "P-003", Labels: []string{"other"}},
+	}
+
+	marks, err := New(Config{Store: st, Pricer: ratePricer{}}).SentinelMarks(context.Background(), "p", cards)
+	require.NoError(t, err)
+	assert.Equal(t, markCreated, marks["P-001"].Action)
+	assert.NotContains(t, marks, "P-002", "a card without the label is not the friction card")
+	assert.Equal(t, markParked, marks["P-003"].Action, "a heal mark still wins")
 }

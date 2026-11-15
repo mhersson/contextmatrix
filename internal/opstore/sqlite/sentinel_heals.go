@@ -561,29 +561,25 @@ func (s *Store) CardedSince(ctx context.Context, project string, since time.Time
 	return n, nil
 }
 
-// CardedFindings returns the project's cards Sentinel created from a finding,
-// each with its newest carded time.
-func (s *Store) CardedFindings(ctx context.Context, project string) (map[string]time.Time, error) {
+// CardedFindings returns the IDs of the project's cards Sentinel created from
+// a finding.
+func (s *Store) CardedFindings(ctx context.Context, project string) (map[string]bool, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT output, MAX(updated_at) FROM sentinel_findings WHERE project = ? AND state = 'carded' AND output != '' GROUP BY output`, project)
+		`SELECT output FROM sentinel_findings WHERE project = ? AND state = 'carded' AND output != ''`, project)
 	if err != nil {
 		return nil, fmt.Errorf("list carded findings: %w", err)
 	}
 	defer rows.Close()
 
-	out := map[string]time.Time{}
+	out := map[string]bool{}
 
 	for rows.Next() {
-		var (
-			id string
-			at int64
-		)
-
-		if err := rows.Scan(&id, &at); err != nil {
+		var id string
+		if err := rows.Scan(&id); err != nil {
 			return nil, fmt.Errorf("list carded findings: %w", err)
 		}
 
-		out[id] = time.Unix(0, at).UTC()
+		out[id] = true
 	}
 
 	if err := rows.Err(); err != nil {
