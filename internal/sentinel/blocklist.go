@@ -63,8 +63,8 @@ func issueTerms(src termSources) []term {
 	for i := range src.Projects {
 		p := &src.Projects[i]
 
-		b.add(p.Name, wordProject)
-		b.add(p.DisplayName, wordProject)
+		b.addName(p.Name)
+		b.addName(p.DisplayName)
 		b.add(p.Prefix, wordCard)
 
 		for _, r := range p.EffectiveRepos() {
@@ -135,14 +135,11 @@ type termSet struct {
 	seen  map[string]bool
 }
 
-// add trims the runes that are no letter or digit off both ends of text, so a
-// name written without its edge punctuation (`Acme Inc.` as `Acme Inc's`)
-// still matches; a text left empty is dropped.
 func (s *termSet) add(text, word string) {
-	text = strings.TrimFunc(text, func(r rune) bool { return !isWordRune(r) })
+	text = strings.TrimSpace(text)
 	key := strings.ToLower(text)
 
-	if text == "" || exempt(key) || s.seen[key] {
+	if !strings.ContainsFunc(text, isWordRune) || exempt(key) || s.seen[key] {
 		return
 	}
 
@@ -152,6 +149,14 @@ func (s *termSet) add(text, word string) {
 
 	s.seen[key] = true
 	s.terms = append(s.terms, term{text, word})
+}
+
+// addName adds a project's name or display name without the runes that are no
+// letter or digit at its ends, so a name written without its edge punctuation
+// (`Acme Inc.` as `Acme Inc's`) still matches. Hosts keep theirs: `::1` must
+// not become `1`.
+func (s *termSet) addName(name string) {
+	s.add(strings.TrimFunc(name, func(r rune) bool { return !isWordRune(r) }), wordProject)
 }
 
 // addRepoName adds a repository name. A name derived from a URL can carry its

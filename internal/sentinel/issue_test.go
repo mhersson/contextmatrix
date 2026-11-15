@@ -76,6 +76,17 @@ func TestIssueDraft(t *testing.T) {
 		assert.NotContains(t, title, "git.a")
 	})
 
+	t.Run("a config host is never trimmed to a fragment", func(t *testing.T) {
+		link, blocked := issueDraft(state.Finding{Title: "t", Text: "step 1 fails on [::1]"}, issueContext{
+			terms:   issueTerms(termSources{Locations: []string{"http://[::1]:4000/v1"}}),
+			version: "v0.51.1",
+		})
+		assert.Empty(t, blocked)
+
+		_, body := decode(t, link)
+		assert.Equal(t, "ContextMatrix v0.51.1\n\nstep 1 fails on [a host]", body)
+	})
+
 	t.Run("users are redacted everywhere", func(t *testing.T) {
 		link, blocked := issueDraft(state.Finding{
 			Title: "human:alice stuck", Text: "human:alice waits", Evidence: "by human:bob",

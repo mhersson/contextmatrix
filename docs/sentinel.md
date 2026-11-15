@@ -877,8 +877,9 @@ again on the next pass.
   `github.com`, and the repositories `contextmatrix`, `contextmatrix-agent`,
   `contextmatrix-architect`, `contextmatrix-backendkit`, `contextmatrix-chat`,
   `contextmatrix-harness`, `contextmatrix-protocol`, `contextmatrix-setup` and
-  `contextmatrix-vendorkit`. Each term drops the runes that are no letter or
-  digit from its ends, so `Acme Inc.` also matches `Acme Inc's`. Credentials in
+  `contextmatrix-vendorkit`. A project's name and display name drop the runes
+  that are no letter or digit from their ends, so `Acme Inc.` also matches
+  `Acme Inc's`; terms from URLs and hosts keep theirs. Credentials in
   a URL are never terms; they count as secrets (8 bytes or more, like every
   secret) and block.
 - **The recheck** reads the final title and the trimmed body exactly as the
