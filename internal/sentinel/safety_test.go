@@ -71,6 +71,9 @@ func TestRedactUsers(t *testing.T) {
 		{"non-ascii name", "human:jørgen", "a user"},
 		{"trailing dash", "human:alice-", "a user-"},
 		{"other identity", "system:sentinel wrote it", "system:sentinel wrote it"},
+		{"chained", "human:bob-human:alice", "a user"},
+		{"chained to a bare prefix", "human:human:alice left", "a user left"},
+		{"chained three deep", "human:a.human:b_human:c", "a user"},
 	}
 
 	for _, tt := range tests {

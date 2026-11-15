@@ -101,6 +101,32 @@ func TestRouteHeldFindingsCardsIntoTheUpstreamProject(t *testing.T) {
 	assert.Equal(t, secretReason, dropped.Reason)
 }
 
+func TestRouteHeldFindingsCardsOnlyWithinTheBoardsRepo(t *testing.T) {
+	e := upstreamEnv(t,
+		held(1, "app", "Verify hangs", "the verify step never returns when the worker restarts"),
+		held(2, "notes", "Clone stalls", "the clone step stalls whenever the remote answers slowly"),
+	)
+	e.cards.projects["app"] = &board.ProjectConfig{Name: "app", Prefix: "APP"}
+	e.cards.projects["notes"] = &board.ProjectConfig{Name: "notes", Prefix: "NOTES"}
+	repos := map[string]string{"cm": "team", "app": "team", "alpha": "team", "notes": "private"}
+	e.ctl.cfg.RepoOf = func(project string) (string, bool) {
+		r, ok := repos[project]
+
+		return r, ok
+	}
+
+	require.NoError(t, e.ctl.pass(context.Background()))
+
+	require.Len(t, e.cards.created, 1)
+	assert.Equal(t, state.FindingCarded, e.store.finding(1).State)
+
+	f := e.store.finding(2)
+	require.Equal(t, state.FindingDrafted, f.State)
+
+	title, body := decode(t, f.Output)
+	assert.NotContains(t, title+body, "notes")
+}
+
 func TestRouteHeldFindingsHoldsAtTheUpstreamLimit(t *testing.T) {
 	e := upstreamEnv(t, held(1, "app", "Verify hangs", "the verify step never returns when the worker restarts"))
 

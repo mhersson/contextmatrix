@@ -3,6 +3,8 @@ package sentinel
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -11,9 +13,9 @@ import (
 )
 
 // routeHeldFindings moves every held ecosystem finding on: into a friction
-// card of the upstream project when the board has one, else into an issue
-// draft. A finding is written only when its state or reason changes, and one
-// whose write fails is decided again on the next pass.
+// card of the upstream project in its boards repo when there is one, else
+// into an issue draft. A finding is written only when its state or reason
+// changes, and one whose write fails is decided again on the next pass.
 func (c *Controller) routeHeldFindings(ctx context.Context, now time.Time) error {
 	held, err := c.cfg.Store.HeldFindings(ctx)
 	if err != nil {
@@ -29,13 +31,27 @@ func (c *Controller) routeHeldFindings(ctx context.Context, now time.Time) error
 		return fmt.Errorf("list projects: %w", err)
 	}
 
-	if up := upstreamProject(projects); up != nil {
-		c.cardHeldFindings(ctx, held, up.Name, now)
+	byUpstream := map[string][]state.Finding{}
 
+	var drafts []state.Finding
+
+	for _, f := range held {
+		if up := upstreamProject(f.Project, projects, c.cfg.RepoOf); up != nil {
+			byUpstream[up.Name] = append(byUpstream[up.Name], f)
+		} else {
+			drafts = append(drafts, f)
+		}
+	}
+
+	for _, up := range slices.Sorted(maps.Keys(byUpstream)) {
+		c.cardHeldFindings(ctx, byUpstream[up], up, now)
+	}
+
+	if len(drafts) == 0 {
 		return nil
 	}
 
-	return c.draftHeldFindings(ctx, held, projects, now)
+	return c.draftHeldFindings(ctx, drafts, projects, now)
 }
 
 // cardHeldFindings routes held findings as code findings against the

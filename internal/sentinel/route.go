@@ -152,19 +152,35 @@ func routeEcosystem(f state.Finding, earlier []state.Finding, secrets []string, 
 	return state.FindingDrafted, "", link
 }
 
-// upstreamProject is the first project by name with a repository on
-// github.com at mhersson/contextmatrix, ignoring case; nil when there is none.
-func upstreamProject(projects []board.ProjectConfig) *board.ProjectConfig {
+// upstreamProject is the project a held finding of project cards into: the
+// first by name in project's boards repo with a repository on github.com at
+// mhersson/contextmatrix, ignoring case; nil when there is none, so the finding
+// drafts. A nil repoOf means one boards repo.
+func upstreamProject(project string, projects []board.ProjectConfig, repoOf func(string) (string, bool)) *board.ProjectConfig {
 	var found *board.ProjectConfig
 
 	for i := range projects {
 		p := &projects[i]
-		if (found == nil || p.Name < found.Name) && slices.ContainsFunc(p.EffectiveRepos(), isUpstreamRepo) {
+		if (found == nil || p.Name < found.Name) && sameBoardsRepo(repoOf, project, p.Name) &&
+			slices.ContainsFunc(p.EffectiveRepos(), isUpstreamRepo) {
 			found = p
 		}
 	}
 
 	return found
+}
+
+// sameBoardsRepo reports whether both projects live in one boards repo; a
+// project repoOf does not know shares none.
+func sameBoardsRepo(repoOf func(string) (string, bool), a, b string) bool {
+	if repoOf == nil {
+		return true
+	}
+
+	ra, okA := repoOf(a)
+	rb, okB := repoOf(b)
+
+	return okA && okB && ra == rb
 }
 
 func isUpstreamRepo(r board.Repo) bool {

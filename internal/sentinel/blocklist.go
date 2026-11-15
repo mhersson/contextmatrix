@@ -40,9 +40,13 @@ const (
 // genericWords are the replacement words, in the order namesTerm reports them.
 var genericWords = []string{wordProject, wordCard, wordRepository, wordHost}
 
-// replacementWords are the words the replacements write, so a term made only
-// of them never counts as a remaining hit.
-var replacementWords = []string{"a", "project", "card", "repository", "host", "branch", "user"}
+// draftWords are the words a draft writes itself: the replacements, the
+// evidence heading and the trim line. A term made only of them never counts
+// as a remaining hit.
+var draftWords = []string{
+	"a", "project", "card", "repository", "host", "branch", "user",
+	"evidence", "trimmed", "to", "fit", "github", "s", "new", "issue", "link",
+}
 
 // term is one blocklisted text and the generic word that replaces it.
 type term struct{ text, word string }
@@ -94,9 +98,9 @@ func issueTerms(src termSources) []term {
 	return b.terms
 }
 
-// urlSecrets returns the userinfo password of every URL in src, else its
-// userinfo user, which a token-as-user remote carries. Terms drop them, so
-// the draft check needs them as secrets.
+// urlSecrets returns the userinfo password of every URL in src, else, when
+// the password is empty, its userinfo user, which a token-as-user remote
+// carries. Terms drop them, so the draft check needs them as secrets.
 func urlSecrets(src termSources) []string {
 	var urls []string
 
@@ -115,7 +119,7 @@ func urlSecrets(src termSources) []string {
 		user, password, hasPassword := strings.Cut(parseLocation(u).userinfo, ":")
 
 		secret := user
-		if hasPassword {
+		if hasPassword && password != "" {
 			secret = password
 		}
 
@@ -148,11 +152,14 @@ type termSet struct {
 	seen  map[string]bool
 }
 
+// add trims the runes that are no letter or digit off both ends of text, so a
+// name written without its edge punctuation (`Acme Inc.` as `Acme Inc's`)
+// still matches; a text left empty is dropped.
 func (s *termSet) add(text, word string) {
-	text = strings.TrimSpace(text)
+	text = strings.TrimFunc(text, func(r rune) bool { return !isWordRune(r) })
 	key := strings.ToLower(text)
 
-	if !strings.ContainsFunc(text, isWordRune) || exempt(key) || s.seen[key] {
+	if text == "" || exempt(key) || s.seen[key] {
 		return
 	}
 
@@ -408,14 +415,14 @@ func wordEndAt(text []rune, end int) bool { return end == len(text) || !isWordRu
 func isWordRune(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }
 
 // namesTerm returns the generic words of the terms that still hit text, in the
-// order project, card, repository, host. A term made only of the replacement
-// words is skipped: the replacements write those words themselves.
+// order project, card, repository, host. A term made only of draftWords is
+// skipped: the draft writes those words itself.
 func namesTerm(text string, terms []term) []string {
 	runes := []rune(text)
 	hit := map[string]bool{}
 
 	for _, t := range terms {
-		if !onlyReplacementWords(t.text) && hasWholeWord(runes, []rune(t.text)) {
+		if !onlyDraftWords(t.text) && hasWholeWord(runes, []rune(t.text)) {
 			hit[t.word] = true
 		}
 	}
@@ -441,9 +448,9 @@ func hasWholeWord(text, needle []rune) bool {
 	return false
 }
 
-func onlyReplacementWords(text string) bool {
+func onlyDraftWords(text string) bool {
 	for w := range strings.FieldsFuncSeq(strings.ToLower(text), func(r rune) bool { return !isWordRune(r) }) {
-		if !slices.Contains(replacementWords, w) {
+		if !slices.Contains(draftWords, w) {
 			return false
 		}
 	}

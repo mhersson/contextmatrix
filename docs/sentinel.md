@@ -830,22 +830,25 @@ switch on starts nothing fresh: it routes what is held. A finding is written
 only when its state or reason changes, and one whose write fails is decided
 again on the next pass.
 
-- **The upstream project** is the first project by name with a repository on
-  `github.com` at `mhersson/contextmatrix`, ignoring case (`upstreamProject`).
-  When the board has one, every held finding goes through the friction-card
-  unit above against that project: a `code` finding's rules and limits apply,
-  with the secret rule's `dropped`. The card is created in the upstream
-  project, whichever project the finding came from, and counts against that
-  project's 5 cards a day. The finding is `carded` with the upstream project
-  as its output project and has no link. At the limit it stays `held` with the
-  reason `today's friction-card limit reached`. A project that cannot be read
-  leaves every finding held.
+- **The upstream project** of a finding is the first project by name in the
+  finding's boards repo with a repository on `github.com` at
+  `mhersson/contextmatrix`, ignoring case (`upstreamProject`; the boards repo
+  is the composite store's `RepoOf`). A finding whose project lives in another
+  boards repo, or is gone, has none, so one boards repo's text never lands in
+  another. With one, the finding goes through the friction-card unit above
+  against that project: a `code` finding's rules and limits apply, with the
+  secret rule's `dropped`. The card is created in the upstream project,
+  whichever project the finding came from, and counts against that project's
+  5 cards a day. The finding is `carded` with the upstream project as its
+  output project and has no link. At the limit it stays `held` with the reason
+  `today's friction-card limit reached`. An upstream project that cannot be
+  read leaves its findings held.
 - **Without an upstream project**, the finding becomes a draft (`routeEcosystem`,
   `route.go`; the draft is `issueDraft`, `issue.go`). The checks run in order:
   - A finding holding a secret is `blocked` with the reason `holds a secret`.
     The secrets are CM's secret values plus the password of every URL the
-    blocklist reads (the user when it has no password), so a draft quoting a
-    credentialed remote is blocked.
+    blocklist reads (the user when the password is empty), so a draft quoting
+    a credentialed remote is blocked.
   - A finding similar (as for guidance) to an earlier `drafted` ecosystem
     finding of any project is a `duplicate` with the reason
     `like finding <ID>`; every issue goes to one repository. A `blocked`
@@ -874,13 +877,16 @@ again on the next pass.
   `github.com`, and the repositories `contextmatrix`, `contextmatrix-agent`,
   `contextmatrix-architect`, `contextmatrix-backendkit`, `contextmatrix-chat`,
   `contextmatrix-harness`, `contextmatrix-protocol`, `contextmatrix-setup` and
-  `contextmatrix-vendorkit`. Credentials in a URL are never terms; they count
-  as secrets and block.
+  `contextmatrix-vendorkit`. Each term drops the runes that are no letter or
+  digit from its ends, so `Acme Inc.` also matches `Acme Inc's`. Credentials in
+  a URL are never terms; they count as secrets (8 bytes or more, like every
+  secret) and block.
 - **The recheck** reads the final title and the trimmed body exactly as the
   link carries them, and blocks on any term that remains. It skips terms made
-  only of the generic phrases' own words, so a project named `card` or `a`
+  only of words the draft writes itself (the generic phrases, the `Evidence`
+  heading and the trim line), so a project named `card`, `a` or `evidence`
   still drafts.
-- **The link limit** is 8000 bytes for the whole URL. A longer body is cut at
+- **The link limit** is 7500 bytes for the whole URL. A longer body is cut at
   whitespace, so the last kept word is whole, and ends with the line
   `_Trimmed to fit GitHub's new-issue link._`.
 - **A draft is built once**, when its finding is routed, and is not rebuilt
@@ -1201,7 +1207,7 @@ the next pass.
 | ------------------------------------------- | ----- |
 | `internal/sentinel/state/settings.go`       | `Settings`, the defaults, validation and `Analyses`, whether analyses run |
 | `internal/sentinel/state/state.go`          | The durable-state types: the run row (`Run`, `LaunchFacts`), launch origins, the caps, the work rows (`Heal` with its kinds and stages, `TerminalStages`, `Dispatch`, `Change`), the findings (`Finding`, the finding states, `InitialFindingState`), `RunKindReport`, and the standing PR record (`StandingPR` and its states) |
-| `internal/sentinel/controller.go`           | The loop: `Start`, `Shutdown`, `Nudge`, `Status`, the panic-safe pass and the wake-up filter; the `Store`, `Channel`, `Backend`, `Cards`, `Playbooks`, `PlaybookRunner` and `GitHub` it uses, `Config` with its `Secrets`, `Locations`, `RepoURLs` and `Version` inputs, `GuidanceBase`, and the setters the router wires them with (`SetRunKindBase`, `SetGitHub`, `SetGuidanceBase`, `SetRelauncher`) |
+| `internal/sentinel/controller.go`           | The loop: `Start`, `Shutdown`, `Nudge`, `Status`, the panic-safe pass and the wake-up filter; the `Store`, `Channel`, `Backend`, `Cards`, `Playbooks`, `PlaybookRunner` and `GitHub` it uses, `Config` with its `Secrets`, `Locations`, `RepoURLs`, `RepoOf` and `Version` inputs, `GuidanceBase`, and the setters the router wires them with (`SetRunKindBase`, `SetGitHub`, `SetGuidanceBase`, `SetRelauncher`) |
 | `internal/sentinel/pass.go`                 | One pass: read the gate's inputs, the open heals and analyses and every row with a run kind in flight; `readHealth`, the one health read a pass makes (also for a revision), and `mayDispatchAny`; `sent`, the slot and spend accounting every flow shares; expire the silent run kinds of finished rows of every kind; build each heal's view and act on its step; consider undecided runs; then the analyses, routing, the standing PRs and the revisions; record the status |
 | `internal/sentinel/trigger.go`              | The pure triggers: `causeKey` (settled and cause), `settledRun`, `eligible`, and `openStage` (the stage a new heal opens at) |
 | `internal/sentinel/causes.go`               | The cause table: one row per cause, `responseFor` |
@@ -1234,7 +1240,7 @@ the next pass.
 | `internal/sentinel/analyses.go`             | `queueAnalyses`: read each unqueued run's card, then mark it queued or store its analysis row; `advanceAnalyses`: read each open analysis's view and act on its step |
 | `internal/sentinel/route.go`                | The pure routing: `routeGuidance`, `routeCode`, `routeEcosystem`, `upstreamProject` and `frictionCardInput` |
 | `internal/sentinel/outputs.go`              | `routeFindings`: read the queued findings and each project's friction cards, guidance and today's count, apply the decisions and write the outcomes; `readRouting` and `createFrictionCard`, which the ecosystem path shares |
-| `internal/sentinel/ecosystem.go`            | `routeHeldFindings`: read the held findings and the board, then card them in the upstream project or draft them, and write the outcomes |
+| `internal/sentinel/ecosystem.go`            | `routeHeldFindings`: read the held findings and the board, then card each in the upstream project of its boards repo or draft it, and write the outcomes |
 | `internal/sentinel/blocklist.go`            | The blocklist: `issueTerms` over `termSources`, `urlSecrets`, and the whole-word `redactTerms` and `namesTerm` |
 | `internal/sentinel/issue.go`                | The pure draft: `issueDraft`, `issueBody`, `newIssueURL` and `fitIssue`, which trims the body to the link limit |
 | `internal/config/locations.go`              | `Config.LocationValues` (every URL and host the config holds) and `Config.RepoURLs` (its own git remotes), the blocklist's config inputs |

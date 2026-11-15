@@ -169,6 +169,8 @@ func TestURLSecrets(t *testing.T) {
 		{"no userinfo", termSources{RepoURLs: []string{"https://github.com/acme/app.git"}, Locations: []string{"acme.ghe.com"}}, nil},
 		{"location", termSources{Locations: []string{"https://u:s3cretvalue@gw.acme.internal/v1"}}, []string{"s3cretvalue"}},
 		{"deduped", termSources{RepoURLs: []string{"https://a:same-secret@h.example/o/n", "https://b:same-secret@h.example/o/m"}}, []string{"same-secret"}},
+		{"empty password", termSources{RepoURLs: []string{"https://tok3nvalue1:@h.example/o/n"}}, []string{"tok3nvalue1"}},
+		{"empty user", termSources{RepoURLs: []string{"https://:pw@h.example/o/n"}}, []string{"pw"}},
 	}
 
 	for _, tc := range tests {
@@ -200,6 +202,22 @@ func TestIssueTermsSkipsEmptyAndPunctuation(t *testing.T) {
 	assert.Empty(t, terms)
 }
 
+func TestIssueTermsTrimEdgePunctuation(t *testing.T) {
+	tests := []struct{ displayName, want string }{
+		{"Globex Corp.", "Globex Corp"},
+		{"(Globex)", "Globex"},
+		{"-- Web Shop! --", "Web Shop"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.displayName, func(t *testing.T) {
+			terms := issueTerms(termSources{Projects: []board.ProjectConfig{{Name: "x", DisplayName: tc.displayName}}})
+			assert.True(t, hasTerm(terms, tc.want, wordProject), tc.want)
+			assert.False(t, hasText(terms, tc.displayName))
+		})
+	}
+}
+
 func TestIssueTermsLongestFirst(t *testing.T) {
 	terms := issueTerms(termSources{
 		Projects:  []board.ProjectConfig{{Name: "ab", Prefix: "ABCDEF", Repo: "https://h.example/org/abcd.git"}},
@@ -213,6 +231,9 @@ func TestIssueTermsLongestFirst(t *testing.T) {
 
 func TestRedactTerms(t *testing.T) {
 	web := []term{{"web", wordProject}}
+	displayName := func(name string) []term {
+		return issueTerms(termSources{Projects: []board.ProjectConfig{{Name: "x", DisplayName: name}}})
+	}
 	acme := []term{{"https://git.acme.internal/acme/shop.git", wordRepository}, {"acme", wordRepository}, {"shop", wordRepository}, {"git.acme.internal", wordHost}}
 
 	tests := []struct {
@@ -236,6 +257,13 @@ func TestRedactTerms(t *testing.T) {
 		},
 		{"empty term", "a-b", []term{{"", wordProject}, {"b", wordCard}}, "a-a card"},
 		{"embedded", "acmeShop", []term{{"acme", wordRepository}}, "acmeShop"},
+		{
+			"a name ending in punctuation",
+			"the Globex Corp board stalls on Globex Corp's verify",
+			displayName("Globex Corp."),
+			"the a project board stalls on a project's verify",
+		},
+		{"a parenthesised name", "the Globex board", displayName("(Globex)"), "the a project board"},
 	}
 
 	for _, tc := range tests {

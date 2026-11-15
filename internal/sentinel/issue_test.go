@@ -90,6 +90,30 @@ func TestIssueDraft(t *testing.T) {
 	})
 }
 
+func TestIssueDraftNamesLikeTheScaffold(t *testing.T) {
+	long := strings.Repeat("word ", 4000)
+
+	tests := []struct {
+		name string
+		term string
+		f    state.Finding
+	}{
+		{"evidence heading", "evidence", state.Finding{Title: "t", Text: "evidence stalls", Evidence: "ev"}},
+		{"trim line", "github", state.Finding{Title: "t", Text: "github stalls " + long}},
+		{"trim line word", "issue", state.Finding{Title: "t", Text: "issue stalls " + long}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			link, blocked := issueDraft(tt.f, issueContext{terms: []term{{tt.term, wordProject}}})
+			assert.Empty(t, blocked)
+
+			_, body := decode(t, link)
+			assert.True(t, strings.HasPrefix(body, "a project stalls"), "a content hit is still replaced")
+		})
+	}
+}
+
 func TestIssueDraftBlocksAHitTheReplacementMade(t *testing.T) {
 	link, blocked := issueDraft(state.Finding{Title: "t", Text: "acme web"}, issueContext{
 		terms: []term{{"repository web", wordProject}, {"acme", wordRepository}},

@@ -277,25 +277,39 @@ func TestUpstreamProject(t *testing.T) {
 		return p
 	}
 
+	const cmURL = "https://github.com/mhersson/contextmatrix"
+
+	repos := map[string]string{"app": "team", "cm": "team", "cm-private": "private", "notes": "private"}
+	repoOf := func(project string) (string, bool) {
+		r, ok := repos[project]
+
+		return r, ok
+	}
+
 	tests := []struct {
 		name     string
 		projects []board.ProjectConfig
+		project  string
+		repoOf   func(string) (string, bool)
 		want     string
 	}{
-		{"scp url", []board.ProjectConfig{proj("cm", "git@github.com:mhersson/contextmatrix.git")}, "cm"},
-		{"case-insensitive https", []board.ProjectConfig{proj("cm", "https://github.com/MHersson/ContextMatrix")}, "cm"},
-		{"a sibling repo", []board.ProjectConfig{proj("agent", "https://github.com/mhersson/contextmatrix-agent")}, ""},
-		{"another host", []board.ProjectConfig{proj("ghe", "https://acme.ghe.com/mhersson/contextmatrix")}, ""},
-		{"second repo", []board.ProjectConfig{proj("multi", "https://github.com/acme/web", "https://github.com/mhersson/contextmatrix")}, "multi"},
-		{"first by name", []board.ProjectConfig{
-			proj("zeta", "https://github.com/mhersson/contextmatrix"), proj("alpha", "https://github.com/mhersson/contextmatrix"),
-		}, "alpha"},
-		{"none", nil, ""},
+		{"scp url", []board.ProjectConfig{proj("cm", "git@github.com:mhersson/contextmatrix.git")}, "app", nil, "cm"},
+		{"case-insensitive https", []board.ProjectConfig{proj("cm", "https://github.com/MHersson/ContextMatrix")}, "app", nil, "cm"},
+		{"a sibling repo", []board.ProjectConfig{proj("agent", "https://github.com/mhersson/contextmatrix-agent")}, "app", nil, ""},
+		{"another host", []board.ProjectConfig{proj("ghe", "https://acme.ghe.com/mhersson/contextmatrix")}, "app", nil, ""},
+		{"second repo", []board.ProjectConfig{proj("multi", "https://github.com/acme/web", cmURL)}, "app", nil, "multi"},
+		{"first by name", []board.ProjectConfig{proj("zeta", cmURL), proj("alpha", cmURL)}, "app", nil, "alpha"},
+		{"none", nil, "app", nil, ""},
+		{"same boards repo", []board.ProjectConfig{proj("cm", cmURL)}, "app", repoOf, "cm"},
+		{"another boards repo", []board.ProjectConfig{proj("cm", cmURL)}, "notes", repoOf, ""},
+		{"first in the finding's boards repo", []board.ProjectConfig{proj("cm", cmURL), proj("cm-private", cmURL)}, "notes", repoOf, "cm-private"},
+		{"unknown project", []board.ProjectConfig{proj("cm", cmURL)}, "gone", repoOf, ""},
+		{"no lookup is one boards repo", []board.ProjectConfig{proj("cm", cmURL)}, "gone", nil, "cm"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := upstreamProject(tt.projects)
+			got := upstreamProject(tt.project, tt.projects, tt.repoOf)
 			if tt.want == "" {
 				assert.Nil(t, got)
 

@@ -94,7 +94,8 @@ func redactUsers(text string) string {
 }
 
 // userLen is the length of the identity at runes[i:], or 0. A name is a run of
-// word runes, ".", "_" and "-" that starts and ends with a word rune.
+// word runes, ".", "_" and "-" that starts and ends with a word rune. A name
+// ending in a chained identity (human:bob-human:alice) runs on through it.
 func userLen(runes []rune, i int) int {
 	start := i + len(userPrefix)
 	if !foldAt(runes, userPrefix, i) || !wordStartAt(runes, i) || start >= len(runes) || !isWordRune(runes[start]) {
@@ -104,6 +105,12 @@ func userLen(runes []rune, i int) int {
 	end := start
 	for end < len(runes) && (isWordRune(runes[end]) || strings.ContainsRune("._-", runes[end])) {
 		end++
+	}
+
+	if j := end - len(userPrefix) + 1; j >= start {
+		if n := userLen(runes, j); n > 0 {
+			return j + n - i
+		}
 	}
 
 	for !isWordRune(runes[end-1]) {

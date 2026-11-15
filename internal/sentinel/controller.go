@@ -170,6 +170,9 @@ type Config struct {
 	// own git remotes; either may be nil. Both feed the issue blocklist.
 	Locations func() []string
 	RepoURLs  func() []string
+	// RepoOf names the boards repo a project lives in; nil means one boards
+	// repo, which every project shares.
+	RepoOf func(project string) (string, bool)
 	// Version is CM's version, written at the top of an issue draft.
 	Version string
 }

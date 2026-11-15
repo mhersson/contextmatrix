@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	maxIssueURLBytes = 8000
+	maxIssueURLBytes = 7500
 	trimmedLine      = "_Trimmed to fit GitHub's new-issue link._"
 )
 
