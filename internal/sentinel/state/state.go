@@ -13,18 +13,19 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 )
 
-// Launch origins. Only OriginREST resets a card's heal attempts.
+// Launch origins. A launch resets a card's heal attempts only from OriginREST
+// or over an earlier card's run row.
 const (
-	OriginREST     = "rest"     // a UI or REST Run: the only origin that resets attempts
+	OriginREST     = "rest"     // a UI or REST Run: resets attempts
 	OriginMCP      = "mcp"      // run_card
 	OriginPlaybook = "playbook" // a playbook step, from run_playbook or a UI Play
 	OriginSentinel = "sentinel" // Sentinel's own rerun of a card outside a playbook run
 )
 
-// MaxHealAttempts is the heal reruns allowed per card between UI or REST Runs.
+// MaxHealAttempts is the heal reruns allowed per card between resets.
 const MaxHealAttempts = 2
 
-// MaxUsageReruns is the usage-limit reruns allowed per card between UI or REST Runs.
+// MaxUsageReruns is the usage-limit reruns allowed per card between resets.
 const MaxUsageReruns = 3
 
 // LaunchFacts is what was true when a run was launched.
@@ -43,8 +44,8 @@ type Run struct {
 	StartedAt             time.Time
 	EndedAt, StoppedAt    *time.Time // EndedAt: the card's worker ended; StoppedAt: the run's terminal status arrived
 	Launch                LaunchFacts
-	Attempts              int    // heal reruns since the last OriginREST launch
-	UsageReruns           int    // usage-limit reruns since the last OriginREST launch
+	Attempts              int    // heal reruns since the last reset
+	UsageReruns           int    // usage-limit reruns since the last reset
 	RunID, StopCause      string // StopCause "" = unknown
 	HumanStop             bool
 	Decided               bool // Sentinel has looked at this run

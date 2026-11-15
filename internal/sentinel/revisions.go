@@ -408,26 +408,31 @@ func (c *Controller) traceRefusal(ctx context.Context, row *state.Heal) (bool, e
 }
 
 // sourceTexts reads the human-written text of each finding's source card, by
-// finding ID; a deleted card has none.
+// finding ID; a deleted card, or one created after the finding, has none.
 func (c *Controller) sourceTexts(ctx context.Context, fs []state.Finding) (map[int64]string, error) {
+	type source struct {
+		ref cardRef
+		at  time.Time
+	}
+
 	texts := make(map[int64]string, len(fs))
-	byCard := map[cardRef]string{}
+	bySource := map[source]string{}
 
 	for _, f := range fs {
-		ref := cardRef{f.Project, f.CardID}
+		key := source{cardRef{f.Project, f.CardID}, f.CreatedAt}
 
-		text, ok := byCard[ref]
+		text, ok := bySource[key]
 		if !ok {
-			card, err := c.cfg.Cards.GetCard(ctx, f.Project, f.CardID)
-
-			switch {
-			case err == nil:
-				text = humanText(card)
-			case !gone(err):
+			card, err := c.recordCard(ctx, f.Project, f.CardID, f.CreatedAt)
+			if err != nil {
 				return nil, fmt.Errorf("read source card %s: %w", f.CardID, err)
 			}
 
-			byCard[ref] = text
+			if card != nil {
+				text = humanText(card)
+			}
+
+			bySource[key] = text
 		}
 
 		texts[f.ID] = text

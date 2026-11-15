@@ -340,13 +340,13 @@ func (c *Controller) advance(ctx context.Context, r *passReads, v *healView) (op
 func (c *Controller) view(ctx context.Context, r *passReads, h state.Heal) (healView, error) {
 	v := healView{Heal: h, Healing: r.set.Healing, Now: r.now}
 
-	card, err := c.cfg.Cards.GetCard(ctx, h.Project, h.CardID)
-
-	switch {
-	case gone(err):
-		return v, nil
-	case err != nil:
+	card, err := c.recordCard(ctx, h.Project, h.CardID, h.CreatedAt)
+	if err != nil {
 		return v, fmt.Errorf("read card: %w", err)
+	}
+
+	if card == nil {
+		return v, nil
 	}
 
 	run, err := c.cfg.Store.CardRunRow(ctx, h.Project, h.CardID)
@@ -446,6 +446,23 @@ func (c *Controller) act(ctx context.Context, r *passReads, v *healView, s step)
 	}
 
 	return nil
+}
+
+// recordCard reads the card a record made at at belongs to: nil when the
+// card is gone or was created after at, an earlier card's with the same ID.
+func (c *Controller) recordCard(ctx context.Context, project, id string, at time.Time) (*board.Card, error) {
+	card, err := c.cfg.Cards.GetCard(ctx, project, id)
+
+	switch {
+	case gone(err):
+		return nil, nil //nolint:nilnil // nil, nil means no card
+	case err != nil:
+		return nil, err
+	case card.CreatedAfter(at):
+		return nil, nil //nolint:nilnil // nil, nil means no card
+	}
+
+	return card, nil
 }
 
 // gone reports whether a card read failed because the card or its project no
