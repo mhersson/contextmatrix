@@ -2,6 +2,8 @@ package sentinel
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/sentinel/state"
+	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 func held(id int64, project, title, text string) state.Finding {
@@ -93,8 +96,8 @@ func TestRouteHeldFindingsCardsIntoTheUpstreamProject(t *testing.T) {
 
 	f := e.store.finding(1)
 	assert.Equal(t, state.FindingCarded, f.State)
+	assert.Equal(t, "CM-100", f.Output)
 	assert.Equal(t, "cm", f.OutputProject)
-	assert.NotContains(t, f.Output, "https://")
 
 	dropped := e.store.finding(2)
 	assert.Equal(t, state.FindingDropped, dropped.State)
@@ -125,6 +128,39 @@ func TestRouteHeldFindingsCardsOnlyWithinTheBoardsRepo(t *testing.T) {
 
 	title, body := decode(t, f.Output)
 	assert.NotContains(t, title+body, "notes")
+}
+
+// unreadableCards fails every friction-card read of one project.
+type unreadableCards struct {
+	*fakeCards
+	project string
+}
+
+func (u unreadableCards) ListCards(ctx context.Context, project string, f storage.CardFilter) ([]*board.Card, error) {
+	if project == u.project {
+		return nil, errors.New("read failed")
+	}
+
+	return u.fakeCards.ListCards(ctx, project, f)
+}
+
+func TestRouteHeldFindingsKeepsFindingsHeldWhileTheUpstreamProjectIsUnreadable(t *testing.T) {
+	e := upstreamEnv(t,
+		held(1, "app", "Verify hangs", "the verify step never returns when the worker restarts"),
+		held(2, "app", "Clone stalls", "the clone step stalls whenever the remote answers slowly"),
+	)
+	e.ctl.cfg.Cards = unreadableCards{fakeCards: e.cards, project: "cm"}
+
+	require.NoError(t, e.ctl.pass(context.Background()))
+
+	for _, id := range []int64{1, 2} {
+		f := e.store.finding(id)
+		assert.Equal(t, state.FindingHeld, f.State)
+		assert.Empty(t, f.Output)
+	}
+
+	assert.Zero(t, e.store.outcomeWrites)
+	assert.Empty(t, e.cards.created)
 }
 
 func TestRouteHeldFindingsHoldsAtTheUpstreamLimit(t *testing.T) {
@@ -172,6 +208,56 @@ func TestRouteHeldFindingsBlocksACredentialedURL(t *testing.T) {
 	assert.Equal(t, state.FindingBlocked, f.State)
 	assert.Equal(t, secretReason, f.Reason)
 	assert.Empty(t, f.Output)
+}
+
+func TestRouteHeldFindingsReadsTheConfigFeeds(t *testing.T) {
+	const (
+		gateway = "https://u:gw-s3cret-value@gw.acme.internal/v1"
+		boards  = "https://ci:boards-t0ken-value@git.acme.internal/acme/boards-private.git"
+	)
+
+	e := ecosystemEnv(t, true, true,
+		held(1, "alpha", "Gateway stalls", "the gateway gw.acme.internal times out while boards-private syncs"),
+		held(2, "alpha", "Gateway rejects", "every call to "+gateway+" is refused after the key rotates"),
+		held(3, "alpha", "Sync fails", "syncing "+boards+" fails whenever the remote answers slowly"),
+	)
+	e.ctl.cfg.Locations = func() []string { return []string{gateway} }
+	e.ctl.cfg.RepoURLs = func() []string { return []string{boards} }
+
+	require.NoError(t, e.ctl.pass(context.Background()))
+
+	f := e.store.finding(1)
+	require.Equal(t, state.FindingDrafted, f.State)
+
+	title, body := decode(t, f.Output)
+	text, _, _ := strings.Cut(body, "\n")
+	assert.Equal(t, "the gateway a host times out while a repository syncs", text)
+	assert.NotContains(t, title+body, "acme")
+
+	for _, id := range []int64{2, 3} {
+		blocked := e.store.finding(id)
+		assert.Equal(t, state.FindingBlocked, blocked.State, id)
+		assert.Equal(t, secretReason, blocked.Reason, id)
+	}
+}
+
+func TestRouteHeldFindingsDraftsOnABoardOfCommonWordNames(t *testing.T) {
+	e := ecosystemEnv(t, true, true,
+		held(1, "web", "web stalls on card", "the project board and a host view of web hang when card a moves"),
+	)
+	e.cards.projects["web"] = &board.ProjectConfig{Name: "web", DisplayName: "a host", Prefix: "WEB"}
+	e.cards.projects["a"] = &board.ProjectConfig{Name: "a", Prefix: "AA"}
+	e.cards.projects["card"] = &board.ProjectConfig{Name: "card", Prefix: "CRD"}
+	e.cards.projects["project"] = &board.ProjectConfig{Name: "project", Prefix: "PRJ"}
+
+	require.NoError(t, e.ctl.pass(context.Background()))
+
+	f := e.store.finding(1)
+	require.Equal(t, state.FindingDrafted, f.State)
+
+	title, body := decode(t, f.Output)
+	assert.Equal(t, "a project stalls on a project", title)
+	assert.Equal(t, "the a project board and a project view of a project hang when a project a project moves\n\n## Evidence\n\nev", body)
 }
 
 func TestRouteHeldFindingsReadsNothingWithoutHeldFindings(t *testing.T) {

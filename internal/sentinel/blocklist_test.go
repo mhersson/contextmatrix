@@ -121,6 +121,15 @@ func TestIssueTermsRemotesAndImages(t *testing.T) {
 			[]string{"github.com"},
 		},
 		{
+			"ssh with a port",
+			board.ProjectConfig{Name: "p", Prefix: "P", Repo: "ssh://git.acme.internal:2222/acme/shop.git"},
+			map[string]string{
+				"ssh://git.acme.internal:2222/acme/shop.git": wordRepository, "acme": wordRepository, "shop": wordRepository,
+				"git.acme.internal": wordHost,
+			},
+			[]string{"2222", "git.acme.internal:2222"},
+		},
+		{
 			"private registry with port",
 			board.ProjectConfig{Name: "p", Prefix: "P", RemoteExecution: &board.RemoteExecutionConfig{
 				WorkerImage: "harbor.acme.internal:5000/team/worker:v1", ChatWorkerImage: "reg.acme.internal/chat:2",
@@ -149,6 +158,25 @@ func TestIssueTermsRemotesAndImages(t *testing.T) {
 			for _, text := range tc.wantNone {
 				assert.False(t, hasText(terms, text), text)
 			}
+		})
+	}
+}
+
+func TestIssueTermsExemptEcosystemURLs(t *testing.T) {
+	const url = "https://GitHub.com/MHersson/ContextMatrix-Agent.git/"
+
+	tests := []struct {
+		name string
+		src  termSources
+	}{
+		{"config remote", termSources{RepoURLs: []string{url}}},
+		{"config location", termSources{Locations: []string{url}}},
+		{"project repo", termSources{Projects: []board.ProjectConfig{{Name: "contextmatrix", Repo: url}}}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Empty(t, issueTerms(tc.src))
 		})
 	}
 }
