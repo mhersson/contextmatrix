@@ -111,7 +111,7 @@ step, Sentinel's rerun) replaces the row and records:
 | `edit_snapshot` | sha256 hashes of the title, verify, autonomous flag, body intro and each H2 section (`board.TakeEditSnapshot`) |
 | `autonomous`    | The card's `autonomous` flag at launch                                                                    |
 | `origin`        | `rest`, `mcp`, `playbook`, or `sentinel` for Sentinel's rerun of a card outside a playbook run (inside one, the playbook step's `playbook`) |
-| `attempts`      | Heal reruns, at most `MaxHealAttempts` (2): Sentinel counts one before each rerun from `apply`; a `rest` launch resets it to 0, every other launch keeps it |
+| `attempts`      | Heal reruns, at most `MaxHealAttempts` (2): Sentinel counts one before each rerun from `apply`; a `rest` launch, or a launch over a row that started before the card was created, resets it to 0, every other launch keeps it |
 | `usage_reruns`  | Usage-limit reruns, at most `MaxUsageReruns` (3): Sentinel counts one before each rerun from `usage_wait`; reset and kept like `attempts` |
 
 A launch also clears `run_id`, `stop_cause`, `stopped_at`, `human_stop`,
@@ -210,6 +210,38 @@ project. It holds the findings it packed (`sent_findings`) and the `allowed`
 entries it was sent with, and ends at `revised`, `revision_stale`,
 `revision_refused` or `revision_failed` (see [Standing PR](#standing-pr)).
 
+## Reused card IDs
+
+A card's ID is reused when its project is deleted and recreated or its
+boards repo is edited, and ops.db still holds the earlier card's rows under
+the same project and ID. A Sentinel record made before the card's
+`created` time belongs to that earlier card and is ignored
+(`board.Card.CreatedAfter`); no row is deleted. A card without a `created`
+time ignores nothing.
+
+- A launch over a run row that started before the card was created resets
+  `attempts` and `usage_reruns`, whatever its origin.
+- An undecided run that started before the card was created opens no heal and
+  is marked decided.
+- An open heal created before the card closes as for a deleted card, writing
+  nothing to the card.
+- A forward row on trial created before the card is neither judged by the
+  card's runs nor feeds the run's cause.
+- The analysis queue marks a run older than its card queued with no row; an
+  open analysis row older than its card is read as for a deleted card.
+- A guidance finding older than its source card has no source text for the
+  revision.
+- The board mark and the `analysing` mark skip a record older than its card,
+  and so do the waiting-list holds. The `created` mark goes by the
+  `sentinel-friction` label, not by time: a finding is stamped before its card
+  exists, so its time cannot tell an earlier card. `SentinelMarks` takes the
+  cards the service is enriching; `CardHolds` lists the project's cards once a
+  latest heal exists.
+- The card's Sentinel view (`GET /api/projects/{project}/cards/{id}/sentinel`)
+  leaves out the run row, heals, analyses and findings older than the card.
+- A card's park reset time (`park_resets_at`) is shown only when recorded
+  after the card was created.
+
 ## Analyses
 
 While `enabled`, `friction` and `analyse_every_run` are all on, each pass
@@ -217,8 +249,8 @@ While `enabled`, `friction` and `analyse_every_run` are all on, each pass
 `analysis_queued`. It reads the run's card and decides by `queueStep`
 (`analysis.go`):
 
-- The card is gone, or a human stopped the run: the run is marked queued and
-  no row is stored.
+- The card is gone or was created after the run, or a human stopped the run:
+  the run is marked queued and no row is stored.
 - The run has not settled (`settledRun`): it waits for a later pass.
 - Otherwise an `analysis` row is stored at stage `analyse`, carrying the run's
   start, its run ID and its stop cause, and the run is marked queued in the
@@ -244,7 +276,7 @@ rule wins:
    marking the dispatch failed and charging its ceiling.
 2. It was answered: with a result, end `analysed`; without one, end
    `analyse_failed` with the failure the intake recorded.
-3. The card is deleted: end `analyse_skipped`.
+3. The card is deleted or was created after the row: end `analyse_skipped`.
 4. The row was queued more than 7 days ago (`analysisMaxAge`): end
    `analyse_skipped`.
 5. The analysed run's heal holds an investigation, which reported the run's
@@ -576,7 +608,8 @@ first matching rule wins:
    holds the card's claim and worker, so no later
    rule applies to it. This holds for a rerun from `apply` and from
    `usage_wait` alike.
-2. The card is deleted, `done` or `not_planned`: close.
+2. The card is deleted or was created after the heal, `done` or `not_planned`:
+   close.
 3. A worker is queued or running, the card is claimed, or the run row is a
    newer run than the one the heal follows: close, since a human or another
    run took over.

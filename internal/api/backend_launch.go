@@ -210,9 +210,10 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 	// the backend already accepted.
 	if h.cardRuns != nil {
 		if err := h.cardRuns.OpenCardRun(ctx, project, id, string(choice.mode), time.Now(), state.LaunchFacts{
-			Snapshot:   board.TakeEditSnapshot(card),
-			Autonomous: card.Autonomous,
-			Origin:     opts.origin,
+			Snapshot:    board.TakeEditSnapshot(card),
+			Autonomous:  card.Autonomous,
+			Origin:      opts.origin,
+			CardCreated: card.Created,
 		}); err != nil {
 			ctxlog.Logger(ctx).Warn("failed to record card run mode",
 				"card_id", id, "project", project, "error", err)

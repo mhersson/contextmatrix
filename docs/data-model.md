@@ -636,7 +636,8 @@ it empty rather than failing the read.
 frontmatter or merged across a shared board; the RFC 3339 time the
 subscription usage limit that parked the run resets, set only while
 `worker_status` is `parked` (GET and list) and cleared when the card is queued
-again or parks without one.
+again or parks without one; a row recorded before the card was created
+belongs to an earlier card with the same ID and is not shown.
 `playbook_lock` - computed on read, never persisted; `{id, title,
 run_status}` of the runnable playbook that owns the card's `autonomous`,
 `create_pr`, `await_ci`, `merge_pr`, `base_branch`; `run_status` set only

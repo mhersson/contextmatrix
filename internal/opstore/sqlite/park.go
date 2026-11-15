@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/mhersson/contextmatrix/internal/board"
 )
 
 // PutParkReset records when the usage limit that parked the card resets. A card
@@ -30,28 +32,29 @@ func (s *Store) ClearParkReset(ctx context.Context, project, cardID string) erro
 	return nil
 }
 
-// ParkResets returns the reset time of every card in the project that has one.
-func (s *Store) ParkResets(ctx context.Context, project string) (map[string]time.Time, error) {
+// ParkResets returns the reset time and record time of every card in the
+// project that has one.
+func (s *Store) ParkResets(ctx context.Context, project string) (map[string]board.ParkReset, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT card_id, resets_at FROM card_park_resets WHERE project = ?`, project)
+		`SELECT card_id, resets_at, recorded_at FROM card_park_resets WHERE project = ?`, project)
 	if err != nil {
 		return nil, fmt.Errorf("list park resets: %w", err)
 	}
 	defer rows.Close()
 
-	out := make(map[string]time.Time)
+	out := make(map[string]board.ParkReset)
 
 	for rows.Next() {
 		var (
-			id string
-			at int64
+			id             string
+			at, recordedAt int64
 		)
 
-		if err := rows.Scan(&id, &at); err != nil {
+		if err := rows.Scan(&id, &at, &recordedAt); err != nil {
 			return nil, fmt.Errorf("scan park reset: %w", err)
 		}
 
-		out[id] = time.Unix(at, 0).UTC()
+		out[id] = board.ParkReset{ResetsAt: time.Unix(at, 0).UTC(), RecordedAt: time.Unix(recordedAt, 0).UTC()}
 	}
 
 	if err := rows.Err(); err != nil {

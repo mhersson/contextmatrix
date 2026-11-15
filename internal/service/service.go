@@ -178,7 +178,7 @@ func (s *CardService) SetPlaybookLister(l PlaybookLister) {
 type ParkResetStore interface {
 	PutParkReset(ctx context.Context, project, cardID string, resetsAt time.Time) error
 	ClearParkReset(ctx context.Context, project, cardID string) error
-	ParkResets(ctx context.Context, project string) (map[string]time.Time, error)
+	ParkResets(ctx context.Context, project string) (map[string]board.ParkReset, error)
 }
 
 // SetParkResetStore wires the usage-limit reset store. Nil-safe: without one,
@@ -187,9 +187,10 @@ func (s *CardService) SetParkResetStore(st ParkResetStore) {
 	s.parkResets = st
 }
 
-// SentinelMarkSource gives the Sentinel mark of each card in a project that has one.
+// SentinelMarkSource gives the Sentinel mark of each of cards, which belong to
+// project, that has one. It must not list cards: the service lists them while enriching.
 type SentinelMarkSource interface {
-	SentinelMarks(ctx context.Context, project string) (map[string]board.SentinelMark, error)
+	SentinelMarks(ctx context.Context, project string, cards []*board.Card) (map[string]board.SentinelMark, error)
 }
 
 // SetSentinelMarks wires the Sentinel mark source. Nil-safe: without one, no
@@ -205,7 +206,7 @@ func (s *CardService) enrichSentinelMarks(ctx context.Context, project string, c
 		return
 	}
 
-	marks, err := s.sentinelMarks.SentinelMarks(ctx, project)
+	marks, err := s.sentinelMarks.SentinelMarks(ctx, project, cards)
 	if err != nil {
 		ctxlog.Logger(ctx).Warn("sentinel mark enrichment skipped", "project", project, "error", err)
 
@@ -272,8 +273,8 @@ func (s *CardService) enrichParkResets(ctx context.Context, project string, card
 	}
 
 	for _, c := range cards {
-		if at, ok := resets[c.ID]; ok && c.WorkerStatus == "parked" {
-			c.ParkResetsAt = &at
+		if r, ok := resets[c.ID]; ok && c.WorkerStatus == "parked" && !c.CreatedAfter(r.RecordedAt) {
+			c.ParkResetsAt = &r.ResetsAt
 		}
 	}
 }

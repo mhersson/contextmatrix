@@ -46,16 +46,16 @@ func (c *Controller) considerRuns(ctx context.Context, now time.Time, open map[c
 // finished, then judges the fixes forwarded to its card that the run tried. It
 // reports whether it opened a heal that is still open.
 func (c *Controller) consider(ctx context.Context, now time.Time, run state.Run) (bool, error) {
-	card, err := c.cfg.Cards.GetCard(ctx, run.Project, run.CardID)
-
-	switch {
-	case gone(err):
-		return false, c.leave(ctx, run)
-	case err != nil:
+	card, err := c.recordCard(ctx, run.Project, run.CardID, run.StartedAt)
+	if err != nil {
 		return false, fmt.Errorf("read card: %w", err)
 	}
 
-	trial, err := c.onTrial(ctx, run)
+	if card == nil {
+		return false, c.leave(ctx, run)
+	}
+
+	trial, err := c.onTrial(ctx, run, card)
 	if err != nil {
 		return false, err
 	}

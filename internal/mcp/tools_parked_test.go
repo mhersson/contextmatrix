@@ -57,11 +57,11 @@ func TestReportParked(t *testing.T) {
 }
 
 type parkResetRecorder struct {
-	rows map[string]time.Time
+	rows map[string]board.ParkReset
 }
 
 func (r *parkResetRecorder) PutParkReset(_ context.Context, project, cardID string, at time.Time) error {
-	r.rows[project+"/"+cardID] = at
+	r.rows[project+"/"+cardID] = board.ParkReset{ResetsAt: at, RecordedAt: time.Now()}
 
 	return nil
 }
@@ -72,8 +72,8 @@ func (r *parkResetRecorder) ClearParkReset(_ context.Context, project, cardID st
 	return nil
 }
 
-func (r *parkResetRecorder) ParkResets(_ context.Context, project string) (map[string]time.Time, error) {
-	out := map[string]time.Time{}
+func (r *parkResetRecorder) ParkResets(_ context.Context, project string) (map[string]board.ParkReset, error) {
+	out := map[string]board.ParkReset{}
 
 	for k, v := range r.rows {
 		if id, ok := strings.CutPrefix(k, project+"/"); ok {
@@ -89,7 +89,7 @@ func TestReportParkedTool_ResetsAt(t *testing.T) {
 		t.Helper()
 
 		env := setupMCP(t)
-		rec := &parkResetRecorder{rows: map[string]time.Time{}}
+		rec := &parkResetRecorder{rows: map[string]board.ParkReset{}}
 		env.svc.SetParkResetStore(rec)
 
 		createTestCard(t, env, "Limit", "task", "medium")
@@ -120,7 +120,7 @@ func TestReportParkedTool_ResetsAt(t *testing.T) {
 		_, rec, result := park(t, "2020-01-02T03:04:05Z")
 		require.False(t, result.IsError)
 		require.Len(t, rec.rows, 1)
-		assert.True(t, time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC).Equal(rec.rows["test-project/TEST-001"]))
+		assert.True(t, time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC).Equal(rec.rows["test-project/TEST-001"].ResetsAt))
 	})
 
 	t.Run("a zero time parks without a reset row", func(t *testing.T) {
@@ -168,7 +168,7 @@ func TestReportParkedTool_RecordsRejectedWindow(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			rec := &recordedUsage{}
 			env := setupMCP(t, func(c *ServerConfig) { c.SubscriptionUsage = rec })
-			env.svc.SetParkResetStore(&parkResetRecorder{rows: map[string]time.Time{}})
+			env.svc.SetParkResetStore(&parkResetRecorder{rows: map[string]board.ParkReset{}})
 
 			createTestCard(t, env, "Limit", "task", "medium")
 			callTool(t, env, "claim_card", map[string]any{

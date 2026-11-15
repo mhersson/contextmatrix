@@ -17,6 +17,7 @@ func TestParkReset_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got)
 
+	start := time.Now().Add(-time.Second)
 	first := time.Date(2026, 11, 11, 18, 0, 0, 0, time.UTC)
 	second := first.Add(5 * time.Hour)
 
@@ -28,8 +29,13 @@ func TestParkReset_RoundTrip(t *testing.T) {
 	got, err = st.ParkResets(ctx, "proj")
 	require.NoError(t, err)
 	require.Len(t, got, 2)
-	assert.True(t, second.Equal(got["P-001"]))
-	assert.True(t, first.Equal(got["P-002"]))
+	assert.True(t, second.Equal(got["P-001"].ResetsAt))
+	assert.True(t, first.Equal(got["P-002"].ResetsAt))
+
+	for _, r := range got {
+		assert.False(t, r.RecordedAt.Before(start.Truncate(time.Second)), "recorded_at is the write time")
+		assert.False(t, r.RecordedAt.After(time.Now()))
+	}
 
 	require.NoError(t, st.ClearParkReset(ctx, "proj", "P-001"))
 	require.NoError(t, st.ClearParkReset(ctx, "proj", "P-001"))

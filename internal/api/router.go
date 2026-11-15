@@ -308,6 +308,8 @@ type RouterConfig struct {
 	// registered only when SentinelStore is set.
 	Sentinel      *sentinel.Controller
 	SentinelStore SentinelStore
+	// SentinelCards defaults to Service.
+	SentinelCards SentinelCards
 	// CardRuns records the mode each card run started in; nil skips it.
 	CardRuns CardRunRecorder
 	// BestOfN bounds the card-level best_of_n field: cardHandlers rejects
@@ -625,7 +627,12 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	}
 
 	if cfg.SentinelStore != nil {
-		sh := &sentinelHandlers{ctl: cfg.Sentinel, store: cfg.SentinelStore, bus: cfg.Bus, authEnabled: cfg.AuthService != nil}
+		cards := cfg.SentinelCards
+		if cards == nil && cfg.Service != nil {
+			cards = cfg.Service
+		}
+
+		sh := &sentinelHandlers{ctl: cfg.Sentinel, store: cfg.SentinelStore, cards: cards, bus: cfg.Bus, authEnabled: cfg.AuthService != nil}
 		mux.HandleFunc("GET /api/sentinel", sh.get)
 		mux.HandleFunc("PUT /api/admin/sentinel", sh.put)
 		mux.HandleFunc("GET /api/projects/{project}/cards/{id}/sentinel", sh.cardRun)

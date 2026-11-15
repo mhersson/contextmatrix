@@ -118,14 +118,15 @@ func (c *Controller) forwardTo(ctx context.Context, h *state.Heal, target *board
 }
 
 // onTrial reads the card's forward rows still on trial that were forwarded
-// before run started, newest first.
-func (c *Controller) onTrial(ctx context.Context, run state.Run) ([]state.Heal, error) {
+// before run started, newest first. A row older than card is an earlier
+// card's and is left out.
+func (c *Controller) onTrial(ctx context.Context, run state.Run, card *board.Card) ([]state.Heal, error) {
 	rows, err := c.cfg.Store.CardHeals(ctx, run.Project, run.CardID)
 	if err != nil {
 		return nil, fmt.Errorf("read the card's heals: %w", err)
 	}
 
-	return slices.DeleteFunc(rows, func(h state.Heal) bool { return !forwardedBefore(&h, run.StartedAt) }), nil
+	return slices.DeleteFunc(rows, func(h state.Heal) bool { return !forwardedBefore(&h, run.StartedAt) || card.CreatedAfter(h.CreatedAt) }), nil
 }
 
 // forwardOutcome is the stage a settled run of the card moves its forward rows

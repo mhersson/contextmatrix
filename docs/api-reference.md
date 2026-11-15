@@ -1172,7 +1172,9 @@ outside 0-10000, `investigate_ceiling_usd` not above 0 or over 100, or
 
 The last run this instance launched for the card (`run` is null when there is
 none), the card's heals, analyses and the friction findings stored for it, and
-the project's standing guidance PR and failed guidance revision.
+the project's standing guidance PR and failed guidance revision. Records
+older than the card's `created` time belong to an earlier card with the same
+ID and are left out. A missing card or project answers **404**.
 
 ```json
 {
@@ -1247,9 +1249,10 @@ the project's standing guidance PR and failed guidance revision.
 ```
 
 `origin` is `rest`, `mcp`, `playbook` or `sentinel`. `attempts` counts heal
-reruns since the last UI or REST Run; `max_attempts` is
-the per-card cap. `stop_cause` and `stopped_at` are omitted until the run's
-terminal status arrives (and `stop_cause` when the cause is unknown).
+reruns since the last UI or REST Run, or the card's first launch here;
+`max_attempts` is the per-card cap. `stop_cause` and `stopped_at` are omitted
+until the run's terminal status arrives (and `stop_cause` when the cause is
+unknown).
 
 `heals` is newest first and is `[]` when there are none. `kind` is `heal`, or
 `forward` for a fix applied from another card's heal (`source_card` names it;

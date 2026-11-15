@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,10 +29,16 @@ type SentinelStore interface {
 	LastRevision(ctx context.Context, project string) (*state.Heal, error)
 }
 
+// SentinelCards reads the card a Sentinel view is about.
+type SentinelCards interface {
+	GetCard(ctx context.Context, project, id string) (*board.Card, error)
+}
+
 type sentinelHandlers struct {
 	// ctl stays a concrete pointer: nil means no execution backend.
 	ctl         *sentinel.Controller
 	store       SentinelStore
+	cards       SentinelCards
 	bus         *events.Bus
 	authEnabled bool
 }
@@ -222,6 +229,13 @@ func (h *sentinelHandlers) cardRun(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	project, id := r.PathValue("project"), strings.ToUpper(r.PathValue("id"))
 
+	card, err := h.cards.GetCard(ctx, project, id)
+	if err != nil {
+		handleServiceError(w, r, err)
+
+		return
+	}
+
 	run, err := h.store.CardRunRow(ctx, project, id)
 	if err != nil {
 		slog.Error("sentinel card run failed", "error", err)
@@ -269,6 +283,15 @@ func (h *sentinelHandlers) cardRun(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+
+	// Records made before the card was created belong to an earlier card with this ID.
+	if run != nil && card.CreatedAfter(run.StartedAt) {
+		run = nil
+	}
+
+	heals = slices.DeleteFunc(heals, func(x state.Heal) bool { return card.CreatedAfter(x.CreatedAt) })
+	analyses = slices.DeleteFunc(analyses, func(x state.Heal) bool { return card.CreatedAfter(x.CreatedAt) })
+	found = slices.DeleteFunc(found, func(x state.Finding) bool { return card.CreatedAfter(x.CreatedAt) })
 
 	healViews := make([]cardSentinelHeal, 0, len(heals))
 	for _, hl := range heals {

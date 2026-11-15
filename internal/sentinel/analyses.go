@@ -32,12 +32,8 @@ func (c *Controller) queueAnalyses(ctx context.Context, now time.Time) error {
 }
 
 func (c *Controller) queueRun(ctx context.Context, now time.Time, run state.Run) error {
-	card, err := c.cfg.Cards.GetCard(ctx, run.Project, run.CardID)
-
-	switch {
-	case gone(err):
-		card = nil
-	case err != nil:
+	card, err := c.recordCard(ctx, run.Project, run.CardID, run.StartedAt)
+	if err != nil {
 		return fmt.Errorf("read card: %w", err)
 	}
 
@@ -113,13 +109,13 @@ func (c *Controller) readAnalysis(ctx context.Context, r *passReads, row state.H
 			c.noRunKinds(r.now) || c.kindHeld(protocol.RunKindAnalyse, r.now),
 	}
 
-	card, err := c.cfg.Cards.GetCard(ctx, row.Project, row.CardID)
-
-	switch {
-	case gone(err):
-		return v, nil
-	case err != nil:
+	card, err := c.recordCard(ctx, row.Project, row.CardID, row.CreatedAt)
+	if err != nil {
 		return v, fmt.Errorf("read card: %w", err)
+	}
+
+	if card == nil {
+		return v, nil
 	}
 
 	v.Card = card

@@ -152,7 +152,7 @@ func TestSentinelMarksAnalysisInFlight(t *testing.T) {
 		},
 	}
 
-	marks, err := New(Config{Store: st, Pricer: ratePricer{}}).SentinelMarks(context.Background(), "p")
+	marks, err := New(Config{Store: st, Pricer: ratePricer{}}).SentinelMarks(context.Background(), "p", nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, markAnalysing, marks["P-001"].Action)
@@ -178,7 +178,7 @@ func TestSentinelMarks(t *testing.T) {
 	}
 	ctl := New(Config{Store: st, Pricer: ratePricer{}})
 
-	marks, err := ctl.SentinelMarks(ctx, "p")
+	marks, err := ctl.SentinelMarks(ctx, "p", nil)
 	require.NoError(t, err)
 	require.Len(t, marks, 1)
 	assert.Equal(t, "healed", marks["P-001"].Action)
@@ -187,7 +187,7 @@ func TestSentinelMarks(t *testing.T) {
 	st.settings.Enabled = false
 	st.mu.Unlock()
 
-	marks, err = ctl.SentinelMarks(ctx, "p")
+	marks, err = ctl.SentinelMarks(ctx, "p", nil)
 	require.NoError(t, err)
 	assert.Empty(t, marks)
 }
@@ -227,7 +227,7 @@ func TestCardHolds(t *testing.T) {
 			st.runs = []state.Run{*run}
 		}
 
-		return New(Config{Store: st, Pricer: ratePricer{}})
+		return New(Config{Store: st, Cards: &fakeCards{}, Pricer: ratePricer{}})
 	}
 
 	t.Run("sentinel off", func(t *testing.T) {
@@ -287,7 +287,7 @@ func TestSentinelMarksPark(t *testing.T) {
 				st.runs = []state.Run{run}
 			}
 
-			marks, err := New(Config{Store: st, Pricer: ratePricer{}}).SentinelMarks(ctx, "p")
+			marks, err := New(Config{Store: st, Pricer: ratePricer{}}).SentinelMarks(ctx, "p", nil)
 			require.NoError(t, err)
 
 			if tt.parked {
@@ -310,7 +310,7 @@ func TestSentinelMarksIgnoreAnalysisRows(t *testing.T) {
 	}
 	ctl := New(Config{Store: st, Pricer: ratePricer{}})
 
-	marks, err := ctl.SentinelMarks(context.Background(), "p")
+	marks, err := ctl.SentinelMarks(context.Background(), "p", nil)
 	require.NoError(t, err)
 	require.Len(t, marks, 1, "an analysis alone marks no card")
 	assert.Equal(t, "parked", marks["P-001"].Action, "a newer analysis does not replace the parked heal")
@@ -331,10 +331,107 @@ func TestSentinelMarksMarksCreatedCards(t *testing.T) {
 	}
 	ctl := New(Config{Store: st, Pricer: ratePricer{}})
 
-	marks, err := ctl.SentinelMarks(context.Background(), "p")
+	marks, err := ctl.SentinelMarks(context.Background(), "p", nil)
 	require.NoError(t, err)
 	require.Len(t, marks, 2)
 	assert.Equal(t, markCreated, marks["P-001"].Action)
 	assert.Equal(t, createdLabel, marks["P-001"].Label)
 	assert.Equal(t, markParked, marks["P-002"].Action, "a heal mark wins")
+}
+
+// reusedFixture is a project whose P-001 was recreated at created while P-002
+// kept its own history: heals, an analysis in flight and a carded finding for each.
+func reusedFixture(created time.Time) (*fakeStore, []*board.Card) {
+	before, after := created.Add(-time.Hour), created.Add(time.Hour)
+	sent := before
+	heal := func(id int64, card, stage string, at time.Time) state.Heal {
+		return state.Heal{ID: id, Kind: state.HealKindHeal, Project: "p", CardID: card, Stage: stage, Reason: "x", CreatedAt: at, UpdatedAt: at}
+	}
+	analysis := func(id int64, card string, at time.Time) state.Heal {
+		return state.Heal{ID: id, Kind: state.HealKindAnalysis, Project: "p", CardID: card, Stage: state.StageAnalyse, CreatedAt: at, Dispatch: state.Dispatch{Kind: "analyse", At: &sent}}
+	}
+
+	st := &fakeStore{
+		settings: state.Settings{Enabled: true},
+		heals: map[int64]state.Heal{
+			1: heal(1, "P-001", state.StageHealed, before),
+			2: heal(2, "P-002", state.StageHealed, after),
+			3: heal(3, "P-003", state.StageApply, before),
+			4: heal(4, "P-004", state.StageApply, after),
+			5: analysis(5, "P-005", before),
+			6: analysis(6, "P-006", after),
+		},
+		findings: []state.Finding{
+			{ID: 1, Project: "p", State: state.FindingCarded, Output: "P-007", UpdatedAt: after},
+			{ID: 2, Project: "p", State: state.FindingCarded, Output: "P-008", UpdatedAt: before},
+		},
+	}
+
+	var cards []*board.Card
+
+	for _, id := range []string{"P-001", "P-002", "P-003", "P-004", "P-005", "P-006", "P-007", "P-008"} {
+		cards = append(cards, &board.Card{ID: id, Project: "p", Created: created})
+	}
+
+	// P-008 is a friction card whose finding was carded before the card existed.
+	cards[7].Labels = []string{frictionLabel}
+
+	return st, cards
+}
+
+func TestSentinelMarksIgnoreRecordsOfAnEarlierCard(t *testing.T) {
+	created := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	st, cards := reusedFixture(created)
+	ctl := New(Config{Store: st, Pricer: ratePricer{}})
+
+	marks, err := ctl.SentinelMarks(context.Background(), "p", cards)
+	require.NoError(t, err)
+
+	for _, id := range []string{"P-001", "P-003", "P-005", "P-007"} {
+		assert.NotContains(t, marks, id, "the record is of an earlier card")
+	}
+
+	assert.Equal(t, markHealed, marks["P-002"].Action)
+	assert.Equal(t, markHealing, marks["P-004"].Action)
+	assert.Equal(t, markAnalysing, marks["P-006"].Action)
+	assert.Equal(t, markCreated, marks["P-008"].Action, "the friction label, not the carded time, marks the card")
+
+	marks, err = ctl.SentinelMarks(context.Background(), "p", nil)
+	require.NoError(t, err)
+	assert.Contains(t, marks, "P-001", "a card absent from the lookup cuts nothing")
+}
+
+func TestCardHoldsIgnoreHealsOfAnEarlierCard(t *testing.T) {
+	created := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	st, cards := reusedFixture(created)
+	ctl := New(Config{Store: st, Cards: &fakeCards{cards: cards}, Pricer: ratePricer{}})
+
+	holds, err := ctl.CardHolds(context.Background(), "p")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]CardHold{"P-004": {Healing: true}}, holds)
+}
+
+func TestSentinelMarksCreatedNeedsTheFrictionLabel(t *testing.T) {
+	st := &fakeStore{
+		settings: state.Settings{Enabled: true},
+		heals: map[int64]state.Heal{
+			1: {ID: 1, Kind: state.HealKindHeal, Project: "p", CardID: "P-003", Stage: state.StageParked, Reason: "x"},
+		},
+		findings: []state.Finding{
+			{ID: 1, Project: "p", State: state.FindingCarded, Output: "P-001"},
+			{ID: 2, Project: "p", State: state.FindingCarded, Output: "P-002"},
+			{ID: 3, Project: "p", State: state.FindingCarded, Output: "P-003"},
+		},
+	}
+	cards := []*board.Card{
+		{ID: "P-001", Labels: []string{frictionLabel}},
+		{ID: "P-002", Labels: []string{"other"}},
+		{ID: "P-003", Labels: []string{"other"}},
+	}
+
+	marks, err := New(Config{Store: st, Pricer: ratePricer{}}).SentinelMarks(context.Background(), "p", cards)
+	require.NoError(t, err)
+	assert.Equal(t, markCreated, marks["P-001"].Action)
+	assert.NotContains(t, marks, "P-002", "a card without the label is not the friction card")
+	assert.Equal(t, markParked, marks["P-003"].Action, "a heal mark still wins")
 }

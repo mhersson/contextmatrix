@@ -291,3 +291,34 @@ func TestAnAnalysisSurvivesTheNextLaunch(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, run.AnalysisQueued, "the new run starts unqueued")
 }
+
+func TestOpenCardRunResetsOverEarlierCardsRow(t *testing.T) {
+	created := runT0.Add(time.Minute)
+
+	for name, tc := range map[string]struct {
+		firstAt time.Time
+		created time.Time
+		want    int
+	}{
+		"row started before the card was created": {firstAt: runT0, created: created, want: 0},
+		"row of the same card":                    {firstAt: created.Add(time.Second), created: created, want: 2},
+		"zero created keeps":                      {firstAt: runT0, created: time.Time{}, want: 2},
+	} {
+		t.Run(name, func(t *testing.T) {
+			st := openLadderStore(t)
+			ctx := context.Background()
+
+			require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", tc.firstAt, state.LaunchFacts{}))
+			_, err := st.db.ExecContext(ctx, `UPDATE card_run_modes SET attempts = 2, usage_reruns = 2`)
+			require.NoError(t, err)
+
+			require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", created.Add(time.Hour),
+				state.LaunchFacts{Origin: state.OriginPlaybook, CardCreated: tc.created}))
+
+			got, err := st.CardRunRow(ctx, "p", "P-001")
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got.Attempts)
+			assert.Equal(t, tc.want, got.UsageReruns)
+		})
+	}
+}
