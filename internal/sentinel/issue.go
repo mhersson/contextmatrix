@@ -10,7 +10,8 @@ import (
 )
 
 const (
-	maxIssueURLBytes = 7500
+	// Signed out, GitHub redirects to its login page with the link in return_to, which fails above about 4.5 KB.
+	maxIssueURLBytes = 4500
 	trimmedLine      = "_Trimmed to fit GitHub's new-issue link._"
 )
 

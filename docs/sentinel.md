@@ -887,9 +887,10 @@ again on the next pass.
   only of words the draft writes itself (the generic phrases, the `Evidence`
   heading and the trim line), so a project named `card`, `a` or `evidence`
   still drafts.
-- **The link limit** is 7500 bytes for the whole URL. A longer body is cut at
-  whitespace, so the last kept word is whole, and ends with the line
-  `_Trimmed to fit GitHub's new-issue link._`.
+- **The link limit** is 4500 bytes for the whole URL, because a signed-out
+  GitHub redirects to its login page with the link inside it. A longer body
+  is cut at whitespace, so the last kept word is whole, and ends with the
+  line `_Trimmed to fit GitHub's new-issue link._`.
 - **A draft is built once**, when its finding is routed, and is not rebuilt
   when the board changes later. `drafted` and `blocked` are final.
 - **An investigation's `ecosystem` diagnosis** gets no draft of its own: only
