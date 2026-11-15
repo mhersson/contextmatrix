@@ -32,7 +32,7 @@ function IssueDraftBlock({ finding }: { finding: SentinelFindingView }) {
           Report to ContextMatrix
         </a>
       </div>
-      <p className="text-xs" style={{ color: 'var(--grey1)' }}>
+      <p className="snt-muted">
         Opens GitHub&apos;s new-issue page signed in as you. Read it before you submit.
       </p>
     </div>

@@ -988,7 +988,7 @@ export type SentinelFindingState =
   | 'held'
   | '';
 
-/** `reason` says why a finding was dropped, a duplicate or rejected, or kept queued at the daily card limit; `output` is a friction card's ID or the standing PR's URL. */
+/** `reason` says why a finding was dropped, a duplicate, rejected or blocked, or kept queued or held at the daily card limit; `output` is a friction card's ID, the standing PR's URL, or a drafted finding's new-issue link, empty when the viewer may not have it. */
 export interface SentinelFindingView {
   id: number;
   state: SentinelFindingState;
