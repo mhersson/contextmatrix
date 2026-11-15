@@ -122,7 +122,7 @@ func sentinelDo(t *testing.T, srv *httptest.Server, method, path string, body an
 }
 
 func TestSentinelGetDefaults(t *testing.T) {
-	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore(), SentinelCards: sentinelCardAt(time.Time{})}, false)
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore()}, false)
 
 	code, body := sentinelDo(t, srv, http.MethodGet, "/api/sentinel", nil, nil)
 	require.Equal(t, http.StatusOK, code)
@@ -146,7 +146,7 @@ func TestSentinelPutRequiresAdminInMultiMode(t *testing.T) {
 
 	t.Run("multi", func(t *testing.T) {
 		store := newFakeSentinelStore()
-		srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store, SentinelCards: sentinelCardAt(time.Time{})}, true)
+		srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, true)
 
 		bob := login(t, srv, "bob", "bob password1")
 		code, _ := sentinelDo(t, srv, http.MethodPut, "/api/admin/sentinel", on, bob)
@@ -162,7 +162,7 @@ func TestSentinelPutRequiresAdminInMultiMode(t *testing.T) {
 
 	t.Run("none", func(t *testing.T) {
 		store := newFakeSentinelStore()
-		srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store, SentinelCards: sentinelCardAt(time.Time{})}, false)
+		srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
 
 		code, body := sentinelDo(t, srv, http.MethodPut, "/api/admin/sentinel", on, nil)
 		require.Equal(t, http.StatusOK, code)
@@ -173,7 +173,7 @@ func TestSentinelPutRequiresAdminInMultiMode(t *testing.T) {
 
 func TestSentinelPutRejectsInvalid(t *testing.T) {
 	store := newFakeSentinelStore()
-	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store, SentinelCards: sentinelCardAt(time.Time{})}, false)
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
 
 	bad := state.DefaultSettings()
 	bad.Headroom = 1.5
@@ -186,7 +186,7 @@ func TestSentinelPutRejectsInvalid(t *testing.T) {
 
 func TestSentinelPutRejectsAnalyseCeilingZero(t *testing.T) {
 	store := newFakeSentinelStore()
-	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store, SentinelCards: sentinelCardAt(time.Time{})}, false)
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
 
 	bad := state.DefaultSettings()
 	bad.AnalyseCeilingUSD = 0
@@ -204,7 +204,7 @@ func TestSentinelPutPublishesAndNudges(t *testing.T) {
 	defer unsub()
 
 	ctl := sentinel.New(sentinel.Config{Store: nil})
-	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore(), Sentinel: ctl, Bus: bus, SentinelCards: sentinelCardAt(time.Time{})}, false)
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore(), Sentinel: ctl, Bus: bus}, false)
 
 	code, _ := sentinelDo(t, srv, http.MethodPut, "/api/admin/sentinel", state.DefaultSettings(), nil)
 	require.Equal(t, http.StatusOK, code)
@@ -220,7 +220,7 @@ func TestSentinelPutPublishesAndNudges(t *testing.T) {
 func TestSentinelGetWithoutControllerIsNotRunning(t *testing.T) {
 	store := newFakeSentinelStore()
 	store.settings.Enabled = true
-	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store, SentinelCards: sentinelCardAt(time.Time{})}, false)
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
 
 	code, body := sentinelDo(t, srv, http.MethodGet, "/api/sentinel", nil, nil)
 	require.Equal(t, http.StatusOK, code)
@@ -465,7 +465,7 @@ func TestCardSentinelViewNamesARevisionThatDidNotGoOut(t *testing.T) {
 }
 
 func TestSentinelStatusCarriesAnalysing(t *testing.T) {
-	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore(), SentinelCards: sentinelCardAt(time.Time{})}, false)
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: newFakeSentinelStore()}, false)
 
 	_, body := sentinelDo(t, srv, http.MethodGet, "/api/sentinel", nil, nil)
 	assert.EqualValues(t, 0, body["status"].(map[string]any)["analysing"])

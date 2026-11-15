@@ -42,7 +42,7 @@ func TestRecordCardCutsARecordOlderThanItsCard(t *testing.T) {
 	}
 }
 
-func TestPassLeavesARunOlderThanItsCardUndecidedNoLonger(t *testing.T) {
+func TestPassDecidesARunOlderThanItsCardWithoutAHeal(t *testing.T) {
 	tests := []struct {
 		name      string
 		created   time.Time

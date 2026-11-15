@@ -1249,9 +1249,10 @@ ID and are left out. A missing card or project answers **404**.
 ```
 
 `origin` is `rest`, `mcp`, `playbook` or `sentinel`. `attempts` counts heal
-reruns since the last UI or REST Run, or the card's first launch here; `max_attempts` is
-the per-card cap. `stop_cause` and `stopped_at` are omitted until the run's
-terminal status arrives (and `stop_cause` when the cause is unknown).
+reruns since the last UI or REST Run, or the card's first launch here;
+`max_attempts` is the per-card cap. `stop_cause` and `stopped_at` are omitted
+until the run's terminal status arrives (and `stop_cause` when the cause is
+unknown).
 
 `heals` is newest first and is `[]` when there are none. `kind` is `heal`, or
 `forward` for a fix applied from another card's heal (`source_card` names it;

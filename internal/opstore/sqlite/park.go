@@ -32,7 +32,8 @@ func (s *Store) ClearParkReset(ctx context.Context, project, cardID string) erro
 	return nil
 }
 
-// ParkResets returns the reset time and record time of every card in the project that has one.
+// ParkResets returns the reset time and record time of every card in the
+// project that has one.
 func (s *Store) ParkResets(ctx context.Context, project string) (map[string]board.ParkReset, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT card_id, resets_at, recorded_at FROM card_park_resets WHERE project = ?`, project)

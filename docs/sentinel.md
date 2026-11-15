@@ -228,13 +228,15 @@ time ignores nothing.
 - A forward row on trial created before the card is neither judged by the
   card's runs nor feeds the run's cause.
 - The analysis queue marks a run older than its card queued with no row; an
-  open analysis row older than its card ends `analyse_skipped`.
+  open analysis row older than its card is read as for a deleted card.
 - A guidance finding older than its source card has no source text for the
   revision.
-- The board mark, the `analysing` mark and the `created` mark (against the
-  finding's carded time) skip a record older than its card, and so do the
-  waiting-list holds. `SentinelMarks` takes the cards the service is enriching;
-  `CardHolds` lists the project's cards once a latest heal exists.
+- The board mark and the `analysing` mark skip a record older than its card,
+  and so do the waiting-list holds. The `created` mark goes by the
+  `sentinel-friction` label, not by time: a finding is stamped before its card
+  exists, so its time cannot tell an earlier card. `SentinelMarks` takes the
+  cards the service is enriching; `CardHolds` lists the project's cards once a
+  latest heal exists.
 - The card's Sentinel view (`GET /api/projects/{project}/cards/{id}/sentinel`)
   leaves out the run row, heals, analyses and findings older than the card.
 - A card's park reset time (`park_resets_at`) is shown only when recorded
@@ -247,8 +249,8 @@ While `enabled`, `friction` and `analyse_every_run` are all on, each pass
 `analysis_queued`. It reads the run's card and decides by `queueStep`
 (`analysis.go`):
 
-- The card is gone or was created after the run, or a human stopped the run: the run is marked queued and
-  no row is stored.
+- The card is gone or was created after the run, or a human stopped the run:
+  the run is marked queued and no row is stored.
 - The run has not settled (`settledRun`): it waits for a later pass.
 - Otherwise an `analysis` row is stored at stage `analyse`, carrying the run's
   start, its run ID and its stop cause, and the run is marked queued in the
@@ -606,7 +608,8 @@ first matching rule wins:
    holds the card's claim and worker, so no later
    rule applies to it. This holds for a rerun from `apply` and from
    `usage_wait` alike.
-2. The card is deleted or was created after the heal, `done` or `not_planned`: close.
+2. The card is deleted or was created after the heal, `done` or `not_planned`:
+   close.
 3. A worker is queued or running, the card is claimed, or the run row is a
    newer run than the one the heal follows: close, since a human or another
    run took over.
