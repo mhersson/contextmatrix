@@ -180,15 +180,16 @@ type cardSentinelRevision struct {
 }
 
 type cardSentinelFinding struct {
-	ID        int64  `json:"id"`
-	State     string `json:"state"`
-	Reason    string `json:"reason"`
-	Output    string `json:"output"`
-	Kind      string `json:"kind"`
-	Title     string `json:"title"`
-	Text      string `json:"text"`
-	Evidence  string `json:"evidence"`
-	CreatedAt string `json:"created_at"`
+	ID            int64  `json:"id"`
+	State         string `json:"state"`
+	Reason        string `json:"reason"`
+	Output        string `json:"output"`
+	OutputProject string `json:"output_project,omitempty"`
+	Kind          string `json:"kind"`
+	Title         string `json:"title"`
+	Text          string `json:"text"`
+	Evidence      string `json:"evidence"`
+	CreatedAt     string `json:"created_at"`
 }
 
 func healView(h state.Heal) cardSentinelHeal {
@@ -213,8 +214,8 @@ func healView(h state.Heal) cardSentinelHeal {
 	return v
 }
 
-// canSeeAdminNotes reports whether the caller may read project_verify findings:
-// admins in multi mode, everyone in none mode.
+// canSeeAdminNotes reports whether the caller may read project_verify findings
+// and a drafted ecosystem issue link: admins in multi mode, everyone in none mode.
 func (h *sentinelHandlers) canSeeAdminNotes(r *http.Request) bool {
 	if !h.authEnabled {
 		return true
@@ -284,6 +285,14 @@ func (h *sentinelHandlers) cardRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	set, _, _, err := h.store.SentinelSettings(ctx)
+	if err != nil {
+		slog.Error("sentinel settings failed", "error", err)
+		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to read sentinel settings", "")
+
+		return
+	}
+
 	// Records made before the card was created belong to an earlier card with this ID.
 	if run != nil && card.CreatedAfter(run.StartedAt) {
 		run = nil
@@ -299,6 +308,7 @@ func (h *sentinelHandlers) cardRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	admin := h.canSeeAdminNotes(r)
+	showLink := set.EcosystemIssues() && admin
 	findings := make([]cardSentinelFinding, 0, len(found))
 
 	for _, f := range found {
@@ -306,8 +316,13 @@ func (h *sentinelHandlers) cardRun(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
+		output := f.Output
+		if f.State == state.FindingDrafted && !showLink {
+			output = ""
+		}
+
 		findings = append(findings, cardSentinelFinding{
-			ID: f.ID, State: f.State, Reason: f.Reason, Output: f.Output,
+			ID: f.ID, State: f.State, Reason: f.Reason, Output: output, OutputProject: f.OutputProject,
 			Kind: f.Kind, Title: f.Title, Text: f.Text, Evidence: f.Evidence,
 			CreatedAt: f.CreatedAt.UTC().Format(time.RFC3339),
 		})

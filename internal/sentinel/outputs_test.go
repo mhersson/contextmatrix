@@ -177,3 +177,12 @@ func TestRouteFindingsCountsACreatedCardWhoseOutcomeWriteFailed(t *testing.T) {
 
 	assert.Len(t, e.cards.created, 1, "the second finding sees the card the first one made")
 }
+
+func TestRouteFindingsCardsIntoTheFindingsProject(t *testing.T) {
+	e := routeEnv(t, queued(1, "code", "Cache the config loader", "the loader reads every file twice because the cache key ignores the path"))
+
+	require.NoError(t, e.ctl.pass(context.Background()))
+
+	require.Len(t, e.store.cardCalls, 1)
+	assert.Equal(t, cardCall{id: 1, project: "alpha", cardID: "ALPHA-100"}, e.store.cardCalls[0])
+}

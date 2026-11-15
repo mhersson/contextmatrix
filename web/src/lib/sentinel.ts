@@ -132,12 +132,37 @@ export function findingOutcome(f: SentinelFindingView, project: string, prURL?: 
     case 'dropped':
       return { text: `Dropped: ${f.reason}` };
     case 'carded':
-      return { text: `Friction card ${f.output}`, href: `/projects/${project}?card=${f.output}` };
+      return { text: `Friction card ${f.output}`, href: `/projects/${f.output_project || project}?card=${f.output}` };
+    case 'drafted':
+      return f.output ? null : { text: 'Drafted as an issue for ContextMatrix' };
+    case 'blocked':
+      return { text: `Blocked: ${f.reason}` };
+    case 'held':
+      return { text: f.reason || 'Held until Ecosystem issues is on' };
     case 'note':
       return f.reason ? { text: f.reason } : null;
     default:
       return null;
   }
+}
+
+export interface IssueDraft {
+  title: string;
+  body: string;
+  url: string;
+}
+
+/** The prefilled new-issue link of a drafted ecosystem finding; null unless it points at ContextMatrix's own issue form. */
+export function issueDraft(f: SentinelFindingView): IssueDraft | null {
+  if (f.kind !== 'ecosystem' || f.state !== 'drafted' || !f.output) return null;
+  let u: URL;
+  try {
+    u = new URL(f.output);
+  } catch {
+    return null;
+  }
+  if (u.origin !== 'https://github.com' || u.pathname !== '/mhersson/contextmatrix/issues/new') return null;
+  return { title: u.searchParams.get('title') ?? '', body: u.searchParams.get('body') ?? '', url: f.output };
 }
 
 export type PillTone = 'green' | 'wait' | 'red' | 'aqua' | 'neutral';
@@ -157,6 +182,8 @@ const TONES: Record<string, PillTone> = {
   revision_failed: 'red',
   revision_refused: 'red',
   proposed: 'aqua',
+  drafted: 'aqua',
+  blocked: 'red',
   open: 'aqua',
   healing: 'aqua',
   analysing: 'aqua',

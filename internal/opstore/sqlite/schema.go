@@ -324,6 +324,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		{"state", "TEXT NOT NULL DEFAULT ''"},
 		{"reason", "TEXT NOT NULL DEFAULT ''"},
 		{"output", "TEXT NOT NULL DEFAULT ''"},
+		{"output_project", "TEXT NOT NULL DEFAULT ''"},
 		{"revision_id", "INTEGER NOT NULL DEFAULT 0"},
 		{"updated_at", "INTEGER NOT NULL DEFAULT 0"},
 	} {

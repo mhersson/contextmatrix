@@ -38,7 +38,14 @@ type fakeStore struct {
 	findings      []state.Finding
 	prs           map[string]state.StandingPR
 	outcomeWrites int   // SetFindingOutcome calls
-	outcomeErr    error // answered by SetFindingOutcome
+	outcomeErr    error // answered by SetFindingOutcome and CardFinding
+	cardCalls     []cardCall
+}
+
+// cardCall is one CardFinding call.
+type cardCall struct {
+	id              int64
+	project, cardID string
 }
 
 type ledgerRow struct {
@@ -958,7 +965,7 @@ func (f *fakeStore) PutStandingPR(_ context.Context, p state.StandingPR) error {
 
 func (f *fakeStore) CardedSince(_ context.Context, project string, since time.Time) (int, error) {
 	return len(f.findingsWhere(func(fd state.Finding) bool {
-		return fd.Project == project && fd.State == state.FindingCarded && !fd.UpdatedAt.Before(since)
+		return outputProject(fd) == project && fd.State == state.FindingCarded && !fd.UpdatedAt.Before(since)
 	})), nil
 }
 
@@ -987,12 +994,56 @@ func (f *fakeStore) CardedFindings(_ context.Context, project string) (map[strin
 	out := map[string]bool{}
 
 	for _, fd := range f.findingsWhere(func(fd state.Finding) bool {
-		return fd.Project == project && fd.State == state.FindingCarded && fd.Output != ""
+		return outputProject(fd) == project && fd.State == state.FindingCarded && fd.Output != ""
 	}) {
 		out[fd.Output] = true
 	}
 
 	return out, nil
+}
+
+// outputProject is the project a carded finding's card lives in.
+func outputProject(fd state.Finding) string {
+	if fd.OutputProject != "" {
+		return fd.OutputProject
+	}
+
+	return fd.Project
+}
+
+func (f *fakeStore) HeldFindings(context.Context) ([]state.Finding, error) {
+	return f.findingsWhere(func(fd state.Finding) bool {
+		return fd.Kind == protocol.FindingEcosystem && fd.State == state.FindingHeld
+	}), nil
+}
+
+func (f *fakeStore) DraftedFindings(context.Context) ([]state.Finding, error) {
+	return f.findingsWhere(func(fd state.Finding) bool {
+		return fd.Kind == protocol.FindingEcosystem && fd.State == state.FindingDrafted
+	}), nil
+}
+
+func (f *fakeStore) CardFinding(_ context.Context, id int64, project, cardID string, at time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.outcomeWrites++
+	f.cardCalls = append(f.cardCalls, cardCall{id: id, project: project, cardID: cardID})
+
+	if f.outcomeErr != nil {
+		return f.outcomeErr
+	}
+
+	for i, fd := range f.findings {
+		if fd.ID == id {
+			f.findings[i].State, f.findings[i].Reason, f.findings[i].Output = state.FindingCarded, "", cardID
+			f.findings[i].OutputProject, f.findings[i].UpdatedAt = project, at
+
+			return nil
+		}
+	}
+
+	return nil
 }
 
 func (f *fakeStore) SetFindingOutcome(_ context.Context, id int64, st, reason, output string, revisionID int64, at time.Time) error {

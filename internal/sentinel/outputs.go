@@ -16,6 +16,7 @@ import (
 // projectRouting is what routing a project's findings reads once, then keeps
 // current as the pass moves findings on.
 type projectRouting struct {
+	project      string
 	config       *board.ProjectConfig
 	cards        []*board.Card
 	guidance     []state.Finding
@@ -33,11 +34,7 @@ func (c *Controller) routeFindings(ctx context.Context, now time.Time) error {
 		return fmt.Errorf("list queued findings: %w", err)
 	}
 
-	var secrets []string
-	if c.cfg.Secrets != nil {
-		secrets = c.cfg.Secrets()
-	}
-
+	secrets := c.secrets()
 	projects := map[string]*projectRouting{}
 	log := ctxlog.Logger(ctx)
 
@@ -86,13 +83,32 @@ func (c *Controller) readRouting(ctx context.Context, project string, now time.T
 		return nil, fmt.Errorf("count today's friction cards: %w", err)
 	}
 
-	return &projectRouting{config: cfg, cards: cards, guidance: guidance, createdToday: today}, nil
+	return &projectRouting{project: project, config: cfg, cards: cards, guidance: guidance, createdToday: today}, nil
+}
+
+// createFrictionCard creates the finding's friction card in pr's project and
+// records it as the finding's output. The card is folded into pr before the
+// write: it exists even if the write fails.
+func (c *Controller) createFrictionCard(ctx context.Context, f state.Finding, pr *projectRouting, now time.Time) error {
+	created, err := c.cfg.Cards.CreateCard(ctx, pr.project, frictionCardInput(f, pr.config))
+	if err != nil {
+		return fmt.Errorf("create friction card: %w", err)
+	}
+
+	pr.cards = append(pr.cards, created)
+	pr.createdToday++
+
+	if err := c.cardFinding(ctx, f, pr.project, created.ID, now); err != nil {
+		return fmt.Errorf("record the finding's card: %w", err)
+	}
+
+	return nil
 }
 
 // routeFinding applies one finding's decision and folds it into the project's
 // routing, so a later finding of the pass sees it.
 func (c *Controller) routeFinding(ctx context.Context, f state.Finding, pr *projectRouting, secrets []string, now time.Time) error {
-	var newState, reason, output string
+	var newState, reason string
 
 	switch f.Kind {
 	case protocol.FindingGuidance:
@@ -106,26 +122,14 @@ func (c *Controller) routeFinding(ctx context.Context, f state.Finding, pr *proj
 		newState, reason = routeCode(f, pr.cards, secrets, pr.createdToday)
 
 		if newState == state.FindingCarded {
-			created, err := c.cfg.Cards.CreateCard(ctx, f.Project, frictionCardInput(f, pr.config))
-			if err != nil {
-				return fmt.Errorf("create friction card: %w", err)
-			}
-
-			// Folded in before the outcome write: the card exists even if the write fails.
-			pr.cards = append(pr.cards, created)
-			pr.createdToday++
-			output = created.ID
+			return c.createFrictionCard(ctx, f, pr, now)
 		}
 	default:
 		return nil
 	}
 
-	if newState == f.State && reason == f.Reason {
-		return nil
-	}
-
-	if err := c.setFindingOutcome(ctx, f, newState, reason, output, 0, now); err != nil {
-		return fmt.Errorf("set finding outcome: %w", err)
+	if err := c.writeOutcome(ctx, f, newState, reason, "", now); err != nil {
+		return err
 	}
 
 	if newState == state.FindingPending {
@@ -134,4 +138,25 @@ func (c *Controller) routeFinding(ctx context.Context, f state.Finding, pr *proj
 	}
 
 	return nil
+}
+
+// writeOutcome writes a finding's outcome when its state or reason changes.
+func (c *Controller) writeOutcome(ctx context.Context, f state.Finding, newState, reason, output string, now time.Time) error {
+	if newState == f.State && reason == f.Reason {
+		return nil
+	}
+
+	if err := c.setFindingOutcome(ctx, f, newState, reason, output, 0, now); err != nil {
+		return fmt.Errorf("set finding outcome: %w", err)
+	}
+
+	return nil
+}
+
+func (c *Controller) secrets() []string {
+	if c.cfg.Secrets == nil {
+		return nil
+	}
+
+	return c.cfg.Secrets()
 }

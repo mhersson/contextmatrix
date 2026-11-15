@@ -1139,7 +1139,8 @@ Sentinel's status and stored settings.
     "investigate_ceiling_usd": 2,
     "headroom": 0.85,
     "analyse_every_run": false,
-    "analyse_ceiling_usd": 1
+    "analyse_ceiling_usd": 1,
+    "ecosystem": false
   },
   "updated_at": "2026-11-13T10:00:00Z",
   "updated_by": "human:alice"
@@ -1155,7 +1156,8 @@ there is no controller: the status is `off` while Sentinel is off and
 
 ### PUT /api/admin/sentinel
 
-Replaces all settings with the request body (the `settings` object above).
+Replaces all settings with the request body (the `settings` object above,
+`ecosystem` included; it defaults to `false`).
 Admin-only in `multi` mode, open in `none` mode. Saves them in ops.db, wakes
 the controller, publishes `sentinel.changed` and returns **200 OK** with the
 `GET` body. A save that turns `enabled` or `healing` on also marks every run
@@ -1217,7 +1219,7 @@ ID and are left out. A missing card or project answers **404**.
       "state": "carded",
       "reason": "",
       "output": "PROJ-040",
-      "kind": "guidance",
+      "kind": "code",
       "title": "...",
       "text": "...",
       "evidence": "...",
@@ -1273,10 +1275,17 @@ stores no new ones and keeps those already stored, which are still returned. `ki
 `project_verify` findings, the project's CM execution setup (verify command,
 worker image) for admins, are returned to admins in `multi` mode and to every
 caller in `none` mode; guidance that names CM is re-routed to this kind.
-`state` is where the finding sits on its way to an output,
-`reason` says why a finding is `dropped`, a `duplicate` or `rejected`, or
-kept `queued` at the daily card limit, and `output` names what it
-became: a friction card's ID, or the standing PR's URL.
+`state` is where the finding sits on its way to an output; besides the
+routing states it can be `drafted` (an ecosystem finding turned into a GitHub
+new-issue link) or `blocked`. `reason` says why a finding is `dropped`, a
+`duplicate`, `rejected` or `blocked`, or kept `queued` (an ecosystem finding
+`held`) at the daily card limit, and `output` names what it became: a friction
+card's ID, the standing PR's URL, or, for a `drafted` finding, the prefilled
+new-issue link. The link is sent to admins in `multi` mode and to every caller
+in `none` mode, and only while the Ecosystem issues switch is on; otherwise
+`output` is `""` and the finding is still listed. `output_project` is the
+project a card output lives in; it is omitted when the finding records none,
+which means the finding's own project.
 
 `analyses` is the card's run analyses, newest first, `[]` when there are none;
 `stage` is `analyse`, `analysed`, `analyse_failed` or `analyse_skipped` and

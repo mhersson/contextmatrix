@@ -299,8 +299,16 @@ its label.
     A row expands to the text, the evidence and an outcome line: waiting to be
     routed (or the reason it is queued), waiting for the next guidance PR, "In
     the standing PR" (a link to the PR, opened in a new tab), merged, rejected
-    in review, the duplicate's reason, "Dropped:" with the reason, or "Friction
-    card ID" (a link to that card); held findings have none. Notes follow: card
+    in review, the duplicate's reason, "Dropped:" with the reason, "Friction
+    card ID" (a link to that card, in the project the card lives in), "Blocked:"
+    with the reason, or the held reason ("Held until Ecosystem issues is on"
+    with none). A drafted ecosystem finding with its link shows an Issue draft
+    (the title and body as plain text), a "Report to ContextMatrix" button that
+    opens the prefilled GitHub new-issue page in a new tab, and the hint that
+    the page opens signed in as the viewer to read before submitting; the link
+    is sent only to admins in `multi` mode, and only while Ecosystem issues is
+    on, so without it the row says "Drafted as an issue for ContextMatrix".
+    Notes follow: card
     advice, project setup (labelled "Project setup (admins)", sent only to
     admins in `multi` mode; a re-routed guidance finding shows its reason) and
     hard card, each with its title, text and evidence.
@@ -331,14 +339,16 @@ its label.
   on the card, and is static for every other mark and under reduced motion. The
   board refreshes its cards a second after a Sentinel event of its project.
 
-The settings page at `/admin/sentinel` (admin only in `multi` mode) has four
-switches (Sentinel, Healing, Friction analysis, Analyse every run), the daily
+The settings page at `/admin/sentinel` (admin only in `multi` mode) has five
+switches (Sentinel, Healing, Friction analysis, Analyse every run, Ecosystem
+issues), the daily
 spend cap in USD (endpoint channel), the investigation ceiling in USD per
 investigation, the analysis ceiling in USD (endpoint channel) and the
 subscription headroom threshold. The threshold is shown as a percent (85) and
 saved as a fraction (0.85). Healing and Friction analysis are disabled while
-Sentinel is off, and Analyse every run while either Sentinel or Friction
-analysis is off. Turning Sentinel or Healing on starts fresh: runs launched
+Sentinel is off, Ecosystem issues while Sentinel is off (it turns ecosystem
+findings into prefilled GitHub issues or upstream cards), and Analyse every run
+while either Sentinel or Friction analysis is off. Turning Sentinel or Healing on starts fresh: runs launched
 before then are left for a human. Save shows the server's validation message
 inline and refreshes the sidebar chip; the footer names who last saved and when,
 once someone has.

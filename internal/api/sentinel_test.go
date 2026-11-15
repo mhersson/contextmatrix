@@ -513,3 +513,64 @@ func TestCardSentinelViewOfAMissingCardIs404(t *testing.T) {
 	code, _ := sentinelDo(t, srv, http.MethodGet, "/api/projects/p/cards/p-001/sentinel", nil, nil)
 	assert.Equal(t, http.StatusNotFound, code)
 }
+
+func TestSentinelPutStoresEcosystem(t *testing.T) {
+	store := newFakeSentinelStore()
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
+
+	set := state.DefaultSettings()
+	set.Ecosystem = true
+
+	code, body := sentinelDo(t, srv, http.MethodPut, "/api/admin/sentinel", set, nil)
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, true, body["settings"].(map[string]any)["ecosystem"])
+	assert.True(t, store.settings.Ecosystem)
+}
+
+func TestCardSentinelViewGatesTheIssueLink(t *testing.T) {
+	const link = "https://github.com/mhersson/contextmatrix/issues/new?title=x"
+
+	newStore := func(switchOn bool) *fakeSentinelStore {
+		store := newFakeSentinelStore()
+		store.settings.Enabled, store.settings.Ecosystem = true, switchOn
+		store.findings = []state.Finding{
+			{Kind: protocol.FindingEcosystem, State: state.FindingDrafted, Output: link},
+			{Kind: protocol.FindingCode, State: state.FindingCarded, Output: "P-002"},
+			{Kind: protocol.FindingEcosystem, State: state.FindingCarded, Output: "CTX-001", OutputProject: "cm"},
+		}
+
+		return store
+	}
+	path := "/api/projects/p/cards/p-001/sentinel"
+
+	outputs := func(srv *httptest.Server, cookie *http.Cookie) ([]string, map[string]any) {
+		_, body := sentinelDo(t, srv, http.MethodGet, path, nil, cookie)
+
+		var outs []string
+		for _, f := range body["findings"].([]any) {
+			outs = append(outs, f.(map[string]any)["output"].(string))
+		}
+
+		return outs, body
+	}
+
+	multiOn := newSelectorAdminServer(t, RouterConfig{SentinelStore: newStore(true), SentinelCards: sentinelCardAt(time.Time{})}, true)
+
+	got, body := outputs(multiOn, login(t, multiOn, "root", "root password1"))
+	assert.Equal(t, []string{link, "P-002", "CTX-001"}, got, "multi admin, switch on")
+	assert.Equal(t, "cm", body["findings"].([]any)[2].(map[string]any)["output_project"])
+
+	got, body = outputs(multiOn, login(t, multiOn, "bob", "bob password1"))
+	assert.Equal(t, []string{"", "P-002", "CTX-001"}, got, "multi non-admin, switch on")
+	assert.Equal(t, state.FindingDrafted, body["findings"].([]any)[0].(map[string]any)["state"])
+
+	none := newSelectorAdminServer(t, RouterConfig{SentinelStore: newStore(true), SentinelCards: sentinelCardAt(time.Time{})}, false)
+
+	got, _ = outputs(none, nil)
+	assert.Equal(t, []string{link, "P-002", "CTX-001"}, got, "none mode, switch on")
+
+	multiOff := newSelectorAdminServer(t, RouterConfig{SentinelStore: newStore(false), SentinelCards: sentinelCardAt(time.Time{})}, true)
+
+	got, _ = outputs(multiOff, login(t, multiOff, "root", "root password1"))
+	assert.Equal(t, []string{"", "P-002", "CTX-001"}, got, "multi admin, switch off")
+}

@@ -25,6 +25,7 @@ const settings: SentinelSettings = {
   enabled: true,
   healing: true,
   friction: true,
+  ecosystem: false,
   daily_cap_usd: 20,
   investigate_ceiling_usd: 2,
   headroom: 0.85,
@@ -106,6 +107,18 @@ describe('AdminSentinelPage', () => {
     expect(analyse).toBeEnabled();
     fireEvent.click(screen.getByRole('switch', { name: 'Friction analysis' }));
     expect(analyse).toBeDisabled();
+  });
+
+  it('saves the Ecosystem issues switch, which needs Sentinel on', async () => {
+    render(<AdminSentinelPage />);
+    const eco = await screen.findByRole('switch', { name: 'Ecosystem issues' });
+    expect(eco).toBeEnabled();
+    fireEvent.click(eco);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(mocks.putSentinelSettings).toHaveBeenCalled());
+    expect(mocks.putSentinelSettings.mock.calls[0][0]).toEqual({ ...settings, ecosystem: true });
+    fireEvent.click(screen.getByRole('switch', { name: 'Sentinel' }));
+    expect(screen.getByRole('switch', { name: 'Ecosystem issues' })).toBeDisabled();
   });
 
   it('shows the 422 for a zero analysis ceiling', async () => {

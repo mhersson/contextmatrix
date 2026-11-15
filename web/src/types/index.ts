@@ -892,6 +892,7 @@ export interface SentinelSettings {
   enabled: boolean;
   healing: boolean;
   friction: boolean;
+  ecosystem: boolean;
   daily_cap_usd: number;
   investigate_ceiling_usd: number;
   headroom: number;
@@ -981,16 +982,20 @@ export type SentinelFindingState =
   | 'duplicate'
   | 'dropped'
   | 'carded'
+  | 'drafted'
+  | 'blocked'
   | 'note'
   | 'held'
   | '';
 
-/** `reason` says why a finding was dropped, a duplicate or rejected, or kept queued at the daily card limit; `output` is a friction card's ID or the standing PR's URL. */
+/** `reason` says why a finding was dropped, a duplicate, rejected or blocked, or kept queued or held at the daily card limit; `output` is a friction card's ID, the standing PR's URL, or a drafted finding's new-issue link, empty when the viewer may not have it. */
 export interface SentinelFindingView {
   id: number;
   state: SentinelFindingState;
   reason: string;
   output: string;
+  /** The project an output card lives in; absent means the finding's own. */
+  output_project?: string;
   kind: SentinelFindingKind;
   title: string;
   text: string;

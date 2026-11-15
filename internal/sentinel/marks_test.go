@@ -327,13 +327,16 @@ func TestSentinelMarksMarksCreatedCards(t *testing.T) {
 			{ID: 2, Project: "p", State: state.FindingCarded, Output: "P-002"},
 			{ID: 3, Project: "p", State: state.FindingDuplicate, Output: "P-003"},
 			{ID: 4, Project: "other", State: state.FindingCarded, Output: "O-001"},
+			{ID: 5, Project: "other", OutputProject: "p", State: state.FindingCarded, Output: "P-005"},
+			{ID: 6, Project: "p", OutputProject: "cm", State: state.FindingCarded, Output: "CM-006"},
 		},
 	}
 	ctl := New(Config{Store: st, Pricer: ratePricer{}})
 
 	marks, err := ctl.SentinelMarks(context.Background(), "p", nil)
 	require.NoError(t, err)
-	require.Len(t, marks, 2)
+	require.Len(t, marks, 3, "a card lands on the project it lives in")
+	assert.Equal(t, markCreated, marks["P-005"].Action)
 	assert.Equal(t, markCreated, marks["P-001"].Action)
 	assert.Equal(t, createdLabel, marks["P-001"].Label)
 	assert.Equal(t, markParked, marks["P-002"].Action, "a heal mark wins")

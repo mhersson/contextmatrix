@@ -75,11 +75,18 @@ type Store interface {
 	StandingPR(ctx context.Context, project string) (*state.StandingPR, error)
 	// PutStandingPR replaces the project's record.
 	PutStandingPR(ctx context.Context, p state.StandingPR) error
-	// CardedSince counts the project's findings that became cards at or after since.
+	// CardedSince counts the findings whose cards live in the project and were made at or after since.
 	CardedSince(ctx context.Context, project string, since time.Time) (int, error)
-	// CardedFindings returns the IDs of the project's cards made from a finding.
+	// CardedFindings returns the IDs of the cards in the project made from a finding.
 	CardedFindings(ctx context.Context, project string) (map[string]bool, error)
 	SetFindingOutcome(ctx context.Context, id int64, state, reason, output string, revisionID int64, at time.Time) error
+	// CardFinding moves a finding to carded with the card that holds it and the
+	// project the card lives in.
+	CardFinding(ctx context.Context, id int64, project, cardID string, at time.Time) error
+	// HeldFindings returns the held ecosystem findings, oldest first.
+	HeldFindings(ctx context.Context) ([]state.Finding, error)
+	// DraftedFindings returns every project's drafted ecosystem findings, oldest first.
+	DraftedFindings(ctx context.Context) ([]state.Finding, error)
 	// RerouteFinding changes a finding's kind, state and reason together.
 	RerouteFinding(ctx context.Context, id int64, kind, state, reason string, at time.Time) error
 	// PendingFindings returns the project's guidance findings in state pending,
@@ -159,6 +166,15 @@ type Config struct {
 	Instance  string
 	// Secrets returns the secret values CM holds; may be nil.
 	Secrets func() []string
+	// Locations returns every URL and host the config holds, and RepoURLs its
+	// own git remotes; either may be nil. Both feed the issue blocklist.
+	Locations func() []string
+	RepoURLs  func() []string
+	// RepoOf names the boards repo a project lives in; nil means one boards
+	// repo, which every project shares.
+	RepoOf func(project string) (string, bool)
+	// Version is CM's version, written at the top of an issue draft.
+	Version string
 }
 
 // Controller is Sentinel's level-triggered loop: each pass decides from

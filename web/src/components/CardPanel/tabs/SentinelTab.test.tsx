@@ -445,6 +445,34 @@ describe('SentinelTab', () => {
       expect(screen.getByText(/no evidence/)).toBeInTheDocument();
     });
 
+    it('shows a drafted ecosystem finding as plain text with a safe report link', async () => {
+      const url = 'https://github.com/mhersson/contextmatrix/issues/new?title=%3Cb%3EBug%3C%2Fb%3E&body=Line%20one%0A%0A**not%20bold**';
+      renderTab({ run, findings: [finding('ecosystem', 'Drafted', { state: 'drafted', output: url })] });
+      await screen.findByText('Drafted');
+      fireEvent.click(rowFor('Drafted'));
+      expect(screen.getByText('<b>Bug</b>')).toBeInTheDocument();
+      expect(screen.getByText(/\*\*not bold\*\*/)).toBeInTheDocument();
+      const link = screen.getByRole('link', { name: 'Report to ContextMatrix' });
+      expect(link).toHaveAttribute('href', url);
+      expect(link).toHaveAttribute('target', '_blank');
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    });
+
+    it('shows a drafted finding without a link as an outcome line only', async () => {
+      renderTab({ run, findings: [finding('ecosystem', 'Drafted', { state: 'drafted' })] });
+      await screen.findByText('Drafted');
+      fireEvent.click(rowFor('Drafted'));
+      expect(screen.getByText('Drafted as an issue for ContextMatrix')).toBeInTheDocument();
+      expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    });
+
+    it('shows why a finding is blocked', async () => {
+      renderTab({ run, findings: [finding('ecosystem', 'Blocked', { state: 'blocked', reason: 'holds a secret' })] });
+      await screen.findByText('Blocked');
+      fireEvent.click(rowFor('Blocked'));
+      expect(screen.getByText('Blocked: holds a secret')).toBeInTheDocument();
+    });
+
     it('lists notes below the findings with their title, text and evidence', async () => {
       renderTab({
         run,

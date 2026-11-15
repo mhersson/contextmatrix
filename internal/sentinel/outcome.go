@@ -156,6 +156,16 @@ func (c *Controller) setFindingOutcome(ctx context.Context, f state.Finding, st,
 	return nil
 }
 
+func (c *Controller) cardFinding(ctx context.Context, f state.Finding, project, cardID string, at time.Time) error {
+	if err := c.cfg.Store.CardFinding(ctx, f.ID, project, cardID, at); err != nil {
+		return err
+	}
+
+	c.healChanged(f.Project, f.CardID)
+
+	return nil
+}
+
 func (c *Controller) rerouteFinding(ctx context.Context, f state.Finding, kind, st, reason string, at time.Time) error {
 	if err := c.cfg.Store.RerouteFinding(ctx, f.ID, kind, st, reason, at); err != nil {
 		return err

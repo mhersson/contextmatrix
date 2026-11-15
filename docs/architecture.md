@@ -189,7 +189,11 @@ most once, within the investigate ceiling and the daily cap, then parks for a
 human; it never writes a fix or reruns the card. Sentinel acts
 through in-process service calls under the agent ID `system:sentinel`, never
 over MCP, so the `mcp_api_key` gives no route to it. Run kinds get no MCP key and a
-contents-read token (see Worker credentials). See [Sentinel](sentinel.md).
+contents-read token (see Worker credentials). CM never files an issue: an
+ecosystem finding becomes a friction card in a ContextMatrix project in the
+finding's own boards repo when there is one, else a prefilled GitHub new-issue
+link that a person opens and submits, and the link's text passes the blocklist
+first. See [Sentinel](sentinel.md).
 
 ### Worker credentials
 

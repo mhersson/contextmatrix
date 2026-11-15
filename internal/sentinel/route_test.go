@@ -1,11 +1,13 @@
 package sentinel
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/sentinel/state"
@@ -194,4 +196,128 @@ func TestFrictionCardInput(t *testing.T) {
 	untitled := frictionCardInput(state.Finding{Text: long + "\nsecond line"}, &board.ProjectConfig{})
 	assert.Len(t, []rune(untitled.Title), 200)
 	assert.Equal(t, "task", untitled.Type, "a project listing no types falls back to task")
+}
+
+func TestRouteEcosystem(t *testing.T) {
+	ic := issueContext{prefixes: []string{"SHOP"}, terms: []term{{"shop", wordProject}}}
+	secrets := []string{"hunter2hunter2"}
+	bug := state.Finding{ID: 9, Title: "Verify hangs", Text: "the verify step never returns when the worker restarts mid run"}
+	drafted := func(id int64, f state.Finding) state.Finding {
+		f.ID, f.State = id, state.FindingDrafted
+
+		return f
+	}
+
+	tests := []struct {
+		name       string
+		f          state.Finding
+		earlier    []state.Finding
+		ic         issueContext
+		wantState  string
+		wantReason string
+		wantLink   bool
+	}{
+		{
+			name: "a secret blocks", f: state.Finding{Title: "t", Text: "text", Evidence: "token hunter2hunter2"},
+			wantState: state.FindingBlocked, wantReason: secretReason,
+		},
+		{
+			name: "like an earlier draft", f: bug, earlier: []state.Finding{drafted(3, bug)},
+			wantState: state.FindingDuplicate, wantReason: "like finding 3",
+		},
+		{
+			name: "like only a blocked finding", f: bug,
+			earlier:   []state.Finding{{ID: 3, Title: bug.Title, Text: bug.Text, State: state.FindingBlocked}},
+			wantState: state.FindingDrafted, wantLink: true,
+		},
+		{
+			name: "distinct", f: bug, earlier: []state.Finding{drafted(3, state.Finding{Title: "x", Text: "something else entirely about logs"})},
+			wantState: state.FindingDrafted, wantLink: true,
+		},
+		{
+			name: "a hit the replacement made", f: state.Finding{Title: "t", Text: "acme web"},
+			ic:        issueContext{terms: []term{{"repository web", wordProject}, {"acme", wordRepository}}},
+			wantState: state.FindingBlocked, wantReason: "still names a project",
+		},
+		{
+			name: "a secret beats a duplicate", f: state.Finding{ID: 9, Title: bug.Title, Text: bug.Text + " hunter2hunter2"},
+			earlier:   []state.Finding{drafted(3, state.Finding{Title: bug.Title, Text: bug.Text + " hunter2hunter2"})},
+			wantState: state.FindingBlocked, wantReason: secretReason,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			use := ic
+			if tt.ic.terms != nil {
+				use = tt.ic
+			}
+
+			gotState, reason, output := routeEcosystem(tt.f, tt.earlier, secrets, use)
+
+			assert.Equal(t, tt.wantState, gotState)
+			assert.Equal(t, tt.wantReason, reason)
+
+			if tt.wantLink {
+				assert.True(t, strings.HasPrefix(output, "https://github.com/mhersson/contextmatrix/issues/new?"))
+			} else {
+				assert.Empty(t, output)
+			}
+		})
+	}
+}
+
+func TestUpstreamProject(t *testing.T) {
+	proj := func(name string, urls ...string) board.ProjectConfig {
+		p := board.ProjectConfig{Name: name}
+		for i, u := range urls {
+			p.Repos = append(p.Repos, board.Repo{Name: "r" + strconv.Itoa(i), URL: u})
+		}
+
+		return p
+	}
+
+	const cmURL = "https://github.com/mhersson/contextmatrix"
+
+	repos := map[string]string{"app": "team", "cm": "team", "cm-private": "private", "notes": "private"}
+	repoOf := func(project string) (string, bool) {
+		r, ok := repos[project]
+
+		return r, ok
+	}
+
+	tests := []struct {
+		name     string
+		projects []board.ProjectConfig
+		project  string
+		repoOf   func(string) (string, bool)
+		want     string
+	}{
+		{"scp url", []board.ProjectConfig{proj("cm", "git@github.com:mhersson/contextmatrix.git")}, "app", nil, "cm"},
+		{"case-insensitive https", []board.ProjectConfig{proj("cm", "https://github.com/MHersson/ContextMatrix")}, "app", nil, "cm"},
+		{"a sibling repo", []board.ProjectConfig{proj("agent", "https://github.com/mhersson/contextmatrix-agent")}, "app", nil, ""},
+		{"another host", []board.ProjectConfig{proj("ghe", "https://acme.ghe.com/mhersson/contextmatrix")}, "app", nil, ""},
+		{"second repo", []board.ProjectConfig{proj("multi", "https://github.com/acme/web", cmURL)}, "app", nil, "multi"},
+		{"first by name", []board.ProjectConfig{proj("zeta", cmURL), proj("alpha", cmURL)}, "app", nil, "alpha"},
+		{"none", nil, "app", nil, ""},
+		{"same boards repo", []board.ProjectConfig{proj("cm", cmURL)}, "app", repoOf, "cm"},
+		{"another boards repo", []board.ProjectConfig{proj("cm", cmURL)}, "notes", repoOf, ""},
+		{"first in the finding's boards repo", []board.ProjectConfig{proj("cm", cmURL), proj("cm-private", cmURL)}, "notes", repoOf, "cm-private"},
+		{"unknown project", []board.ProjectConfig{proj("cm", cmURL)}, "gone", repoOf, ""},
+		{"no lookup is one boards repo", []board.ProjectConfig{proj("cm", cmURL)}, "gone", nil, "cm"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := upstreamProject(tt.project, tt.projects, tt.repoOf)
+			if tt.want == "" {
+				assert.Nil(t, got)
+
+				return
+			}
+
+			require.NotNil(t, got)
+			assert.Equal(t, tt.want, got.Name)
+		})
+	}
 }

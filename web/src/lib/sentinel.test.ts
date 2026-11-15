@@ -13,6 +13,7 @@ import {
   chipText,
   findingLabel,
   findingOutcome,
+  issueDraft,
   lineDiff,
   noteLabel,
   pillTone,
@@ -115,6 +116,39 @@ describe('chipText', () => {
   });
 });
 
+const DRAFT_URL = 'https://github.com/mhersson/contextmatrix/issues/new?title=A%20title&body=Some%20body%0A%0Amore';
+
+describe('issueDraft', () => {
+  const g = (over: Partial<SentinelFindingView>): SentinelFindingView => ({
+    id: 1,
+    state: 'drafted',
+    reason: '',
+    output: DRAFT_URL,
+    kind: 'ecosystem',
+    title: 't',
+    text: 'x',
+    evidence: '',
+    created_at: '2026-11-13T10:00:00Z',
+    ...over,
+  });
+
+  it('decodes the link', () => {
+    expect(issueDraft(g({}))).toEqual({ title: 'A title', body: 'Some body\n\nmore', url: DRAFT_URL });
+  });
+
+  it.each<[string, Partial<SentinelFindingView>]>([
+    ['another kind', { kind: 'code' }],
+    ['a blocked finding', { state: 'blocked' }],
+    ['an empty output', { output: '' }],
+    ['another host', { output: 'https://evil.example/mhersson/contextmatrix/issues/new?title=x' }],
+    ['another scheme', { output: 'http://github.com/mhersson/contextmatrix/issues/new?title=x' }],
+    ['another path', { output: 'https://github.com/mhersson/other/issues/new?title=x' }],
+    ['not a URL', { output: 'CM-4' }],
+  ])('is null for %s', (_name, over) => {
+    expect(issueDraft(g(over))).toBeNull();
+  });
+});
+
 describe('findingOutcome', () => {
   const f = (over: Partial<SentinelFindingView>): SentinelFindingView => ({
     id: 1,
@@ -160,8 +194,25 @@ describe('findingOutcome', () => {
     expect(findingOutcome(f({ state: 'carded', output: 'T-040' }), 'p', PR)?.text).toContain('T-040');
   });
 
-  it.each(['note', 'held', ''] as const)('%j has no outcome', (state) => {
+  it.each(['note', ''] as const)('%j has no outcome', (state) => {
     expect(findingOutcome(f({ state }), 'p', PR)).toBeNull();
+  });
+
+  it('says what a drafted finding without a link and a blocked one are', () => {
+    expect(findingOutcome(f({ state: 'drafted', output: DRAFT_URL }), 'p')).toBeNull();
+    expect(findingOutcome(f({ state: 'drafted' }), 'p')?.text).toBe('Drafted as an issue for ContextMatrix');
+    expect(findingOutcome(f({ state: 'blocked', reason: 'still names a project' }), 'p')?.text).toBe('Blocked: still names a project');
+  });
+
+  it('says why a finding is held', () => {
+    expect(findingOutcome(f({ state: 'held', reason: 'waiting' }), 'p')?.text).toBe('waiting');
+    expect(findingOutcome(f({ state: 'held' }), 'p')?.text).toBe('Held until Ecosystem issues is on');
+  });
+
+  it('links a carded finding to the project its card lives in', () => {
+    const got = findingOutcome(f({ state: 'carded', output: 'CM-4', output_project: 'cm' }), 'p');
+    expect(got?.href).toBe('/projects/cm?card=CM-4');
+    expect(findingOutcome(f({ state: 'carded', output: 'CM-4' }), 'p')?.href).toBe('/projects/p?card=CM-4');
   });
 
   it('has no link for a proposed finding when no PR is known', () => {
@@ -202,6 +253,8 @@ describe('pillTone', () => {
     ['rejected', 'neutral'],
     ['queued', 'neutral'],
     ['pending', 'neutral'],
+    ['drafted', 'aqua'],
+    ['blocked', 'red'],
     ['carded', 'neutral'],
     ['duplicate', 'neutral'],
     ['dropped', 'neutral'],

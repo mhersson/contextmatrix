@@ -165,6 +165,13 @@ export function AdminSentinelPage() {
             disabled={!draft.enabled || !draft.friction}
             onChange={(analyse_every_run) => set({ analyse_every_run })}
           />
+          <Switch
+            label="Ecosystem issues"
+            hint="Turns ecosystem findings into prefilled GitHub issues for ContextMatrix, or into cards when this board has a project for mhersson/contextmatrix. Each draft shows on its card's Sentinel tab, to admins only in multi mode, for a person to read and submit."
+            checked={draft.ecosystem}
+            disabled={!draft.enabled}
+            onChange={(ecosystem) => set({ ecosystem })}
+          />
           <NumberField
             label="Daily spend cap (USD)"
             hint="Applies on the endpoint channel to investigations, reruns and analyses, counting work still in flight. 0 stops all three; analyses also wait while today's spend is at half the cap or more."
