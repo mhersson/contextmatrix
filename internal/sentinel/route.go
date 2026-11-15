@@ -9,6 +9,7 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/githuburl"
 	"github.com/mhersson/contextmatrix/internal/sentinel/state"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
@@ -125,4 +126,49 @@ func listedOrFirst(listed []string, want string) string {
 	default:
 		return listed[0]
 	}
+}
+
+// routeEcosystem decides a held ecosystem finding bound for an issue: blocked
+// when it holds a secret, a duplicate of an earlier draft, else drafted with
+// its link, or blocked by the content check. Only drafted findings in earlier count.
+func routeEcosystem(f state.Finding, earlier []state.Finding, secrets []string, ic issueContext) (newState, reason, output string) {
+	if holdsSecretFinding(f, secrets) {
+		return state.FindingBlocked, secretReason, ""
+	}
+
+	text := frictionTitle(f) + " " + f.Text
+
+	for _, e := range earlier {
+		if e.State == state.FindingDrafted && similar(text, frictionTitle(e)+" "+e.Text) {
+			return state.FindingDuplicate, likeFindingReason + strconv.FormatInt(e.ID, 10), ""
+		}
+	}
+
+	link, blocked := issueDraft(f, ic)
+	if blocked != "" {
+		return state.FindingBlocked, blocked, ""
+	}
+
+	return state.FindingDrafted, "", link
+}
+
+// upstreamProject is the first project by name with a repository on
+// github.com at mhersson/contextmatrix, ignoring case; nil when there is none.
+func upstreamProject(projects []board.ProjectConfig) *board.ProjectConfig {
+	var found *board.ProjectConfig
+
+	for i := range projects {
+		p := &projects[i]
+		if (found == nil || p.Name < found.Name) && slices.ContainsFunc(p.EffectiveRepos(), isUpstreamRepo) {
+			found = p
+		}
+	}
+
+	return found
+}
+
+func isUpstreamRepo(r board.Repo) bool {
+	owner, repo, _, ok := githuburl.Parse(r.URL, []string{publicHost})
+
+	return ok && strings.EqualFold(owner, upstreamOwner) && strings.EqualFold(repo, upstreamRepo)
 }

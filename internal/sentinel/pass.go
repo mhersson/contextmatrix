@@ -104,6 +104,12 @@ func (c *Controller) pass(ctx context.Context) error {
 		}
 	}
 
+	if set.EcosystemIssues() {
+		if err := c.routeHeldFindings(ctx, now); err != nil {
+			return err
+		}
+	}
+
 	revised, err := c.advanceRevisions(ctx, r)
 	if err != nil {
 		return err

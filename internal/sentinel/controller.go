@@ -166,6 +166,12 @@ type Config struct {
 	Instance  string
 	// Secrets returns the secret values CM holds; may be nil.
 	Secrets func() []string
+	// Locations returns every URL and host the config holds, and RepoURLs its
+	// own git remotes; either may be nil. Both feed the issue blocklist.
+	Locations func() []string
+	RepoURLs  func() []string
+	// Version is CM's version, written at the top of an issue draft.
+	Version string
 }
 
 // Controller is Sentinel's level-triggered loop: each pass decides from

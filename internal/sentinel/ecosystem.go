@@ -1,0 +1,136 @@
+package sentinel
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/ctxlog"
+	"github.com/mhersson/contextmatrix/internal/sentinel/state"
+)
+
+// routeHeldFindings moves every held ecosystem finding on: into a friction
+// card of the upstream project when the board has one, else into an issue
+// draft. A finding is written only when its state or reason changes, and one
+// whose write fails is decided again on the next pass.
+func (c *Controller) routeHeldFindings(ctx context.Context, now time.Time) error {
+	held, err := c.cfg.Store.HeldFindings(ctx)
+	if err != nil {
+		return fmt.Errorf("list held findings: %w", err)
+	}
+
+	if len(held) == 0 {
+		return nil
+	}
+
+	projects, err := c.cfg.Cards.ListProjects(ctx)
+	if err != nil {
+		return fmt.Errorf("list projects: %w", err)
+	}
+
+	if up := upstreamProject(projects); up != nil {
+		c.cardHeldFindings(ctx, held, up.Name, now)
+
+		return nil
+	}
+
+	return c.draftHeldFindings(ctx, held, projects, now)
+}
+
+// cardHeldFindings routes held findings as code findings against the
+// upstream project's friction cards. A project that cannot be read leaves
+// every finding held.
+func (c *Controller) cardHeldFindings(ctx context.Context, held []state.Finding, upstream string, now time.Time) {
+	log := ctxlog.Logger(ctx)
+
+	pr, err := c.readRouting(ctx, upstream, now)
+	if err != nil {
+		log.Warn("sentinel: reading the upstream project's friction routing failed", "project", upstream, "error", err)
+
+		return
+	}
+
+	secrets := c.secrets()
+
+	for _, f := range held {
+		newState, reason := routeCode(f, pr.cards, secrets, pr.createdToday)
+
+		switch newState {
+		case state.FindingCarded:
+			err = c.createFrictionCard(ctx, f, pr, now)
+		case state.FindingQueued:
+			err = c.writeHeld(ctx, f, state.FindingHeld, reason, "", now)
+		default:
+			err = c.writeHeld(ctx, f, newState, reason, "", now)
+		}
+
+		if err != nil {
+			log.Warn("sentinel: routing a held finding failed", "finding", f.ID, "error", err)
+		}
+	}
+}
+
+// draftHeldFindings routes held findings to issue drafts, built from the
+// board and config as they are now.
+func (c *Controller) draftHeldFindings(ctx context.Context, held []state.Finding, projects []board.ProjectConfig, now time.Time) error {
+	earlier, err := c.cfg.Store.DraftedFindings(ctx)
+	if err != nil {
+		return fmt.Errorf("list drafted findings: %w", err)
+	}
+
+	src := termSources{Projects: projects}
+	if c.cfg.Locations != nil {
+		src.Locations = c.cfg.Locations()
+	}
+
+	if c.cfg.RepoURLs != nil {
+		src.RepoURLs = c.cfg.RepoURLs()
+	}
+
+	ic := issueContext{terms: issueTerms(src), version: c.cfg.Version}
+	for i := range projects {
+		ic.prefixes = append(ic.prefixes, projects[i].Prefix)
+	}
+
+	secrets := append(c.secrets(), urlSecrets(src)...)
+	log := ctxlog.Logger(ctx)
+
+	for _, f := range held {
+		newState, reason, link := routeEcosystem(f, earlier, secrets, ic)
+
+		if err := c.writeHeld(ctx, f, newState, reason, link, now); err != nil {
+			log.Warn("sentinel: routing a held finding failed", "finding", f.ID, "error", err)
+
+			continue
+		}
+
+		if newState == state.FindingDrafted {
+			f.State = newState
+			earlier = append(earlier, f)
+		}
+	}
+
+	return nil
+}
+
+// writeHeld writes a held finding's outcome when its state or reason changes.
+func (c *Controller) writeHeld(ctx context.Context, f state.Finding, newState, reason, output string, now time.Time) error {
+	if newState == f.State && reason == f.Reason {
+		return nil
+	}
+
+	if err := c.setFindingOutcome(ctx, f, newState, reason, output, 0, now); err != nil {
+		return fmt.Errorf("set finding outcome: %w", err)
+	}
+
+	return nil
+}
+
+func (c *Controller) secrets() []string {
+	if c.cfg.Secrets == nil {
+		return nil
+	}
+
+	return c.cfg.Secrets()
+}

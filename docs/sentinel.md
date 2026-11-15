@@ -22,6 +22,11 @@ project, written by the agent's `guidance_pr` run kind (see
 `analyse_every_run` on as well (it is off by default), it also analyses every
 finished run for findings (see [Analyses](#analyses)).
 
+While `enabled` and `ecosystem` are on, it also routes the ecosystem findings
+held so far, to a friction card in ContextMatrix's own project or to a drafted
+issue (see [Ecosystem issues](#ecosystem-issues)). The switch is independent of
+`friction`.
+
 ## Settings
 
 The switches, caps and threshold live in one row of the `sentinel_settings`
@@ -687,7 +692,9 @@ stage waits.
    then, on or off, it steps every open analysis (see [Analyses](#analyses)).
 7. While `friction` is on, it routes the queued findings (see
    [Routing findings](#routing-findings)), then reads each project's standing
-   PR (see [Standing PR](#standing-pr)). Then, `friction` on or off, it steps
+   PR (see [Standing PR](#standing-pr)). While `enabled` and `ecosystem` are
+   on, `friction` on or off, it routes the held ecosystem findings (see
+   [Ecosystem issues](#ecosystem-issues)). Then, `friction` on or off, it steps
    each project's guidance revision: one in flight or answered finishes, and a
    new one goes out only while `friction` is on.
 8. It records the status.
@@ -748,6 +755,10 @@ What a heal leaves behind, and where:
   shown to admins only in `multi` mode.
 - Friction cards: new cards for `code` findings (see
   [Routing findings](#routing-findings)).
+- Issue drafts: a `drafted` ecosystem finding's output is a new-issue link for
+  `mhersson/contextmatrix`. CM never posts the issue. With an upstream project
+  on the board, an ecosystem finding becomes a friction card there instead (see
+  [Ecosystem issues](#ecosystem-issues)).
 - The board mark (`marks.go`) and the card's Sentinel tab, both read from the
   latest heal, and the waiting list's Sentinel parks (`CardHolds`). A parked
   mark or hold lasts until the card's next launch. A card made from a finding
@@ -807,6 +818,75 @@ cannot be read leaves its findings queued.
   section. Its first activity entry is `Sentinel created this card from the
   friction a run of <CARD> showed`. The text is not checked: the card is a
   proposal for a human, not an edit to a running card.
+
+### Ecosystem issues
+
+An `ecosystem` finding says the bug lies in ContextMatrix or its ecosystem, not
+in the project. It starts `held`. Once `enabled` and `ecosystem` are both on
+(`Settings.EcosystemIssues`; `friction` may be off, in which case no new
+findings are stored and only those already held route), each pass routes the
+held findings oldest first (`routeHeldFindings`, `ecosystem.go`). Turning the
+switch on starts nothing fresh: it routes what is held. A finding is written
+only when its state or reason changes, and one whose write fails is decided
+again on the next pass.
+
+- **The upstream project** is the first project by name with a repository on
+  `github.com` at `mhersson/contextmatrix`, ignoring case (`upstreamProject`).
+  When the board has one, every held finding goes through the friction-card
+  unit above against that project: a `code` finding's rules and limits apply,
+  with the secret rule's `dropped`. The card is created in the upstream
+  project, whichever project the finding came from, and counts against that
+  project's 5 cards a day. The finding is `carded` with the upstream project
+  as its output project and has no link. At the limit it stays `held` with the
+  reason `today's friction-card limit reached`. A project that cannot be read
+  leaves every finding held.
+- **Without an upstream project**, the finding becomes a draft (`routeEcosystem`,
+  `route.go`; the draft is `issueDraft`, `issue.go`). The checks run in order:
+  - A finding holding a secret is `blocked` with the reason `holds a secret`.
+    The secrets are CM's secret values plus the password of every URL the
+    blocklist reads (the user when it has no password), so a draft quoting a
+    credentialed remote is blocked.
+  - A finding similar (as for guidance) to an earlier `drafted` ecosystem
+    finding of any project is a `duplicate` with the reason
+    `like finding <ID>`; every issue goes to one repository. A `blocked`
+    finding is no duplicate source.
+  - Otherwise the draft is built and the content check runs, and the finding
+    is `drafted` with the link as its output, or `blocked` with the reason
+    `still names <words>`. The reason names the generic words, never the term.
+- **The draft** is a link to `github.com/mhersson/contextmatrix/issues/new`
+  with a title and a body. The title is the finding's title, else the first
+  line of its text, cut to 200 runes. The body is `ContextMatrix <version>`
+  (no line when the version is empty), the text, and `## Evidence` with the
+  evidence when there is any. Card IDs of every project's prefix become `a card`
+  and each `human:<name>` identity becomes `a user`, in both auth modes. Then
+  every blocklist term is replaced, whole-word and ignoring case (letters and
+  digits are word characters, so `-`, `_`, `.` and `/` bound a hit), with a
+  generic word: `a project` for a project's name and display name, `a card` for
+  its prefix, `a repository` for a repository's URL, owner and name, and `a host` for a
+  hostname or a URL that is no repository. A name inside a longer word is left alone.
+- **The blocklist** (`issueTerms`, `blocklist.go`) is built from the board
+  and the config as they are when the finding is routed: each project's name,
+  display name and prefix; each repository's URL, owner, name and host; the
+  GitHub import owner and repo; the registry host of the project's worker
+  image and chat worker image; every URL and host the config holds
+  (`Config.LocationValues`); and the config's own git remotes
+  (`Config.RepoURLs`). The public ecosystem is exempt: owner `mhersson`, host
+  `github.com`, and the repositories `contextmatrix`, `contextmatrix-agent`,
+  `contextmatrix-architect`, `contextmatrix-backendkit`, `contextmatrix-chat`,
+  `contextmatrix-harness`, `contextmatrix-protocol`, `contextmatrix-setup` and
+  `contextmatrix-vendorkit`. Credentials in a URL are never terms; they count
+  as secrets and block.
+- **The recheck** reads the final title and the trimmed body exactly as the
+  link carries them, and blocks on any term that remains. It skips terms made
+  only of the generic phrases' own words, so a project named `web` still
+  drafts.
+- **The link limit** is 8000 bytes for the whole URL. A longer body is cut at
+  whitespace, so the last kept word is whole, and ends with the line
+  `_Trimmed to fit GitHub's new-issue link._`.
+- **A draft is built once**, when its finding is routed, and is not rebuilt
+  when the board changes later. `drafted` and `blocked` are final.
+- **An investigation's `ecosystem` diagnosis** gets no draft of its own: only
+  its `ecosystem` findings do.
 
 ### Standing PR
 
@@ -1121,7 +1201,7 @@ the next pass.
 | ------------------------------------------- | ----- |
 | `internal/sentinel/state/settings.go`       | `Settings`, the defaults, validation and `Analyses`, whether analyses run |
 | `internal/sentinel/state/state.go`          | The durable-state types: the run row (`Run`, `LaunchFacts`), launch origins, the caps, the work rows (`Heal` with its kinds and stages, `TerminalStages`, `Dispatch`, `Change`), the findings (`Finding`, the finding states, `InitialFindingState`), `RunKindReport`, and the standing PR record (`StandingPR` and its states) |
-| `internal/sentinel/controller.go`           | The loop: `Start`, `Shutdown`, `Nudge`, `Status`, the panic-safe pass and the wake-up filter; the `Store`, `Channel`, `Backend`, `Cards`, `Playbooks`, `PlaybookRunner` and `GitHub` it uses, `GuidanceBase`, and the setters the router wires them with (`SetRunKindBase`, `SetGitHub`, `SetGuidanceBase`, `SetRelauncher`) |
+| `internal/sentinel/controller.go`           | The loop: `Start`, `Shutdown`, `Nudge`, `Status`, the panic-safe pass and the wake-up filter; the `Store`, `Channel`, `Backend`, `Cards`, `Playbooks`, `PlaybookRunner` and `GitHub` it uses, `Config` with its `Secrets`, `Locations`, `RepoURLs` and `Version` inputs, `GuidanceBase`, and the setters the router wires them with (`SetRunKindBase`, `SetGitHub`, `SetGuidanceBase`, `SetRelauncher`) |
 | `internal/sentinel/pass.go`                 | One pass: read the gate's inputs, the open heals and analyses and every row with a run kind in flight; `readHealth`, the one health read a pass makes (also for a revision), and `mayDispatchAny`; `sent`, the slot and spend accounting every flow shares; expire the silent run kinds of finished rows of every kind; build each heal's view and act on its step; consider undecided runs; then the analyses, routing, the standing PRs and the revisions; record the status |
 | `internal/sentinel/trigger.go`              | The pure triggers: `causeKey` (settled and cause), `settledRun`, `eligible`, and `openStage` (the stage a new heal opens at) |
 | `internal/sentinel/causes.go`               | The cause table: one row per cause, `responseFor` |
@@ -1152,8 +1232,12 @@ the next pass.
 | `internal/sentinel/outcome.go`              | The ends of a heal: `park` (with its activity entry, `activityText`), `parkUnreported` and, for a finished row, `failUnreported` (each with the ceiling charge), and `closeHeal`; and the writes that announce each change a Sentinel view reads: `saveStage`, `saveHeal`, `openHeal`, `queueAnalysis`, `openRevision`, `setFindingOutcome` and `putStandingPR` |
 | `internal/sentinel/analysis.go`             | The pure `queueStep`, what the analysis queue does with one unqueued run, and the pure `nextAnalysis` over an `analysisView`, one rule per exit |
 | `internal/sentinel/analyses.go`             | `queueAnalyses`: read each unqueued run's card, then mark it queued or store its analysis row; `advanceAnalyses`: read each open analysis's view and act on its step |
-| `internal/sentinel/route.go`                | The pure routing: `routeGuidance`, `routeCode` and `frictionCardInput` |
-| `internal/sentinel/outputs.go`              | `routeFindings`: read the queued findings and each project's friction cards, guidance and today's count, apply the decisions and write the outcomes |
+| `internal/sentinel/route.go`                | The pure routing: `routeGuidance`, `routeCode`, `routeEcosystem`, `upstreamProject` and `frictionCardInput` |
+| `internal/sentinel/outputs.go`              | `routeFindings`: read the queued findings and each project's friction cards, guidance and today's count, apply the decisions and write the outcomes; `readRouting` and `createFrictionCard`, which the ecosystem path shares |
+| `internal/sentinel/ecosystem.go`            | `routeHeldFindings`: read the held findings and the board, then card them in the upstream project or draft them, and write the outcomes |
+| `internal/sentinel/blocklist.go`            | The blocklist: `issueTerms` over `termSources`, `urlSecrets`, and the whole-word `redactTerms` and `namesTerm` |
+| `internal/sentinel/issue.go`                | The pure draft: `issueDraft`, `issueBody`, `newIssueURL` and `fitIssue`, which trims the body to the link limit |
+| `internal/config/locations.go`              | `Config.LocationValues` (every URL and host the config holds) and `Config.RepoURLs` (its own git remotes), the blocklist's config inputs |
 | `internal/sentinel/dedup.go`                | The pure `similar`: word 3-shingle Jaccard or containment between two texts |
 | `internal/sentinel/safety.go`               | `holdsSecret` and `redactCardIDs`: what keeps a secret, a card ID or a card-run branch out of published text; `published` and `publishedText`, a finding as Sentinel publishes it, which packing and settling share |
 | `internal/sentinel/standing_pr.go`          | The pure `prState` and `mergedFates` |
