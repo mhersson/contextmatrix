@@ -994,7 +994,7 @@ export interface SentinelFindingView {
   state: SentinelFindingState;
   reason: string;
   output: string;
-  /** The project an output card lives in, when it is not the finding's own. */
+  /** The project an output card lives in; absent means the finding's own. */
   output_project?: string;
   kind: SentinelFindingKind;
   title: string;

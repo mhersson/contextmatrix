@@ -184,7 +184,7 @@ type cardSentinelFinding struct {
 	State  string `json:"state"`
 	Reason string `json:"reason"`
 	Output string `json:"output"`
-	// OutputProject is the project a card output lives in; omitted when it is the finding's own.
+	// OutputProject is the project a card output lives in; omitted when the row records none.
 	OutputProject string `json:"output_project,omitempty"`
 	Kind          string `json:"kind"`
 	Title         string `json:"title"`

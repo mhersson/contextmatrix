@@ -878,8 +878,8 @@ again on the next pass.
   as secrets and block.
 - **The recheck** reads the final title and the trimmed body exactly as the
   link carries them, and blocks on any term that remains. It skips terms made
-  only of the generic phrases' own words, so a project named `web` still
-  drafts.
+  only of the generic phrases' own words, so a project named `card` or `a`
+  still drafts.
 - **The link limit** is 8000 bytes for the whole URL. A longer body is cut at
   whitespace, so the last kept word is whole, and ends with the line
   `_Trimmed to fit GitHub's new-issue link._`.
@@ -1239,7 +1239,7 @@ the next pass.
 | `internal/sentinel/issue.go`                | The pure draft: `issueDraft`, `issueBody`, `newIssueURL` and `fitIssue`, which trims the body to the link limit |
 | `internal/config/locations.go`              | `Config.LocationValues` (every URL and host the config holds) and `Config.RepoURLs` (its own git remotes), the blocklist's config inputs |
 | `internal/sentinel/dedup.go`                | The pure `similar`: word 3-shingle Jaccard or containment between two texts |
-| `internal/sentinel/safety.go`               | `holdsSecret` and `redactCardIDs`: what keeps a secret, a card ID or a card-run branch out of published text; `published` and `publishedText`, a finding as Sentinel publishes it, which packing and settling share |
+| `internal/sentinel/safety.go`               | `holdsSecret` and `redactCardIDs`: what keeps a secret, a card ID or a card-run branch out of published text; `redactUsers`, which keeps `human:<name>` identities out of an issue draft; `published` and `publishedText`, a finding as Sentinel publishes it, which packing and settling share |
 | `internal/sentinel/standing_pr.go`          | The pure `prState` and `mergedFates` |
 | `internal/sentinel/standing_prs.go`         | `readStandingPRs` and `readStandingPR`: read a due PR from GitHub, settle a merged or closed PR's proposed findings (`settleFindings`), save the state; `projectPrefixes` |
 | `internal/sentinel/guidance_pack.go`        | The pure builders of the guidance PR: `packSection`, `tooLong`, `prTitle`, `prBody` (with its count line, `unlisted`) and `withIDs` |
