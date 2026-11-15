@@ -178,7 +178,7 @@ func (s *CardService) SetPlaybookLister(l PlaybookLister) {
 type ParkResetStore interface {
 	PutParkReset(ctx context.Context, project, cardID string, resetsAt time.Time) error
 	ClearParkReset(ctx context.Context, project, cardID string) error
-	ParkResets(ctx context.Context, project string) (map[string]time.Time, error)
+	ParkResets(ctx context.Context, project string) (map[string]board.ParkReset, error)
 }
 
 // SetParkResetStore wires the usage-limit reset store. Nil-safe: without one,
@@ -273,8 +273,8 @@ func (s *CardService) enrichParkResets(ctx context.Context, project string, card
 	}
 
 	for _, c := range cards {
-		if at, ok := resets[c.ID]; ok && c.WorkerStatus == "parked" {
-			c.ParkResetsAt = &at
+		if r, ok := resets[c.ID]; ok && c.WorkerStatus == "parked" && !c.CreatedAfter(r.RecordedAt) {
+			c.ParkResetsAt = &r.ResetsAt
 		}
 	}
 }

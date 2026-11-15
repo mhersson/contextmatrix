@@ -237,6 +237,8 @@ time ignores nothing.
   `CardHolds` lists the project's cards once a latest heal exists.
 - The card's Sentinel view (`GET /api/projects/{project}/cards/{id}/sentinel`)
   leaves out the run row, heals, analyses and findings older than the card.
+- A card's park reset time (`park_resets_at`) is shown only when recorded
+  after the card was created.
 
 ## Analyses
 

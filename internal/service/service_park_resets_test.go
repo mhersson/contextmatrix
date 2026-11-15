@@ -9,25 +9,26 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 type fakeParkResets struct {
 	mu        sync.Mutex
-	rows      map[string]time.Time
+	rows      map[string]board.ParkReset
 	listCalls int
 }
 
 func newFakeParkResets() *fakeParkResets {
-	return &fakeParkResets{rows: map[string]time.Time{}}
+	return &fakeParkResets{rows: map[string]board.ParkReset{}}
 }
 
 func (f *fakeParkResets) PutParkReset(_ context.Context, project, cardID string, at time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	f.rows[project+"/"+cardID] = at
+	f.rows[project+"/"+cardID] = board.ParkReset{ResetsAt: at, RecordedAt: time.Now()}
 
 	return nil
 }
@@ -41,13 +42,13 @@ func (f *fakeParkResets) ClearParkReset(_ context.Context, project, cardID strin
 	return nil
 }
 
-func (f *fakeParkResets) ParkResets(_ context.Context, project string) (map[string]time.Time, error) {
+func (f *fakeParkResets) ParkResets(_ context.Context, project string) (map[string]board.ParkReset, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	f.listCalls++
 
-	out := map[string]time.Time{}
+	out := map[string]board.ParkReset{}
 
 	for k, v := range f.rows {
 		if len(k) > len(project)+1 && k[:len(project)+1] == project+"/" {
@@ -272,6 +273,51 @@ func TestParkResets_OnlyParkedCardsEnriched(t *testing.T) {
 			require.NotNil(t, c.ParkResetsAt)
 		} else {
 			assert.Nil(t, c.ParkResetsAt)
+		}
+	}
+}
+
+func TestParkResets_RowOlderThanCardIgnored(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	fake := newFakeParkResets()
+	svc.SetParkResetStore(fake)
+
+	reused := claimedCard(t, svc)
+	own := claimedCard(t, svc)
+	resets := time.Now().Add(time.Hour)
+
+	for _, id := range []string{reused, own} {
+		_, err := svc.ReportParked(ctx, "test-project", id, "agent-1", "usage limit", &resets)
+		require.NoError(t, err)
+	}
+
+	// The reused ID's row was recorded before its card was created.
+	fake.mu.Lock()
+	r := fake.rows["test-project/"+reused]
+	r.RecordedAt = time.Now().Add(-time.Hour)
+	fake.rows["test-project/"+reused] = r
+	fake.mu.Unlock()
+
+	got, err := svc.GetCard(ctx, "test-project", reused)
+	require.NoError(t, err)
+	assert.Nil(t, got.ParkResetsAt)
+
+	got, err = svc.GetCard(ctx, "test-project", own)
+	require.NoError(t, err)
+	require.NotNil(t, got.ParkResetsAt)
+
+	listed, err := svc.ListCards(ctx, "test-project", storage.CardFilter{})
+	require.NoError(t, err)
+	require.Len(t, listed, 2)
+
+	for _, c := range listed {
+		if c.ID == reused {
+			assert.Nil(t, c.ParkResetsAt)
+		} else {
+			assert.NotNil(t, c.ParkResetsAt)
 		}
 	}
 }
