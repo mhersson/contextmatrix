@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -137,7 +138,9 @@ func (c *backendClient) SendChatMessage(ctx context.Context, msg protocol.Messag
 // is constructed without a timeout for this call because the SSE connection
 // is long-lived; cancellation is via ctx.
 func (c *backendClient) StreamLogs(ctx context.Context, sessionID string, onEntry func(LogEntry)) error {
-	fullURL := c.baseURL + "/logs?session_id=" + url.QueryEscape(sessionID)
+	// The nonce keeps a same-second reconnect from replaying a signature.
+	q := url.Values{"session_id": {sessionID}, "nonce": {rand.Text()}}
+	fullURL := c.baseURL + "/logs?" + q.Encode()
 
 	parsed, err := url.Parse(fullURL)
 	if err != nil {

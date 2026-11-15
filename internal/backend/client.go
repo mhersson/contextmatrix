@@ -398,12 +398,22 @@ func (c *Client) post(ctx context.Context, rawURL string, payload any, tries int
 }
 
 // sendGet signs and performs a GET against rawURL, returning the raw response
-// body. GET requests sign an empty body under the same HMAC scheme the
-// backend accepts on POST endpoints, so the existing replay/skew protections
-// apply uniformly. Errors are not retried here: the reconcile sweep calls
-// this on a 60s tick and a transient failure is better surfaced than
-// silently retried (the next tick retries anyway).
+// body. GETs sign an empty body with a random nonce in the query, so two
+// same-second reads of one path sign differently and both pass the receiver's
+// replay cache. Errors are not retried here: the reconcile sweep calls this on
+// a 60s tick and a transient failure is better surfaced than silently retried
+// (the next tick retries anyway).
 func (c *Client) sendGet(ctx context.Context, rawURL string) ([]byte, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse url %q: %w", rawURL, err)
+	}
+
+	q := u.Query()
+	q.Set("nonce", crand.Text())
+	u.RawQuery = q.Encode()
+	rawURL = u.String()
+
 	uri, err := requestURI(rawURL)
 	if err != nil {
 		return nil, err

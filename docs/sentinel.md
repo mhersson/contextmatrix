@@ -868,11 +868,12 @@ repo names stay.
 The agent appends the section's lines as plain text at the end of the
 project's instruction file, with no heading or markers, so nothing in the
 file names CM.
-The title is `Sentinel guidance for <project>`. The body is one intro line,
-then per finding an item with its text's first line and, indented below it,
-`Evidence: ` with its evidence's first line, each cut to 300 runes. Items stop
-before the body would pass the agent's 60 KiB limit (`maxBodyBytes`), and a
-last line counts the findings of the section left out.
+The title is `Sentinel guidance for <project>`, with a name that would push it
+past the agent's 256-byte limit cut at a rune boundary and ended in `...`. The
+body is one intro line, then per finding an item with its text's first line
+and, indented below it, `Evidence: ` with its evidence's first line, each cut
+to 300 runes. Items stop before the body would pass the agent's 60 KiB limit
+(`maxBodyBytes`), and a last line counts the findings of the section left out.
 
 The pass opens the project's revision row with the findings it packed, or
 reuses the open row that was never sent (the agent was busy, had no run kinds,
