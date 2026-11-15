@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { SentinelFindingView } from '../../../../types';
-import { findingLabel, findingOutcome, noteLabel, stateWord } from '../../../../lib/sentinel';
-import { CaretHeader, Empty, ExpandRow, ExternalLink, Heading, Pill, Table } from './SentinelParts';
+import { findingLabel, findingOutcome, issueDraft, noteLabel, stateWord } from '../../../../lib/sentinel';
+import { CaretHeader, DetailLabel, Empty, ExpandRow, ExternalLink, Heading, Pill, Table } from './SentinelParts';
 
 function Outcome({ finding, project, prURL }: { finding: SentinelFindingView; project: string; prURL?: string }) {
   const outcome = findingOutcome(finding, project, prURL);
@@ -17,6 +17,26 @@ function Outcome({ finding, project, prURL }: { finding: SentinelFindingView; pr
     );
   }
   return <p className="snt-outcome">{line}</p>;
+}
+
+function IssueDraftBlock({ finding }: { finding: SentinelFindingView }) {
+  const draft = issueDraft(finding);
+  if (!draft) return null;
+  return (
+    <div className="flex flex-col gap-1">
+      <DetailLabel>Issue draft</DetailLabel>
+      <p className="font-medium">{draft.title}</p>
+      <p className="snt-text">{draft.body}</p>
+      <div>
+        <a href={draft.url} target="_blank" rel="noopener noreferrer" className="bf-btn-primary">
+          Report to ContextMatrix
+        </a>
+      </div>
+      <p className="text-xs" style={{ color: 'var(--grey1)' }}>
+        Opens GitHub&apos;s new-issue page signed in as you. Read it before you submit.
+      </p>
+    </div>
+  );
 }
 
 interface FindingProps {
@@ -40,6 +60,7 @@ function FindingRow({ finding: f, project, prURL }: FindingProps & { finding: Se
     >
       <p className="snt-text">{f.text}</p>
       {f.evidence && <pre className="snt-evidence">{f.evidence}</pre>}
+      <IssueDraftBlock finding={f} />
       <Outcome finding={f} project={project} prURL={prURL} />
     </ExpandRow>
   );

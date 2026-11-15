@@ -892,6 +892,7 @@ export interface SentinelSettings {
   enabled: boolean;
   healing: boolean;
   friction: boolean;
+  ecosystem: boolean;
   daily_cap_usd: number;
   investigate_ceiling_usd: number;
   headroom: number;
@@ -981,6 +982,8 @@ export type SentinelFindingState =
   | 'duplicate'
   | 'dropped'
   | 'carded'
+  | 'drafted'
+  | 'blocked'
   | 'note'
   | 'held'
   | '';
@@ -991,6 +994,8 @@ export interface SentinelFindingView {
   state: SentinelFindingState;
   reason: string;
   output: string;
+  /** The project an output card lives in, when it is not the finding's own. */
+  output_project?: string;
   kind: SentinelFindingKind;
   title: string;
   text: string;
