@@ -164,6 +164,8 @@ const (
 	FindingCarded    = "carded"
 	FindingNote      = "note"
 	FindingHeld      = "held"
+	FindingDrafted   = "drafted"
+	FindingBlocked   = "blocked"
 )
 
 // InitialFindingState is the state a finding of kind is stored in: guidance
@@ -186,7 +188,8 @@ type Finding struct {
 	Project, CardID             string
 	Kind, Title, Text, Evidence string
 	State, Reason, Output       string
-	RevisionID                  int64 // the revision row that held it
+	OutputProject               string // the project Output lives in; empty means Project
+	RevisionID                  int64  // the revision row that held it
 	CreatedAt, UpdatedAt        time.Time
 }
 

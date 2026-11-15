@@ -355,3 +355,29 @@ func TestTurningEcosystemOnStartsNothingFresh(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, undecided, 1)
 }
+
+func TestSentinelFindingsGrowOutputProjectWithoutABump(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ops.db")
+
+	s, err := Open(path)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	db, err := sql.Open("sqlite", sqliteutil.DSN(path, sqliteutil.WithForeignKeys()))
+	require.NoError(t, err)
+
+	_, err = db.Exec("ALTER TABLE sentinel_findings DROP COLUMN output_project")
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	st, err := Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = st.Close() })
+
+	assert.True(t, columnExists(t, st.db, "sentinel_findings", "output_project"))
+
+	var v int
+
+	require.NoError(t, st.db.QueryRow("PRAGMA user_version").Scan(&v))
+	assert.Equal(t, 6, v)
+}

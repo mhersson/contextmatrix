@@ -154,8 +154,8 @@ run-kind intake records results, findings and spend on them.
   `rerun_failed`, `parked` and `closed` end a heal; `forward_passed` and
   `forward_failed` end a forward row.
 - `sentinel_findings`: the friction findings an investigation or analysis
-  reported, each with its routing state, reason and output (see
-  [Routing findings](#routing-findings)).
+  reported, each with its routing state, reason, output and the project the
+  output lives in (see [Routing findings](#routing-findings)).
 - `sentinel_spend`: the spend ledger, one row per charge with the LLM channel
   mode it ran on and, for a run kind's status, its run ID.
 - `sentinel_standing_prs`: one row per project for its standing guidance PR (see
@@ -794,9 +794,11 @@ cannot be read leaves its findings queued.
   are equal after normalisation or title and text are similar to the card's.
   A card moved to `not_planned` therefore counts as rejected. Otherwise, while
   fewer than 5 findings of the project became cards since 00:00 UTC, it becomes
-  `carded` and a card is created, and its ID is the finding's output. At the
-  limit the finding stays `queued` with the reason `today's friction-card limit
-  reached` and is decided again the next day.
+  `carded` and a card is created, and its ID is the finding's output and its
+  project the finding's output project. The limit counts the cards created in
+  the project, whichever project's finding they came from. At the limit the
+  finding stays `queued` with the reason `today's friction-card limit reached`
+  and is decided again the next day.
 - The friction card is created through the card service as `system:sentinel`,
   labelled `sentinel-friction`, never autonomous, in `todo`. Its title is the
   finding's title, else the first line of its text cut to 200 runes. Its type
@@ -1161,7 +1163,7 @@ the next pass.
 | `internal/sentinel/revisions.go`            | `advanceRevisions`: read each project's view and act on its step; `dispatchRevision` (dropping findings too long for a section, packing from the pass's view, the forced PR read, packing again, the row, the send, or ending the row failed when the read fails (`failUnread`) or its payload cannot be filled (`failUnsent`)) and `endRevision`, which does what each outcome asks and ends a refusal that changed nothing failed |
 | `internal/opstore/sqlite/sentinel.go`       | The settings row and the subscription windows the controller reads |
 | `internal/opstore/sqlite/card_runs.go`      | The run row, with the decided and analysis-queued marks |
-| `internal/opstore/sqlite/sentinel_heals.go` | The work rows of every kind and their kind-filtered readers (heals, forwards, analyses, and revisions: `OpenRevision`, `OpenRevisions`, `LastRefusedRevision`, `LastFailedRevision`, `LastRevisedRevision`, `LastRevision`), findings (`PendingFindings`, `Findings` by ID whatever the state) and the spend ledger |
+| `internal/opstore/sqlite/sentinel_heals.go` | The work rows of every kind and their kind-filtered readers (heals, forwards, analyses, and revisions: `OpenRevision`, `OpenRevisions`, `LastRefusedRevision`, `LastFailedRevision`, `LastRevisedRevision`, `LastRevision`), findings (`PendingFindings`, `HeldFindings`, `DraftedFindings`, `CardFinding`, `Findings` by ID whatever the state) and the spend ledger |
 | `internal/opstore/sqlite/sentinel_prs.go`   | The `sentinel_standing_prs` store methods |
 | `internal/api/backend_runkind.go`           | `runKindBase`: a run kind's common payload fields and its contents-read token; `guidanceBase`: a `guidance_pr` run's payload fields and its write token; `sentinelRelaunch`: Sentinel's launch of a rerun |
 | `internal/api/sentinel.go`                  | The `/api/sentinel` settings and status endpoints and the per-card view: the run, heals, analyses, findings, the project's standing PR and its newest revision when that ended without going out |

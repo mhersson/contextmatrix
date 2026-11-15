@@ -1507,3 +1507,103 @@ func TestRerouteFindingMovesKindStateAndReasonTogether(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, pending)
 }
+
+func TestCardFindingRecordsTheCardsProject(t *testing.T) {
+	ctx := context.Background()
+	st := openLadderStore(t)
+
+	healID, err := st.OpenHeal(ctx, state.Heal{Kind: state.HealKindHeal, Project: "app", CardID: "APP-001", RunStarted: runT0})
+	require.NoError(t, err)
+
+	at := runT0.Add(time.Hour)
+	require.NoError(t, st.AddFindings(ctx, healID, "app", "APP-001",
+		[]protocol.FrictionFinding{{Kind: protocol.FindingEcosystem, Text: "a", Evidence: "e"}}, at))
+
+	require.NoError(t, st.CardFinding(ctx, 1, "cm", "CM-4", at))
+
+	n, err := st.CardedSince(ctx, "cm", at.Add(-time.Hour))
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+
+	n, err = st.CardedSince(ctx, "app", at.Add(-time.Hour))
+	require.NoError(t, err)
+	assert.Zero(t, n)
+
+	carded, err := st.CardedFindings(ctx, "cm")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]bool{"CM-4": true}, carded)
+
+	carded, err = st.CardedFindings(ctx, "app")
+	require.NoError(t, err)
+	assert.Empty(t, carded)
+
+	got, err := st.Findings(ctx, []int64{1})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "cm", got[0].OutputProject)
+	assert.Equal(t, state.FindingCarded, got[0].State)
+	assert.Equal(t, "CM-4", got[0].Output)
+}
+
+func TestCardedSinceCountsARowWithoutAnOutputProjectByItsOwn(t *testing.T) {
+	ctx := context.Background()
+	st := openLadderStore(t)
+
+	healID, err := st.OpenHeal(ctx, state.Heal{Kind: state.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0})
+	require.NoError(t, err)
+
+	at := runT0.Add(time.Hour)
+	require.NoError(t, st.AddFindings(ctx, healID, "p", "P-001",
+		[]protocol.FrictionFinding{{Kind: protocol.FindingCode, Text: "a", Evidence: "e"}}, at))
+	require.NoError(t, st.SetFindingOutcome(ctx, 1, state.FindingCarded, "", "P-009", 0, at))
+
+	n, err := st.CardedSince(ctx, "p", at.Add(-time.Hour))
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+
+	carded, err := st.CardedFindings(ctx, "p")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]bool{"P-009": true}, carded)
+}
+
+func TestHeldFindingsAreHeldEcosystemOldestFirst(t *testing.T) {
+	ctx := context.Background()
+	st := openLadderStore(t)
+
+	healID, err := st.OpenHeal(ctx, state.Heal{Kind: state.HealKindHeal, Project: "p", CardID: "P-001", RunStarted: runT0})
+	require.NoError(t, err)
+
+	at := runT0.Add(time.Hour)
+	eco := protocol.FrictionFinding{Kind: protocol.FindingEcosystem, Text: "e", Evidence: "e"}
+	fs := []protocol.FrictionFinding{
+		eco,
+		{Kind: protocol.FindingHardCard, Text: "n", Evidence: "e"},
+		{Kind: protocol.FindingCode, Text: "c", Evidence: "e"},
+		eco,
+	}
+	require.NoError(t, st.AddFindings(ctx, healID, "p", "P-001", fs, at))
+	require.NoError(t, st.AddFindings(ctx, healID, "q", "Q-001", []protocol.FrictionFinding{eco}, at))
+	require.NoError(t, st.SetFindingOutcome(ctx, 5, state.FindingDrafted, "", "https://example.test/new", 0, at))
+	require.NoError(t, st.AddFindings(ctx, healID, "p", "P-001", []protocol.FrictionFinding{eco}, at))
+	require.NoError(t, st.SetFindingOutcome(ctx, 6, state.FindingDrafted, "", "https://example.test/new", 0, at))
+
+	held, err := st.HeldFindings(ctx)
+	require.NoError(t, err)
+
+	var ids []int64
+	for _, f := range held {
+		ids = append(ids, f.ID)
+	}
+
+	assert.Equal(t, []int64{1, 4}, ids)
+
+	drafted, err := st.DraftedFindings(ctx)
+	require.NoError(t, err)
+
+	ids = nil
+	for _, f := range drafted {
+		ids = append(ids, f.ID)
+	}
+
+	assert.Equal(t, []int64{5, 6}, ids, "drafted rows of every project, in ID order")
+}

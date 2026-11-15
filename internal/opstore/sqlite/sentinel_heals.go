@@ -525,7 +525,7 @@ func (s *Store) RunHeal(ctx context.Context, project, cardID string, started tim
 	return &heals[0], nil
 }
 
-const findingColumns = `id, heal_id, project, card_id, kind, title, text, evidence, state, reason, output, revision_id,
+const findingColumns = `id, heal_id, project, card_id, kind, title, text, evidence, state, reason, output, output_project, revision_id,
 	created_at, updated_at`
 
 // QueuedFindings returns the findings waiting to be routed, oldest first.
@@ -546,14 +546,18 @@ func (s *Store) ProposedFindings(ctx context.Context, project string) ([]state.F
 	return s.queryFindings(ctx, `project = ? AND kind = 'guidance' AND state = 'proposed' ORDER BY id`, project)
 }
 
-// CardedSince counts the project's findings that became friction cards at or
-// after since.
+// livesIn selects the findings whose output card lives in the bound project;
+// a row without an output project lives in its own.
+const livesIn = `(output_project = ? OR (output_project = '' AND project = ?))`
+
+// CardedSince counts the findings whose friction cards live in the project and
+// were created at or after since.
 func (s *Store) CardedSince(ctx context.Context, project string, since time.Time) (int, error) {
 	var n int
 
 	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM sentinel_findings WHERE project = ? AND state = 'carded' AND updated_at >= ?`,
-		project, unixNano(since)).Scan(&n)
+		`SELECT COUNT(*) FROM sentinel_findings WHERE `+livesIn+` AND state = 'carded' AND updated_at >= ?`,
+		project, project, unixNano(since)).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count carded findings: %w", err)
 	}
@@ -561,11 +565,11 @@ func (s *Store) CardedSince(ctx context.Context, project string, since time.Time
 	return n, nil
 }
 
-// CardedFindings returns the IDs of the project's cards Sentinel created from
-// a finding.
+// CardedFindings returns the IDs of the cards in the project that Sentinel
+// created from a finding.
 func (s *Store) CardedFindings(ctx context.Context, project string) (map[string]bool, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT output FROM sentinel_findings WHERE project = ? AND state = 'carded' AND output != ''`, project)
+		`SELECT output FROM sentinel_findings WHERE `+livesIn+` AND state = 'carded' AND output != ''`, project, project)
 	if err != nil {
 		return nil, fmt.Errorf("list carded findings: %w", err)
 	}
@@ -602,6 +606,31 @@ func (s *Store) SetFindingOutcome(ctx context.Context, id int64, st, reason, out
 	return nil
 }
 
+// CardFinding moves a finding to carded with the card that holds it and the
+// project the card lives in.
+func (s *Store) CardFinding(ctx context.Context, id int64, project, cardID string, at time.Time) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE sentinel_findings SET state = 'carded', reason = '', output = ?, output_project = ?, updated_at = ? WHERE id = ?`,
+		cardID, project, unixNano(at), id)
+	if err != nil {
+		return fmt.Errorf("card finding: %w", err)
+	}
+
+	return nil
+}
+
+// HeldFindings returns the ecosystem findings waiting for the ecosystem
+// output, oldest first.
+func (s *Store) HeldFindings(ctx context.Context) ([]state.Finding, error) {
+	return s.queryFindings(ctx, `kind = 'ecosystem' AND state = 'held' ORDER BY id`)
+}
+
+// DraftedFindings returns every project's ecosystem findings that have a
+// drafted issue, oldest first.
+func (s *Store) DraftedFindings(ctx context.Context) ([]state.Finding, error) {
+	return s.queryFindings(ctx, `kind = 'ecosystem' AND state = 'drafted' ORDER BY id`)
+}
+
 // RerouteFinding changes a finding's kind together with its state and reason,
 // so no reader sees it half moved.
 func (s *Store) RerouteFinding(ctx context.Context, id int64, kind, st, reason string, at time.Time) error {
@@ -632,7 +661,7 @@ func (s *Store) queryFindings(ctx context.Context, where string, args ...any) ([
 		)
 
 		if err := rows.Scan(&f.ID, &f.HealID, &f.Project, &f.CardID, &f.Kind, &f.Title, &f.Text, &f.Evidence,
-			&f.State, &f.Reason, &f.Output, &f.RevisionID, &created, &updated); err != nil {
+			&f.State, &f.Reason, &f.Output, &f.OutputProject, &f.RevisionID, &created, &updated); err != nil {
 			return nil, fmt.Errorf("list findings: %w", err)
 		}
 
