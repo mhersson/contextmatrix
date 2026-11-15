@@ -65,3 +65,50 @@ func holdsSecret(text string, secrets []string) bool {
 
 	return false
 }
+
+const wordUser = "a user"
+
+var userPrefix = []rune("human:")
+
+// redactUsers replaces each whole-word human:<name> identity with "a user",
+// ignoring case; it needs no user roster, so both auth modes redact alike.
+func redactUsers(text string) string {
+	runes := []rune(text)
+
+	var out strings.Builder
+
+	for i := 0; i < len(runes); {
+		if n := userLen(runes, i); n > 0 {
+			out.WriteString(wordUser)
+
+			i += n
+
+			continue
+		}
+
+		out.WriteRune(runes[i])
+		i++
+	}
+
+	return out.String()
+}
+
+// userLen is the length of the identity at runes[i:], or 0. A name is a run of
+// word runes, ".", "_" and "-" that starts and ends with a word rune.
+func userLen(runes []rune, i int) int {
+	start := i + len(userPrefix)
+	if !foldAt(runes, userPrefix, i) || !wordStartAt(runes, i) || start >= len(runes) || !isWordRune(runes[start]) {
+		return 0
+	}
+
+	end := start
+	for end < len(runes) && (isWordRune(runes[end]) || strings.ContainsRune("._-", runes[end])) {
+		end++
+	}
+
+	for !isWordRune(runes[end-1]) {
+		end--
+	}
+
+	return end - i
+}

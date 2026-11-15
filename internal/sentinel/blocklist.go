@@ -383,8 +383,12 @@ func replaceWord(text, needle []rune, holder rune) []rune {
 
 // wholeWordAt reports whether needle sits at text[i:] with no letter or digit on either side.
 func wholeWordAt(text, needle []rune, i int) bool {
-	end := i + len(needle)
-	if end > len(text) {
+	return foldAt(text, needle, i) && wordStartAt(text, i) && wordEndAt(text, i+len(needle))
+}
+
+// foldAt reports whether needle sits at text[i:], ignoring case.
+func foldAt(text, needle []rune, i int) bool {
+	if i+len(needle) > len(text) {
 		return false
 	}
 
@@ -394,8 +398,12 @@ func wholeWordAt(text, needle []rune, i int) bool {
 		}
 	}
 
-	return (i == 0 || !isWordRune(text[i-1])) && (end == len(text) || !isWordRune(text[end]))
+	return true
 }
+
+func wordStartAt(text []rune, i int) bool { return i == 0 || !isWordRune(text[i-1]) }
+
+func wordEndAt(text []rune, end int) bool { return end == len(text) || !isWordRune(text[end]) }
 
 func isWordRune(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }
 

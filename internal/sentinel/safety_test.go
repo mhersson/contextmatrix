@@ -56,3 +56,26 @@ func TestHoldsSecret(t *testing.T) {
 		})
 	}
 }
+
+func TestRedactUsers(t *testing.T) {
+	tests := []struct{ name, text, want string }{
+		{"a user", "approved by human:alice", "approved by a user"},
+		{"dots and dashes", "human:alice.b-c edited it", "a user edited it"},
+		{"alone", "human:alice", "a user"},
+		{"trailing dot", "see human:bob.", "see a user."},
+		{"upper case", "HUMAN:Alice moved it", "a user moved it"},
+		{"parenthesised", "(human:carol_d)", "(a user)"},
+		{"underscore before", "_human:alice", "_a user"},
+		{"letter before", "xhuman:alice", "xhuman:alice"},
+		{"no name", "human: alone", "human: alone"},
+		{"non-ascii name", "human:jørgen", "a user"},
+		{"trailing dash", "human:alice-", "a user-"},
+		{"other identity", "system:sentinel wrote it", "system:sentinel wrote it"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, redactUsers(tt.text))
+		})
+	}
+}
