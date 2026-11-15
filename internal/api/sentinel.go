@@ -180,11 +180,10 @@ type cardSentinelRevision struct {
 }
 
 type cardSentinelFinding struct {
-	ID     int64  `json:"id"`
-	State  string `json:"state"`
-	Reason string `json:"reason"`
-	Output string `json:"output"`
-	// OutputProject is the project a card output lives in; omitted when the row records none.
+	ID            int64  `json:"id"`
+	State         string `json:"state"`
+	Reason        string `json:"reason"`
+	Output        string `json:"output"`
 	OutputProject string `json:"output_project,omitempty"`
 	Kind          string `json:"kind"`
 	Title         string `json:"title"`

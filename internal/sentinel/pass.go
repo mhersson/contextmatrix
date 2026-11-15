@@ -44,7 +44,8 @@ type cardRef struct{ project, id string }
 // steps every open analysis, and records the status. A switched-off Sentinel
 // reads nothing beyond its settings. While analyses are on it also queues one
 // per settled run; while friction is on it routes findings and reads the
-// standing PRs. Last it steps each project's guidance, sending a revision only
+// standing PRs; while ecosystem issues are on it routes the held ecosystem
+// findings. Last it steps each project's guidance, sending a revision only
 // while friction is on. A pass that moved a heal on, opened one, found one
 // changed under it, or ended a revision nudges once, so the next step is
 // decided at once.
