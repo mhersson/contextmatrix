@@ -1242,8 +1242,9 @@ the next pass.
 | `internal/sentinel/outputs.go`              | `routeFindings`: read the queued findings and each project's friction cards, guidance and today's count, apply the decisions and write the outcomes; `readRouting`, `createFrictionCard`, `writeOutcome` and `secrets`, which the ecosystem path shares |
 | `internal/sentinel/ecosystem.go`            | `routeHeldFindings`: read the held findings and the board, then card each in the upstream project of its boards repo or draft it, and write the outcomes |
 | `internal/sentinel/blocklist.go`            | The blocklist: `issueTerms` over `termSources`, `urlSecrets`, and the whole-word `redactTerms` and `namesTerm` |
+| `internal/sentinel/location.go`             | `parseLocation`, which splits a URL, an scp-style remote or a bare host into the parts the blocklist uses, `public` (the public host alone or an ecosystem repository on it) and `imageHost` |
+| `internal/sentinel/words.go`                | The whole-word, case-insensitive matching that `redactTerms`, `namesTerm` and `redactUsers` share: `replaceWord`, `hasWholeWord`, `wholeWordAt`, `foldAt` and `isWordRune` |
 | `internal/sentinel/issue.go`                | The pure draft: `issueDraft`, `issueBody`, `newIssueURL` and `fitIssue`, which trims the body to the link limit |
-| `internal/config/locations.go`              | `Config.LocationValues` (every URL and host the config holds) and `Config.RepoURLs` (its own git remotes), the blocklist's config inputs |
 | `internal/sentinel/dedup.go`                | The pure `similar`: word 3-shingle Jaccard or containment between two texts |
 | `internal/sentinel/safety.go`               | `holdsSecret` and `redactCardIDs`: what keeps a secret, a card ID or a card-run branch out of published text; `redactUsers`, which keeps `human:<name>` identities out of an issue draft; `published` and `publishedText`, a finding as Sentinel publishes it, which packing and settling share |
 | `internal/sentinel/standing_pr.go`          | The pure `prState` and `mergedFates` |
@@ -1259,6 +1260,7 @@ the next pass.
 | `internal/api/sentinel.go`                  | The `/api/sentinel` settings and status endpoints and the per-card view: the run, heals, analyses, findings, the project's standing PR and its newest revision when that ended without going out |
 | `internal/api/sentinel_github.go`           | `sentinelGitHub`: reads a project's standing PR state and merged file from GitHub with the project's own credentials |
 | `internal/config/secrets.go`                | `Config.SecretValues`: every secret the config holds, for the secret check |
+| `internal/config/locations.go`              | `Config.LocationValues` (every URL and host the config holds) and `Config.RepoURLs` (its own git remotes), the blocklist's config inputs |
 
 `internal/sentinel/state` holds only types, constants and their trivial
 methods. It is a leaf, so the ops.db store imports it and nothing of the
