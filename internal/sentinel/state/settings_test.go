@@ -91,3 +91,20 @@ func TestSettingsAnalyses(t *testing.T) {
 		})
 	}
 }
+
+func TestSettingsEcosystemIssues(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		s    Settings
+		want bool
+	}{
+		{"off while Sentinel is off", Settings{Ecosystem: true}, false},
+		{"on", Settings{Enabled: true, Ecosystem: true}, true},
+		{"switch off", Settings{Enabled: true}, false},
+		{"friction does not hold it", Settings{Enabled: true, Friction: false, Ecosystem: true}, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) { assert.Equal(t, tt.want, tt.s.EcosystemIssues()) })
+	}
+
+	assert.False(t, DefaultSettings().Ecosystem)
+}

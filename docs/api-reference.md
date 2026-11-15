@@ -1139,7 +1139,8 @@ Sentinel's status and stored settings.
     "investigate_ceiling_usd": 2,
     "headroom": 0.85,
     "analyse_every_run": false,
-    "analyse_ceiling_usd": 1
+    "analyse_ceiling_usd": 1,
+    "ecosystem": false
   },
   "updated_at": "2026-11-13T10:00:00Z",
   "updated_by": "human:alice"
@@ -1155,7 +1156,8 @@ there is no controller: the status is `off` while Sentinel is off and
 
 ### PUT /api/admin/sentinel
 
-Replaces all settings with the request body (the `settings` object above).
+Replaces all settings with the request body (the `settings` object above,
+`ecosystem` included; it defaults to `false`).
 Admin-only in `multi` mode, open in `none` mode. Saves them in ops.db, wakes
 the controller, publishes `sentinel.changed` and returns **200 OK** with the
 `GET` body. A save that turns `enabled` or `healing` on also marks every run

@@ -32,7 +32,8 @@ that turns `enabled` or `healing` on marks every undecided run decided in the
 same transaction, so switching on starts fresh: a run launched before then,
 stuck or still going, is left for a human to Run. A save that turns analyses
 on (`enabled`, `friction` and `analyse_every_run` all on) likewise marks every
-run `analysis_queued`, so only runs launched afterwards are analysed.
+run `analysis_queued`, so only runs launched afterwards are analysed. Turning
+`ecosystem` on starts nothing fresh: findings held while it was off are routed.
 
 | Setting                   | Default | Valid range          | Read by                                                        |
 | ------------------------- | ------- | -------------------- | -------------------------------------------------------------- |
@@ -44,6 +45,7 @@ run `analysis_queued`, so only runs launched afterwards are analysed.
 | `headroom`                | 0.85    | above 0, at most 1   | The budget gate on Claude Code, as a utilization fraction      |
 | `analyse_every_run`       | off     |                      | The analysis queue; analyses run only while `enabled`, `friction` and this are all on |
 | `analyse_ceiling_usd`     | 1.00    | above 0, at most 100 | The endpoint channel's analysis `max_cost_usd`                 |
+| `ecosystem`               | off     |                      | Ecosystem routing: off leaves ecosystem findings `held` and keeps the issue link off the card view; it routes while `enabled` and this are on, whatever `friction` is |
 
 Numbers must be finite.
 

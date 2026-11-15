@@ -513,3 +513,16 @@ func TestCardSentinelViewOfAMissingCardIs404(t *testing.T) {
 	code, _ := sentinelDo(t, srv, http.MethodGet, "/api/projects/p/cards/p-001/sentinel", nil, nil)
 	assert.Equal(t, http.StatusNotFound, code)
 }
+
+func TestSentinelPutStoresEcosystem(t *testing.T) {
+	store := newFakeSentinelStore()
+	srv := newSelectorAdminServer(t, RouterConfig{SentinelStore: store}, false)
+
+	set := state.DefaultSettings()
+	set.Ecosystem = true
+
+	code, body := sentinelDo(t, srv, http.MethodPut, "/api/admin/sentinel", set, nil)
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, true, body["settings"].(map[string]any)["ecosystem"])
+	assert.True(t, store.settings.Ecosystem)
+}

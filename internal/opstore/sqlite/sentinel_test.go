@@ -317,3 +317,41 @@ func TestSentinelSettingsGrowAnalyseColumnsWithoutABump(t *testing.T) {
 	assert.False(t, set.AnalyseEveryRun)
 	assert.InDelta(t, 1, set.AnalyseCeilingUSD, 1e-9)
 }
+
+func TestSentinelSettingsKeepTheEcosystemSwitch(t *testing.T) {
+	st := openLadderStore(t)
+	ctx := context.Background()
+
+	for _, want := range []bool{true, false} {
+		set := state.DefaultSettings()
+		set.Ecosystem = want
+
+		require.NoError(t, st.PutSentinelSettings(ctx, set, "human:alice"))
+
+		got, _, _, err := st.SentinelSettings(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, want, got.Ecosystem)
+	}
+}
+
+func TestTurningEcosystemOnStartsNothingFresh(t *testing.T) {
+	st := openLadderStore(t)
+	ctx := context.Background()
+	set := state.DefaultSettings()
+	set.Enabled, set.Healing, set.Friction, set.AnalyseEveryRun = true, true, true, true
+
+	require.NoError(t, st.PutSentinelSettings(ctx, set, "human:alice"))
+	require.NoError(t, st.OpenCardRun(ctx, "p", "P-001", "endpoint", runT0, state.LaunchFacts{Autonomous: true}))
+
+	set.Ecosystem = true
+
+	require.NoError(t, st.PutSentinelSettings(ctx, set, "human:alice"))
+
+	r, err := st.CardRunRow(ctx, "p", "P-001")
+	require.NoError(t, err)
+	assert.False(t, r.AnalysisQueued)
+
+	undecided, err := st.UndecidedRuns(ctx)
+	require.NoError(t, err)
+	assert.Len(t, undecided, 1)
+}

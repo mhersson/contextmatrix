@@ -19,6 +19,7 @@ type Settings struct {
 	Headroom              float64 `json:"headroom"` // utilization fraction
 	AnalyseEveryRun       bool    `json:"analyse_every_run"`
 	AnalyseCeilingUSD     float64 `json:"analyse_ceiling_usd"`
+	Ecosystem             bool    `json:"ecosystem"`
 }
 
 // DefaultSettings is Sentinel off, with healing and friction on once enabled.
@@ -58,3 +59,7 @@ func (s Settings) Validate() error {
 
 // Analyses reports whether finished runs are analysed.
 func (s Settings) Analyses() bool { return s.Enabled && s.Friction && s.AnalyseEveryRun }
+
+// EcosystemIssues reports whether ecosystem findings are routed. It does not
+// depend on Friction: findings already held route even when no new ones are stored.
+func (s Settings) EcosystemIssues() bool { return s.Enabled && s.Ecosystem }
