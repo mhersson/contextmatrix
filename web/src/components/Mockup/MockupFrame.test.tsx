@@ -148,8 +148,9 @@ describe('MockupFrame scaling', () => {
     resizePane(740, 558);
     const scale = 740 / 1280;
     expect(frame().style.transform).toBe(`scale(${scale})`);
-    expect(parseFloat(frame().style.width) * scale).toBeCloseTo(740, 6);
-    expect(parseFloat(frame().style.height) * scale).toBeCloseTo(558, 6);
+    // CSS serializes lengths to six significant digits, so the fit is exact to a sub-pixel.
+    expect(parseFloat(frame().style.width) * scale).toBeCloseTo(740, 2);
+    expect(parseFloat(frame().style.height) * scale).toBeCloseTo(558, 2);
   });
 
   it('never scales up: a declared width the pane already holds is left alone', () => {

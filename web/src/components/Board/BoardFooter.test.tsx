@@ -96,7 +96,7 @@ describe('BoardFooter', () => {
     expect(btn).toHaveAttribute('title', expect.stringContaining('fetch failed: timeout'));
     expect(btn).toHaveAttribute('title', expect.stringContaining('Click to retry'));
     // Error styling: the label colour comes from --red via inline style.
-    expect(btn).toHaveStyle({ color: 'var(--red)' });
+    expect(btn.style.color).toBe('var(--red)');
     // Click still triggers the retry path.
     fireEvent.click(btn);
     expect(onSyncClick).toHaveBeenCalledTimes(1);
