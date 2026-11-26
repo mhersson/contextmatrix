@@ -69,7 +69,7 @@ describe('GitHubCredentialSection - admin (select) mode', () => {
 
     const warning = await screen.findByText(/credential no longer exists - operations on this project will fail/i);
     expect(warning).toBeInTheDocument();
-    expect(warning).toHaveStyle({ color: 'var(--red)' });
+    expect(warning.style.color).toBe('var(--red)');
 
     const select = screen.getByRole('combobox') as HTMLSelectElement;
     expect(select.value).toBe('deleted-cred');
